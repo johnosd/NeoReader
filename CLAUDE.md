@@ -72,3 +72,6 @@ Veja `docs/epub-reader-plan.md` seção 5 para detalhes.
 - [x] Estrutura de pastas criada
 - [x] App rodando no celular (Hello World)
 - [ ] Próxima feature: tela de biblioteca + import de EPUB
+
+## aprendizado de claude code
+ - aproveite para ir inserindo o usuario conhecimentos de claude code em nivel intermediario e avançado
