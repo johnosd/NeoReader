@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { X } from 'lucide-react'
 
 interface TranslationPanelProps {
@@ -9,6 +10,14 @@ interface TranslationPanelProps {
 }
 
 export function TranslationPanel({ source, result, onSave, onSpeak, onClose }: TranslationPanelProps) {
+  const [saved, setSaved] = useState(false)
+
+  function handleSave() {
+    onSave()
+    setSaved(true)
+    setTimeout(() => setSaved(false), 1500)
+  }
+
   return (
     <>
       {/* Backdrop semi-transparente — toque fora fecha o painel */}
@@ -59,12 +68,17 @@ export function TranslationPanel({ source, result, onSave, onSpeak, onClose }: T
             🔊 Ouvir
           </button>
           <button
-            onPointerUp={(e) => { e.stopPropagation(); onSave() }}
-            disabled={result === null}
-            className="flex-1 py-2.5 rounded-xl text-sm font-medium active:opacity-70 transition-opacity disabled:opacity-40"
-            style={{ background: 'linear-gradient(135deg, #7b2cbf 0%, #3c096c 100%)', color: '#fff' }}
+            onPointerUp={(e) => { e.stopPropagation(); handleSave() }}
+            disabled={result === null || saved}
+            className="flex-1 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 disabled:opacity-40"
+            style={{
+              background: saved
+                ? 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)'
+                : 'linear-gradient(135deg, #7b2cbf 0%, #3c096c 100%)',
+              color: '#fff',
+            }}
           >
-            ⭐ Salvar
+            {saved ? '✓ Salvo!' : '⭐ Salvar'}
           </button>
         </div>
       </div>

@@ -12,7 +12,7 @@ interface LibraryScreenProps {
   onOpenVocabulary: () => void
 }
 
-export function LibraryScreen({ onOpenBook }: LibraryScreenProps) {
+export function LibraryScreen({ onOpenBook, onOpenVocabulary }: LibraryScreenProps) {
   const { isLoading, isEmpty, heroBook, inProgressBooks, recentBooks } = useLibraryGroups()
   const [optionsBook, setOptionsBook] = useState<Book | null>(null)
 
@@ -65,7 +65,7 @@ export function LibraryScreen({ onOpenBook }: LibraryScreenProps) {
         )}
       </main>
 
-      <BottomNav />
+      <BottomNav onTabChange={(tab) => tab === 'books' && onOpenVocabulary()} />
 
       <BookOptionsSheet book={optionsBook} onClose={() => setOptionsBook(null)} />
     </div>
