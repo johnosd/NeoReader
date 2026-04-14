@@ -138,11 +138,16 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
       <div className="absolute left-0 top-0 w-[20%] h-full z-10" onPointerUp={() => viewerRef.current?.prev()} />
       <div className="absolute right-0 top-0 w-[20%] h-full z-10" onPointerUp={() => viewerRef.current?.next()} />
 
-      {/* Faixas superior e inferior (centro 60%): toggle do chrome.
-          Cobrem exatamente as margens de 48px do foliate — sempre vazias de texto.
-          z-10 garante captura mesmo que o iframe não dispare o evento nessa área. */}
+      {/* Faixas superior e inferior (centro 60%): toggle do chrome quando ele está fechado.
+          Cobrem as margens de 48px do foliate — sempre vazias de texto. */}
       <div className="absolute top-0 left-[20%] right-[20%] h-12 z-10" onPointerUp={handleCenterTap} />
       <div className="absolute bottom-0 left-[20%] right-[20%] h-12 z-10" onPointerUp={handleCenterTap} />
+
+      {/* Backdrop: quando o chrome está aberto, captura toque fora dos botões para fechá-lo.
+          z-[15] fica acima do conteúdo/overlays (z-10) mas abaixo do chrome (z-20). */}
+      {chromeVisible && (
+        <div className="absolute inset-0 z-[15]" onPointerUp={() => setChromeVisible(false)} />
+      )}
 
       <ReaderChrome
         visible={chromeVisible}
