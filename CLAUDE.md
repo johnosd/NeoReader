@@ -1,65 +1,74 @@
-# CLAUDE.md
+# NeoReader — Contexto para Claude Code
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+## Sobre o projeto
+NeoReader é um leitor de EPUB para Android focado em **incentivar a leitura**
+e **facilitar o aprendizado de inglês**. Interface estilo "Netflix for Books".
+Veja `docs/epub-reader-plan.md` para escopo completo.
 
-## Project
+## Perfil do dev
+- Engenheiro de dados sênior com background Python/SQL
+- Não conhece JS/TS/React a fundo — aprende enquanto constrói
+- Prefere honestidade sobre politeness — aponte falhas e premissas erradas
+- Quer explicações breves inline no código, não aulas longas
+- Veja `docs/learning-companion.md` para filosofia de aprendizado
 
-NeoReader — an EPUB reader app targeting Android (Capacitor). Currently in early scaffold stage; most of the planned stack has not been wired up yet.
+## Stack
+- React 18 + TypeScript + Vite
+- Tailwind CSS v4
+- Capacitor 6 (Android only no MVP)
+- Dexie.js (IndexedDB wrapper)
+- foliate-js (parser EPUB)
+- Zustand (estado global)
+- Lucide React (ícones)
 
-## Commands
+## Comandos
+- `npm run dev` — dev server web (localhost:5173)
+- `npm run build` — build produção (gera dist/)
+- `npm run lint` — lint do código
+- `npx tsc --noEmit` — checagem de tipos sem gerar arquivos
+- `npx cap sync android` — sincroniza dist com projeto Android
+- `npx cap run android` — builda e roda no device conectado
+- `adb devices` — lista celulares conectados
 
-```bash
-npm run dev          # dev server (web)
-npm run build        # tsc -b && vite build
-npm run lint         # eslint
-npm run preview      # preview production build
+## Convenções de código
+- Componentes em PascalCase: `BookCard.tsx`
+- Hooks começam com `use`: `useReader.ts`
+- Services são classes: `TranslationService.ts`
+- Um arquivo = uma responsabilidade
+- Imports absolutos a partir de `src/` (configurar alias `@/` quando necessário)
 
-# Not yet added to package.json — add when setting up:
-npm run typecheck    # tsc --noEmit (standalone type check)
-npm run test         # vitest
+## Estrutura de pastas
+- `src/components/` — UI reutilizável
+- `src/screens/` — Telas completas
+- `src/hooks/` — React hooks customizados
+- `src/services/` — Lógica de negócio (Translation, TTS, Sync)
+- `src/db/` — Schema Dexie e queries
+- `src/types/` — Tipos TypeScript compartilhados
+- `src/utils/` — Funções puras
+- `src/lib/` — Wrappers de bibliotecas externas
+- `docs/` — Documentação do projeto
 
-# Android (once capacitor.config.ts is created):
-npx cap sync android
-npx cap run android
-```
+## Direção visual
+"Netflix for Books" — dark mode, capas grandes, rows horizontais scrollable.
+Paleta principal:
+- bg: #0a0a0a (quase preto)
+- elevated: #1a1a1a
+- accent: #6366f1 (índigo)
+- progress: #22c55e
+Veja `docs/epub-reader-plan.md` seção 5 para detalhes.
 
-> `typecheck` and `test` scripts are **not yet in package.json**. Add them before using.
+## Regras de ouro para Claude Code
+1. Antes de implementar features grandes, proponha plano de arquivos e aguarde OK
+2. Sempre explique decisões não óbvias em comentários curtos no código
+3. Quando usar feature de JS/TS sem equivalente em Python, comente brevemente
+4. Prefira código explícito a "mágico" — evite abstrações desnecessárias
+5. Rode `npx tsc --noEmit` antes de dizer que terminou
+6. Em dúvida de escopo, pergunte antes de implementar
+7. Não adicione dependências novas sem justificar e perguntar
+8. Commits em português, no formato: `feat: adiciona X`, `fix: corrige Y`, `docs: atualiza Z`
 
-## Planned Stack (not all installed yet)
-
-| Package | Purpose |
-|---|---|
-| React 19 + TypeScript + Vite | UI framework |
-| Capacitor 8 (Android only for MVP) | Native bridge |
-| Tailwind CSS | Styling |
-| Dexie.js | IndexedDB wrapper for local book storage |
-| foliate-js or epub.js | EPUB parsing (TBD) |
-
-## Conventions
-
-- **Components**: PascalCase files — `BookList.tsx`
-- **Hooks**: `use` prefix — `useReader.ts`
-- **Services**: classes — `TranslationService.ts`
-- One file = one responsibility
-
-## Architecture Notes
-
-The app is designed as a mobile-first EPUB reader. Key data flow to keep in mind when building:
-
-- **Book storage**: EPUB files land in IndexedDB via Dexie.js. Books are never re-uploaded; the DB is the source of truth on device.
-- **Rendering**: The EPUB parser (foliate-js or epub.js — decide before implementing) runs in the browser/WebView and renders content into a controlled viewport. This is the performance-critical path.
-- **Native layer**: Capacitor wraps the web app for Android. Keep native plugins minimal — use Capacitor's Filesystem and possibly Share plugins rather than writing custom native code.
-- **No backend**: MVP is fully offline. No API calls, no sync, no auth.
-
-## TypeScript Config Notes
-
-- `noUnusedLocals` and `noUnusedParameters` are **enforced** — unused imports will fail the build.
-- `verbatimModuleSyntax` is on — use `import type` for type-only imports.
-- `erasableSyntaxOnly` is on — avoid TypeScript-only runtime constructs (enums, namespaces).
-
-## Developer Profile
-
-- Background: Python/SQL data engineer, learning JS/TS/React while building this.
-- Prefer explicit code over clever abstractions.
-- Add a short inline comment when using a JS/TS feature that has no Python equivalent.
-- Ask before expanding scope when requirements are ambiguous.
+## Status atual
+- [x] Setup inicial: Vite + React + TS + Tailwind + Capacitor Android
+- [x] Estrutura de pastas criada
+- [x] App rodando no celular (Hello World)
+- [ ] Próxima feature: tela de biblioteca + import de EPUB
