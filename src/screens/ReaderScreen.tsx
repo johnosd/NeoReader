@@ -17,9 +17,10 @@ import type { Book } from '../types/book'
 interface ReaderScreenProps {
   book: Book
   onBack: () => void
+  onOpenVocabulary: () => void
 }
 
-export function ReaderScreen({ book, onBack }: ReaderScreenProps) {
+export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenProps) {
   const viewerRef = useRef<EpubViewerHandle>(null)
 
   // Estado local — não precisa ser compartilhado entre siblings
@@ -150,6 +151,7 @@ export function ReaderScreen({ book, onBack }: ReaderScreenProps) {
         onBookmark={handleBookmarkToggle}
         onBookmarkList={() => setBookmarkSheetOpen(true)}
         onTocOpen={() => setTocOpen(true)}
+        onOpenVocabulary={onOpenVocabulary}
       />
 
       <TocSheet

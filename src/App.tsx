@@ -16,7 +16,13 @@ function App() {
   }
 
   if (screen === 'reader' && selectedBook) {
-    return <ReaderScreen book={selectedBook} onBack={() => setScreen('library')} />
+    return (
+      <ReaderScreen
+        book={selectedBook}
+        onBack={() => setScreen('library')}
+        onOpenVocabulary={() => setScreen('vocabulary')}
+      />
+    )
   }
 
   if (screen === 'vocabulary') {

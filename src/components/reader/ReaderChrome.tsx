@@ -1,4 +1,4 @@
-import { Bookmark, BookmarkCheck, ChevronLeft, List } from 'lucide-react'
+import { Bookmark, BookmarkCheck, ChevronLeft, GraduationCap, List } from 'lucide-react'
 import type { FontSize } from './EpubViewer'
 
 interface ReaderChromeProps {
@@ -13,6 +13,7 @@ interface ReaderChromeProps {
   onBookmark: () => void
   onBookmarkList: () => void
   onTocOpen: () => void
+  onOpenVocabulary: () => void
 }
 
 const FONT_SIZES: { value: FontSize; label: string }[] = [
@@ -42,6 +43,7 @@ export function ReaderChrome({
   onBookmark,
   onBookmarkList,
   onTocOpen,
+  onOpenVocabulary,
 }: ReaderChromeProps) {
   const translateTop = visible ? 'translate-y-0' : '-translate-y-full'
   const translateBottom = visible ? 'translate-y-0' : 'translate-y-full'
@@ -131,6 +133,14 @@ export function ReaderChrome({
             {bookmarkCount > 0 && (
               <span className="text-xs tabular-nums">{bookmarkCount}</span>
             )}
+          </button>
+
+          <button
+            onClick={onOpenVocabulary}
+            className="text-[#a0a0a0] active:opacity-60"
+            aria-label="Vocabulário"
+          >
+            <GraduationCap size={20} />
           </button>
 
           {/* Percentual de progresso */}
