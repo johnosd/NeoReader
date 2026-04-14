@@ -62,7 +62,7 @@ Veja `docs/epub-reader-plan.md` seção 5 para detalhes.
 2. Sempre explique decisões não óbvias em comentários curtos no código
 3. Quando usar feature de JS/TS sem equivalente em Python, comente brevemente
 4. Prefira código explícito a "mágico" — evite abstrações desnecessárias
-5. Rode `npx tsc --noEmit` antes de dizer que terminou
+5. Rode `npm run build` ao concluir qualquer alteração — captura erros de tipo E de bundling. Só diga que terminou se o build passar sem erros.
 6. Em dúvida de escopo, pergunte antes de implementar
 7. Não adicione dependências novas sem justificar e perguntar
 8. Commits em português, no formato: `feat: adiciona X`, `fix: corrige Y`, `docs: atualiza Z`
