@@ -17,3 +17,13 @@ export interface ReadingProgress {
   percentage: number // 0-100
   updatedAt: Date
 }
+
+// Marcador salvo pelo usuário em uma posição específica do livro
+export interface Bookmark {
+  id?: number
+  bookId: number
+  cfi: string
+  label: string      // nome do capítulo atual ou "X%" como fallback
+  percentage: number // para exibição na lista
+  createdAt: Date
+}
