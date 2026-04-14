@@ -21,3 +21,7 @@ export async function deleteBook(id: number): Promise<void> {
 export async function updateLastOpened(id: number): Promise<void> {
   await db.books.update(id, { lastOpenedAt: new Date() })
 }
+
+export async function updateBookCover(id: number, coverBlob: Blob | null): Promise<void> {
+  await db.books.update(id, { coverBlob })
+}

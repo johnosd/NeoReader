@@ -65,14 +65,31 @@ export class EpubService {
     return match?.[1]?.trim() ?? null
   }
 
-  // Extrai a capa como Blob. EPUBs variam muito — estratégia: procura
-  // item com id "cover" ou properties="cover-image" no manifest.
+  // Retorna o MIME type correto a partir da extensão do arquivo.
+  // A detecção por extensão é suficiente para EPUBs — o formato do arquivo
+  // não muda, só precisamos do tipo correto para o Blob.
+  private static mimeFromPath(path: string): string {
+    const ext = path.split('.').pop()?.toLowerCase() ?? ''
+    const map: Record<string, string> = {
+      png:  'image/png',
+      gif:  'image/gif',
+      webp: 'image/webp',
+      svg:  'image/svg+xml',
+      jpg:  'image/jpeg',
+      jpeg: 'image/jpeg',
+    }
+    return map[ext] ?? 'image/jpeg'
+  }
+
+  // Extrai a capa como Blob. EPUBs variam muito — estratégia em cascata:
+  //   1. properties="cover-image" no manifest
+  //   2. <meta name="cover"> → item por id
+  //   3. Se o href encontrado for HTML → extrai o primeiro <img> de dentro
   private static extractCover(
     opfXml: string,
     opfPath: string,
     files: Record<string, Uint8Array>,
   ): Blob | null {
-    // Tenta encontrar href da capa no manifest
     const coverHref =
       this.extractCoverFromProperties(opfXml) ??
       this.extractCoverFromMeta(opfXml)
@@ -83,29 +100,74 @@ export class EpubService {
     const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/') + 1) : ''
     const coverPath = opfDir + coverHref
 
+    // Alguns EPUBs (ex: O'Reilly) declaram o item de capa como um arquivo HTML
+    // (.xhtml/.html) que contém um <img> apontando para a imagem real.
+    // Nesses casos precisamos abrir o HTML e extrair o src do primeiro <img>.
+    const isHtml = /\.(x?html?|xhtm)$/i.test(coverHref)
+    if (isHtml) {
+      const html = this.readFileAsText(files, coverPath)
+                ?? this.readFileAsText(files, coverPath.replace(/^\//, ''))
+      return html ? this.extractImageFromHtml(html, coverPath, files) : null
+    }
+
     const coverData = files[coverPath] ?? files[coverPath.replace(/^\//, '')]
     if (!coverData) return null
 
-    const mimeType = coverHref.endsWith('.png') ? 'image/png' : 'image/jpeg'
-    // .slice(0) retorna Uint8Array<ArrayBuffer> em vez de Uint8Array<ArrayBufferLike> — necessário pro TS strict
-    return new Blob([coverData.slice(0)], { type: mimeType })
+    return new Blob([coverData.slice(0)], { type: this.mimeFromPath(coverHref) })
   }
 
   // Estratégia 1: <item properties="cover-image" href="..."/>
+  // Nota: [\s\S]*? em vez de [^>]* para suportar atributos em múltiplas linhas.
+  // Muitos editores de EPUB (ex: calibre, ferramentas O'Reilly) geram o OPF
+  // com cada atributo numa linha separada, e [^>] não casa com \n.
   private static extractCoverFromProperties(opfXml: string): string | null {
-    const match = opfXml.match(/properties="cover-image"[^>]*href="([^"]+)"/)
-              ?? opfXml.match(/href="([^"]+)"[^>]*properties="cover-image"/)
+    const match = opfXml.match(/properties="cover-image"[\s\S]*?href="([^"]+)"/)
+              ?? opfXml.match(/href="([^"]+)"[\s\S]*?properties="cover-image"/)
     return match?.[1] ?? null
   }
 
-  // Estratégia 2: <meta name="cover" content="cover-id"/> + <item id="cover-id" href="..."/>
+  // Estratégia 2: <meta name="cover" content="..."/>
+  // O content pode ser:
+  //   a) um ID de manifest: content="cover-image" → busca <item id="cover-image" href="..."/>
+  //   b) um path direto:    content="Images/cover.png" → usa como href diretamente
+  //   (O'Reilly usa a variante (b), a maioria dos EPUBs usa (a))
   private static extractCoverFromMeta(opfXml: string): string | null {
-    const metaMatch = opfXml.match(/<meta\s+name="cover"\s+content="([^"]+)"/)
+    const metaMatch = opfXml.match(/<meta[\s\S]*?name="cover"[\s\S]*?content="([^"]+)"/)
+                  ?? opfXml.match(/<meta[\s\S]*?content="([^"]+)"[\s\S]*?name="cover"/)
     if (!metaMatch) return null
 
-    const coverId = metaMatch[1]
-    const itemMatch = opfXml.match(new RegExp(`id="${coverId}"[^>]*href="([^"]+)"`))
-                  ?? opfXml.match(new RegExp(`href="([^"]+)"[^>]*id="${coverId}"`))
+    const content = metaMatch[1]
+
+    // Se o content parece um path de arquivo (tem extensão), usa diretamente
+    if (/\.[a-z]{2,5}$/i.test(content)) return content
+
+    // Caso contrário, trata como ID de manifest e busca o href correspondente
+    const escapedId = content.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const itemMatch = opfXml.match(new RegExp(`id="${escapedId}"[\\s\\S]*?href="([^"]+)"`))
+                  ?? opfXml.match(new RegExp(`href="([^"]+)"[\\s\\S]*?id="${escapedId}"`))
     return itemMatch?.[1] ?? null
+  }
+
+  // Abre um arquivo HTML de capa e extrai o src do primeiro <img> (ou href do
+  // primeiro <image> de SVG). Necessário quando a capa é declarada como XHTML
+  // em vez de diretamente como arquivo de imagem.
+  private static extractImageFromHtml(
+    html: string,
+    htmlPath: string,
+    files: Record<string, Uint8Array>,
+  ): Blob | null {
+    const match = html.match(/<img[\s\S]*?src="([^"]+)"/)
+              ?? html.match(/<image[\s\S]*?href="([^"]+)"/)
+              ?? html.match(/<image[\s\S]*?xlink:href="([^"]+)"/)  // SVG antigo usa xlink:href
+    if (!match) return null
+
+    const imgDir = htmlPath.includes('/')
+      ? htmlPath.substring(0, htmlPath.lastIndexOf('/') + 1)
+      : ''
+    const imgPath = imgDir + match[1]
+    const data = files[imgPath] ?? files[imgPath.replace(/^\//, '')]
+    if (!data) return null
+
+    return new Blob([data.slice(0)], { type: this.mimeFromPath(imgPath) })
   }
 }

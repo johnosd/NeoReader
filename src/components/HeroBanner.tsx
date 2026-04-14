@@ -19,19 +19,18 @@ export function HeroBanner({ book, onPress }: HeroBannerProps) {
       {coverUrl ? (
         <img src={coverUrl} alt={book.title} className="w-full h-full object-cover" />
       ) : (
-        <div className="w-full h-full bg-[#1a1a1a] flex items-center justify-center">
+        <div className="w-full h-full flex items-center justify-center" style={{ background: '#1c182b' }}>
           <span className="text-6xl">📖</span>
         </div>
       )}
 
-      {/* Gradient: preto sólido na base, desvanece para transparente no topo.
-          Garante legibilidade do texto sobre qualquer capa. */}
-      <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/50 to-transparent" />
+      {/* Gradient: preto sólido na base, desvanece para transparente no topo */}
+      <div className="absolute inset-0 bg-gradient-to-t from-[#0f0c18] via-[#0f0c18]/50 to-transparent" />
 
       {/* Título, autor e CTA — ancorados na base do banner */}
       <div className="absolute bottom-0 left-0 right-0 px-4 pb-5">
         <h2 className="text-lg font-bold text-white truncate">{book.title}</h2>
-        <p className="text-[#a0a0a0] text-sm truncate mb-3">{book.author}</p>
+        <p className="text-sm truncate mb-3" style={{ color: '#a5a5a5' }}>{book.author}</p>
 
         <div className="flex items-center gap-3">
           <button
@@ -41,7 +40,7 @@ export function HeroBanner({ book, onPress }: HeroBannerProps) {
             ▶ {book.percentage > 0 ? 'Continuar' : 'Ler'}
           </button>
           {book.percentage > 0 && (
-            <span className="text-[#a0a0a0] text-sm">{book.percentage}% lido</span>
+            <span className="text-sm" style={{ color: '#a5a5a5' }}>{book.percentage}% lido</span>
           )}
         </div>
       </div>
