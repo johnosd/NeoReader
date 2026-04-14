@@ -134,10 +134,15 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
         />
       </div>
 
-      {/* Bordas de navegação — apenas esquerda/direita para não bloquear os iframes do foliate.
-          O centro fica livre: cliques chegam ao iframe e disparam o listener de parágrafo. */}
+      {/* Bordas esquerda/direita: navegação entre páginas */}
       <div className="absolute left-0 top-0 w-[20%] h-full z-10" onPointerUp={() => viewerRef.current?.prev()} />
       <div className="absolute right-0 top-0 w-[20%] h-full z-10" onPointerUp={() => viewerRef.current?.next()} />
+
+      {/* Faixas superior e inferior (centro 60%): toggle do chrome.
+          Cobrem exatamente as margens de 48px do foliate — sempre vazias de texto.
+          z-10 garante captura mesmo que o iframe não dispare o evento nessa área. */}
+      <div className="absolute top-0 left-[20%] right-[20%] h-12 z-10" onPointerUp={handleCenterTap} />
+      <div className="absolute bottom-0 left-[20%] right-[20%] h-12 z-10" onPointerUp={handleCenterTap} />
 
       <ReaderChrome
         visible={chromeVisible}
