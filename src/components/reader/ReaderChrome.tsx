@@ -14,6 +14,7 @@ interface ReaderChromeProps {
   onBookmarkList: () => void
   onTocOpen: () => void
   onOpenVocabulary: () => void
+  onDismiss: () => void
 }
 
 const FONT_SIZES: { value: FontSize; label: string }[] = [
@@ -44,7 +45,12 @@ export function ReaderChrome({
   onBookmarkList,
   onTocOpen,
   onOpenVocabulary,
+  onDismiss,
 }: ReaderChromeProps) {
+  // Fecha o chrome ao tocar em área vazia das barras (fora de qualquer botão)
+  function handleBarTap(e: React.PointerEvent) {
+    if (!(e.target as Element).closest('button')) onDismiss()
+  }
   const translateTop = visible ? 'translate-y-0' : '-translate-y-full'
   const translateBottom = visible ? 'translate-y-0' : 'translate-y-full'
 
@@ -54,6 +60,7 @@ export function ReaderChrome({
       <div
         className={`absolute top-0 left-0 right-0 z-20 bg-[#0a0a0a]/90 backdrop-blur-sm
           transition-transform duration-300 ${translateTop}`}
+        onPointerUp={handleBarTap}
       >
         <div className="flex items-center justify-between px-4 pt-10 pb-3 gap-3">
           <button
@@ -94,6 +101,7 @@ export function ReaderChrome({
       <div
         className={`absolute bottom-0 left-0 right-0 z-20 bg-[#0a0a0a]/90 backdrop-blur-sm
           transition-transform duration-300 ${translateBottom}`}
+        onPointerUp={handleBarTap}
       >
         {/* Barra de progresso fina */}
         <div className="h-1 bg-[#1a1a1a]">

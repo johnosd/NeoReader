@@ -162,6 +162,7 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
         onBookmarkList={() => setBookmarkSheetOpen(true)}
         onTocOpen={() => setTocOpen(true)}
         onOpenVocabulary={onOpenVocabulary}
+        onDismiss={() => setChromeVisible(false)}
       />
 
       <TocSheet
