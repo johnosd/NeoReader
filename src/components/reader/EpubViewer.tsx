@@ -1,11 +1,13 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import type { Book } from '../../types/book'
 import type { View } from 'foliate-js/view.js'
+import { translate } from '../../services/TranslationService'
 
 export type FontSize = 'sm' | 'md' | 'lg' | 'xl'
 
 // CSS injetado dentro do iframe do foliate para tema escuro + tamanho de fonte.
 // Precisa usar !important porque o EPUB tem seus próprios estilos inline e no <link>.
+// As classes .nr-* são usadas para highlight e tradução inline sem conflito com o EPUB.
 function buildReaderCSS(fontSize: FontSize): string {
   const sizes: Record<FontSize, string> = {
     sm: '16px',
@@ -29,6 +31,30 @@ function buildReaderCSS(fontSize: FontSize): string {
     h1, h2, h3, h4, h5, h6 {
       color: #ffffff !important;
     }
+
+    /* Parágrafo selecionado para tradução */
+    .nr-hl {
+      background-color: rgba(99, 102, 241, 0.15) !important;
+      border-radius: 3px !important;
+    }
+    /* Bloco de tradução injetado após o parágrafo */
+    .nr-tr {
+      color: #a5b4fc !important;
+      font-style: italic !important;
+      margin-top: 6px !important;
+      display: block !important;
+      background-color: transparent !important;
+    }
+    /* Botão ⭐ dentro do bloco de tradução */
+    .nr-save {
+      cursor: pointer !important;
+      color: #6366f1 !important;
+      background: none !important;
+      border: none !important;
+      padding: 0 4px !important;
+      font-size: inherit !important;
+      vertical-align: middle !important;
+    }
   `
 }
 
@@ -46,23 +72,24 @@ interface EpubViewerProps {
   onTocReady: (toc: TocItem[]) => void
   onLoad: () => void
   onError: (err: Error) => void
-  onParagraphTap: (text: string, siblings: Element[]) => void
-  // Chamado quando o tap cai fora de qualquer parágrafo (ex: margem, imagem)
-  // Usado pelo ReaderScreen para toggle do chrome sem precisar de overlay
+  // Chamado quando o usuário salva um par original/tradução via ⭐
+  onSaveVocab: (sourceText: string, translatedText: string) => void
+  // Chamado quando o tap cai fora de qualquer parágrafo (margem, imagem)
+  // Usado pelo ReaderScreen para toggle do chrome sem overlay
   onCenterTap: () => void
 }
 
 // forwardRef: padrão React para expor métodos imperativos ao componente pai.
 // Equivale a um "ref de objeto" que o pai chama com viewerRef.current.next().
 export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
-  ({ book, fontSize, savedCfi, onRelocate, onTocReady, onLoad, onError, onParagraphTap, onCenterTap }, ref) => {
+  ({ book, fontSize, savedCfi, onRelocate, onTocReady, onLoad, onError, onSaveVocab, onCenterTap }, ref) => {
     const containerRef = useRef<HTMLDivElement>(null)
     const viewRef = useRef<View | null>(null)
     // Refs para os callbacks mais recentes — evita stale closure nos listeners do iframe.
     // Os listeners são criados uma vez por seção (no evento 'load'), mas os callbacks
     // podem mudar entre renders. Os refs garantem que sempre invocamos a versão atual.
-    const onParagraphTapRef = useRef(onParagraphTap)
-    useEffect(() => { onParagraphTapRef.current = onParagraphTap }, [onParagraphTap])
+    const onSaveVocabRef = useRef(onSaveVocab)
+    useEffect(() => { onSaveVocabRef.current = onSaveVocab }, [onSaveVocab])
     const onCenterTapRef = useRef(onCenterTap)
     useEffect(() => { onCenterTapRef.current = onCenterTap }, [onCenterTap])
 
@@ -106,29 +133,59 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         })
 
         // Cada seção do EPUB carrega num iframe separado. O evento 'load' expõe
-        // o Document do iframe — anexamos aqui o listener de tap em parágrafos.
-        // Usamos onParagraphTapRef para evitar stale closure (ver comentário acima).
+        // o Document do iframe — toda a lógica de tradução inline acontece aqui.
         view.addEventListener('load', (e: CustomEvent<{ doc: Document; index: number }>) => {
           const { doc } = e.detail
           const BLOCK = 'p, li, blockquote, h1, h2, h3, h4, h5, h6'
 
           doc.addEventListener('click', (ev: MouseEvent) => {
             const target = ev.target as Element
+
+            // Clique no botão ⭐ — salva no vocabulário e troca para ✓
+            const saveBtn = target.closest('.nr-save') as HTMLElement | null
+            if (saveBtn) {
+              if (saveBtn.dataset.saved) return  // já salvo, ignora
+              saveBtn.dataset.saved = '1'
+              saveBtn.textContent = '✓'
+              const trDiv = saveBtn.parentElement as HTMLElement
+              onSaveVocabRef.current(trDiv.dataset.source ?? '', trDiv.dataset.translated ?? '')
+              return
+            }
+
             const para = target.closest(BLOCK)
 
-            // Tap fora de qualquer parágrafo (margem, imagem, espaço em branco)
-            // → toggle do chrome no ReaderScreen
+            // Tap fora de parágrafo → toggle do chrome
             if (!para || (para.textContent?.trim() ?? '').length < 3) {
               onCenterTapRef.current()
               return
             }
 
-            // Coleta todos os blocos a partir do parágrafo clicado (para o botão +10)
-            const allBlocks = Array.from(doc.querySelectorAll(BLOCK))
-            const idx = allBlocks.indexOf(para)
-            const siblings = allBlocks.slice(idx)
+            // Toggle off: parágrafo já destacado → remove highlight e tradução
+            if (para.classList.contains('nr-hl')) {
+              para.classList.remove('nr-hl')
+              const next = para.nextElementSibling
+              if (next?.classList.contains('nr-tr')) next.remove()
+              return
+            }
 
-            onParagraphTapRef.current(para.textContent!.trim(), siblings)
+            // Toggle on: destaca parágrafo e injeta div de tradução logo abaixo
+            para.classList.add('nr-hl')
+            const trDiv = doc.createElement('p')
+            trDiv.className = 'nr-tr'
+            trDiv.textContent = '...'   // placeholder enquanto traduz
+            para.insertAdjacentElement('afterend', trDiv)
+
+            const sourceText = para.textContent!.trim()
+            trDiv.dataset.source = sourceText
+
+            translate(sourceText)
+              .then((translated) => {
+                trDiv.dataset.translated = translated
+                // innerHTML: safe aqui pois `translated` vem da nossa API,
+                // não de conteúdo do livro. O botão é criado por nós.
+                trDiv.innerHTML = `${translated} <button class="nr-save">⭐</button>`
+              })
+              .catch(() => { trDiv.textContent = 'Erro ao traduzir.' })
           })
         })
 
