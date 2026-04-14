@@ -12,6 +12,7 @@ import { updateLastOpened } from '../db/books'
 import { addBookmark, deleteBookmark } from '../db/bookmarks'
 import { addVocabItem } from '../db/vocabulary'
 import { db } from '../db/database'
+import { useTTS } from '../hooks/useTTS'
 import type { Book } from '../types/book'
 
 interface ReaderScreenProps {
@@ -64,6 +65,29 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
     return () => { void listenerPromise.then((l) => l.remove()) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tocOpen, bookmarkSheetOpen, cfi, percentage])
+
+  // TTS: gerencia estado e sequenciamento de audiobook
+  const tts = useTTS({
+    onWordHighlight: (paraIdx, start, end) => {
+      viewerRef.current?.highlightTts(paraIdx, start, end)
+    },
+    // Quando muda de parágrafo: destaca o parágrafo sem karaokê de palavra ainda
+    onParagraphChange: (paraIdx) => {
+      viewerRef.current?.highlightTts(paraIdx, 0, 0)
+    },
+    onStop: () => {
+      viewerRef.current?.clearTts()
+    },
+  })
+
+  function handleTtsToggle() {
+    if (tts.isPlaying) {
+      void tts.stop()
+    } else {
+      const paragraphs = viewerRef.current?.getParagraphs() ?? []
+      void tts.play(paragraphs, 0)
+    }
+  }
 
   // Salva par original/tradução no vocabulário — chamado pelo EpubViewer via ⭐
   function handleSaveVocab(sourceText: string, translatedText: string) {
@@ -131,6 +155,13 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
           onError={(err) => { setIsLoading(false); setError(err.message) }}
           onSaveVocab={handleSaveVocab}
           onCenterTap={handleCenterTap}
+          onSpeakOne={(text) => void tts.speakOne(text)}
+          onParagraphTapForTts={(idx) => {
+            const paragraphs = viewerRef.current?.getParagraphs() ?? []
+            // Para o audiobook atual e recomeça a partir do parágrafo tocado
+            void tts.stop().then(() => tts.play(paragraphs, idx))
+          }}
+          ttsIsPlaying={tts.isPlaying}
         />
       </div>
 
@@ -162,6 +193,8 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
         onBookmarkList={() => setBookmarkSheetOpen(true)}
         onTocOpen={() => setTocOpen(true)}
         onOpenVocabulary={onOpenVocabulary}
+        ttsIsPlaying={tts.isPlaying}
+        onTtsToggle={handleTtsToggle}
         onDismiss={() => setChromeVisible(false)}
       />
 

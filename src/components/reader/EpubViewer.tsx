@@ -5,6 +5,11 @@ import { translate } from '../../services/TranslationService'
 
 export type FontSize = 'sm' | 'md' | 'lg' | 'xl'
 
+// Escapa caracteres HTML para inserção segura via innerHTML (karaokê de palavras)
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
 // CSS injetado dentro do iframe do foliate para tema escuro + tamanho de fonte.
 // Precisa usar !important porque o EPUB tem seus próprios estilos inline e no <link>.
 // As classes .nr-* são usadas para highlight e tradução inline sem conflito com o EPUB.
@@ -56,6 +61,31 @@ function buildReaderCSS(fontSize: FontSize): string {
       font-size: inherit !important;
       vertical-align: middle !important;
     }
+    /* Botão 🔊 dentro do bloco de tradução */
+    .nr-tts-btn {
+      cursor: pointer !important;
+      background: none !important;
+      border: none !important;
+      padding: 0 4px !important;
+      font-size: inherit !important;
+      vertical-align: middle !important;
+    }
+    /* Linha de botões centralizada abaixo do texto de tradução */
+    .nr-btn-row {
+      display: block !important;
+      text-align: center !important;
+      margin-top: 6px !important;
+    }
+    /* Parágrafo sendo lido pelo TTS — fundo verde suave */
+    .nr-tts-hl {
+      background-color: rgba(34, 197, 94, 0.15) !important;
+      border-radius: 3px !important;
+    }
+    /* Palavra atual no karaokê de palavras */
+    .nr-tts-word {
+      font-weight: bold !important;
+      text-decoration: underline !important;
+    }
   `
 }
 
@@ -63,6 +93,12 @@ export interface EpubViewerHandle {
   next(): void
   prev(): void
   goTo(target: string | number | { fraction: number }): void
+  // TTS: retorna os textos puros de todos os parágrafos da seção atual
+  getParagraphs(): string[]
+  // TTS: destaca parágrafo + palavra (wordStart === wordEnd === 0 → só parágrafo)
+  highlightTts(paraIdx: number, wordStart: number, wordEnd: number): void
+  // TTS: remove todos os destaques de audiobook
+  clearTts(): void
 }
 
 interface EpubViewerProps {
@@ -78,14 +114,33 @@ interface EpubViewerProps {
   // Chamado quando o tap cai fora de qualquer parágrafo (margem, imagem)
   // Usado pelo ReaderScreen para toggle do chrome sem overlay
   onCenterTap: () => void
+  // TTS: lê um único parágrafo (acionado pelo botão 🔊 no bloco de tradução)
+  onSpeakOne: (text: string) => void
+  // TTS: quando audiobook está tocando, tap em parágrafo pula para ele
+  onParagraphTapForTts: (idx: number) => void
+  // TTS: true quando audiobook está rodando (muda o comportamento do tap em parágrafo)
+  ttsIsPlaying: boolean
 }
 
 // forwardRef: padrão React para expor métodos imperativos ao componente pai.
 // Equivale a um "ref de objeto" que o pai chama com viewerRef.current.next().
 export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
-  ({ book, fontSize, savedCfi, onRelocate, onTocReady, onLoad, onError, onSaveVocab, onCenterTap }, ref) => {
+  (
+    {
+      book, fontSize, savedCfi,
+      onRelocate, onTocReady, onLoad, onError,
+      onSaveVocab, onCenterTap,
+      onSpeakOne, onParagraphTapForTts, ttsIsPlaying,
+    },
+    ref,
+  ) => {
     const containerRef = useRef<HTMLDivElement>(null)
     const viewRef = useRef<View | null>(null)
+
+    // Elementos e textos dos parágrafos da seção atual — atualizados no evento 'load'
+    const ttsParagraphsRef = useRef<Element[]>([])
+    const ttsParagraphTextsRef = useRef<string[]>([])
+
     // Refs para os callbacks mais recentes — evita stale closure nos listeners do iframe.
     // Os listeners são criados uma vez por seção (no evento 'load'), mas os callbacks
     // podem mudar entre renders. Os refs garantem que sempre invocamos a versão atual.
@@ -93,12 +148,66 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     useEffect(() => { onSaveVocabRef.current = onSaveVocab }, [onSaveVocab])
     const onCenterTapRef = useRef(onCenterTap)
     useEffect(() => { onCenterTapRef.current = onCenterTap }, [onCenterTap])
+    const onSpeakOneRef = useRef(onSpeakOne)
+    useEffect(() => { onSpeakOneRef.current = onSpeakOne }, [onSpeakOne])
+    const onParagraphTapForTtsRef = useRef(onParagraphTapForTts)
+    useEffect(() => { onParagraphTapForTtsRef.current = onParagraphTapForTts }, [onParagraphTapForTts])
+    // ttsIsPlaying como ref para ser lido dentro do click handler sem stale closure
+    const ttsIsPlayingRef = useRef(ttsIsPlaying)
+    useEffect(() => { ttsIsPlayingRef.current = ttsIsPlaying }, [ttsIsPlaying])
 
     // Expõe API imperativa para o ReaderScreen via ref
     useImperativeHandle(ref, () => ({
       next: () => { viewRef.current?.next() },
       prev: () => { viewRef.current?.prev() },
       goTo: (target) => { viewRef.current?.goTo(target) },
+
+      getParagraphs: () => ttsParagraphTextsRef.current,
+
+      highlightTts: (paraIdx, wordStart, wordEnd) => {
+        // Remove destaques do parágrafo anterior (TTS e karaokê)
+        ttsParagraphsRef.current.forEach(el => {
+          el.classList.remove('nr-tts-hl')
+          const htmlEl = el as HTMLElement
+          if (htmlEl.dataset.originalHtml) {
+            el.innerHTML = htmlEl.dataset.originalHtml
+            delete htmlEl.dataset.originalHtml
+          }
+        })
+
+        const para = ttsParagraphsRef.current[paraIdx]
+        if (!para) return
+
+        // Destaca o parágrafo atual
+        para.classList.add('nr-tts-hl')
+
+        // Karaokê: wordStart === wordEnd === 0 significa "só muda o parágrafo"
+        if (wordStart === 0 && wordEnd === 0) return
+
+        // Salva o HTML original antes de modificar (na primeira palavra do parágrafo)
+        const htmlPara = para as HTMLElement
+        if (!htmlPara.dataset.originalHtml) {
+          htmlPara.dataset.originalHtml = para.innerHTML
+        }
+
+        // Reconstrói innerHTML com <mark> na palavra atual
+        const text = para.textContent ?? ''
+        para.innerHTML =
+          escapeHtml(text.slice(0, wordStart)) +
+          `<mark class="nr-tts-word">${escapeHtml(text.slice(wordStart, wordEnd))}</mark>` +
+          escapeHtml(text.slice(wordEnd))
+      },
+
+      clearTts: () => {
+        ttsParagraphsRef.current.forEach(el => {
+          el.classList.remove('nr-tts-hl')
+          const htmlEl = el as HTMLElement
+          if (htmlEl.dataset.originalHtml) {
+            el.innerHTML = htmlEl.dataset.originalHtml
+            delete htmlEl.dataset.originalHtml
+          }
+        })
+      },
     }))
 
     // Atualiza fonte sem recriar o view (efeito separado intencional)
@@ -123,8 +232,6 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
         view = document.createElement('foliate-view') as unknown as View
         view.style.cssText = 'width:100%;height:100%;display:block'
-        // container não pode ser null aqui: verificamos no início do useEffect
-        // e o elemento DOM não some enquanto o componente está montado
         container!.appendChild(view)
         viewRef.current = view
 
@@ -139,17 +246,32 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           const { doc } = e.detail
           const BLOCK = 'p, li, blockquote, h1, h2, h3, h4, h5, h6'
 
+          // Armazena parágrafos da seção para uso pelo TTS (audiobook e karaokê)
+          ttsParagraphsRef.current = Array.from(doc.querySelectorAll(BLOCK))
+            .filter(el => (el.textContent?.trim().length ?? 0) > 2)
+          ttsParagraphTextsRef.current = ttsParagraphsRef.current
+            .map(el => el.textContent!.trim())
+
           doc.addEventListener('click', (ev: MouseEvent) => {
             const target = ev.target as Element
 
             // Clique no botão ⭐ — salva no vocabulário e troca para ✓
             const saveBtn = target.closest('.nr-save') as HTMLElement | null
             if (saveBtn) {
+              ev.stopPropagation()  // impede foliate de tratar como page-turn
               if (saveBtn.dataset.saved) return  // já salvo, ignora
               saveBtn.dataset.saved = '1'
               saveBtn.textContent = '✓'
-              const trDiv = saveBtn.parentElement as HTMLElement
+              const trDiv = saveBtn.closest('[data-source]') as HTMLElement
               onSaveVocabRef.current(trDiv.dataset.source ?? '', trDiv.dataset.translated ?? '')
+              return
+            }
+
+            // Clique no botão 🔊 — lê o parágrafo original em inglês
+            if (target.closest('.nr-tts-btn')) {
+              ev.stopPropagation()  // impede foliate de tratar como page-turn
+              const trDiv = target.closest('[data-source]') as HTMLElement | null
+              onSpeakOneRef.current(trDiv?.dataset.source ?? '')
               return
             }
 
@@ -158,6 +280,13 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             // Tap fora de parágrafo → toggle do chrome
             if (!para || (para.textContent?.trim() ?? '').length < 3) {
               onCenterTapRef.current()
+              return
+            }
+
+            // Se o audiobook está tocando: tap em parágrafo = pula para ele
+            if (ttsIsPlayingRef.current) {
+              const idx = ttsParagraphsRef.current.indexOf(para)
+              if (idx >= 0) onParagraphTapForTtsRef.current(idx)
               return
             }
 
@@ -183,8 +312,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               .then((translated) => {
                 trDiv.dataset.translated = translated
                 // innerHTML: safe aqui pois `translated` vem da nossa API,
-                // não de conteúdo do livro. O botão é criado por nós.
-                trDiv.innerHTML = `${translated} <button class="nr-save">⭐</button>`
+                // não de conteúdo do livro. Os botões ficam numa linha centrada abaixo.
+                trDiv.innerHTML = `${translated}<span class="nr-btn-row"><button class="nr-save">⭐</button><button class="nr-tts-btn">🔊</button></span>`
               })
               .catch(() => { trDiv.textContent = 'Erro ao traduzir.' })
           })
