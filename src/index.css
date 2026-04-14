@@ -11,6 +11,10 @@
   --progress: #22c55e;
 }
 
+/* Oculta a scrollbar visual mantendo o scroll funcional — usado nas rows horizontais */
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
 body {
   background-color: var(--bg-primary);
   color: var(--text-primary);

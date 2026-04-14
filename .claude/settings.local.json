@@ -16,7 +16,8 @@
       "Bash(tee /tmp/push_output.txt)",
       "Bash(gh pr:*)",
       "Bash(npm run:*)",
-      "Bash(npx --prefix \"C:/Users/johns/Documents/Projetos/NeoReader/NeoReader\" tsc --noEmit)"
+      "Bash(npx --prefix \"C:/Users/johns/Documents/Projetos/NeoReader/NeoReader\" tsc --noEmit)",
+      "WebFetch(domain:docs.sws.speechify.com)"
     ]
   }
 }
