@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(tee /tmp/npm_install.txt)",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(npx tsc:*)",
+      "Bash(echo \"EXIT_CODE:$?\")",
+      "mcp__ide__getDiagnostics",
+      "Bash(dir C:\\\\Users\\\\johns\\\\Documents\\\\Projetos\\\\NeoReader\\\\NeoReader:*)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(git:*)",
+      "Bash(dir:*)",
+      "Bash(echo \"exit:$?\")",
+      "Bash(echo \"PUSH_DONE_$?\")",
+      "Bash(tee /tmp/push_output.txt)",
+      "Bash(gh pr:*)",
+      "Bash(npm run:*)",
+      "Bash(npx --prefix \"C:/Users/johns/Documents/Projetos/NeoReader/NeoReader\" tsc --noEmit)"
+    ]
+  }
+}

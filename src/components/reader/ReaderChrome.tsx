@@ -1,4 +1,4 @@
-import { Bookmark, BookmarkCheck, ChevronLeft, GraduationCap, List } from 'lucide-react'
+import { Bookmark, BookmarkCheck, ChevronLeft, GraduationCap, List, Volume2, VolumeX } from 'lucide-react'
 import type { FontSize } from './EpubViewer'
 
 interface ReaderChromeProps {
@@ -8,12 +8,14 @@ interface ReaderChromeProps {
   fontSize: FontSize
   isBookmarked: boolean
   bookmarkCount: number
+  ttsIsPlaying: boolean
   onBack: () => void
   onFontSizeChange: (size: FontSize) => void
   onBookmark: () => void
   onBookmarkList: () => void
   onTocOpen: () => void
   onOpenVocabulary: () => void
+  onTtsToggle: () => void
   onDismiss: () => void
 }
 
@@ -39,12 +41,14 @@ export function ReaderChrome({
   fontSize,
   isBookmarked,
   bookmarkCount,
+  ttsIsPlaying,
   onBack,
   onFontSizeChange,
   onBookmark,
   onBookmarkList,
   onTocOpen,
   onOpenVocabulary,
+  onTtsToggle,
   onDismiss,
 }: ReaderChromeProps) {
   // Fecha o chrome ao tocar em área vazia das barras (fora de qualquer botão)
@@ -151,6 +155,17 @@ export function ReaderChrome({
             aria-label="Vocabulário"
           >
             <GraduationCap size={20} />
+          </button>
+
+          {/* TTS: Volume2 (parado) / VolumeX verde (tocando) */}
+          <button
+            onClick={onTtsToggle}
+            className="p-2 text-[#a0a0a0] active:opacity-60"
+            aria-label={ttsIsPlaying ? 'Parar leitura' : 'Iniciar leitura'}
+          >
+            {ttsIsPlaying
+              ? <VolumeX size={20} className="text-[#22c55e]" />
+              : <Volume2 size={20} />}
           </button>
 
           {/* Percentual de progresso */}
