@@ -1,3 +1,4 @@
+import { GraduationCap } from 'lucide-react'
 import { BookCard } from '../components/BookCard'
 import { AddBookButton } from '../components/AddBookButton'
 import { useLibrary } from '../hooks/useLibrary'
@@ -5,9 +6,10 @@ import type { Book } from '../types/book'
 
 interface LibraryScreenProps {
   onOpenBook: (book: Book) => void
+  onOpenVocabulary: () => void
 }
 
-export function LibraryScreen({ onOpenBook }: LibraryScreenProps) {
+export function LibraryScreen({ onOpenBook, onOpenVocabulary }: LibraryScreenProps) {
   const { books, isEmpty } = useLibrary()
 
   return (
@@ -15,9 +17,18 @@ export function LibraryScreen({ onOpenBook }: LibraryScreenProps) {
       {/* Header */}
       <header className="px-4 pt-10 pb-4 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-[#6366f1]">NeoReader</h1>
-        <p className="text-[#a0a0a0] text-sm">
-          {books ? `${books.length} livro${books.length !== 1 ? 's' : ''}` : ''}
-        </p>
+        <div className="flex items-center gap-3">
+          <p className="text-[#a0a0a0] text-sm">
+            {books ? `${books.length} livro${books.length !== 1 ? 's' : ''}` : ''}
+          </p>
+          <button
+            onClick={onOpenVocabulary}
+            className="text-[#a0a0a0] active:text-white transition-colors p-1"
+            aria-label="Vocabulário"
+          >
+            <GraduationCap size={22} />
+          </button>
+        </div>
       </header>
 
       <main className="px-4 pb-24">

@@ -5,6 +5,7 @@ import { EpubViewer, type EpubViewerHandle, type FontSize } from '../components/
 import { ReaderChrome } from '../components/reader/ReaderChrome'
 import { TocSheet } from '../components/reader/TocSheet'
 import { BookmarkSheet } from '../components/reader/BookmarkSheet'
+import { TranslationBubble } from '../components/reader/TranslationBubble'
 import { useReaderProgress } from '../hooks/useReaderProgress'
 import { useReaderStore } from '../store/readerStore'
 import { upsertProgress } from '../db/progress'
@@ -25,6 +26,9 @@ export function ReaderScreen({ book, onBack }: ReaderScreenProps) {
   const [chromeVisible, setChromeVisible] = useState(false)
   const [tocOpen, setTocOpen] = useState(false)
   const [bookmarkSheetOpen, setBookmarkSheetOpen] = useState(false)
+  const [translationOpen, setTranslationOpen] = useState(false)
+  const [tappedText, setTappedText] = useState('')
+  const [tappedSiblings, setTappedSiblings] = useState<Element[]>([])
   const [fontSize, setFontSize] = useState<FontSize>('md')
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -55,13 +59,24 @@ export function ReaderScreen({ book, onBack }: ReaderScreenProps) {
   // Intercepta o botão Back físico do Android (via plugin Capacitor)
   useEffect(() => {
     const listenerPromise = CapApp.addListener('backButton', () => {
+      if (translationOpen) { setTranslationOpen(false); return }
       if (bookmarkSheetOpen) { setBookmarkSheetOpen(false); return }
       if (tocOpen) { setTocOpen(false); return }
       handleBack()
     })
     return () => { void listenerPromise.then((l) => l.remove()) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tocOpen, bookmarkSheetOpen, cfi, percentage])
+  }, [tocOpen, bookmarkSheetOpen, translationOpen, cfi, percentage])
+
+  const handleParagraphTap = useCallback(
+    (text: string, siblings: Element[]) => {
+      setTappedText(text)
+      setTappedSiblings(siblings)
+      setTranslationOpen(true)
+      setChromeVisible(false)
+    },
+    [],
+  )
 
   const handleRelocate = useCallback(
     (newCfi: string, newPercentage: number, newTocLabel: string | undefined) => {
@@ -117,6 +132,7 @@ export function ReaderScreen({ book, onBack }: ReaderScreenProps) {
           onTocReady={setToc}
           onLoad={() => setIsLoading(false)}
           onError={(err) => { setIsLoading(false); setError(err.message) }}
+          onParagraphTap={handleParagraphTap}
         />
       </div>
 
@@ -155,6 +171,15 @@ export function ReaderScreen({ book, onBack }: ReaderScreenProps) {
         }}
         onDelete={deleteBookmark}
         onClose={() => setBookmarkSheetOpen(false)}
+      />
+
+      <TranslationBubble
+        open={translationOpen}
+        sourceText={tappedText}
+        siblingElements={tappedSiblings}
+        bookId={book.id!}
+        bookTitle={book.title}
+        onClose={() => setTranslationOpen(false)}
       />
 
       {error && (

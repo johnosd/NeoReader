@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useCallback } from 'react'
 import type { Book } from '../../types/book'
 import type { View } from 'foliate-js/view.js'
 
@@ -46,14 +46,20 @@ interface EpubViewerProps {
   onTocReady: (toc: TocItem[]) => void
   onLoad: () => void
   onError: (err: Error) => void
+  onParagraphTap: (text: string, siblings: Element[]) => void
 }
 
 // forwardRef: padrão React para expor métodos imperativos ao componente pai.
 // Equivale a um "ref de objeto" que o pai chama com viewerRef.current.next().
 export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
-  ({ book, fontSize, savedCfi, onRelocate, onTocReady, onLoad, onError }, ref) => {
+  ({ book, fontSize, savedCfi, onRelocate, onTocReady, onLoad, onError, onParagraphTap }, ref) => {
     const containerRef = useRef<HTMLDivElement>(null)
     const viewRef = useRef<View | null>(null)
+    // Ref para o callback mais recente — evita stale closure nos listeners do iframe.
+    // Os listeners são criados uma vez por seção (no evento 'load'), mas o callback
+    // pode mudar entre renders. O ref garante que sempre invocamos a versão atual.
+    const onParagraphTapRef = useRef(onParagraphTap)
+    useEffect(() => { onParagraphTapRef.current = onParagraphTap }, [onParagraphTap])
 
     // Expõe API imperativa para o ReaderScreen via ref
     useImperativeHandle(ref, () => ({
@@ -92,6 +98,30 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         view.addEventListener('relocate', (e: CustomEvent<RelocateDetail>) => {
           const { cfi, fraction, tocItem } = e.detail
           onRelocate(cfi, Math.round(fraction * 100), tocItem?.label)
+        })
+
+        // Cada seção do EPUB carrega num iframe separado. O evento 'load' expõe
+        // o Document do iframe — anexamos aqui o listener de tap em parágrafos.
+        // Usamos onParagraphTapRef para evitar stale closure (ver comentário acima).
+        view.addEventListener('load', (e: CustomEvent<{ doc: Document; index: number }>) => {
+          const { doc } = e.detail
+          const BLOCK = 'p, li, blockquote, h1, h2, h3, h4, h5, h6'
+
+          doc.addEventListener('click', (ev: MouseEvent) => {
+            const target = ev.target as Element
+            const para = target.closest(BLOCK)
+            if (!para) return
+
+            const text = para.textContent?.trim() ?? ''
+            if (text.length < 3) return
+
+            // Coleta todos os blocos a partir do parágrafo clicado (para o botão +10)
+            const allBlocks = Array.from(doc.querySelectorAll(BLOCK))
+            const idx = allBlocks.indexOf(para)
+            const siblings = allBlocks.slice(idx)
+
+            onParagraphTapRef.current(text, siblings)
+          })
         })
 
         try {
