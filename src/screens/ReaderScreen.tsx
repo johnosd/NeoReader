@@ -5,6 +5,7 @@ import { EpubViewer, type EpubViewerHandle, type FontSize } from '../components/
 import { ReaderChrome } from '../components/reader/ReaderChrome'
 import { TocSheet } from '../components/reader/TocSheet'
 import { BookmarkSheet } from '../components/reader/BookmarkSheet'
+import { TranslationPanel } from '../components/reader/TranslationPanel'
 import { useReaderProgress } from '../hooks/useReaderProgress'
 import { useReaderStore } from '../store/readerStore'
 import { upsertProgress } from '../db/progress'
@@ -14,6 +15,7 @@ import { addVocabItem } from '../db/vocabulary'
 import { db } from '../db/database'
 import { useTTS } from '../hooks/useTTS'
 import { SpeechifyService } from '../services/SpeechifyService'
+import { translate } from '../services/TranslationService'
 import type { Book } from '../types/book'
 
 interface ReaderScreenProps {
@@ -32,6 +34,10 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
   const [fontSize, setFontSize] = useState<FontSize>('md')
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  // Estado de tradução: null = painel fechado; source + result = painel aberto
+  // result null = traduzindo ainda; result string = concluído
+  const [translation, setTranslation] = useState<{ source: string; result: string | null } | null>(null)
 
   // Estado global compartilhado (Zustand)
   const { cfi, percentage, tocLabel, toc, setCfi, setToc, reset } = useReaderStore()
@@ -103,6 +109,19 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
     })
   }
 
+  // Recebe o texto da frase tocada do EpubViewer, abre o painel e dispara a tradução
+  function handleTranslate(sourceText: string) {
+    setTranslation({ source: sourceText, result: null })
+    translate(sourceText)
+      .then((result) => setTranslation((prev) => prev ? { ...prev, result } : null))
+      .catch(() => setTranslation((prev) => prev ? { ...prev, result: 'Erro ao traduzir.' } : null))
+  }
+
+  function handleTranslationClose() {
+    setTranslation(null)
+    viewerRef.current?.clearTranslation()
+  }
+
   const handleRelocate = useCallback(
     (newCfi: string, newPercentage: number, newTocLabel: string | undefined) => {
       setCfi(newCfi, newPercentage, newTocLabel)
@@ -156,6 +175,7 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
           onError={(err) => { setIsLoading(false); setError(err.message) }}
           onSaveVocab={handleSaveVocab}
           onCenterTap={handleCenterTap}
+          onTranslate={handleTranslate}
           onSpeakOne={(text) => void tts.speakOne(text)}
           onParagraphTapForTts={(idx) => {
             const paragraphs = viewerRef.current?.getParagraphs() ?? []
@@ -199,6 +219,19 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
         onTtsToggle={handleTtsToggle}
         onDismiss={() => setChromeVisible(false)}
       />
+
+      {/* Painel de tradução — fora do iframe, sempre visível independente da paginação */}
+      {translation && (
+        <TranslationPanel
+          source={translation.source}
+          result={translation.result}
+          onClose={handleTranslationClose}
+          onSpeak={() => void tts.speakOne(translation.source)}
+          onSave={() => {
+            if (translation.result) handleSaveVocab(translation.source, translation.result)
+          }}
+        />
+      )}
 
       <TocSheet
         open={tocOpen}

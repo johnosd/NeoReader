@@ -1,7 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import type { Book } from '../../types/book'
 import type { View } from 'foliate-js/view.js'
-import { translate } from '../../services/TranslationService'
 
 export type FontSize = 'sm' | 'md' | 'lg' | 'xl'
 
@@ -116,15 +115,28 @@ function buildReaderCSS(fontSize: FontSize): string {
       color: #e8e8e8 !important;
       font-family: Georgia, Charter, serif !important;
     }
-    * {
+
+    /* Aplica tema escuro + tamanho de fonte SOMENTE em elementos de texto.
+       Evitar usar * aqui: quebraria containers de imagem que usam em/% para
+       dimensionamento, e removeria backgrounds necessários para capas de livro. */
+    p, li, blockquote, span, td, th, pre, code,
+    div, section, article, aside, main, nav, header, footer {
       font-size: ${sizes[fontSize]} !important;
       line-height: 1.7 !important;
       color: #e8e8e8 !important;
       background-color: transparent !important;
     }
-    a { color: #818cf8 !important; }
     h1, h2, h3, h4, h5, h6 {
       color: #ffffff !important;
+      background-color: transparent !important;
+    }
+    a { color: #818cf8 !important; }
+
+    /* Imagens e SVGs: renderizam com suas dimensões naturais, sem override de cor.
+       max-width garante que não vazem fora do viewport em qualquer tamanho de tela. */
+    img, svg, figure, picture {
+      max-width: 100% !important;
+      height: auto !important;
     }
 
     /* Parágrafo selecionado para tradução (fallback quando frase ocupa o parágrafo todo) */
@@ -136,40 +148,6 @@ function buildReaderCSS(fontSize: FontSize): string {
     .nr-hl-sentence {
       background-color: rgba(99, 102, 241, 0.25) !important;
       border-radius: 2px !important;
-    }
-    /* Bloco de tradução injetado após o parágrafo */
-    .nr-tr {
-      color: #a5b4fc !important;
-      font-style: italic !important;
-      font-size: 0.85em !important;
-      margin-top: 6px !important;
-      display: block !important;
-      background-color: transparent !important;
-    }
-    /* Botão ⭐ dentro do bloco de tradução */
-    .nr-save {
-      cursor: pointer !important;
-      color: #6366f1 !important;
-      background: none !important;
-      border: none !important;
-      padding: 0 4px !important;
-      font-size: inherit !important;
-      vertical-align: middle !important;
-    }
-    /* Botão 🔊 dentro do bloco de tradução */
-    .nr-tts-btn {
-      cursor: pointer !important;
-      background: none !important;
-      border: none !important;
-      padding: 0 4px !important;
-      font-size: inherit !important;
-      vertical-align: middle !important;
-    }
-    /* Linha de botões centralizada abaixo do texto de tradução */
-    .nr-btn-row {
-      display: block !important;
-      text-align: center !important;
-      margin-top: 6px !important;
     }
     /* Parágrafo sendo lido pelo TTS — fundo verde suave */
     .nr-tts-hl {
@@ -194,6 +172,8 @@ export interface EpubViewerHandle {
   highlightTts(paraIdx: number, wordStart: number, wordEnd: number): void
   // TTS: remove todos os destaques de audiobook
   clearTts(): void
+  // Tradução: remove highlight do parágrafo ativo (chamado quando o painel fecha)
+  clearTranslation(): void
 }
 
 interface EpubViewerProps {
@@ -209,6 +189,9 @@ interface EpubViewerProps {
   // Chamado quando o tap cai fora de qualquer parágrafo (margem, imagem)
   // Usado pelo ReaderScreen para toggle do chrome sem overlay
   onCenterTap: () => void
+  // Tradução: emite o texto da frase tocada para o ReaderScreen traduzir e exibir
+  // num painel React fora do iframe (evita problema de paginação no mobile)
+  onTranslate: (sourceText: string) => void
   // TTS: lê um único parágrafo (acionado pelo botão 🔊 no bloco de tradução)
   onSpeakOne: (text: string) => void
   // TTS: quando audiobook está tocando, tap em parágrafo pula para ele
@@ -224,7 +207,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     {
       book, fontSize, savedCfi,
       onRelocate, onTocReady, onLoad, onError,
-      onSaveVocab, onCenterTap,
+      onSaveVocab, onCenterTap, onTranslate,
       onSpeakOne, onParagraphTapForTts, ttsIsPlaying,
     },
     ref,
@@ -236,6 +219,9 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const ttsParagraphsRef = useRef<Element[]>([])
     const ttsParagraphTextsRef = useRef<string[]>([])
 
+    // Ref do parágrafo com highlight de tradução ativo — usado por clearTranslation()
+    const activeTranslationParaRef = useRef<Element | null>(null)
+
     // Refs para os callbacks mais recentes — evita stale closure nos listeners do iframe.
     // Os listeners são criados uma vez por seção (no evento 'load'), mas os callbacks
     // podem mudar entre renders. Os refs garantem que sempre invocamos a versão atual.
@@ -243,6 +229,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     useEffect(() => { onSaveVocabRef.current = onSaveVocab }, [onSaveVocab])
     const onCenterTapRef = useRef(onCenterTap)
     useEffect(() => { onCenterTapRef.current = onCenterTap }, [onCenterTap])
+    const onTranslateRef = useRef(onTranslate)
+    useEffect(() => { onTranslateRef.current = onTranslate }, [onTranslate])
     const onSpeakOneRef = useRef(onSpeakOne)
     useEffect(() => { onSpeakOneRef.current = onSpeakOne }, [onSpeakOne])
     const onParagraphTapForTtsRef = useRef(onParagraphTapForTts)
@@ -303,6 +291,20 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           }
         })
       },
+
+      clearTranslation: () => {
+        const para = activeTranslationParaRef.current
+        if (!para) return
+        para.removeAttribute('data-nr-active')
+        para.classList.remove('nr-hl')
+        const sentSpan = para.querySelector('.nr-hl-sentence')
+        if (sentSpan) {
+          const parent = sentSpan.parentNode!
+          while (sentSpan.firstChild) parent.insertBefore(sentSpan.firstChild, sentSpan)
+          sentSpan.remove()
+        }
+        activeTranslationParaRef.current = null
+      },
     }))
 
     // Atualiza fonte sem recriar o view (efeito separado intencional)
@@ -349,27 +351,6 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
           doc.addEventListener('click', (ev: MouseEvent) => {
             const target = ev.target as Element
-
-            // Clique no botão ⭐ — salva no vocabulário e troca para ✓
-            const saveBtn = target.closest('.nr-save') as HTMLElement | null
-            if (saveBtn) {
-              ev.stopPropagation()  // impede foliate de tratar como page-turn
-              if (saveBtn.dataset.saved) return  // já salvo, ignora
-              saveBtn.dataset.saved = '1'
-              saveBtn.textContent = '✓'
-              const trDiv = saveBtn.closest('[data-source]') as HTMLElement
-              onSaveVocabRef.current(trDiv.dataset.source ?? '', trDiv.dataset.translated ?? '')
-              return
-            }
-
-            // Clique no botão 🔊 — lê o parágrafo original em inglês
-            if (target.closest('.nr-tts-btn')) {
-              ev.stopPropagation()  // impede foliate de tratar como page-turn
-              const trDiv = target.closest('[data-source]') as HTMLElement | null
-              onSpeakOneRef.current(trDiv?.dataset.source ?? '')
-              return
-            }
-
             const para = target.closest(BLOCK)
 
             // Tap fora de parágrafo → toggle do chrome
@@ -385,41 +366,29 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               return
             }
 
-            // Toggle off: parágrafo já traduzido → remove highlight e tradução
+            // Toggle off: parágrafo já destacado → limpa highlight
+            // (a tradução do painel React é fechada pelo próprio painel)
             if (para.hasAttribute('data-nr-active')) {
               para.removeAttribute('data-nr-active')
               para.classList.remove('nr-hl')
-              // Remove o span de frase se existir (unwrap: move filhos para cima)
               const sentSpan = para.querySelector('.nr-hl-sentence')
               if (sentSpan) {
                 const parent = sentSpan.parentNode!
                 while (sentSpan.firstChild) parent.insertBefore(sentSpan.firstChild, sentSpan)
                 sentSpan.remove()
               }
-              const next = para.nextElementSibling
-              if (next?.classList.contains('nr-tr')) next.remove()
+              activeTranslationParaRef.current = null
               return
             }
 
-            // Toggle on: detecta a frase clicada primeiro, depois destaca e traduz
+            // Toggle on: detecta a frase clicada, destaca no iframe e emite para o ReaderScreen.
+            // A tradução e os botões de ação são exibidos num painel React fora do iframe —
+            // evita o problema de o bloco cair na página seguinte em modo paginado (mobile).
             const sourceText = getSentenceFromClick(ev, para)
             para.setAttribute('data-nr-active', '1')
             highlightSentenceInParagraph(para, sourceText)
-
-            const trDiv = doc.createElement('p')
-            trDiv.className = 'nr-tr'
-            trDiv.textContent = '...'   // placeholder enquanto traduz
-            para.insertAdjacentElement('afterend', trDiv)
-            trDiv.dataset.source = sourceText
-
-            translate(sourceText)
-              .then((translated) => {
-                trDiv.dataset.translated = translated
-                // innerHTML: safe aqui pois `translated` vem da nossa API,
-                // não de conteúdo do livro. Os botões ficam numa linha centrada abaixo.
-                trDiv.innerHTML = `${translated}<span class="nr-btn-row"><button class="nr-save">⭐</button><button class="nr-tts-btn">🔊</button></span>`
-              })
-              .catch(() => { trDiv.textContent = 'Erro ao traduzir.' })
+            activeTranslationParaRef.current = para
+            onTranslateRef.current(sourceText)
           })
         })
 

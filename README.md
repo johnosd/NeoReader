@@ -21,7 +21,8 @@ Leitor de EPUB para Android focado em **incentivar a leitura** e **facilitar o a
 - [x] Gestos: tap nas bordas para virar página, tap central para o chrome
 
 ### Aprendizado de inglês
-- [x] Tradução inline — toque em qualquer parágrafo para traduzir
+- [x] Tradução inline — detecta a frase exata tocada (via `caretRangeFromPoint`) e traduz só ela
+- [x] Highlight apenas da frase selecionada, não do parágrafo inteiro
 - [x] Bloco de tradução injetado logo abaixo do parágrafo original
 - [x] Salvar par original/tradução no vocabulário com ⭐
 - [x] Tela de vocabulário com histórico de frases salvas
@@ -109,12 +110,25 @@ src/
 
 ## Roadmap
 
-### Próximo
-- [ ] Google Drive sync (progresso + marcadores + vocabulário)
+### MVP — em aberto
+- [ ] **Google Drive sync** — progresso, marcadores e vocabulário sincronizados entre devices (OAuth + Capacitor)
 
-### Fase 2
-- [ ] Flashcards SRS estilo Anki (algoritmo SM-2)
+### Próximas features (Fase 2)
+
+#### Tela de configurações
+- [ ] **Settings screen** — botão de engrenagem no header da biblioteca
+  - [ ] API key da Speechify (input seguro, salvo no IndexedDB)
+  - [ ] Seleção de voz Speechify (lista de vozes via `/v1/voices`)
+  - [ ] Configurações gerais do leitor (tema, fonte padrão, idioma de tradução)
+
+#### Gerenciamento de livros
+- [ ] **Ícone de opções no BookCard** — menu de contexto por livro
+  - [ ] Recriar capa (reprocessa o EPUB e extrai novamente)
+  - [ ] Escolher capa de arquivo externo (seletor de imagem do device)
+  - [ ] Excluir livro
+
+#### Aprendizado
+- [ ] **Flashcards SRS** — revisar vocabulário salvo com algoritmo SM-2 (estilo Anki)
+- [ ] **Integração Claude API (BYOK)** — resumo de capítulo, quiz de compreensão, tutor conversacional sobre o trecho lido
+- [ ] Estatísticas de leitura — streak de dias, tempo por sessão, palavras traduzidas
 - [ ] Export CSV do vocabulário
-- [ ] Estatísticas de leitura (streak, tempo por dia)
-- [ ] Seleção de voz Speechify na UI
-- [ ] Integração Claude API (BYOK): resumo de capítulo, quiz, tutor
