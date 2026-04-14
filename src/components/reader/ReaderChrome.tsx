@@ -126,18 +126,20 @@ export function ReaderChrome({
           {/* Botão dedicado para abrir a lista de marcadores — separado do toggle 🔖 no top bar */}
           <button
             onClick={onBookmarkList}
-            className="flex items-center gap-1.5 text-[#a0a0a0] active:opacity-60"
+            className="relative p-2 text-[#a0a0a0] active:opacity-60"
             aria-label="Ver marcadores"
           >
-            <Bookmark size={18} />
+            <Bookmark size={20} />
             {bookmarkCount > 0 && (
-              <span className="text-xs tabular-nums">{bookmarkCount}</span>
+              <span className="absolute -top-0.5 -right-0.5 text-[10px] leading-none tabular-nums text-[#6366f1] font-semibold">
+                {bookmarkCount}
+              </span>
             )}
           </button>
 
           <button
             onClick={onOpenVocabulary}
-            className="text-[#a0a0a0] active:opacity-60"
+            className="p-2 text-[#a0a0a0] active:opacity-60"
             aria-label="Vocabulário"
           >
             <GraduationCap size={20} />
