@@ -41,6 +41,7 @@ function buildReaderCSS(fontSize: FontSize): string {
     .nr-tr {
       color: #a5b4fc !important;
       font-style: italic !important;
+      font-size: 0.85em !important;
       margin-top: 6px !important;
       display: block !important;
       background-color: transparent !important;
