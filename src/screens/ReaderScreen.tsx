@@ -80,15 +80,14 @@ export function ReaderScreen({ book, onBack }: ReaderScreenProps) {
     onBack()
   }
 
-  // Tap no ícone 🔖:
-  // - Se não está marcado: adiciona marcador na posição atual
-  // - Se já está marcado: abre a lista de marcadores (para navegar ou remover)
+  // Toggle puro: adiciona se não existe, remove se já existe na posição atual.
+  // A lista de marcadores é acessada pelo botão dedicado no bottom bar.
   function handleBookmarkToggle() {
     if (!cfi || book.id === undefined) return
-    if (isBookmarked) {
-      setBookmarkSheetOpen(true)
+    const existing = bookmarks.find((b) => b.cfi === cfi)
+    if (existing?.id !== undefined) {
+      void deleteBookmark(existing.id)
     } else {
-      // Usa o nome do capítulo atual como label; fallback para "X%"
       void addBookmark(book.id, cfi, tocLabel || `${percentage}%`, percentage)
     }
   }
@@ -129,9 +128,11 @@ export function ReaderScreen({ book, onBack }: ReaderScreenProps) {
         percentage={percentage}
         fontSize={fontSize}
         isBookmarked={isBookmarked}
+        bookmarkCount={bookmarks.length}
         onBack={handleBack}
         onFontSizeChange={setFontSize}
         onBookmark={handleBookmarkToggle}
+        onBookmarkList={() => setBookmarkSheetOpen(true)}
         onTocOpen={() => setTocOpen(true)}
       />
 

@@ -7,9 +7,11 @@ interface ReaderChromeProps {
   percentage: number
   fontSize: FontSize
   isBookmarked: boolean
+  bookmarkCount: number
   onBack: () => void
   onFontSizeChange: (size: FontSize) => void
   onBookmark: () => void
+  onBookmarkList: () => void
   onTocOpen: () => void
 }
 
@@ -34,9 +36,11 @@ export function ReaderChrome({
   percentage,
   fontSize,
   isBookmarked,
+  bookmarkCount,
   onBack,
   onFontSizeChange,
   onBookmark,
+  onBookmarkList,
   onTocOpen,
 }: ReaderChromeProps) {
   const translateTop = visible ? 'translate-y-0' : '-translate-y-full'
@@ -116,6 +120,18 @@ export function ReaderChrome({
               </button>
             ))}
           </div>
+
+          {/* Botão dedicado para abrir a lista de marcadores — separado do toggle 🔖 no top bar */}
+          <button
+            onClick={onBookmarkList}
+            className="flex items-center gap-1.5 text-[#a0a0a0] active:opacity-60"
+            aria-label="Ver marcadores"
+          >
+            <Bookmark size={18} />
+            {bookmarkCount > 0 && (
+              <span className="text-xs tabular-nums">{bookmarkCount}</span>
+            )}
+          </button>
 
           {/* Percentual de progresso */}
           <span className="text-[#a0a0a0] text-sm tabular-nums">
