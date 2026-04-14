@@ -10,15 +10,17 @@ import { useReaderStore } from '../store/readerStore'
 import { upsertProgress } from '../db/progress'
 import { updateLastOpened } from '../db/books'
 import { addBookmark, deleteBookmark } from '../db/bookmarks'
+import { addVocabItem } from '../db/vocabulary'
 import { db } from '../db/database'
 import type { Book } from '../types/book'
 
 interface ReaderScreenProps {
   book: Book
   onBack: () => void
+  onOpenVocabulary: () => void
 }
 
-export function ReaderScreen({ book, onBack }: ReaderScreenProps) {
+export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenProps) {
   const viewerRef = useRef<EpubViewerHandle>(null)
 
   // Estado local — não precisa ser compartilhado entre siblings
@@ -63,6 +65,19 @@ export function ReaderScreen({ book, onBack }: ReaderScreenProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tocOpen, bookmarkSheetOpen, cfi, percentage])
 
+  // Salva par original/tradução no vocabulário — chamado pelo EpubViewer via ⭐
+  function handleSaveVocab(sourceText: string, translatedText: string) {
+    void addVocabItem({
+      bookId: book.id!,
+      bookTitle: book.title,
+      sourceText,
+      translatedText,
+      sourceLang: 'en',
+      targetLang: 'pt-BR',
+      createdAt: new Date(),
+    })
+  }
+
   const handleRelocate = useCallback(
     (newCfi: string, newPercentage: number, newTocLabel: string | undefined) => {
       setCfi(newCfi, newPercentage, newTocLabel)
@@ -92,12 +107,9 @@ export function ReaderScreen({ book, onBack }: ReaderScreenProps) {
     }
   }
 
-  // Zonas de toque: left 20% = prev, right 20% = next, centro = toggle chrome
-  function handleTapZone(e: React.PointerEvent<HTMLDivElement>) {
-    const x = e.clientX / window.innerWidth
-    if (x < 0.2) viewerRef.current?.prev()
-    else if (x > 0.8) viewerRef.current?.next()
-    else setChromeVisible((v) => !v)
+  // Toggle chrome: chamado pelo EpubViewer quando o tap cai fora de um parágrafo
+  function handleCenterTap() {
+    setChromeVisible((v) => !v)
   }
 
   // Aguarda o load do IndexedDB antes de montar o EpubViewer
@@ -117,10 +129,25 @@ export function ReaderScreen({ book, onBack }: ReaderScreenProps) {
           onTocReady={setToc}
           onLoad={() => setIsLoading(false)}
           onError={(err) => { setIsLoading(false); setError(err.message) }}
+          onSaveVocab={handleSaveVocab}
+          onCenterTap={handleCenterTap}
         />
       </div>
 
-      <div className="absolute inset-0 z-10" onPointerUp={handleTapZone} />
+      {/* Bordas esquerda/direita: navegação entre páginas */}
+      <div className="absolute left-0 top-0 w-[20%] h-full z-10" onPointerUp={() => viewerRef.current?.prev()} />
+      <div className="absolute right-0 top-0 w-[20%] h-full z-10" onPointerUp={() => viewerRef.current?.next()} />
+
+      {/* Faixas superior e inferior (centro 60%): toggle do chrome quando ele está fechado.
+          Cobrem as margens de 48px do foliate — sempre vazias de texto. */}
+      <div className="absolute top-0 left-[20%] right-[20%] h-12 z-10" onPointerUp={handleCenterTap} />
+      <div className="absolute bottom-0 left-[20%] right-[20%] h-12 z-10" onPointerUp={handleCenterTap} />
+
+      {/* Backdrop: quando o chrome está aberto, captura toque fora dos botões para fechá-lo.
+          z-[15] fica acima do conteúdo/overlays (z-10) mas abaixo do chrome (z-20). */}
+      {chromeVisible && (
+        <div className="absolute inset-0 z-[15]" onPointerUp={() => setChromeVisible(false)} />
+      )}
 
       <ReaderChrome
         visible={chromeVisible}
@@ -134,6 +161,8 @@ export function ReaderScreen({ book, onBack }: ReaderScreenProps) {
         onBookmark={handleBookmarkToggle}
         onBookmarkList={() => setBookmarkSheetOpen(true)}
         onTocOpen={() => setTocOpen(true)}
+        onOpenVocabulary={onOpenVocabulary}
+        onDismiss={() => setChromeVisible(false)}
       />
 
       <TocSheet

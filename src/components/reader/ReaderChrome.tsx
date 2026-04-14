@@ -1,4 +1,4 @@
-import { Bookmark, BookmarkCheck, ChevronLeft, List } from 'lucide-react'
+import { Bookmark, BookmarkCheck, ChevronLeft, GraduationCap, List } from 'lucide-react'
 import type { FontSize } from './EpubViewer'
 
 interface ReaderChromeProps {
@@ -13,6 +13,8 @@ interface ReaderChromeProps {
   onBookmark: () => void
   onBookmarkList: () => void
   onTocOpen: () => void
+  onOpenVocabulary: () => void
+  onDismiss: () => void
 }
 
 const FONT_SIZES: { value: FontSize; label: string }[] = [
@@ -42,7 +44,13 @@ export function ReaderChrome({
   onBookmark,
   onBookmarkList,
   onTocOpen,
+  onOpenVocabulary,
+  onDismiss,
 }: ReaderChromeProps) {
+  // Fecha o chrome ao tocar em área vazia das barras (fora de qualquer botão)
+  function handleBarTap(e: React.PointerEvent) {
+    if (!(e.target as Element).closest('button')) onDismiss()
+  }
   const translateTop = visible ? 'translate-y-0' : '-translate-y-full'
   const translateBottom = visible ? 'translate-y-0' : 'translate-y-full'
 
@@ -52,6 +60,7 @@ export function ReaderChrome({
       <div
         className={`absolute top-0 left-0 right-0 z-20 bg-[#0a0a0a]/90 backdrop-blur-sm
           transition-transform duration-300 ${translateTop}`}
+        onPointerUp={handleBarTap}
       >
         <div className="flex items-center justify-between px-4 pt-10 pb-3 gap-3">
           <button
@@ -92,6 +101,7 @@ export function ReaderChrome({
       <div
         className={`absolute bottom-0 left-0 right-0 z-20 bg-[#0a0a0a]/90 backdrop-blur-sm
           transition-transform duration-300 ${translateBottom}`}
+        onPointerUp={handleBarTap}
       >
         {/* Barra de progresso fina */}
         <div className="h-1 bg-[#1a1a1a]">
@@ -124,13 +134,23 @@ export function ReaderChrome({
           {/* Botão dedicado para abrir a lista de marcadores — separado do toggle 🔖 no top bar */}
           <button
             onClick={onBookmarkList}
-            className="flex items-center gap-1.5 text-[#a0a0a0] active:opacity-60"
+            className="relative p-2 text-[#a0a0a0] active:opacity-60"
             aria-label="Ver marcadores"
           >
-            <Bookmark size={18} />
+            <Bookmark size={20} />
             {bookmarkCount > 0 && (
-              <span className="text-xs tabular-nums">{bookmarkCount}</span>
+              <span className="absolute -top-0.5 -right-0.5 text-[10px] leading-none tabular-nums text-[#6366f1] font-semibold">
+                {bookmarkCount}
+              </span>
             )}
+          </button>
+
+          <button
+            onClick={onOpenVocabulary}
+            className="p-2 text-[#a0a0a0] active:opacity-60"
+            aria-label="Vocabulário"
+          >
+            <GraduationCap size={20} />
           </button>
 
           {/* Percentual de progresso */}
