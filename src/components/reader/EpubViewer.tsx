@@ -226,7 +226,9 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [book.id]) // Apenas quando muda o livro. Callbacks são estáveis no ReaderScreen.
 
-    return <div ref={containerRef} className="w-full h-full" />
+    // onClick no container captura toques nas margens do foliate (fora do iframe).
+    // Toques dentro do iframe não sobem para o pai — sem conflito com o listener do doc.
+    return <div ref={containerRef} className="w-full h-full" onClick={() => onCenterTapRef.current()} />
   },
 )
 
