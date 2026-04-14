@@ -107,12 +107,9 @@ export function ReaderScreen({ book, onBack }: ReaderScreenProps) {
     }
   }
 
-  // Zonas de toque: left 20% = prev, right 20% = next, centro = toggle chrome
-  function handleTapZone(e: React.PointerEvent<HTMLDivElement>) {
-    const x = e.clientX / window.innerWidth
-    if (x < 0.2) viewerRef.current?.prev()
-    else if (x > 0.8) viewerRef.current?.next()
-    else setChromeVisible((v) => !v)
+  // Toggle chrome: chamado pelo EpubViewer quando o tap cai fora de um parágrafo
+  function handleCenterTap() {
+    setChromeVisible((v) => !v)
   }
 
   // Aguarda o load do IndexedDB antes de montar o EpubViewer
@@ -133,10 +130,14 @@ export function ReaderScreen({ book, onBack }: ReaderScreenProps) {
           onLoad={() => setIsLoading(false)}
           onError={(err) => { setIsLoading(false); setError(err.message) }}
           onParagraphTap={handleParagraphTap}
+          onCenterTap={handleCenterTap}
         />
       </div>
 
-      <div className="absolute inset-0 z-10" onPointerUp={handleTapZone} />
+      {/* Bordas de navegação — apenas esquerda/direita para não bloquear os iframes do foliate.
+          O centro fica livre: cliques chegam ao iframe e disparam o listener de parágrafo. */}
+      <div className="absolute left-0 top-0 w-[20%] h-full z-10" onPointerUp={() => viewerRef.current?.prev()} />
+      <div className="absolute right-0 top-0 w-[20%] h-full z-10" onPointerUp={() => viewerRef.current?.next()} />
 
       <ReaderChrome
         visible={chromeVisible}

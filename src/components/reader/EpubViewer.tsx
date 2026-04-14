@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useCallback } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import type { Book } from '../../types/book'
 import type { View } from 'foliate-js/view.js'
 
@@ -47,19 +47,24 @@ interface EpubViewerProps {
   onLoad: () => void
   onError: (err: Error) => void
   onParagraphTap: (text: string, siblings: Element[]) => void
+  // Chamado quando o tap cai fora de qualquer parágrafo (ex: margem, imagem)
+  // Usado pelo ReaderScreen para toggle do chrome sem precisar de overlay
+  onCenterTap: () => void
 }
 
 // forwardRef: padrão React para expor métodos imperativos ao componente pai.
 // Equivale a um "ref de objeto" que o pai chama com viewerRef.current.next().
 export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
-  ({ book, fontSize, savedCfi, onRelocate, onTocReady, onLoad, onError, onParagraphTap }, ref) => {
+  ({ book, fontSize, savedCfi, onRelocate, onTocReady, onLoad, onError, onParagraphTap, onCenterTap }, ref) => {
     const containerRef = useRef<HTMLDivElement>(null)
     const viewRef = useRef<View | null>(null)
-    // Ref para o callback mais recente — evita stale closure nos listeners do iframe.
-    // Os listeners são criados uma vez por seção (no evento 'load'), mas o callback
-    // pode mudar entre renders. O ref garante que sempre invocamos a versão atual.
+    // Refs para os callbacks mais recentes — evita stale closure nos listeners do iframe.
+    // Os listeners são criados uma vez por seção (no evento 'load'), mas os callbacks
+    // podem mudar entre renders. Os refs garantem que sempre invocamos a versão atual.
     const onParagraphTapRef = useRef(onParagraphTap)
     useEffect(() => { onParagraphTapRef.current = onParagraphTap }, [onParagraphTap])
+    const onCenterTapRef = useRef(onCenterTap)
+    useEffect(() => { onCenterTapRef.current = onCenterTap }, [onCenterTap])
 
     // Expõe API imperativa para o ReaderScreen via ref
     useImperativeHandle(ref, () => ({
@@ -110,17 +115,20 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           doc.addEventListener('click', (ev: MouseEvent) => {
             const target = ev.target as Element
             const para = target.closest(BLOCK)
-            if (!para) return
 
-            const text = para.textContent?.trim() ?? ''
-            if (text.length < 3) return
+            // Tap fora de qualquer parágrafo (margem, imagem, espaço em branco)
+            // → toggle do chrome no ReaderScreen
+            if (!para || (para.textContent?.trim() ?? '').length < 3) {
+              onCenterTapRef.current()
+              return
+            }
 
             // Coleta todos os blocos a partir do parágrafo clicado (para o botão +10)
             const allBlocks = Array.from(doc.querySelectorAll(BLOCK))
             const idx = allBlocks.indexOf(para)
             const siblings = allBlocks.slice(idx)
 
-            onParagraphTapRef.current(text, siblings)
+            onParagraphTapRef.current(para.textContent!.trim(), siblings)
           })
         })
 
