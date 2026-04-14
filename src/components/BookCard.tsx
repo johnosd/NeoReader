@@ -29,7 +29,7 @@ export function BookCard({ book, onPress }: BookCardProps) {
   return (
     <button
       onClick={() => onPress(book)}
-      className="flex flex-col gap-2 text-left active:scale-95 transition-transform duration-150"
+      className="w-full flex flex-col gap-2 text-left active:scale-95 transition-transform duration-150"
     >
       {/* Capa do livro */}
       <div className="relative w-full aspect-[2/3] rounded-md overflow-hidden bg-[#1a1a1a]">

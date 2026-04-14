@@ -10,6 +10,96 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
+// Retorna a frase do texto que contém o offset de caractere dado.
+// Frases são delimitadas por . ! ? seguidos de espaço ou fim de string.
+// Fallback: retorna o texto inteiro se não encontrar delimitadores.
+function getSentenceAt(text: string, charOffset: number): string {
+  // Divide em frases: qualquer sequência que termina com . ! ou ?
+  const parts = text.match(/[^.!?]*[.!?]+\s*/g)
+  if (!parts || parts.length <= 1) return text.trim()
+
+  let pos = 0
+  for (const part of parts) {
+    pos += part.length
+    if (charOffset < pos) return part.trim()
+  }
+  // offset além do último ponto (cauda sem pontuação) → última frase encontrada
+  return parts[parts.length - 1].trim()
+}
+
+// Envolve apenas a frase `sentence` num <span class="nr-hl-sentence"> dentro do parágrafo.
+// Usa Range + surroundContents: funciona quando a frase está dentro de um único nó de texto.
+// Se a frase cruzar tags internas (ex: <em>), usa o fallback de colorir o parágrafo inteiro.
+function highlightSentenceInParagraph(para: Element, sentence: string): void {
+  const doc = para.ownerDocument!
+  const fullText = para.textContent ?? ''
+  const sentenceStart = fullText.indexOf(sentence)
+
+  if (sentenceStart < 0) {
+    para.classList.add('nr-hl')  // fallback: parágrafo inteiro
+    return
+  }
+
+  // Encontra o nó de texto e offset exato dentro do parágrafo
+  const range = doc.createRange()
+  let charCount = 0
+  let startSet = false
+  const walker = doc.createTreeWalker(para, NodeFilter.SHOW_TEXT)
+  let node: Node | null
+
+  while ((node = walker.nextNode()) !== null) {
+    const len = node.textContent?.length ?? 0
+    if (!startSet && charCount + len > sentenceStart) {
+      range.setStart(node, sentenceStart - charCount)
+      startSet = true
+    }
+    if (startSet && charCount + len >= sentenceStart + sentence.length) {
+      range.setEnd(node, sentenceStart + sentence.length - charCount)
+      break
+    }
+    charCount += len
+  }
+
+  if (!startSet) {
+    para.classList.add('nr-hl')
+    return
+  }
+
+  try {
+    const span = doc.createElement('span')
+    span.className = 'nr-hl-sentence'
+    range.surroundContents(span)  // lança se a frase cruzar tags HTML
+  } catch {
+    para.classList.add('nr-hl')  // fallback
+  }
+}
+
+// Usa caretRangeFromPoint (Blink/WebKit) para encontrar em qual caractere
+// do parágrafo o usuário tocou, depois devolve a frase naquela posição.
+// Fallback para texto completo se a API não estiver disponível.
+function getSentenceFromClick(ev: MouseEvent, para: Element): string {
+  const fullText = para.textContent?.trim() ?? ''
+
+  // caretRangeFromPoint: retorna um Range apontando para onde o cursor
+  // seria inserido no ponto (x, y) — disponível no Chrome/Android WebView
+  const range = (ev.target as Element).ownerDocument?.caretRangeFromPoint?.(ev.clientX, ev.clientY)
+  if (!range) return fullText
+
+  // Calcula o offset de char dentro do textContent completo do parágrafo.
+  // O Range aponta para um nó de texto interno; precisamos somar os offsets
+  // de todos os nós de texto anteriores dentro do parágrafo.
+  let charOffset = range.startOffset
+  // Usa o document do iframe (ownerDocument) — não o document externo do React
+  const walker = para.ownerDocument!.createTreeWalker(para, NodeFilter.SHOW_TEXT)
+  let node: Node | null
+  while ((node = walker.nextNode()) !== null) {
+    if (node === range.startContainer) break
+    charOffset += (node.textContent?.length ?? 0)
+  }
+
+  return getSentenceAt(fullText, charOffset)
+}
+
 // CSS injetado dentro do iframe do foliate para tema escuro + tamanho de fonte.
 // Precisa usar !important porque o EPUB tem seus próprios estilos inline e no <link>.
 // As classes .nr-* são usadas para highlight e tradução inline sem conflito com o EPUB.
@@ -37,10 +127,15 @@ function buildReaderCSS(fontSize: FontSize): string {
       color: #ffffff !important;
     }
 
-    /* Parágrafo selecionado para tradução */
+    /* Parágrafo selecionado para tradução (fallback quando frase ocupa o parágrafo todo) */
     .nr-hl {
       background-color: rgba(99, 102, 241, 0.15) !important;
       border-radius: 3px !important;
+    }
+    /* Frase específica destacada dentro do parágrafo */
+    .nr-hl-sentence {
+      background-color: rgba(99, 102, 241, 0.25) !important;
+      border-radius: 2px !important;
     }
     /* Bloco de tradução injetado após o parágrafo */
     .nr-tr {
@@ -290,22 +385,31 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               return
             }
 
-            // Toggle off: parágrafo já destacado → remove highlight e tradução
-            if (para.classList.contains('nr-hl')) {
+            // Toggle off: parágrafo já traduzido → remove highlight e tradução
+            if (para.hasAttribute('data-nr-active')) {
+              para.removeAttribute('data-nr-active')
               para.classList.remove('nr-hl')
+              // Remove o span de frase se existir (unwrap: move filhos para cima)
+              const sentSpan = para.querySelector('.nr-hl-sentence')
+              if (sentSpan) {
+                const parent = sentSpan.parentNode!
+                while (sentSpan.firstChild) parent.insertBefore(sentSpan.firstChild, sentSpan)
+                sentSpan.remove()
+              }
               const next = para.nextElementSibling
               if (next?.classList.contains('nr-tr')) next.remove()
               return
             }
 
-            // Toggle on: destaca parágrafo e injeta div de tradução logo abaixo
-            para.classList.add('nr-hl')
+            // Toggle on: detecta a frase clicada primeiro, depois destaca e traduz
+            const sourceText = getSentenceFromClick(ev, para)
+            para.setAttribute('data-nr-active', '1')
+            highlightSentenceInParagraph(para, sourceText)
+
             const trDiv = doc.createElement('p')
             trDiv.className = 'nr-tr'
             trDiv.textContent = '...'   // placeholder enquanto traduz
             para.insertAdjacentElement('afterend', trDiv)
-
-            const sourceText = para.textContent!.trim()
             trDiv.dataset.source = sourceText
 
             translate(sourceText)

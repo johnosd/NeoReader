@@ -9,6 +9,7 @@ interface ReaderChromeProps {
   isBookmarked: boolean
   bookmarkCount: number
   ttsIsPlaying: boolean
+  ttsEngine: 'speechify' | 'native'
   onBack: () => void
   onFontSizeChange: (size: FontSize) => void
   onBookmark: () => void
@@ -42,6 +43,7 @@ export function ReaderChrome({
   isBookmarked,
   bookmarkCount,
   ttsIsPlaying,
+  ttsEngine,
   onBack,
   onFontSizeChange,
   onBookmark,
@@ -157,15 +159,20 @@ export function ReaderChrome({
             <GraduationCap size={20} />
           </button>
 
-          {/* TTS: Volume2 (parado) / VolumeX verde (tocando) */}
+          {/* TTS: Volume2 (parado) / VolumeX verde (tocando) + badge AI quando Speechify */}
           <button
             onClick={onTtsToggle}
-            className="p-2 text-[#a0a0a0] active:opacity-60"
+            className="relative p-2 text-[#a0a0a0] active:opacity-60"
             aria-label={ttsIsPlaying ? 'Parar leitura' : 'Iniciar leitura'}
           >
             {ttsIsPlaying
               ? <VolumeX size={20} className="text-[#22c55e]" />
               : <Volume2 size={20} />}
+            {ttsEngine === 'speechify' && (
+              <span className="absolute -top-0.5 -right-0.5 text-[9px] leading-none font-bold text-[#22c55e]">
+                AI
+              </span>
+            )}
           </button>
 
           {/* Percentual de progresso */}

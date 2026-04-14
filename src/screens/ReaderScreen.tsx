@@ -13,6 +13,7 @@ import { addBookmark, deleteBookmark } from '../db/bookmarks'
 import { addVocabItem } from '../db/vocabulary'
 import { db } from '../db/database'
 import { useTTS } from '../hooks/useTTS'
+import { SpeechifyService } from '../services/SpeechifyService'
 import type { Book } from '../types/book'
 
 interface ReaderScreenProps {
@@ -194,6 +195,7 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
         onTocOpen={() => setTocOpen(true)}
         onOpenVocabulary={onOpenVocabulary}
         ttsIsPlaying={tts.isPlaying}
+        ttsEngine={SpeechifyService.isConfigured() ? 'speechify' : 'native'}
         onTtsToggle={handleTtsToggle}
         onDismiss={() => setChromeVisible(false)}
       />
