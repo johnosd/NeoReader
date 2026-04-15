@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useState } from 'react'
 import type { BookWithProgress } from '../hooks/useLibraryGroups'
 import type { Book } from '../types/book'
 
@@ -8,10 +8,18 @@ interface HeroBannerProps {
 }
 
 export function HeroBanner({ book, onPress }: HeroBannerProps) {
-  // Cria URL temporária para exibir o Blob da capa (cleanup não crítico no MVP)
-  const coverUrl = useMemo(() => (
-    book.coverBlob ? URL.createObjectURL(book.coverBlob) : null
-  ), [book.coverBlob])
+  const [coverUrl, setCoverUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!book.coverBlob) {
+      setCoverUrl(null)
+      return
+    }
+
+    const url = URL.createObjectURL(book.coverBlob)
+    setCoverUrl(url)
+    return () => URL.revokeObjectURL(url)
+  }, [book.coverBlob])
 
   return (
     <div className="relative w-full" style={{ aspectRatio: '16/9' }}>

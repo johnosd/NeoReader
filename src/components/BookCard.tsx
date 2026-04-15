@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useState } from 'react'
 import { MoreVertical } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/database'
@@ -17,13 +17,17 @@ export function BookCard({ book, onPress, onOpenOptions }: BookCardProps) {
     [book.id],
   )
 
-  // Converte o Blob da capa em uma URL de objeto para exibir no <img>
-  // useMemo evita recriar a URL a cada render
-  const coverUrl = useMemo(() => {
-    if (!book.coverBlob) return null
-    return URL.createObjectURL(book.coverBlob)
-    // Nota: em produção, revogaríamos essa URL com useEffect cleanup.
-    // Para o MVP isso é aceitável — o número de livros é pequeno.
+  const [coverUrl, setCoverUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!book.coverBlob) {
+      setCoverUrl(null)
+      return
+    }
+
+    const url = URL.createObjectURL(book.coverBlob)
+    setCoverUrl(url)
+    return () => URL.revokeObjectURL(url)
   }, [book.coverBlob])
 
   const percentage = progress?.percentage ?? 0

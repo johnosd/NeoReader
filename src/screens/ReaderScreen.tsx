@@ -200,11 +200,11 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
   }
 
   // Recebe o texto da frase tocada do EpubViewer, injeta bloco inline e dispara a tradução
-  function handleTranslate(sourceText: string) {
-    viewerRef.current?.showTranslationLoading()
+  function handleTranslate(sourceText: string, requestId: number) {
+    viewerRef.current?.showTranslationLoading(requestId)
     translate(sourceText, 'en', targetLang)
-      .then((result) => viewerRef.current?.injectTranslation(result))
-      .catch(() => viewerRef.current?.injectTranslation('Erro ao traduzir.'))
+      .then((result) => viewerRef.current?.injectTranslation(requestId, result))
+      .catch(() => viewerRef.current?.injectTranslation(requestId, 'Erro ao traduzir.'))
   }
 
   const handleRelocate = useCallback(
@@ -261,13 +261,12 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
           onSaveVocab={handleSaveVocab}
           onCenterTap={handleCenterTap}
           onTranslate={handleTranslate}
-          onSpeakOne={(text) => void tts.speakOne(text)}
+          onSpeakOne={(text, paraIdx) => void tts.speakOne(text, paraIdx)}
           onParagraphTapForTts={(idx) => {
             const chunks = getTtsChunks()
             const chunkIdx = Math.max(0, chunks.findIndex(c => c.paraIdx >= idx))
             void tts.stop().then(() => startPlay(chunks, chunkIdx))
           }}
-          ttsIsPlaying={tts.isPlaying}
           ttsGlobalActive={ttsPlayerVisible}
           onAtBottom={handleAtBottom}
           onSwipeAtBottom={handleSwipeAtBottom}

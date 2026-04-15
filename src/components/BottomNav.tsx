@@ -1,9 +1,9 @@
 import { useRef, useState } from 'react'
-import { Home, Star, BarChart2, User, Plus } from 'lucide-react'
+import { Home, Star, User, Plus } from 'lucide-react'
 import { EpubService } from '../services/EpubService'
 import { addBook } from '../db/books'
 
-type Tab = 'home' | 'books' | 'progress' | 'profile'
+type Tab = 'home' | 'books' | 'profile'
 
 interface BottomNavProps {
   activeTab?: Tab
@@ -47,7 +47,6 @@ export function BottomNav({ activeTab = 'home', onTabChange }: BottomNavProps) {
     { id: 'home' as Tab, label: 'Home', Icon: Home },
     { id: 'books' as Tab, label: 'Vocab', Icon: Star },
     null, // espaço para o FAB central
-    { id: 'progress' as Tab, label: 'Progresso', Icon: BarChart2 },
     { id: 'profile' as Tab, label: 'Perfil', Icon: User },
   ]
 

@@ -1,6 +1,6 @@
 # NeoReader
 
-Leitor de EPUB para Android focado em **incentivar a leitura** e **facilitar o aprendizado de inglês**. Interface estilo "Netflix for Books" — dark mode, capas grandes, navegação imersiva.
+Leitor de EPUB para Android focado em **incentivar a leitura** e **facilitar o aprendizado de inglês**. Interface estilo "Netflix for Books" com dark mode, capas grandes e navegação imersiva.
 
 ---
 
@@ -9,42 +9,42 @@ Leitor de EPUB para Android focado em **incentivar a leitura** e **facilitar o a
 ### Biblioteca
 - [x] Importar arquivos `.epub` do armazenamento local
 - [x] Hero banner com último livro aberto e botão "Continuar"
-- [x] Rows horizontais: "Continue lendo" e "Adicionados recentemente"
+- [x] Rows horizontais: "Continue lendo" e "Meus Livros"
 - [x] Barra de progresso de leitura embaixo de cada capa
-- [x] Menu de opções por livro (pressão longa no card): recriar capa, escolher imagem externa, deletar
+- [x] Menu de opções por livro: recriar capa, escolher imagem externa, deletar
 
 ### Leitor
-- [x] Renderização via [foliate-js](https://github.com/johnfactotum/foliate-js) — modo scroll contínuo
-- [x] Tema escuro, tamanho de fonte ajustável (4 tamanhos) em tempo real
+- [x] Renderização via [foliate-js](https://github.com/johnfactotum/foliate-js) em modo scroll contínuo
+- [x] Tema escuro e tamanho de fonte ajustável em tempo real
 - [x] Índice (TOC) navegável via sheet deslizante
 - [x] Marcadores: adicionar, listar e navegar
-- [x] Progresso persistente (restaura posição ao reabrir)
-- [x] Tap central abre/fecha o chrome (barras de título e controles)
-- [x] Navegação entre capítulos: banner "Fim do capítulo" ao atingir o fundo + swipe para avançar
+- [x] Progresso persistente com restauração ao reabrir
+- [x] Tap central abre e fecha o chrome do leitor
+- [x] Navegação entre capítulos com banner de fim de capítulo + swipe para avançar
 
 ### Aprendizado de inglês
-- [x] Tradução inline — detecta a frase exata tocada (via `caretRangeFromPoint`) e traduz só ela
-- [x] Highlight apenas da frase selecionada dentro do parágrafo (não o parágrafo inteiro)
-- [x] Bloco de tradução injetado diretamente no iframe logo abaixo do parágrafo
-- [x] Salvar par original/tradução no vocabulário com ⭐
+- [x] Tradução inline da frase exata tocada via `caretRangeFromPoint`
+- [x] Highlight só da frase selecionada, não do parágrafo inteiro
+- [x] Bloco de tradução injetado no iframe logo abaixo do trecho tocado
+- [x] Salvar par original/tradução no vocabulário com `⭐`
 - [x] Tela de vocabulário com histórico de frases salvas
-- [x] Cache offline de traduções (IndexedDB)
+- [x] Cache offline de traduções em IndexedDB
 
 ### TTS (Text-to-Speech)
-- [x] Audiobook contínuo via botão ▶ no chrome do leitor
-- [x] Mini player fixo na base da tela durante leitura: ⏮ parágrafo anterior, ▶/⏸, ⏭ próximo, ⏹ encerrar
-- [x] Retomar de onde parou ao pausar e tocar novamente
+- [x] Audiobook contínuo via botão no chrome do leitor
+- [x] Mini player fixo na base da tela durante leitura
+- [x] Retomar do ponto pausado
 - [x] Tap em parágrafo durante leitura pula direto para ele
-- [x] Leitura de frase individual via botão 🔊 no bloco de tradução
-- [x] Karaokê de palavras: palavra atual em negrito + sublinhado durante leitura
-- [x] Motor primário: **Speechify API** (vozes neurais, requer `VITE_SPEECHIFY_API_KEY`)
-- [x] Fallback automático para TTS nativo do Android quando offline ou sem chave
+- [x] Leitura de frase individual via botão `🔊` no bloco de tradução
+- [x] Karaokê de palavras com highlight da palavra atual
+- [x] Motor primário: **Speechify API**
+- [x] Fallback automático para TTS nativo do Android
 
 ### Configurações
 - [x] Tela de configurações acessível pelo chrome do leitor
-- [x] API key da Speechify (input seguro com show/hide, salvo no IndexedDB)
-- [x] Seleção do idioma de tradução (PT-BR, ES, FR, DE, IT, JA)
-- [x] Tamanho de fonte padrão ao abrir livros (preview ao vivo)
+- [x] API key da Speechify com input seguro e persistência local
+- [x] Seleção do idioma de tradução
+- [x] Tamanho de fonte padrão ao abrir livros
 
 ---
 
@@ -53,15 +53,15 @@ Leitor de EPUB para Android focado em **incentivar a leitura** e **facilitar o a
 | Camada | Tecnologia |
 |--------|-----------|
 | UI | React 19 + TypeScript + Vite |
-| Mobile | Capacitor 6 (Android) |
+| Mobile | Capacitor 8 (Android) |
 | Estilo | Tailwind CSS v4 |
 | EPUB render | foliate-js |
 | Storage | Dexie.js (IndexedDB) |
 | Estado global | Zustand |
 | Ícones | Lucide React |
-| Tradução | MyMemory API (gratuita) |
+| Tradução | MyMemory API |
 | TTS premium | Speechify API |
-| TTS fallback | @capacitor-community/text-to-speech |
+| TTS fallback | `@capacitor-community/text-to-speech` |
 
 ---
 
@@ -69,22 +69,41 @@ Leitor de EPUB para Android focado em **incentivar a leitura** e **facilitar o a
 
 ```bash
 npm install
-npm run dev          # dev server em http://localhost:5173
-npm run build        # build de produção (gera dist/)
-npx tsc --noEmit     # checagem de tipos
+npm run dev
+npm run build
+npx tsc --noEmit
 ```
+
+### Scripts
+
+| Comando | O que faz |
+|---------|-----------|
+| `npm run dev` | Sobe o dev server do Vite |
+| `npm run build` | Executa `tsc -b` e build de produção |
+| `npm run preview` | Serve localmente o build gerado em `dist/` |
+| `npx tsc --noEmit` | Checagem de tipos sem gerar artefatos |
+
+### Observação sobre Vite
+
+Este projeto usa `vite --configLoader native` nos scripts de `dev`, `build` e `preview`.
+
+Motivo:
+- evita falha do loader padrão do Vite ao processar a config com o plugin do Tailwind no ambiente Windows;
+- mantém o build estável sem depender do bundling da própria config do Vite.
+
+Além disso, a config restringe `optimizeDeps.entries` ao `index.html` raiz para impedir que o Vite tente escanear arquivos HTML gerados dentro de `android/`.
 
 ---
 
 ## Build Android
 
-Pré-requisitos: Android Studio instalado, device conectado com USB debugging ativo.
+Pré-requisitos: Android Studio instalado e device conectado com USB debugging ativo.
 
 ```bash
 npm run build
-npx cap sync android     # copia dist/ para o projeto Android
-npx cap run android      # builda e instala no device
-adb devices              # lista devices conectados
+npx cap sync android
+npx cap run android
+adb devices
 ```
 
 ---
@@ -99,38 +118,64 @@ cp .env.example .env
 
 | Variável | Descrição | Obrigatório |
 |----------|-----------|-------------|
-| `VITE_SPEECHIFY_API_KEY` | API key da [Speechify](https://console.speechify.ai/) para vozes neurais | Não — usa TTS nativo como fallback |
+| `VITE_SPEECHIFY_API_KEY` | API key da [Speechify](https://console.speechify.ai/) para vozes neurais | Não. Sem chave, o app usa TTS nativo |
 
 ---
 
 ## Estrutura de pastas
 
-```
+```text
 src/
-├── components/       # UI reutilizável (BookCard, HeroBanner, BookRow...)
-│   └── reader/       # Componentes do leitor (EpubViewer, ReaderChrome...)
-├── screens/          # Telas completas (LibraryScreen, ReaderScreen, VocabularyScreen)
-├── hooks/            # React hooks (useLibraryGroups, useTTS, useReaderProgress...)
-├── services/         # Lógica de negócio (SpeechifyService, TranslationService...)
-├── db/               # Schema Dexie e queries (books, progress, bookmarks, vocabulary)
-├── store/            # Zustand stores (readerStore)
+├── components/       # UI reutilizável
+│   └── reader/       # Componentes do leitor
+├── screens/          # Telas completas
+├── hooks/            # React hooks customizados
+├── services/         # Lógica de negócio
+├── db/               # Schema Dexie e queries
+├── store/            # Zustand stores
 └── types/            # Tipos TypeScript compartilhados
 ```
 
 ---
 
-## Roadmap
+## Status recente
 
-### MVP — em aberto
-- [ ] **Google Drive sync** — progresso, marcadores e vocabulário sincronizados entre devices (OAuth + Capacitor)
+### Correções aplicadas
+- [x] Tradução inline sem race condition entre toques rápidos
+- [x] Limpeza correta da seleção anterior no reader
+- [x] TTS de frase individual com highlight no parágrafo correto
+- [x] Exclusão consistente de livro com remoção de progresso, marcadores e vocabulário associado
+- [x] Remoção da aba morta `Progresso` da bottom nav
+- [x] Cleanup de `createObjectURL` em capas da biblioteca/home
+- [x] Ajuste dos scripts e config do Vite para build/dev estáveis no Windows
 
-### Próximas features (Fase 2)
-
-#### TTS
-- [ ] Seleção de voz Speechify (lista de vozes via `/v1/voices`)
-
-#### Aprendizado
-- [ ] **Flashcards SRS** — revisar vocabulário salvo com algoritmo SM-2 (estilo Anki)
-- [ ] **Integração Claude API (BYOK)** — resumo de capítulo, quiz de compreensão, tutor conversacional sobre o trecho lido
-- [ ] Estatísticas de leitura — streak de dias, tempo por sessão, palavras traduzidas
+### Próximas features
+- [ ] Google Drive sync de progresso, marcadores e vocabulário
+- [ ] Seleção de voz Speechify
+- [ ] Flashcards SRS estilo Anki
+- [ ] Integração Claude API (BYOK)
+- [ ] Estatísticas de leitura
 - [ ] Export CSV do vocabulário
+
+---
+
+## Troubleshooting
+
+### `npm run build` falha ao carregar a config do Vite
+
+Confirme:
+- que você está usando os scripts do `package.json`, não `vite build` manual sem flags;
+- que a config usada é `vite.config.mjs`;
+- que as dependências estão instaladas corretamente com `npm install`.
+
+### Vite tenta escanear arquivos dentro de `android/`
+
+Isso já está mitigado em `vite.config.mjs` via:
+
+```js
+optimizeDeps: {
+  entries: ['index.html'],
+}
+```
+
+Se o problema reaparecer, revise a config antes de alterar o código da aplicação.

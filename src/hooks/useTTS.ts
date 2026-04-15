@@ -156,17 +156,17 @@ export function useTTS(callbacks: TTSCallbacks) {
   }
 
   // Lê um único parágrafo (botão 🔊 no bloco de tradução injetado)
-  async function speakOne(text: string) {
+  async function speakOne(text: string, paraIdx: number) {
     // Reseta flag de stop — sem isso, se o audiobook foi parado antes, speakWithSpeechify
     // retornaria imediatamente após o fetch sem tocar o áudio
     shouldStopRef.current = false
     const apiKey = await SpeechifyService.getApiKey()
     if (apiKey) {
       // speakOne usa a sessão atual — não conflita com o loop do audiobook
-      await speakWithSpeechify(text, 0, 0, apiKey, playSessionRef.current)
+      await speakWithSpeechify(text, paraIdx, 0, apiKey, playSessionRef.current)
     } else {
       const handle = await TextToSpeech.addListener('onRangeStart', ({ start, end }) => {
-        callbacksRef.current.onWordHighlight(0, start, end)
+        callbacksRef.current.onWordHighlight(paraIdx, start, end)
       })
       try {
         await TextToSpeech.speak({ text, lang: 'en-US', rate: 1.0 })
