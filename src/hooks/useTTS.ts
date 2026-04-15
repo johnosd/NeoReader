@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { TextToSpeech } from '@capacitor-community/text-to-speech'
 import { SpeechifyService } from '../services/SpeechifyService'
+import type { TtsChunk } from '../components/reader/EpubViewer'
 
 interface TTSCallbacks {
   onWordHighlight: (paraIdx: number, start: number, end: number) => void
   onParagraphChange: (paraIdx: number) => void
   onStop: () => void
+  // Chamado somente quando o TTS termina naturalmente (não quando o usuário para)
+  onFinished?: () => void
 }
 
 export function useTTS(callbacks: TTSCallbacks) {
@@ -24,21 +27,38 @@ export function useTTS(callbacks: TTSCallbacks) {
   // — necessário porque isConfigured() virou async e stop() é síncrono
   const usingSpeechifyRef = useRef(false)
 
-  // Toca um parágrafo via Speechify e agenda karaokê pelos speech_marks.
-  // new Audio(blobUrl): elemento de áudio HTML5 — funciona no WebView do Capacitor
-  // sem precisar de plugin nativo extra.
-  async function speakWithSpeechify(text: string, paraIdx: number, apiKey: string): Promise<void> {
+  // Último chunk tocado — permite retomar de onde parou ao reiniciar
+  const lastChunkIdxRef = useRef(0)
+
+  // Contador de sessão: incrementado a cada play(). O loop verifica se ainda é a sessão
+  // ativa antes de continuar — impede que um loop antigo (supersedido) rode em paralelo
+  // quando stop() + play() são chamados em rápida sucessão.
+  const playSessionRef = useRef(0)
+
+  // Toca um chunk de frase via Speechify e agenda karaokê pelos speech_marks.
+  // offsetInPara: offset de char da frase dentro do parágrafo completo —
+  // necessário para que o karaokê aponte para a posição correta no innerHTML do parágrafo.
+  // session: ID da sessão de play() que chamou esta função.
+  // Após o await de rede, verifica se a sessão ainda é ativa antes de tocar o áudio —
+  // evita que uma resposta de API "atrasada" inicie um áudio depois de stop() ser chamado.
+  async function speakWithSpeechify(text: string, paraIdx: number, offsetInPara: number, apiKey: string, session: number): Promise<void> {
     const { audioBlob, speechMarks } = await SpeechifyService.synthesize(text, apiKey)
+
+    // Verifica logo após o await: stop() pode ter sido chamado enquanto a rede respondia.
+    // audioRef.current é null durante fetch, então stop() não conseguiu pausar nada.
+    if (shouldStopRef.current || playSessionRef.current !== session) return
+
     const url = URL.createObjectURL(audioBlob)
     const audio = new Audio(url)
     audioRef.current = audio
 
     // Agenda cada palavra: speech_mark.start_time indica em qual ms ela começa.
-    // setTimeout com start_time ms de delay a partir do play() ≈ sincronizado com o áudio.
+    // Os offsets do Speechify são relativos ao chunk (frase), não ao parágrafo inteiro.
+    // Somamos offsetInPara para obter a posição correta no innerHTML do parágrafo.
     const timers = speechMarks.map(mark =>
       setTimeout(() => {
         if (!shouldStopRef.current) {
-          callbacksRef.current.onWordHighlight(paraIdx, mark.start, mark.end)
+          callbacksRef.current.onWordHighlight(paraIdx, offsetInPara + mark.start, offsetInPara + mark.end)
         }
       }, mark.start_time),
     )
@@ -60,42 +80,67 @@ export function useTTS(callbacks: TTSCallbacks) {
     })
   }
 
-  // Inicia audiobook contínuo a partir de startIdx.
-  // Modo Speechify: speakWithSpeechify por parágrafo (voz neural + karaokê por timers)
+  // Inicia audiobook contínuo a partir de startIdx (índice de chunk, não de parágrafo).
+  // Cada chunk é uma frase ou grupo de frases curtas — menor latência vs parágrafo inteiro.
+  // Modo Speechify: speakWithSpeechify por chunk (voz neural + karaokê por timers)
   // Modo fallback: TextToSpeech.speak() + onRangeStart nativo
-  async function play(paragraphs: string[], startIdx = 0) {
+  async function play(chunks: TtsChunk[], startIdx = 0) {
+    // Gera ID único para esta invocação. Loops anteriores que ainda estejam
+    // aguardando uma Promise async vão perceber que não são mais a sessão ativa.
+    const mySession = ++playSessionRef.current
+
     shouldStopRef.current = false
     setIsPlaying(true)
-    const currentIdxRef = { current: startIdx }
+
+    // currentChunkRef: chunk sendo tocado agora — lido pelo listener nativo de onRangeStart
+    const currentChunkRef = { current: chunks[startIdx] ?? chunks[0] }
 
     // Resolve a key uma vez para toda a sessão — evita N chamadas ao IndexedDB
     const apiKey = await SpeechifyService.getApiKey()
     usingSpeechifyRef.current = Boolean(apiKey)
 
-    // Listener onRangeStart só é registrado no fallback nativo
+    // Listener onRangeStart só é registrado no fallback nativo.
+    // Soma offsetInPara para que o karaokê aponte para a posição correta no parágrafo.
     let nativeHandle: Awaited<ReturnType<typeof TextToSpeech.addListener>> | null = null
     if (!apiKey) {
       nativeHandle = await TextToSpeech.addListener('onRangeStart', ({ start, end }) => {
-        callbacksRef.current.onWordHighlight(currentIdxRef.current, start, end)
+        const c = currentChunkRef.current
+        callbacksRef.current.onWordHighlight(c.paraIdx, c.offsetInPara + start, c.offsetInPara + end)
       })
     }
 
     try {
-      for (let i = startIdx; i < paragraphs.length; i++) {
-        if (shouldStopRef.current) break
-        currentIdxRef.current = i
-        callbacksRef.current.onParagraphChange(i)
+      for (let i = startIdx; i < chunks.length; i++) {
+        // Para se o usuário pediu stop OU se uma nova sessão de play() foi iniciada
+        if (shouldStopRef.current || playSessionRef.current !== mySession) break
+        const chunk = chunks[i]
+        currentChunkRef.current = chunk
+        lastChunkIdxRef.current = i
+
+        // onParagraphChange só dispara quando troca de parágrafo (não a cada frase)
+        if (i === startIdx || chunks[i - 1].paraIdx !== chunk.paraIdx) {
+          callbacksRef.current.onParagraphChange(chunk.paraIdx)
+        }
 
         if (apiKey) {
-          await speakWithSpeechify(paragraphs[i], i, apiKey)
+          await speakWithSpeechify(chunk.text, chunk.paraIdx, chunk.offsetInPara, apiKey, mySession)
         } else {
-          await TextToSpeech.speak({ text: paragraphs[i], lang: 'en-US', rate: 1.0 })
+          await TextToSpeech.speak({ text: chunk.text, lang: 'en-US', rate: 1.0 })
         }
       }
     } finally {
       await nativeHandle?.remove()
-      setIsPlaying(false)
-      callbacksRef.current.onStop()
+      // Só atualiza estado da UI se esta sessão ainda for a ativa.
+      // Se uma nova sessão já começou, deixa ela gerenciar isPlaying e os callbacks —
+      // chamar onStop() aqui removeria os highlights da nova sessão.
+      if (playSessionRef.current === mySession) {
+        setIsPlaying(false)
+        if (!shouldStopRef.current) {
+          lastChunkIdxRef.current = 0
+          callbacksRef.current.onFinished?.()
+        }
+        callbacksRef.current.onStop()
+      }
     }
   }
 
@@ -112,9 +157,13 @@ export function useTTS(callbacks: TTSCallbacks) {
 
   // Lê um único parágrafo (botão 🔊 no bloco de tradução injetado)
   async function speakOne(text: string) {
+    // Reseta flag de stop — sem isso, se o audiobook foi parado antes, speakWithSpeechify
+    // retornaria imediatamente após o fetch sem tocar o áudio
+    shouldStopRef.current = false
     const apiKey = await SpeechifyService.getApiKey()
     if (apiKey) {
-      await speakWithSpeechify(text, 0, apiKey)
+      // speakOne usa a sessão atual — não conflita com o loop do audiobook
+      await speakWithSpeechify(text, 0, 0, apiKey, playSessionRef.current)
     } else {
       const handle = await TextToSpeech.addListener('onRangeStart', ({ start, end }) => {
         callbacksRef.current.onWordHighlight(0, start, end)
@@ -128,5 +177,10 @@ export function useTTS(callbacks: TTSCallbacks) {
     callbacksRef.current.onStop()
   }
 
-  return { isPlaying, play, stop, speakOne }
+  // Reseta a posição para início — usado pelo botão ⏹ Stop do mini player
+  function resetPosition() {
+    lastChunkIdxRef.current = 0
+  }
+
+  return { isPlaying, play, stop, speakOne, lastChunkIdx: lastChunkIdxRef, resetPosition }
 }

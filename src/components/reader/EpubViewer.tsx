@@ -4,6 +4,55 @@ import type { View } from 'foliate-js/view.js'
 
 export type FontSize = 'sm' | 'md' | 'lg' | 'xl'
 
+// Unidade mínima de leitura para o TTS.
+// Texto é partido em frases (não parágrafos inteiros) para reduzir latência de API.
+// offsetInPara: posição de início da frase no parágrafo completo — usada para
+// alinhar o karaokê de palavras (offsets do Speechify são relativos ao chunk).
+export interface TtsChunk {
+  text: string
+  paraIdx: number
+  offsetInPara: number
+}
+
+// Divide um parágrafo em frases e agrupa as muito curtas (<minLen chars) com a próxima.
+// Retorna array de { sentence, offset } onde offset é o índice de char no texto original.
+function splitParagraphIntoChunks(text: string, minLen = 40): Array<{ sentence: string; offset: number }> {
+  // matchAll retorna todos os matches com índice — mais preciso que match()
+  const matches = [...text.matchAll(/[^.!?]*[.!?]+\s*/g)]
+  const parts: Array<{ sentence: string; offset: number }> = matches.map(m => ({
+    sentence: m[0],
+    offset: m.index ?? 0,
+  }))
+
+  // Captura cauda sem pontuação final (ex: último parágrafo sem ponto)
+  const lastEnd = matches.length > 0
+    ? (matches[matches.length - 1].index ?? 0) + matches[matches.length - 1][0].length
+    : 0
+  const tail = text.slice(lastEnd).trim()
+  if (tail) parts.push({ sentence: tail, offset: lastEnd })
+
+  // Se não achou nenhuma frase delimitada, devolve o parágrafo inteiro
+  if (parts.length === 0) return [{ sentence: text.trim(), offset: 0 }]
+
+  // Agrupa frases curtas com a próxima até atingir minLen
+  const merged: Array<{ sentence: string; offset: number }> = []
+  let acc = ''
+  let accOffset = 0
+
+  for (const { sentence, offset } of parts) {
+    if (!acc) { acc = sentence; accOffset = offset }
+    else acc += sentence
+
+    if (acc.trim().length >= minLen) {
+      merged.push({ sentence: acc.trim(), offset: accOffset })
+      acc = ''
+    }
+  }
+  if (acc.trim()) merged.push({ sentence: acc.trim(), offset: accOffset })
+
+  return merged
+}
+
 // Escapa caracteres HTML para inserção segura via innerHTML (karaokê de palavras)
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -159,6 +208,56 @@ function buildReaderCSS(fontSize: FontSize): string {
       font-weight: bold !important;
       text-decoration: underline !important;
     }
+
+    /* Bloco de tradução inline — injetado após o parágrafo selecionado */
+    #nr-translation-block {
+      margin: 8px 0 16px 0 !important;
+      padding: 10px 12px !important;
+      border-radius: 8px !important;
+      background: rgba(99, 102, 241, 0.10) !important;
+      border-left: 3px solid #6366f1 !important;
+    }
+    .nr-tr-text {
+      color: #c77dff !important;
+      font-size: 14px !important;
+      font-style: italic !important;
+      line-height: 1.5 !important;
+      margin: 0 0 8px 0 !important;
+      background: transparent !important;
+    }
+    .nr-tr-loading {
+      display: flex !important;
+      align-items: center !important;
+      gap: 8px !important;
+      color: #a5a5a5 !important;
+      font-size: 14px !important;
+    }
+    .nr-tr-spinner {
+      display: inline-block !important;
+      width: 14px !important;
+      height: 14px !important;
+      border: 2px solid #9d4edd !important;
+      border-top-color: transparent !important;
+      border-radius: 50% !important;
+      animation: nr-spin 0.6s linear infinite !important;
+      flex-shrink: 0 !important;
+    }
+    @keyframes nr-spin { to { transform: rotate(360deg); } }
+    .nr-tr-actions {
+      display: flex !important;
+      gap: 8px !important;
+    }
+    .nr-tr-actions button {
+      flex: 1 !important;
+      padding: 6px 0 !important;
+      border-radius: 8px !important;
+      background: #2d2942 !important;
+      color: #fff !important;
+      font-size: 13px !important;
+      border: none !important;
+      cursor: pointer !important;
+      font-family: inherit !important;
+    }
   `
 }
 
@@ -168,11 +267,23 @@ export interface EpubViewerHandle {
   goTo(target: string | number | { fraction: number }): void
   // TTS: retorna os textos puros de todos os parágrafos da seção atual
   getParagraphs(): string[]
+  // TTS: retorna frases agrupadas com paraIdx e offsetInPara para karaokê preciso
+  getSentenceChunks(): TtsChunk[]
+  // TTS: retorna o índice do primeiro parágrafo visível na tela (para iniciar pelo ponto de leitura)
+  getFirstVisibleParagraphIndex(): number
   // TTS: destaca parágrafo + palavra (wordStart === wordEnd === 0 → só parágrafo)
   highlightTts(paraIdx: number, wordStart: number, wordEnd: number): void
   // TTS: remove todos os destaques de audiobook
   clearTts(): void
-  // Tradução: remove highlight do parágrafo ativo (chamado quando o painel fecha)
+  // TTS: rola suavemente para centralizar o parágrafo na tela (respeitando scroll do usuário)
+  scrollToParagraph(idx: number): void
+  // TTS: prepara scroll automático — limpa flag de "usuário rolou", chama no início do play
+  resetTtsScroll(): void
+  // Tradução inline: injeta bloco com spinner logo após o parágrafo ativo
+  showTranslationLoading(): void
+  // Tradução inline: substitui spinner pelo texto traduzido + botões de ação
+  injectTranslation(translatedText: string): void
+  // Tradução inline: remove bloco e highlight do parágrafo ativo
   clearTranslation(): void
 }
 
@@ -196,8 +307,11 @@ interface EpubViewerProps {
   onSpeakOne: (text: string) => void
   // TTS: quando audiobook está tocando, tap em parágrafo pula para ele
   onParagraphTapForTts: (idx: number) => void
-  // TTS: true quando audiobook está rodando (muda o comportamento do tap em parágrafo)
+  // TTS: true quando audiobook está ativamente tocando (scroll automático, highlight)
   ttsIsPlaying: boolean
+  // TTS: true quando o modo leitura contínua está ativo — inclui pausado.
+  // Quando true, tap em parágrafo navega o TTS em vez de abrir tradução.
+  ttsGlobalActive: boolean
 }
 
 // forwardRef: padrão React para expor métodos imperativos ao componente pai.
@@ -208,7 +322,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       book, fontSize, savedCfi,
       onRelocate, onTocReady, onLoad, onError,
       onSaveVocab, onCenterTap, onTranslate,
-      onSpeakOne, onParagraphTapForTts, ttsIsPlaying,
+      onSpeakOne, onParagraphTapForTts, ttsIsPlaying, ttsGlobalActive,
     },
     ref,
   ) => {
@@ -221,6 +335,16 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
     // Ref do parágrafo com highlight de tradução ativo — usado por clearTranslation()
     const activeTranslationParaRef = useRef<Element | null>(null)
+    // Texto original e traduzido da frase ativa — usados pelos botões Ouvir/Salvar no iframe
+    const activeSourceTextRef = useRef<string>('')
+    const activeTranslatedTextRef = useRef<string>('')
+
+    // TTS scroll automático: controla se o auto-scroll deve seguir o TTS ou foi bloqueado
+    // pelo usuário rolar manualmente durante a leitura
+    const ttsActiveRef = useRef(false)       // true enquanto TTS está tocando
+    const userScrolledRef = useRef(false)    // true se usuário rolou durante TTS
+    // Janela de tempo em que scrolls são considerados programáticos (cobre animação smooth)
+    const scrollingProgrammaticallyUntilRef = useRef(0)
 
     // Refs para os callbacks mais recentes — evita stale closure nos listeners do iframe.
     // Os listeners são criados uma vez por seção (no evento 'load'), mas os callbacks
@@ -238,6 +362,9 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     // ttsIsPlaying como ref para ser lido dentro do click handler sem stale closure
     const ttsIsPlayingRef = useRef(ttsIsPlaying)
     useEffect(() => { ttsIsPlayingRef.current = ttsIsPlaying }, [ttsIsPlaying])
+    // ttsGlobalActive: modo leitura contínua ativo (inclui pausado) — gating do clique
+    const ttsGlobalActiveRef = useRef(ttsGlobalActive)
+    useEffect(() => { ttsGlobalActiveRef.current = ttsGlobalActive }, [ttsGlobalActive])
 
     // Expõe API imperativa para o ReaderScreen via ref
     useImperativeHandle(ref, () => ({
@@ -246,6 +373,43 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       goTo: (target) => { viewRef.current?.goTo(target) },
 
       getParagraphs: () => ttsParagraphTextsRef.current,
+
+      getSentenceChunks: (): TtsChunk[] => {
+        const chunks: TtsChunk[] = []
+        for (let paraIdx = 0; paraIdx < ttsParagraphTextsRef.current.length; paraIdx++) {
+          const text = ttsParagraphTextsRef.current[paraIdx]
+          for (const { sentence, offset } of splitParagraphIntoChunks(text)) {
+            chunks.push({ text: sentence, paraIdx, offsetInPara: offset })
+          }
+        }
+        return chunks
+      },
+
+      getFirstVisibleParagraphIndex: () => {
+        const paras = ttsParagraphsRef.current
+        for (let i = 0; i < paras.length; i++) {
+          // getBoundingClientRect: coordenadas relativas ao viewport do iframe.
+          // rect.bottom > 0 = parágrafo ainda não saiu completamente pelo topo.
+          const rect = (paras[i] as HTMLElement).getBoundingClientRect()
+          if (rect.bottom > 0) return i
+        }
+        return 0
+      },
+
+      scrollToParagraph: (idx: number) => {
+        // Usuário rolou manualmente durante o TTS: não override a posição dele
+        if (userScrolledRef.current) return
+        const para = ttsParagraphsRef.current[idx] as HTMLElement | undefined
+        if (!para) return
+        // Marca como scroll programático por 1s (cobre animação smooth)
+        scrollingProgrammaticallyUntilRef.current = Date.now() + 1000
+        para.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      },
+
+      resetTtsScroll: () => {
+        userScrolledRef.current = false
+        ttsActiveRef.current = true
+      },
 
       highlightTts: (paraIdx, wordStart, wordEnd) => {
         // Remove destaques do parágrafo anterior (TTS e karaokê)
@@ -282,6 +446,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       },
 
       clearTts: () => {
+        ttsActiveRef.current = false
         ttsParagraphsRef.current.forEach(el => {
           el.classList.remove('nr-tts-hl')
           const htmlEl = el as HTMLElement
@@ -292,9 +457,41 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         })
       },
 
+      showTranslationLoading: () => {
+        const para = activeTranslationParaRef.current
+        if (!para) return
+        const doc = para.ownerDocument!
+        // Remove bloco anterior caso exista (ex: tap rápido em parágrafos diferentes)
+        doc.getElementById('nr-translation-block')?.remove()
+        const block = doc.createElement('div')
+        block.id = 'nr-translation-block'
+        block.className = 'nr-translation-block'
+        block.innerHTML = `
+          <div class="nr-tr-loading">
+            <span class="nr-tr-spinner"></span>
+            <span>Traduzindo…</span>
+          </div>`
+        para.after(block)
+      },
+
+      injectTranslation: (translatedText: string) => {
+        const para = activeTranslationParaRef.current
+        if (!para) return
+        const block = para.ownerDocument?.getElementById('nr-translation-block')
+        if (!block) return
+        activeTranslatedTextRef.current = translatedText
+        block.innerHTML = `
+          <p class="nr-tr-text">${escapeHtml(translatedText)}</p>
+          <div class="nr-tr-actions">
+            <button data-nr-action="speak">🔊 Ouvir</button>
+            <button data-nr-action="save">⭐ Salvar</button>
+          </div>`
+      },
+
       clearTranslation: () => {
         const para = activeTranslationParaRef.current
         if (!para) return
+        para.ownerDocument?.getElementById('nr-translation-block')?.remove()
         para.removeAttribute('data-nr-active')
         para.classList.remove('nr-hl')
         const sentSpan = para.querySelector('.nr-hl-sentence')
@@ -303,6 +500,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           while (sentSpan.firstChild) parent.insertBefore(sentSpan.firstChild, sentSpan)
           sentSpan.remove()
         }
+        activeSourceTextRef.current = ''
+        activeTranslatedTextRef.current = ''
         activeTranslationParaRef.current = null
       },
     }))
@@ -349,8 +548,33 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           ttsParagraphTextsRef.current = ttsParagraphsRef.current
             .map(el => el.textContent!.trim())
 
+          // Detecta scroll manual do usuário durante TTS para pausar o auto-scroll.
+          // passive:true = não bloqueia o scroll nativo (performance).
+          // capture:true = captura antes de qualquer handler filho (garante que não perca eventos).
+          doc.defaultView?.addEventListener('scroll', () => {
+            if (ttsActiveRef.current && Date.now() > scrollingProgrammaticallyUntilRef.current) {
+              userScrolledRef.current = true
+            }
+          }, { passive: true, capture: true })
+
           doc.addEventListener('click', (ev: MouseEvent) => {
             const target = ev.target as Element
+
+            // Intercepta botões Ouvir/Salvar dentro do bloco de tradução inline
+            const actionBtn = target.closest('[data-nr-action]') as HTMLElement | null
+            if (actionBtn) {
+              const action = actionBtn.dataset.nrAction
+              if (action === 'speak') {
+                onSpeakOneRef.current(activeSourceTextRef.current)
+              } else if (action === 'save' && activeTranslatedTextRef.current) {
+                onSaveVocabRef.current(activeSourceTextRef.current, activeTranslatedTextRef.current)
+                // Feedback visual temporário no botão
+                actionBtn.textContent = '✓ Salvo!'
+                setTimeout(() => { if (actionBtn.isConnected) actionBtn.textContent = '⭐ Salvar' }, 1500)
+              }
+              return
+            }
+
             const para = target.closest(BLOCK)
 
             // Tap fora de parágrafo → toggle do chrome
@@ -359,16 +583,17 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               return
             }
 
-            // Se o audiobook está tocando: tap em parágrafo = pula para ele
-            if (ttsIsPlayingRef.current) {
+            // Modo leitura contínua ativo (tocando OU pausado): tap navega o TTS
+            // ttsGlobalActive abrange os dois estados — evita abrir tradução por engano
+            if (ttsGlobalActiveRef.current) {
               const idx = ttsParagraphsRef.current.indexOf(para)
               if (idx >= 0) onParagraphTapForTtsRef.current(idx)
               return
             }
 
-            // Toggle off: parágrafo já destacado → limpa highlight
-            // (a tradução do painel React é fechada pelo próprio painel)
+            // Toggle off: parágrafo já destacado → limpa highlight e bloco de tradução inline
             if (para.hasAttribute('data-nr-active')) {
+              para.ownerDocument?.getElementById('nr-translation-block')?.remove()
               para.removeAttribute('data-nr-active')
               para.classList.remove('nr-hl')
               const sentSpan = para.querySelector('.nr-hl-sentence')
@@ -378,16 +603,18 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
                 sentSpan.remove()
               }
               activeTranslationParaRef.current = null
+              activeSourceTextRef.current = ''
+              activeTranslatedTextRef.current = ''
               return
             }
 
             // Toggle on: detecta a frase clicada, destaca no iframe e emite para o ReaderScreen.
-            // A tradução e os botões de ação são exibidos num painel React fora do iframe —
-            // evita o problema de o bloco cair na página seguinte em modo paginado (mobile).
+            // O ReaderScreen injeta o bloco de tradução diretamente no iframe via showTranslationLoading/injectTranslation.
             const sourceText = getSentenceFromClick(ev, para)
             para.setAttribute('data-nr-active', '1')
             highlightSentenceInParagraph(para, sourceText)
             activeTranslationParaRef.current = para
+            activeSourceTextRef.current = sourceText
             onTranslateRef.current(sourceText)
           })
         })
@@ -397,8 +624,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           if (cancelled) return
 
           // Configura o renderer (elemento filho do foliate-view)
-          view.renderer.setAttribute('flow', 'paginated')
-          view.renderer.setAttribute('gap', '5%')
+          // flow 'scrolled': leitura contínua com scroll — sem paginação lateral
+          view.renderer.setAttribute('flow', 'scrolled')
           view.renderer.setAttribute('margin', '48px')
           view.renderer.setAttribute('animated', '')
           view.renderer.setStyles?.(buildReaderCSS(fontSize))

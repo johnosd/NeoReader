@@ -5,7 +5,6 @@ import { EpubViewer, type EpubViewerHandle } from '../components/reader/EpubView
 import { ReaderChrome } from '../components/reader/ReaderChrome'
 import { TocSheet } from '../components/reader/TocSheet'
 import { BookmarkSheet } from '../components/reader/BookmarkSheet'
-import { TranslationPanel } from '../components/reader/TranslationPanel'
 import { useReaderProgress } from '../hooks/useReaderProgress'
 import { useReaderStore } from '../store/readerStore'
 import { upsertProgress } from '../db/progress'
@@ -15,6 +14,7 @@ import { addVocabItem } from '../db/vocabulary'
 import { getSettings } from '../db/settings'
 import { db } from '../db/database'
 import { useTTS } from '../hooks/useTTS'
+import { TtsMiniPlayer } from '../components/reader/TtsMiniPlayer'
 import { SpeechifyService } from '../services/SpeechifyService'
 import { translate } from '../services/TranslationService'
 import type { Book } from '../types/book'
@@ -31,6 +31,9 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
 
   // Estado local — não precisa ser compartilhado entre siblings
   const [chromeVisible, setChromeVisible] = useState(false)
+  const [ttsFinished, setTtsFinished] = useState(false)
+  // Controla visibilidade do mini player — true do início até o usuário apertar ⏹
+  const [ttsPlayerVisible, setTtsPlayerVisible] = useState(false)
   const [tocOpen, setTocOpen] = useState(false)
   const [bookmarkSheetOpen, setBookmarkSheetOpen] = useState(false)
   const [fontSize, setFontSize] = useState<FontSize>('md')
@@ -39,9 +42,6 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Estado de tradução: null = painel fechado; source + result = painel aberto
-  // result null = traduzindo ainda; result string = concluído
-  const [translation, setTranslation] = useState<{ source: string; result: string | null } | null>(null)
 
   // Estado global compartilhado (Zustand)
   const { cfi, percentage, tocLabel, toc, setCfi, setToc, reset } = useReaderStore()
@@ -94,22 +94,82 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
     onWordHighlight: (paraIdx, start, end) => {
       viewerRef.current?.highlightTts(paraIdx, start, end)
     },
-    // Quando muda de parágrafo: destaca o parágrafo sem karaokê de palavra ainda
+    // Quando muda de parágrafo: destaca + rola para centralizar na tela
     onParagraphChange: (paraIdx) => {
       viewerRef.current?.highlightTts(paraIdx, 0, 0)
+      viewerRef.current?.scrollToParagraph(paraIdx)
     },
     onStop: () => {
       viewerRef.current?.clearTts()
     },
+    // Fim natural da seção (último parágrafo lido) — esconde player e mostra notificação
+    onFinished: () => {
+      setTtsPlayerVisible(false)
+      setTtsFinished(true)
+    },
   })
 
+  // Helpers para obter chunks e iniciar play — reutilizados por toggle, prev, next
+  function getTtsChunks() {
+    return viewerRef.current?.getSentenceChunks() ?? []
+  }
+
+  function startPlay(chunks: ReturnType<typeof getTtsChunks>, idx: number) {
+    setTtsFinished(false)
+    setTtsPlayerVisible(true)
+    viewerRef.current?.resetTtsScroll()
+    void tts.play(chunks, idx)
+  }
+
+  // Botão principal: inicia do ponto parado (resume) ou do primeiro parágrafo visível
   function handleTtsToggle() {
     if (tts.isPlaying) {
-      void tts.stop()
+      void tts.stop()  // pausa — mini player continua visível, lastChunkIdx preservado
     } else {
-      const paragraphs = viewerRef.current?.getParagraphs() ?? []
-      void tts.play(paragraphs, 0)
+      const chunks = getTtsChunks()
+      const lastIdx = tts.lastChunkIdx.current
+      // Resume de onde parou se houver posição salva; caso contrário, primeiro visível
+      const startIdx = lastIdx > 0 && lastIdx < chunks.length
+        ? lastIdx
+        : Math.max(0, chunks.findIndex(c => c.paraIdx >= (viewerRef.current?.getFirstVisibleParagraphIndex() ?? 0)))
+      startPlay(chunks, startIdx)
     }
+  }
+
+  // ⏮ Volta ao início do parágrafo anterior (ou início do atual se já não for o primeiro chunk dele)
+  function handleTtsPrev() {
+    const chunks = getTtsChunks()
+    const currIdx = tts.lastChunkIdx.current
+    const currParaIdx = chunks[currIdx]?.paraIdx ?? 0
+    const currParaStart = chunks.findIndex(c => c.paraIdx === currParaIdx)
+
+    let targetIdx: number
+    if (currIdx > currParaStart) {
+      // No meio do parágrafo → volta para o início do mesmo
+      targetIdx = currParaStart
+    } else {
+      // Já no início → vai para o início do parágrafo anterior
+      targetIdx = currParaStart > 0
+        ? chunks.findIndex(c => c.paraIdx === chunks[currParaStart - 1].paraIdx)
+        : 0
+    }
+    void tts.stop().then(() => startPlay(chunks, targetIdx))
+  }
+
+  // ⏭ Avança para o início do próximo parágrafo
+  function handleTtsNext() {
+    const chunks = getTtsChunks()
+    const currIdx = tts.lastChunkIdx.current
+    const currParaIdx = chunks[currIdx]?.paraIdx ?? 0
+    const nextIdx = chunks.findIndex((c, i) => i > currIdx && c.paraIdx > currParaIdx)
+    void tts.stop().then(() => startPlay(chunks, nextIdx >= 0 ? nextIdx : chunks.length - 1))
+  }
+
+  // ⏹ Encerra TTS, esconde player e reseta posição (próximo play começa do visível)
+  function handleTtsStop() {
+    void tts.stop()
+    tts.resetPosition()
+    setTtsPlayerVisible(false)
   }
 
   // Salva par original/tradução no vocabulário — chamado pelo EpubViewer via ⭐
@@ -125,17 +185,12 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
     })
   }
 
-  // Recebe o texto da frase tocada do EpubViewer, abre o painel e dispara a tradução
+  // Recebe o texto da frase tocada do EpubViewer, injeta bloco inline e dispara a tradução
   function handleTranslate(sourceText: string) {
-    setTranslation({ source: sourceText, result: null })
+    viewerRef.current?.showTranslationLoading()
     translate(sourceText, 'en', targetLang)
-      .then((result) => setTranslation((prev) => prev ? { ...prev, result } : null))
-      .catch(() => setTranslation((prev) => prev ? { ...prev, result: 'Erro ao traduzir.' } : null))
-  }
-
-  function handleTranslationClose() {
-    setTranslation(null)
-    viewerRef.current?.clearTranslation()
+      .then((result) => viewerRef.current?.injectTranslation(result))
+      .catch(() => viewerRef.current?.injectTranslation('Erro ao traduzir.'))
   }
 
   const handleRelocate = useCallback(
@@ -194,22 +249,21 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
           onTranslate={handleTranslate}
           onSpeakOne={(text) => void tts.speakOne(text)}
           onParagraphTapForTts={(idx) => {
-            const paragraphs = viewerRef.current?.getParagraphs() ?? []
-            // Para o audiobook atual e recomeça a partir do parágrafo tocado
-            void tts.stop().then(() => tts.play(paragraphs, idx))
+            const chunks = getTtsChunks()
+            const chunkIdx = Math.max(0, chunks.findIndex(c => c.paraIdx >= idx))
+            void tts.stop().then(() => startPlay(chunks, chunkIdx))
           }}
           ttsIsPlaying={tts.isPlaying}
+          ttsGlobalActive={ttsPlayerVisible}
         />
       </div>
 
-      {/* Bordas esquerda/direita: navegação entre páginas */}
-      <div className="absolute left-0 top-0 w-[20%] h-full z-10" onPointerUp={() => viewerRef.current?.prev()} />
-      <div className="absolute right-0 top-0 w-[20%] h-full z-10" onPointerUp={() => viewerRef.current?.next()} />
-
-      {/* Faixas superior e inferior (centro 60%): toggle do chrome quando ele está fechado.
-          Cobrem as margens de 48px do foliate — sempre vazias de texto. */}
-      <div className="absolute top-0 left-[20%] right-[20%] h-12 z-10" onPointerUp={handleCenterTap} />
-      <div className="absolute bottom-0 left-[20%] right-[20%] h-12 z-10" onPointerUp={handleCenterTap} />
+      {/* Faixas superior e inferior: pointer-events none — apenas espaço visual das margens do foliate.
+          O toggle do chrome é tratado pelo handler de click do próprio iframe (tap fora de parágrafo).
+          Esses divs NÃO devem interceptar eventos: os botões do bloco de tradução ficam nessa zona
+          e precisam receber os toques diretamente no iframe. */}
+      <div className="absolute top-0 left-0 right-0 h-12 z-10 pointer-events-none" />
+      <div className="absolute bottom-0 left-0 right-0 h-12 z-10 pointer-events-none" />
 
       {/* Backdrop: quando o chrome está aberto, captura toque fora dos botões para fechá-lo.
           z-[15] fica acima do conteúdo/overlays (z-10) mas abaixo do chrome (z-20). */}
@@ -236,17 +290,20 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
         onDismiss={() => setChromeVisible(false)}
       />
 
-      {/* Painel de tradução — fora do iframe, sempre visível independente da paginação */}
-      {translation && (
-        <TranslationPanel
-          source={translation.source}
-          result={translation.result}
-          onClose={handleTranslationClose}
-          onSpeak={() => void tts.speakOne(translation.source)}
-          onSave={() => {
-            if (translation.result) handleSaveVocab(translation.source, translation.result)
-          }}
+      {/* Mini player TTS — visível enquanto TTS está ativo (tocando ou pausado) */}
+      {ttsPlayerVisible && (
+        <TtsMiniPlayer
+          isPlaying={tts.isPlaying}
+          onPlayPause={handleTtsToggle}
+          onPrev={handleTtsPrev}
+          onNext={handleTtsNext}
+          onStop={handleTtsStop}
         />
+      )}
+
+      {/* Notificação de fim de capítulo — aparece quando TTS termina naturalmente */}
+      {ttsFinished && (
+        <TtsFinishedToast onDismiss={() => setTtsFinished(false)} />
       )}
 
       <TocSheet
@@ -286,6 +343,33 @@ function ReaderSkeleton() {
   return (
     <div className="fixed inset-0 bg-[#0a0a0a] flex items-center justify-center">
       <div className="w-8 h-8 border-2 border-[#6366f1] border-t-transparent rounded-full animate-spin" />
+    </div>
+  )
+}
+
+// Toast exibido quando o TTS termina de ler todos os parágrafos do capítulo atual.
+// useEffect auto-dismiss: desaparece após 5s sem ação do usuário.
+function TtsFinishedToast({ onDismiss }: { onDismiss: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onDismiss, 5000)
+    return () => clearTimeout(t)
+  }, [onDismiss])
+
+  return (
+    <div
+      className="absolute bottom-24 left-4 right-4 z-30 flex items-center justify-between px-4 py-3 rounded-xl"
+      style={{ background: '#1a1a2e', border: '1px solid rgba(99,102,241,0.3)' }}
+    >
+      <span className="text-sm" style={{ color: '#a5a5a5' }}>
+        Fim do capítulo
+      </span>
+      <button
+        onPointerUp={onDismiss}
+        className="text-sm font-medium px-3 py-1 rounded-lg"
+        style={{ color: '#6366f1' }}
+      >
+        OK
+      </button>
     </div>
   )
 }
