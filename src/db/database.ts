@@ -1,6 +1,7 @@
 import Dexie, { type Table } from 'dexie'
 import type { Book, ReadingProgress, Bookmark } from '../types/book'
 import type { VocabItem, TranslationCache } from '../types/vocabulary'
+import type { UserSettings } from '../types/settings'
 
 // Dexie é um wrapper do IndexedDB — pensa nele como SQLite no browser.
 // Cada `Table<T>` é como uma tabela com schema declarado.
@@ -10,6 +11,7 @@ class NeoReaderDB extends Dexie {
   bookmarks!: Table<Bookmark>
   vocabulary!: Table<VocabItem>
   translations!: Table<TranslationCache>
+  settings!: Table<UserSettings>
 
   constructor() {
     super('NeoReaderDB')
@@ -36,6 +38,16 @@ class NeoReaderDB extends Dexie {
       bookmarks:   '++id, bookId, createdAt',
       vocabulary:  '++id, bookId, createdAt',
       translations:'++id, textHash, createdAt',
+    })
+
+    // v4: preferências do usuário (um único registro)
+    this.version(4).stores({
+      books:       '++id, title, author, addedAt, lastOpenedAt',
+      progress:    '++id, bookId, updatedAt',
+      bookmarks:   '++id, bookId, createdAt',
+      vocabulary:  '++id, bookId, createdAt',
+      translations:'++id, textHash, createdAt',
+      settings:    '++id',
     })
   }
 }

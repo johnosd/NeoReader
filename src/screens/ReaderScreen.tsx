@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { App as CapApp } from '@capacitor/app'
-import { EpubViewer, type EpubViewerHandle, type FontSize } from '../components/reader/EpubViewer'
+import { EpubViewer, type EpubViewerHandle } from '../components/reader/EpubViewer'
 import { ReaderChrome } from '../components/reader/ReaderChrome'
 import { TocSheet } from '../components/reader/TocSheet'
 import { BookmarkSheet } from '../components/reader/BookmarkSheet'
@@ -12,11 +12,13 @@ import { upsertProgress } from '../db/progress'
 import { updateLastOpened } from '../db/books'
 import { addBookmark, deleteBookmark } from '../db/bookmarks'
 import { addVocabItem } from '../db/vocabulary'
+import { getSettings } from '../db/settings'
 import { db } from '../db/database'
 import { useTTS } from '../hooks/useTTS'
 import { SpeechifyService } from '../services/SpeechifyService'
 import { translate } from '../services/TranslationService'
 import type { Book } from '../types/book'
+import type { FontSize } from '../types/settings'
 
 interface ReaderScreenProps {
   book: Book
@@ -32,6 +34,8 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
   const [tocOpen, setTocOpen] = useState(false)
   const [bookmarkSheetOpen, setBookmarkSheetOpen] = useState(false)
   const [fontSize, setFontSize] = useState<FontSize>('md')
+  const [targetLang, setTargetLang] = useState('pt-BR')
+  const [ttsEngine, setTtsEngine] = useState<'speechify' | 'native'>('native')
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -61,6 +65,18 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
   useEffect(() => {
     if (book.id !== undefined) updateLastOpened(book.id)
   }, [book.id])
+
+  // Carrega preferências do usuário (fonte padrão, idioma de tradução, engine TTS)
+  useEffect(() => {
+    getSettings().then((s) => {
+      setFontSize(s.defaultFontSize)
+      setTargetLang(s.translationTargetLang)
+      // Verifica se há key Speechify disponível (DB ou .env)
+      void SpeechifyService.isConfigured().then((ok) =>
+        setTtsEngine(ok ? 'speechify' : 'native')
+      )
+    })
+  }, [])
 
   // Intercepta o botão Back físico do Android (via plugin Capacitor)
   useEffect(() => {
@@ -104,7 +120,7 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
       sourceText,
       translatedText,
       sourceLang: 'en',
-      targetLang: 'pt-BR',
+      targetLang,
       createdAt: new Date(),
     })
   }
@@ -112,7 +128,7 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
   // Recebe o texto da frase tocada do EpubViewer, abre o painel e dispara a tradução
   function handleTranslate(sourceText: string) {
     setTranslation({ source: sourceText, result: null })
-    translate(sourceText)
+    translate(sourceText, 'en', targetLang)
       .then((result) => setTranslation((prev) => prev ? { ...prev, result } : null))
       .catch(() => setTranslation((prev) => prev ? { ...prev, result: 'Erro ao traduzir.' } : null))
   }
@@ -215,7 +231,7 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
         onTocOpen={() => setTocOpen(true)}
         onOpenVocabulary={onOpenVocabulary}
         ttsIsPlaying={tts.isPlaying}
-        ttsEngine={SpeechifyService.isConfigured() ? 'speechify' : 'native'}
+        ttsEngine={ttsEngine}
         onTtsToggle={handleTtsToggle}
         onDismiss={() => setChromeVisible(false)}
       />

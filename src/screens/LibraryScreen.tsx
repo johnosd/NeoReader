@@ -10,9 +10,10 @@ import type { Book } from '../types/book'
 interface LibraryScreenProps {
   onOpenBook: (book: Book) => void
   onOpenVocabulary: () => void
+  onOpenSettings: () => void
 }
 
-export function LibraryScreen({ onOpenBook, onOpenVocabulary }: LibraryScreenProps) {
+export function LibraryScreen({ onOpenBook, onOpenVocabulary, onOpenSettings }: LibraryScreenProps) {
   const { isLoading, isEmpty, heroBook, inProgressBooks, recentBooks } = useLibraryGroups()
   const [optionsBook, setOptionsBook] = useState<Book | null>(null)
 
@@ -65,7 +66,12 @@ export function LibraryScreen({ onOpenBook, onOpenVocabulary }: LibraryScreenPro
         )}
       </main>
 
-      <BottomNav onTabChange={(tab) => tab === 'books' && onOpenVocabulary()} />
+      <BottomNav
+        onTabChange={(tab) => {
+          if (tab === 'books') onOpenVocabulary()
+          if (tab === 'profile') onOpenSettings()
+        }}
+      />
 
       <BookOptionsSheet book={optionsBook} onClose={() => setOptionsBook(null)} />
     </div>

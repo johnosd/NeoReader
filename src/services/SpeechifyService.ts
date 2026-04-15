@@ -1,7 +1,9 @@
 // Speechify TTS API — https://docs.sws.speechify.com/
-// Requer VITE_SPEECHIFY_API_KEY no .env.
-// Sem a variável, SpeechifyService.isConfigured() retorna false e o app
-// usa o TTS nativo do dispositivo como fallback.
+// A API key pode vir de duas fontes (prioridade: DB > .env):
+//   1. Configurações do usuário no IndexedDB (via SettingsScreen)
+//   2. VITE_SPEECHIFY_API_KEY no .env (conveniência para dev local)
+
+import { getSettings } from '../db/settings'
 
 const API_URL = 'https://api.speechify.ai/v1/audio/speech'
 const VOICE_ID = 'carly'   // voz neural feminina; seleção de voz fica para fase futura
@@ -21,18 +23,31 @@ export interface SpeechifyResult {
 }
 
 export const SpeechifyService = {
-  // true se a API key está presente no .env (VITE_SPEECHIFY_API_KEY)
-  isConfigured(): boolean {
+  // Resolve a API key: DB primeiro, .env como fallback para dev local.
+  // Retorna '' se nenhuma fonte tiver a key.
+  async getApiKey(): Promise<string> {
+    const settings = await getSettings()
+    if (settings.speechifyApiKey) return settings.speechifyApiKey
+    return (import.meta.env.VITE_SPEECHIFY_API_KEY as string) ?? ''
+  },
+
+  // Versão síncrona — checa apenas o .env (usada para badge de engine no chrome).
+  // Use getApiKey() quando precisar da key real para uma chamada.
+  isConfiguredSync(): boolean {
     return Boolean(import.meta.env.VITE_SPEECHIFY_API_KEY)
   },
 
-  async synthesize(text: string): Promise<SpeechifyResult> {
-    const apiKey = import.meta.env.VITE_SPEECHIFY_API_KEY as string
+  // Verifica se há key disponível (DB ou .env) — async.
+  async isConfigured(): Promise<boolean> {
+    return Boolean(await this.getApiKey())
+  },
+
+  async synthesize(text: string, apiKey: string): Promise<SpeechifyResult> {
 
     const res = await fetch(API_URL, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
+        'Authorization': `Bearer ${apiKey}`,  // key resolvida pelo chamador
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({

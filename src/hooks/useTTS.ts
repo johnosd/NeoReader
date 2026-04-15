@@ -20,12 +20,15 @@ export function useTTS(callbacks: TTSCallbacks) {
 
   // audioRef: rastreia o elemento <Audio> Speechify atual para que stop() possa pausá-lo
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  // usingSpeechifyRef: indica se a sessão atual de TTS usa Speechify (vs nativo)
+  // — necessário porque isConfigured() virou async e stop() é síncrono
+  const usingSpeechifyRef = useRef(false)
 
   // Toca um parágrafo via Speechify e agenda karaokê pelos speech_marks.
   // new Audio(blobUrl): elemento de áudio HTML5 — funciona no WebView do Capacitor
   // sem precisar de plugin nativo extra.
-  async function speakWithSpeechify(text: string, paraIdx: number): Promise<void> {
-    const { audioBlob, speechMarks } = await SpeechifyService.synthesize(text)
+  async function speakWithSpeechify(text: string, paraIdx: number, apiKey: string): Promise<void> {
+    const { audioBlob, speechMarks } = await SpeechifyService.synthesize(text, apiKey)
     const url = URL.createObjectURL(audioBlob)
     const audio = new Audio(url)
     audioRef.current = audio
@@ -65,9 +68,13 @@ export function useTTS(callbacks: TTSCallbacks) {
     setIsPlaying(true)
     const currentIdxRef = { current: startIdx }
 
+    // Resolve a key uma vez para toda a sessão — evita N chamadas ao IndexedDB
+    const apiKey = await SpeechifyService.getApiKey()
+    usingSpeechifyRef.current = Boolean(apiKey)
+
     // Listener onRangeStart só é registrado no fallback nativo
     let nativeHandle: Awaited<ReturnType<typeof TextToSpeech.addListener>> | null = null
-    if (!SpeechifyService.isConfigured()) {
+    if (!apiKey) {
       nativeHandle = await TextToSpeech.addListener('onRangeStart', ({ start, end }) => {
         callbacksRef.current.onWordHighlight(currentIdxRef.current, start, end)
       })
@@ -79,8 +86,8 @@ export function useTTS(callbacks: TTSCallbacks) {
         currentIdxRef.current = i
         callbacksRef.current.onParagraphChange(i)
 
-        if (SpeechifyService.isConfigured()) {
-          await speakWithSpeechify(paragraphs[i], i)
+        if (apiKey) {
+          await speakWithSpeechify(paragraphs[i], i, apiKey)
         } else {
           await TextToSpeech.speak({ text: paragraphs[i], lang: 'en-US', rate: 1.0 })
         }
@@ -94,7 +101,7 @@ export function useTTS(callbacks: TTSCallbacks) {
 
   async function stop() {
     shouldStopRef.current = true
-    if (SpeechifyService.isConfigured()) {
+    if (usingSpeechifyRef.current) {
       // pause() dispara o evento 'pause' → resolve a Promise em speakWithSpeechify
       // → o loop em play() verifica shouldStopRef e encerra
       audioRef.current?.pause()
@@ -105,8 +112,9 @@ export function useTTS(callbacks: TTSCallbacks) {
 
   // Lê um único parágrafo (botão 🔊 no bloco de tradução injetado)
   async function speakOne(text: string) {
-    if (SpeechifyService.isConfigured()) {
-      await speakWithSpeechify(text, 0)
+    const apiKey = await SpeechifyService.getApiKey()
+    if (apiKey) {
+      await speakWithSpeechify(text, 0, apiKey)
     } else {
       const handle = await TextToSpeech.addListener('onRangeStart', ({ start, end }) => {
         callbacksRef.current.onWordHighlight(0, start, end)
