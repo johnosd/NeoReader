@@ -312,6 +312,12 @@ interface EpubViewerProps {
   // TTS: true quando o modo leitura contínua está ativo — inclui pausado.
   // Quando true, tap em parágrafo navega o TTS em vez de abrir tradução.
   ttsGlobalActive: boolean
+  // Capítulo: emitido quando o usuário chega ao fundo (ou sai do fundo) da seção atual.
+  // hasNext: false quando é a última seção do livro.
+  onAtBottom?: (atBottom: boolean, hasNext: boolean) => void
+  // Capítulo: emitido quando o usuário faz swipe para baixo estando já no fundo —
+  // sinal de intenção de avançar para o próximo capítulo.
+  onSwipeAtBottom?: () => void
 }
 
 // forwardRef: padrão React para expor métodos imperativos ao componente pai.
@@ -323,6 +329,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       onRelocate, onTocReady, onLoad, onError,
       onSaveVocab, onCenterTap, onTranslate,
       onSpeakOne, onParagraphTapForTts, ttsIsPlaying, ttsGlobalActive,
+      onAtBottom, onSwipeAtBottom,
     },
     ref,
   ) => {
@@ -365,6 +372,15 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     // ttsGlobalActive: modo leitura contínua ativo (inclui pausado) — gating do clique
     const ttsGlobalActiveRef = useRef(ttsGlobalActive)
     useEffect(() => { ttsGlobalActiveRef.current = ttsGlobalActive }, [ttsGlobalActive])
+
+    // Navegação entre capítulos: detecta fundo visual + swipe para avançar
+    const isAtBottomRef = useRef(false)
+    const currentSectionIdxRef = useRef(0)
+    const totalSectionsRef = useRef(1)
+    const onAtBottomRef = useRef(onAtBottom)
+    const onSwipeAtBottomRef = useRef(onSwipeAtBottom)
+    useEffect(() => { onAtBottomRef.current = onAtBottom }, [onAtBottom])
+    useEffect(() => { onSwipeAtBottomRef.current = onSwipeAtBottom }, [onSwipeAtBottom])
 
     // Expõe API imperativa para o ReaderScreen via ref
     useImperativeHandle(ref, () => ({
@@ -548,14 +564,46 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           ttsParagraphTextsRef.current = ttsParagraphsRef.current
             .map(el => el.textContent!.trim())
 
-          // Detecta scroll manual do usuário durante TTS para pausar o auto-scroll.
+          // Rastreia seção atual + reseta estado de fundo (nova seção sempre começa no topo)
+          currentSectionIdxRef.current = e.detail.index
+          isAtBottomRef.current = false
+          onAtBottomRef.current?.(false, false)
+
+          // Detecta scroll: TTS auto-scroll + fundo do capítulo.
           // passive:true = não bloqueia o scroll nativo (performance).
           // capture:true = captura antes de qualquer handler filho (garante que não perca eventos).
           doc.defaultView?.addEventListener('scroll', () => {
+            // TTS: detecta scroll manual durante leitura para pausar auto-scroll
             if (ttsActiveRef.current && Date.now() > scrollingProgrammaticallyUntilRef.current) {
               userScrolledRef.current = true
             }
+            // Capítulo: detecta quando o usuário chega ao fundo da seção
+            // scrollHeight - innerHeight - scrollY ≤ 20px → considerado "no fundo"
+            const dv = doc.defaultView!
+            const atBottom = dv.scrollY + dv.innerHeight >= doc.documentElement.scrollHeight - 20
+            if (atBottom !== isAtBottomRef.current) {
+              isAtBottomRef.current = atBottom
+              const hasNext = currentSectionIdxRef.current < totalSectionsRef.current - 1
+              onAtBottomRef.current?.(atBottom, hasNext)
+            }
           }, { passive: true, capture: true })
+
+          // Detecta swipe para baixo quando já no fundo — segundo gesto intencional de avançar.
+          // wasAtBottomOnTouchStart: captura o estado no início do toque.
+          // Se já estava no fundo E termina mais acima (arrasta para cima = rola para baixo) → navega.
+          let touchStartY = 0
+          let wasAtBottomOnTouchStart = false
+          doc.addEventListener('touchstart', (ev: TouchEvent) => {
+            touchStartY = ev.touches[0].clientY
+            wasAtBottomOnTouchStart = isAtBottomRef.current
+          }, { passive: true })
+          doc.addEventListener('touchend', (ev: TouchEvent) => {
+            // deltaY positivo = dedo foi para cima = intenção de rolar para baixo
+            const deltaY = touchStartY - ev.changedTouches[0].clientY
+            if (wasAtBottomOnTouchStart && isAtBottomRef.current && deltaY > 30) {
+              onSwipeAtBottomRef.current?.()
+            }
+          }, { passive: true })
 
           doc.addEventListener('click', (ev: MouseEvent) => {
             const target = ev.target as Element
@@ -622,6 +670,9 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         try {
           await view.open(book.fileBlob)
           if (cancelled) return
+
+          // Total de seções: usado para checar se há próximo capítulo ao atingir o fundo
+          totalSectionsRef.current = view.book?.sections?.length ?? 1
 
           // Configura o renderer (elemento filho do foliate-view)
           // flow 'scrolled': leitura contínua com scroll — sem paginação lateral

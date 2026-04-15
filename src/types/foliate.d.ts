@@ -8,8 +8,10 @@ interface TocItem {
 
 interface RelocateDetail {
   cfi: string
-  fraction: number // 0-1
+  fraction: number // 0-1, progresso geral do livro
   tocItem?: { label: string; href: string }
+  // Índice e total de seções — vem de SectionProgress.getProgress() em progress.js
+  section?: { current: number; total: number }
 }
 
 declare module 'foliate-js/view.js' {
@@ -17,6 +19,7 @@ declare module 'foliate-js/view.js' {
     book: {
       toc: TocItem[]
       metadata: Record<string, unknown>
+      sections?: { length: number }
     }
     renderer: HTMLElement & {
       setAttribute(name: string, value: string): void

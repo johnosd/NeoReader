@@ -11,29 +11,40 @@ Leitor de EPUB para Android focado em **incentivar a leitura** e **facilitar o a
 - [x] Hero banner com último livro aberto e botão "Continuar"
 - [x] Rows horizontais: "Continue lendo" e "Adicionados recentemente"
 - [x] Barra de progresso de leitura embaixo de cada capa
+- [x] Menu de opções por livro (pressão longa no card): recriar capa, escolher imagem externa, deletar
 
 ### Leitor
-- [x] Renderização via [foliate-js](https://github.com/johnfactotum/foliate-js) (paginado)
-- [x] Tema escuro, tamanho de fonte ajustável (4 tamanhos)
+- [x] Renderização via [foliate-js](https://github.com/johnfactotum/foliate-js) — modo scroll contínuo
+- [x] Tema escuro, tamanho de fonte ajustável (4 tamanhos) em tempo real
 - [x] Índice (TOC) navegável via sheet deslizante
 - [x] Marcadores: adicionar, listar e navegar
 - [x] Progresso persistente (restaura posição ao reabrir)
-- [x] Gestos: tap nas bordas para virar página, tap central para o chrome
+- [x] Tap central abre/fecha o chrome (barras de título e controles)
+- [x] Navegação entre capítulos: banner "Fim do capítulo" ao atingir o fundo + swipe para avançar
 
 ### Aprendizado de inglês
 - [x] Tradução inline — detecta a frase exata tocada (via `caretRangeFromPoint`) e traduz só ela
-- [x] Highlight apenas da frase selecionada, não do parágrafo inteiro
-- [x] Bloco de tradução injetado logo abaixo do parágrafo original
+- [x] Highlight apenas da frase selecionada dentro do parágrafo (não o parágrafo inteiro)
+- [x] Bloco de tradução injetado diretamente no iframe logo abaixo do parágrafo
 - [x] Salvar par original/tradução no vocabulário com ⭐
 - [x] Tela de vocabulário com histórico de frases salvas
 - [x] Cache offline de traduções (IndexedDB)
 
 ### TTS (Text-to-Speech)
-- [x] Audiobook contínuo via botão ▶ no bottom bar
-- [x] Leitura de parágrafo individual via botão 🔊 no bloco de tradução
+- [x] Audiobook contínuo via botão ▶ no chrome do leitor
+- [x] Mini player fixo na base da tela durante leitura: ⏮ parágrafo anterior, ▶/⏸, ⏭ próximo, ⏹ encerrar
+- [x] Retomar de onde parou ao pausar e tocar novamente
+- [x] Tap em parágrafo durante leitura pula direto para ele
+- [x] Leitura de frase individual via botão 🔊 no bloco de tradução
 - [x] Karaokê de palavras: palavra atual em negrito + sublinhado durante leitura
 - [x] Motor primário: **Speechify API** (vozes neurais, requer `VITE_SPEECHIFY_API_KEY`)
 - [x] Fallback automático para TTS nativo do Android quando offline ou sem chave
+
+### Configurações
+- [x] Tela de configurações acessível pelo chrome do leitor
+- [x] API key da Speechify (input seguro com show/hide, salvo no IndexedDB)
+- [x] Seleção do idioma de tradução (PT-BR, ES, FR, DE, IT, JA)
+- [x] Tamanho de fonte padrão ao abrir livros (preview ao vivo)
 
 ---
 
@@ -115,17 +126,8 @@ src/
 
 ### Próximas features (Fase 2)
 
-#### Tela de configurações
-- [ ] **Settings screen** — botão de engrenagem no header da biblioteca
-  - [ ] API key da Speechify (input seguro, salvo no IndexedDB)
-  - [ ] Seleção de voz Speechify (lista de vozes via `/v1/voices`)
-  - [ ] Configurações gerais do leitor (tema, fonte padrão, idioma de tradução)
-
-#### Gerenciamento de livros
-- [ ] **Ícone de opções no BookCard** — menu de contexto por livro
-  - [ ] Recriar capa (reprocessa o EPUB e extrai novamente)
-  - [ ] Escolher capa de arquivo externo (seletor de imagem do device)
-  - [ ] Excluir livro
+#### TTS
+- [ ] Seleção de voz Speechify (lista de vozes via `/v1/voices`)
 
 #### Aprendizado
 - [ ] **Flashcards SRS** — revisar vocabulário salvo com algoritmo SM-2 (estilo Anki)

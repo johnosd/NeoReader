@@ -68,10 +68,22 @@ Veja `docs/epub-reader-plan.md` seção 5 para detalhes.
 8. Commits em português, no formato: `feat: adiciona X`, `fix: corrige Y`, `docs: atualiza Z`
 
 ## Status atual
+
+### Concluído
 - [x] Setup inicial: Vite + React + TS + Tailwind + Capacitor Android
 - [x] Estrutura de pastas criada
-- [x] App rodando no celular (Hello World)
-- [ ] Próxima feature: tela de biblioteca + import de EPUB
+- [x] App rodando no celular
+- [x] Biblioteca: hero banner, rows horizontais, import de EPUB, progresso nas capas
+- [x] Gerenciamento de livros: recriar capa, escolher imagem, deletar (`BookOptionsSheet`)
+- [x] Leitor: foliate-js modo scroll contínuo, tema escuro, fonte ajustável, TOC, marcadores, progresso persistente
+- [x] Navegação entre capítulos: banner "Fim do capítulo" + swipe para avançar
+- [x] Tradução inline: frase exata tocada detectada via `caretRangeFromPoint`, bloco injetado no iframe
+- [x] Vocabulário: salvar, listar, cache offline de traduções
+- [x] TTS: audiobook contínuo com mini player (`TtsMiniPlayer`), karaokê via Speechify, fallback nativo, leitura de frase individual
+- [x] Configurações: API key Speechify, idioma de tradução, fonte padrão (`SettingsScreen`)
+
+### Próxima feature sugerida
+- [ ] Google Drive sync (progresso + marcadores + vocabulário)
 
 ## aprendizado de claude code
  - aproveite para ir inserindo o usuario conhecimentos de claude code em nivel intermediario e avançado

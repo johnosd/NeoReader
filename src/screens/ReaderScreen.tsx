@@ -41,6 +41,8 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
   const [ttsEngine, setTtsEngine] = useState<'speechify' | 'native'>('native')
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // 'idle': sem banner | 'atEnd': fim do capítulo, há próximo | 'noNext': último capítulo
+  const [chapterEndState, setChapterEndState] = useState<'idle' | 'atEnd' | 'noNext'>('idle')
 
 
   // Estado global compartilhado (Zustand)
@@ -172,6 +174,18 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
     setTtsPlayerVisible(false)
   }
 
+  // Atualiza banner de fim de capítulo conforme o usuário rola até o fundo ou sai dele
+  function handleAtBottom(atBottom: boolean, hasNext: boolean) {
+    setChapterEndState(atBottom ? (hasNext ? 'atEnd' : 'noNext') : 'idle')
+  }
+
+  // Segundo swipe no fundo: navega para o próximo capítulo
+  function handleSwipeAtBottom() {
+    if (chapterEndState !== 'atEnd') return
+    setChapterEndState('idle')
+    viewerRef.current?.next()
+  }
+
   // Salva par original/tradução no vocabulário — chamado pelo EpubViewer via ⭐
   function handleSaveVocab(sourceText: string, translatedText: string) {
     void addVocabItem({
@@ -255,6 +269,8 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
           }}
           ttsIsPlaying={tts.isPlaying}
           ttsGlobalActive={ttsPlayerVisible}
+          onAtBottom={handleAtBottom}
+          onSwipeAtBottom={handleSwipeAtBottom}
         />
       </div>
 
@@ -289,6 +305,12 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
         onTtsToggle={handleTtsToggle}
         onDismiss={() => setChromeVisible(false)}
       />
+
+      {/* Banner de fim de capítulo — aparece quando usuário chega ao fundo da seção.
+          Oculto durante TTS (que tem seu próprio controle de fim de capítulo). */}
+      {chapterEndState !== 'idle' && !ttsPlayerVisible && (
+        <ChapterEndBanner hasNext={chapterEndState === 'atEnd'} />
+      )}
 
       {/* Mini player TTS — visível enquanto TTS está ativo (tocando ou pausado) */}
       {ttsPlayerVisible && (
@@ -343,6 +365,27 @@ function ReaderSkeleton() {
   return (
     <div className="fixed inset-0 bg-[#0a0a0a] flex items-center justify-center">
       <div className="w-8 h-8 border-2 border-[#6366f1] border-t-transparent rounded-full animate-spin" />
+    </div>
+  )
+}
+
+// Banner fixo no fundo da tela quando o usuário chega ao final de uma seção.
+// hasNext=false → último capítulo, sem instrução de swipe.
+// O gradiente suave evita corte abrupto do conteúdo.
+function ChapterEndBanner({ hasNext }: { hasNext: boolean }) {
+  return (
+    <div
+      className="absolute bottom-0 left-0 right-0 z-20 flex flex-col items-center py-5 pointer-events-none"
+      style={{ background: 'linear-gradient(to top, #0f0f1a 55%, transparent)' }}
+    >
+      <p className="text-sm font-medium mb-1" style={{ color: '#e8e8e8' }}>
+        {hasNext ? 'Fim do capítulo' : 'Fim do livro'}
+      </p>
+      {hasNext && (
+        <p className="text-xs" style={{ color: '#6b6b7a' }}>
+          Arraste para baixo para o próximo capítulo
+        </p>
+      )}
     </div>
   )
 }

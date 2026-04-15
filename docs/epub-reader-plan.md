@@ -60,40 +60,45 @@ syncQueue:     { id, entity, op, payload, status }  // offline-first sync
 
 ## 4. Features — escopo MVP vs Fase 2
 
-### MVP (2-4 semanas)
+### MVP — implementado
 - [x] Importar EPUB do armazenamento local
-- [x] Biblioteca (lista de livros, capa, progresso)
-- [x] Leitor com paginação, tema claro/escuro, tamanho de fonte
-- [x] Índice (TOC) navegável
+- [x] Biblioteca (hero banner, rows horizontais, capa, progresso)
+- [x] Leitor modo scroll contínuo (`flow="scrolled"`), tema escuro, fonte ajustável
+- [x] Índice (TOC) navegável via sheet deslizante
 - [x] Marcadores (adicionar/listar/ir para)
-- [x] Progresso de leitura persistente
-- [x] Seleção de parágrafo → bolha com tradução (Google Translate)
-- [x] Tradução em lote: 1 ou 10 parágrafos
-- [x] Salvar palavra/frase no vocabulário
-- [x] TTS nativo Android com destaque de parágrafo + karaokê
-- [x] Sync com Google Drive (progresso + marcadores + highlights + vocab)
-- [x] Cache offline de traduções recentes
+- [x] Progresso de leitura persistente (restaura posição)
+- [x] Tap em frase → bloco de tradução injetado inline no iframe
+- [x] Highlight da frase exata (via `caretRangeFromPoint` + Range API)
+- [x] Salvar par original/tradução no vocabulário (⭐)
+- [x] Tela de vocabulário com histórico
+- [x] Cache offline de traduções (IndexedDB)
+- [x] TTS audiobook contínuo com mini player (⏮ ▶/⏸ ⏭ ⏹)
+- [x] Karaokê de palavras (Speechify API)
+- [x] TTS nativo Android como fallback
+- [x] Leitura de frase individual (botão 🔊 no bloco de tradução)
+- [x] Navegação entre capítulos: banner "Fim do capítulo" + swipe para avançar
+- [x] Gerenciamento de livros: recriar capa, escolher imagem externa, deletar
+- [x] Tela de configurações: API key Speechify, idioma de tradução, fonte padrão
+
+### MVP — em aberto
+- [ ] **Google Drive sync** — progresso, marcadores e vocabulário (OAuth + Capacitor)
 
 ### Fase 2
-- [ ] Integração Speechify (vozes premium)
+- [ ] Seleção de voz Speechify (lista via `/v1/voices`)
 - [ ] Flashcards SRS estilo Anki (algoritmo SM-2)
 - [ ] Export CSV do vocabulário
 - [ ] Estatísticas de leitura (streak, palavras/dia)
 - [ ] **Experiência "Netflix for Books" completa**:
-  - Capítulos como episódios: tempo estimado de leitura, preview da próxima frase
-  - Auto-advance opcional entre capítulos (countdown 5s, pulável)
-  - Card "Você parou em..." com último parágrafo + botões Continuar / Recapitular
-  - Rows inteligentes por comportamento: "Continue lendo", "Comece hoje" (livros parados >7 dias), "Curtos" (<200 pág), "Porque você leu X" (mesmo autor/gênero)
-  - "Trailer": primeira página como preview antes de abrir
-  - Streak de dias consecutivos lendo (sutil, não agressivo — leitura não é Duolingo)
-- [ ] **Integração Claude API (showcase agentic AI) — modelo BYOK (Bring Your Own Key)**:
-  - Usuário conecta sua própria conta Anthropic (cola API key em settings, validada e armazenada criptografada no device)
-  - **Botão "Resumir capítulo"** no início de cada capítulo → chama Claude com o texto do capítulo e exibe resumo em bolha/painel
+  - Rows inteligentes: "Comece hoje" (livros parados >7 dias), "Curtos" (<200 pág), "Porque você leu X"
+  - Streak de dias consecutivos lendo (sutil, não agressivo)
+  - Tempo estimado de leitura por capítulo
+- [ ] **Integração Claude API (BYOK — Bring Your Own Key)**:
+  - API key Anthropic em settings (validada, armazenada no device)
+  - Resumo de capítulo via botão no chrome do leitor
   - Quiz de compreensão gerado por capítulo
   - Explicação contextual de expressões idiomáticas e phrasal verbs
-  - "Tutor" conversacional: usuário pergunta sobre o trecho, Claude responde com contexto do livro
-  - Geração de frases-exemplo adicionais para palavras no vocabulário
-  - Cache de resumos no IndexedDB (evita re-gerar e re-cobrar)
+  - Tutor conversacional sobre o trecho lido
+  - Cache de resumos no IndexedDB
 
 ---
 
