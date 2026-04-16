@@ -43,7 +43,10 @@ export const SpeechifyService = {
   },
 
   async synthesize(text: string, apiKey: string): Promise<SpeechifyResult> {
-
+    // AbortController: cancela a requisição após 10s para não travar no Android sem rede.
+    // .finally() garante que o timer seja limpo tanto em sucesso quanto em erro.
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 10_000)
     const res = await fetch(API_URL, {
       method: 'POST',
       headers: {
@@ -56,7 +59,8 @@ export const SpeechifyService = {
         audio_format: 'mp3',
         model: 'simba-english',
       }),
-    })
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeoutId))
 
     if (!res.ok) throw new Error(`Speechify error: ${res.status}`)
 

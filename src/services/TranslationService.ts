@@ -41,7 +41,13 @@ export async function translate(
   // Cache miss — chama MyMemory API
   const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(truncated)}&langpair=${langpair}`
 
-  const response = await fetch(url)
+  // AbortController: cancela a requisição após 10s para não travar no Android sem rede.
+  // .finally() garante que o timer seja limpo tanto em sucesso quanto em erro.
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 10_000)
+  const response = await fetch(url, { signal: controller.signal })
+    .finally(() => clearTimeout(timeoutId))
+
   if (!response.ok) throw new Error('Tradução indisponível. Verifique sua conexão.')
 
   const data = await response.json() as {

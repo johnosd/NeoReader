@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
+import { useSyncRef } from '../../hooks/useSyncRef'
 import type { Book } from '../../types/book'
 import type { View } from 'foliate-js/view.js'
 
@@ -307,8 +308,6 @@ interface EpubViewerProps {
   onSpeakOne: (text: string) => void
   // TTS: quando audiobook está tocando, tap em parágrafo pula para ele
   onParagraphTapForTts: (idx: number) => void
-  // TTS: true quando audiobook está ativamente tocando (scroll automático, highlight)
-  ttsIsPlaying: boolean
   // TTS: true quando o modo leitura contínua está ativo — inclui pausado.
   // Quando true, tap em parágrafo navega o TTS em vez de abrir tradução.
   ttsGlobalActive: boolean
@@ -328,7 +327,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       book, fontSize, savedCfi,
       onRelocate, onTocReady, onLoad, onError,
       onSaveVocab, onCenterTap, onTranslate,
-      onSpeakOne, onParagraphTapForTts, ttsIsPlaying, ttsGlobalActive,
+      onSpeakOne, onParagraphTapForTts, ttsGlobalActive,
       onAtBottom, onSwipeAtBottom,
     },
     ref,
@@ -355,32 +354,21 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
     // Refs para os callbacks mais recentes — evita stale closure nos listeners do iframe.
     // Os listeners são criados uma vez por seção (no evento 'load'), mas os callbacks
-    // podem mudar entre renders. Os refs garantem que sempre invocamos a versão atual.
-    const onSaveVocabRef = useRef(onSaveVocab)
-    useEffect(() => { onSaveVocabRef.current = onSaveVocab }, [onSaveVocab])
-    const onCenterTapRef = useRef(onCenterTap)
-    useEffect(() => { onCenterTapRef.current = onCenterTap }, [onCenterTap])
-    const onTranslateRef = useRef(onTranslate)
-    useEffect(() => { onTranslateRef.current = onTranslate }, [onTranslate])
-    const onSpeakOneRef = useRef(onSpeakOne)
-    useEffect(() => { onSpeakOneRef.current = onSpeakOne }, [onSpeakOne])
-    const onParagraphTapForTtsRef = useRef(onParagraphTapForTts)
-    useEffect(() => { onParagraphTapForTtsRef.current = onParagraphTapForTts }, [onParagraphTapForTts])
-    // ttsIsPlaying como ref para ser lido dentro do click handler sem stale closure
-    const ttsIsPlayingRef = useRef(ttsIsPlaying)
-    useEffect(() => { ttsIsPlayingRef.current = ttsIsPlaying }, [ttsIsPlaying])
+    // podem mudar entre renders. useSyncRef mantém sempre a versão atual sem recriar o listener.
+    const onSaveVocabRef = useSyncRef(onSaveVocab)
+    const onCenterTapRef = useSyncRef(onCenterTap)
+    const onTranslateRef = useSyncRef(onTranslate)
+    const onSpeakOneRef = useSyncRef(onSpeakOne)
+    const onParagraphTapForTtsRef = useSyncRef(onParagraphTapForTts)
     // ttsGlobalActive: modo leitura contínua ativo (inclui pausado) — gating do clique
-    const ttsGlobalActiveRef = useRef(ttsGlobalActive)
-    useEffect(() => { ttsGlobalActiveRef.current = ttsGlobalActive }, [ttsGlobalActive])
+    const ttsGlobalActiveRef = useSyncRef(ttsGlobalActive)
 
     // Navegação entre capítulos: detecta fundo visual + swipe para avançar
     const isAtBottomRef = useRef(false)
     const currentSectionIdxRef = useRef(0)
     const totalSectionsRef = useRef(1)
-    const onAtBottomRef = useRef(onAtBottom)
-    const onSwipeAtBottomRef = useRef(onSwipeAtBottom)
-    useEffect(() => { onAtBottomRef.current = onAtBottom }, [onAtBottom])
-    useEffect(() => { onSwipeAtBottomRef.current = onSwipeAtBottom }, [onSwipeAtBottom])
+    const onAtBottomRef = useSyncRef(onAtBottom)
+    const onSwipeAtBottomRef = useSyncRef(onSwipeAtBottom)
 
     // Expõe API imperativa para o ReaderScreen via ref
     useImperativeHandle(ref, () => ({

@@ -267,7 +267,6 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
             const chunkIdx = Math.max(0, chunks.findIndex(c => c.paraIdx >= idx))
             void tts.stop().then(() => startPlay(chunks, chunkIdx))
           }}
-          ttsIsPlaying={tts.isPlaying}
           ttsGlobalActive={ttsPlayerVisible}
           onAtBottom={handleAtBottom}
           onSwipeAtBottom={handleSwipeAtBottom}
