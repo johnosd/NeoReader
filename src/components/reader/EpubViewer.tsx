@@ -580,10 +580,22 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           // wasAtBottomOnTouchStart: captura o estado no início do toque.
           // Se já estava no fundo E termina mais acima (arrasta para cima = rola para baixo) → navega.
           let touchStartY = 0
+          let touchStartX = 0
           let wasAtBottomOnTouchStart = false
+          // didScroll: Android WebView dispara 'click' mesmo após scroll curto.
+          // Rastreamos touchmove para distinguir tap intencional de fim de scroll.
+          let didScroll = false
           doc.addEventListener('touchstart', (ev: TouchEvent) => {
             touchStartY = ev.touches[0].clientY
+            touchStartX = ev.touches[0].clientX
             wasAtBottomOnTouchStart = isAtBottomRef.current
+            didScroll = false
+          }, { passive: true })
+          doc.addEventListener('touchmove', (ev: TouchEvent) => {
+            // Tap slop ~8px: qualquer movimento acima disso é intenção de scroll
+            const dy = Math.abs(ev.touches[0].clientY - touchStartY)
+            const dx = Math.abs(ev.touches[0].clientX - touchStartX)
+            if (dy > 8 || dx > 8) didScroll = true
           }, { passive: true })
           doc.addEventListener('touchend', (ev: TouchEvent) => {
             // deltaY positivo = dedo foi para cima = intenção de rolar para baixo
@@ -594,6 +606,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           }, { passive: true })
 
           doc.addEventListener('click', (ev: MouseEvent) => {
+            // Ignora clicks que são resíduo de um gesto de scroll
+            if (didScroll) return
             const target = ev.target as Element
 
             // Intercepta botões Ouvir/Salvar dentro do bloco de tradução inline
