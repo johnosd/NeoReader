@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { useSyncRef } from '../../hooks/useSyncRef'
 import type { Book } from '../../types/book'
 import type { View } from 'foliate-js/view.js'
+import { getSentenceAt, escapeHtml } from '../../utils/readerUtils'
 
 export type FontSize = 'sm' | 'md' | 'lg' | 'xl'
 
@@ -55,26 +56,6 @@ function splitParagraphIntoChunks(text: string, minLen = 40): Array<{ sentence: 
 }
 
 // Escapa caracteres HTML para inserção segura via innerHTML (karaokê de palavras)
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-
-// Retorna a frase do texto que contém o offset de caractere dado.
-// Frases são delimitadas por . ! ? seguidos de espaço ou fim de string.
-// Fallback: retorna o texto inteiro se não encontrar delimitadores.
-function getSentenceAt(text: string, charOffset: number): string {
-  // Divide em frases: qualquer sequência que termina com . ! ou ?
-  const parts = text.match(/[^.!?]*[.!?]+\s*/g)
-  if (!parts || parts.length <= 1) return text.trim()
-
-  let pos = 0
-  for (const part of parts) {
-    pos += part.length
-    if (charOffset < pos) return part.trim()
-  }
-  // offset além do último ponto (cauda sem pontuação) → última frase encontrada
-  return parts[parts.length - 1].trim()
-}
 
 // Envolve apenas a frase `sentence` num <span class="nr-hl-sentence"> dentro do parágrafo.
 // Usa Range + surroundContents: funciona quando a frase está dentro de um único nó de texto.
@@ -265,6 +246,8 @@ function buildReaderCSS(fontSize: FontSize): string {
 export interface EpubViewerHandle {
   next(): void
   prev(): void
+  // Navega para o capítulo anterior e posiciona no final (último parágrafo)
+  prevToEnd(): void
   goTo(target: string | number | { fraction: number }): void
   // TTS: retorna os textos puros de todos os parágrafos da seção atual
   getParagraphs(): string[]
@@ -317,6 +300,9 @@ interface EpubViewerProps {
   // Capítulo: emitido quando o usuário faz swipe para baixo estando já no fundo —
   // sinal de intenção de avançar para o próximo capítulo.
   onSwipeAtBottom?: () => void
+  // Capítulo: emitido quando o usuário faz swipe para cima estando já no topo —
+  // sinal de intenção de voltar ao final do capítulo anterior.
+  onSwipeAtTop?: () => void
 }
 
 // forwardRef: padrão React para expor métodos imperativos ao componente pai.
@@ -328,7 +314,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       onRelocate, onTocReady, onLoad, onError,
       onSaveVocab, onCenterTap, onTranslate,
       onSpeakOne, onParagraphTapForTts, ttsGlobalActive,
-      onAtBottom, onSwipeAtBottom,
+      onAtBottom, onSwipeAtBottom, onSwipeAtTop,
     },
     ref,
   ) => {
@@ -344,6 +330,9 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     // Texto original e traduzido da frase ativa — usados pelos botões Ouvir/Salvar no iframe
     const activeSourceTextRef = useRef<string>('')
     const activeTranslatedTextRef = useRef<string>('')
+    // Lock: bloqueia nova seleção enquanto a tradução HTTP anterior ainda está em voo.
+    // Evita que dois parágrafos fiquem simultaneamente marcados com data-nr-active.
+    const translationInProgressRef = useRef(false)
 
     // TTS scroll automático: controla se o auto-scroll deve seguir o TTS ou foi bloqueado
     // pelo usuário rolar manualmente durante a leitura
@@ -369,11 +358,18 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const totalSectionsRef = useRef(1)
     const onAtBottomRef = useSyncRef(onAtBottom)
     const onSwipeAtBottomRef = useSyncRef(onSwipeAtBottom)
+    const onSwipeAtTopRef = useSyncRef(onSwipeAtTop)
+    // Flag: próximo evento 'load' deve rolar a seção até o fundo (usado após prevToEnd)
+    const scrollToBottomOnLoadRef = useRef(false)
 
     // Expõe API imperativa para o ReaderScreen via ref
     useImperativeHandle(ref, () => ({
       next: () => { viewRef.current?.next() },
       prev: () => { viewRef.current?.prev() },
+      prevToEnd: () => {
+        scrollToBottomOnLoadRef.current = true
+        viewRef.current?.prev()
+      },
       goTo: (target) => { viewRef.current?.goTo(target) },
 
       getParagraphs: () => ttsParagraphTextsRef.current,
@@ -464,8 +460,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       showTranslationLoading: () => {
         const para = activeTranslationParaRef.current
         if (!para) return
+        translationInProgressRef.current = true
         const doc = para.ownerDocument!
-        // Remove bloco anterior caso exista (ex: tap rápido em parágrafos diferentes)
         doc.getElementById('nr-translation-block')?.remove()
         const block = doc.createElement('div')
         block.id = 'nr-translation-block'
@@ -479,6 +475,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       },
 
       injectTranslation: (translatedText: string) => {
+        translationInProgressRef.current = false
         const para = activeTranslationParaRef.current
         if (!para) return
         const block = para.ownerDocument?.getElementById('nr-translation-block')
@@ -493,6 +490,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       },
 
       clearTranslation: () => {
+        translationInProgressRef.current = false
         const para = activeTranslationParaRef.current
         if (!para) return
         para.ownerDocument?.getElementById('nr-translation-block')?.remove()
@@ -557,6 +555,15 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           isAtBottomRef.current = false
           onAtBottomRef.current?.(false, false)
 
+          // prevToEnd: rola até o fundo assim que o layout da seção estiver pronto
+          if (scrollToBottomOnLoadRef.current) {
+            scrollToBottomOnLoadRef.current = false
+            // rAF garante que o conteúdo foi renderizado antes de medir scrollHeight
+            doc.defaultView?.requestAnimationFrame(() => {
+              doc.defaultView?.scrollTo(0, doc.documentElement.scrollHeight)
+            })
+          }
+
           // Detecta scroll: TTS auto-scroll + fundo do capítulo.
           // passive:true = não bloqueia o scroll nativo (performance).
           // capture:true = captura antes de qualquer handler filho (garante que não perca eventos).
@@ -590,6 +597,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           let touchStartY = 0
           let touchStartX = 0
           let didScroll = false
+          let scrollOverflowTopCount = 0
           doc.addEventListener('touchstart', (ev: TouchEvent) => {
             touchStartY = ev.touches[0].clientY
             touchStartX = ev.touches[0].clientX
@@ -602,16 +610,36 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             if (dy > 8 || dx > 8) didScroll = true
           }, { passive: true })
           doc.addEventListener('touchend', (ev: TouchEvent) => {
-            // deltaY positivo = dedo foi para cima = intenção de rolar para baixo
             const deltaY = touchStartY - ev.changedTouches[0].clientY
-            if (isAtBottomRef.current && deltaY > 30) {
+            const dv = doc.defaultView!
+
+            // deltaY positivo = dedo foi para cima = intenção de rolar para baixo
+            if (deltaY > 30) {
+              // Lê posição diretamente — não depende de isAtBottomRef ser atualizado
+              // pelo scroll event antes do touchend (timing não garantido no Android WebView)
+              const atBottom = dv.scrollY + dv.innerHeight >= doc.documentElement.scrollHeight - 20
+              if (!atBottom) { scrollOverflowCount = 0; return }
               const hasNext = currentSectionIdxRef.current < totalSectionsRef.current - 1
               if (!hasNext) return
               scrollOverflowCount++
-              // 2ª tentativa consecutiva de scroll além do fim → avança capítulo
               if (scrollOverflowCount >= 2) {
                 scrollOverflowCount = 0
                 onSwipeAtBottomRef.current?.()
+              }
+              return
+            }
+
+            // deltaY negativo = dedo foi para baixo = intenção de rolar para cima
+            if (deltaY < -30) {
+              const atTop = dv.scrollY <= 20
+              if (!atTop) { scrollOverflowTopCount = 0; return }
+              const hasPrev = currentSectionIdxRef.current > 0
+              if (!hasPrev) return
+              scrollOverflowTopCount++
+              // 2ª tentativa consecutiva de scroll além do início → volta ao capítulo anterior
+              if (scrollOverflowTopCount >= 2) {
+                scrollOverflowTopCount = 0
+                onSwipeAtTopRef.current?.()
               }
             }
           }, { passive: true })
@@ -669,6 +697,23 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               return
             }
 
+            // Bloqueia nova seleção enquanto a tradução anterior ainda está em voo
+            if (translationInProgressRef.current) return
+
+            // Limpa parágrafo anterior se o tap foi em um parágrafo diferente
+            const prevPara = activeTranslationParaRef.current
+            if (prevPara && prevPara !== para) {
+              prevPara.ownerDocument?.getElementById('nr-translation-block')?.remove()
+              prevPara.removeAttribute('data-nr-active')
+              prevPara.classList.remove('nr-hl')
+              const prevSpan = prevPara.querySelector('.nr-hl-sentence')
+              if (prevSpan) {
+                const parent = prevSpan.parentNode!
+                while (prevSpan.firstChild) parent.insertBefore(prevSpan.firstChild, prevSpan)
+                prevSpan.remove()
+              }
+            }
+
             // Toggle on: detecta a frase clicada, destaca no iframe e emite para o ReaderScreen.
             // O ReaderScreen injeta o bloco de tradução diretamente no iframe via showTranslationLoading/injectTranslation.
             const sourceText = getSentenceFromClick(ev, para)
@@ -676,13 +721,24 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             highlightSentenceInParagraph(para, sourceText)
             activeTranslationParaRef.current = para
             activeSourceTextRef.current = sourceText
+            activeTranslatedTextRef.current = ''
             onTranslateRef.current(sourceText)
           })
         })
 
+        // Se open()+init() não concluírem em 15 s, EPUB provavelmente está corrompido
+        // ou em formato não suportado (foliate-js pode travar silenciosamente sem lançar).
+        let loadTimeout: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+          loadTimeout = null
+          if (!cancelled) {
+            cancelled = true
+            onError(new Error('Não foi possível abrir este livro. O arquivo pode estar corrompido ou em formato não suportado.'))
+          }
+        }, 15_000)
+
         try {
           await view.open(book.fileBlob)
-          if (cancelled) return
+          if (cancelled) { clearTimeout(loadTimeout!); return }
 
           // Total de seções: usado para checar se há próximo capítulo ao atingir o fundo
           totalSectionsRef.current = view.book?.sections?.length ?? 1
@@ -703,8 +759,10 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               : { showTextStart: true },
           )
 
+          if (loadTimeout) clearTimeout(loadTimeout)
           if (!cancelled) onLoad()
         } catch (err) {
+          if (loadTimeout) clearTimeout(loadTimeout)
           if (!cancelled) onError(err instanceof Error ? err : new Error(String(err)))
         }
       }
