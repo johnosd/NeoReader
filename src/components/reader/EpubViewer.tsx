@@ -265,6 +265,8 @@ function buildReaderCSS(fontSize: FontSize): string {
 export interface EpubViewerHandle {
   next(): void
   prev(): void
+  // Navega para o capítulo anterior e posiciona no final (último parágrafo)
+  prevToEnd(): void
   goTo(target: string | number | { fraction: number }): void
   // TTS: retorna os textos puros de todos os parágrafos da seção atual
   getParagraphs(): string[]
@@ -317,6 +319,9 @@ interface EpubViewerProps {
   // Capítulo: emitido quando o usuário faz swipe para baixo estando já no fundo —
   // sinal de intenção de avançar para o próximo capítulo.
   onSwipeAtBottom?: () => void
+  // Capítulo: emitido quando o usuário faz swipe para cima estando já no topo —
+  // sinal de intenção de voltar ao final do capítulo anterior.
+  onSwipeAtTop?: () => void
 }
 
 // forwardRef: padrão React para expor métodos imperativos ao componente pai.
@@ -328,7 +333,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       onRelocate, onTocReady, onLoad, onError,
       onSaveVocab, onCenterTap, onTranslate,
       onSpeakOne, onParagraphTapForTts, ttsGlobalActive,
-      onAtBottom, onSwipeAtBottom,
+      onAtBottom, onSwipeAtBottom, onSwipeAtTop,
     },
     ref,
   ) => {
@@ -369,11 +374,18 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const totalSectionsRef = useRef(1)
     const onAtBottomRef = useSyncRef(onAtBottom)
     const onSwipeAtBottomRef = useSyncRef(onSwipeAtBottom)
+    const onSwipeAtTopRef = useSyncRef(onSwipeAtTop)
+    // Flag: próximo evento 'load' deve rolar a seção até o fundo (usado após prevToEnd)
+    const scrollToBottomOnLoadRef = useRef(false)
 
     // Expõe API imperativa para o ReaderScreen via ref
     useImperativeHandle(ref, () => ({
       next: () => { viewRef.current?.next() },
       prev: () => { viewRef.current?.prev() },
+      prevToEnd: () => {
+        scrollToBottomOnLoadRef.current = true
+        viewRef.current?.prev()
+      },
       goTo: (target) => { viewRef.current?.goTo(target) },
 
       getParagraphs: () => ttsParagraphTextsRef.current,
@@ -557,6 +569,15 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           isAtBottomRef.current = false
           onAtBottomRef.current?.(false, false)
 
+          // prevToEnd: rola até o fundo assim que o layout da seção estiver pronto
+          if (scrollToBottomOnLoadRef.current) {
+            scrollToBottomOnLoadRef.current = false
+            // rAF garante que o conteúdo foi renderizado antes de medir scrollHeight
+            doc.defaultView?.requestAnimationFrame(() => {
+              doc.defaultView?.scrollTo(0, doc.documentElement.scrollHeight)
+            })
+          }
+
           // Detecta scroll: TTS auto-scroll + fundo do capítulo.
           // passive:true = não bloqueia o scroll nativo (performance).
           // capture:true = captura antes de qualquer handler filho (garante que não perca eventos).
@@ -590,6 +611,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           let touchStartY = 0
           let touchStartX = 0
           let didScroll = false
+          let scrollOverflowTopCount = 0
           doc.addEventListener('touchstart', (ev: TouchEvent) => {
             touchStartY = ev.touches[0].clientY
             touchStartX = ev.touches[0].clientX
@@ -602,24 +624,37 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             if (dy > 8 || dx > 8) didScroll = true
           }, { passive: true })
           doc.addEventListener('touchend', (ev: TouchEvent) => {
-            // deltaY positivo = dedo foi para cima = intenção de rolar para baixo
             const deltaY = touchStartY - ev.changedTouches[0].clientY
-            if (deltaY <= 30) return
-            // Lê posição diretamente — não depende de isAtBottomRef ser atualizado
-            // pelo scroll event antes do touchend (timing não garantido no Android WebView)
             const dv = doc.defaultView!
-            const atBottom = dv.scrollY + dv.innerHeight >= doc.documentElement.scrollHeight - 20
-            if (!atBottom) {
-              scrollOverflowCount = 0
+
+            // deltaY positivo = dedo foi para cima = intenção de rolar para baixo
+            if (deltaY > 30) {
+              // Lê posição diretamente — não depende de isAtBottomRef ser atualizado
+              // pelo scroll event antes do touchend (timing não garantido no Android WebView)
+              const atBottom = dv.scrollY + dv.innerHeight >= doc.documentElement.scrollHeight - 20
+              if (!atBottom) { scrollOverflowCount = 0; return }
+              const hasNext = currentSectionIdxRef.current < totalSectionsRef.current - 1
+              if (!hasNext) return
+              scrollOverflowCount++
+              if (scrollOverflowCount >= 2) {
+                scrollOverflowCount = 0
+                onSwipeAtBottomRef.current?.()
+              }
               return
             }
-            const hasNext = currentSectionIdxRef.current < totalSectionsRef.current - 1
-            if (!hasNext) return
-            scrollOverflowCount++
-            // 2ª tentativa consecutiva de scroll além do fim → avança capítulo
-            if (scrollOverflowCount >= 2) {
-              scrollOverflowCount = 0
-              onSwipeAtBottomRef.current?.()
+
+            // deltaY negativo = dedo foi para baixo = intenção de rolar para cima
+            if (deltaY < -30) {
+              const atTop = dv.scrollY <= 20
+              if (!atTop) { scrollOverflowTopCount = 0; return }
+              const hasPrev = currentSectionIdxRef.current > 0
+              if (!hasPrev) return
+              scrollOverflowTopCount++
+              // 2ª tentativa consecutiva de scroll além do início → volta ao capítulo anterior
+              if (scrollOverflowTopCount >= 2) {
+                scrollOverflowTopCount = 0
+                onSwipeAtTopRef.current?.()
+              }
             }
           }, { passive: true })
 

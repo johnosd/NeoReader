@@ -186,6 +186,12 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
     viewerRef.current?.next()
   }
 
+  // 2º swipe consecutivo no topo: volta ao capítulo anterior posicionando no fim.
+  // hasPrev já verificado no EpubViewer antes de chamar este callback.
+  function handleSwipeAtTop() {
+    viewerRef.current?.prevToEnd()
+  }
+
   // Salva par original/tradução no vocabulário — chamado pelo EpubViewer via ⭐
   function handleSaveVocab(sourceText: string, translatedText: string) {
     void addVocabItem({
@@ -270,6 +276,7 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
           ttsGlobalActive={ttsPlayerVisible}
           onAtBottom={handleAtBottom}
           onSwipeAtBottom={handleSwipeAtBottom}
+          onSwipeAtTop={handleSwipeAtTop}
         />
       </div>
 
