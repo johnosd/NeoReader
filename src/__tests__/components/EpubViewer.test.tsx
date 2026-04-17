@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, act, waitFor } from '@testing-library/react'
+import { render, act } from '@testing-library/react'
 import { createRef } from 'react'
 import { EpubViewer, type EpubViewerHandle } from '@/components/reader/EpubViewer'
 import type { Book } from '@/types/book'

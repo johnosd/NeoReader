@@ -30,7 +30,9 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
   const viewerRef = useRef<EpubViewerHandle>(null)
 
   // Estado local — não precisa ser compartilhado entre siblings
-  const [chromeVisible, setChromeVisible] = useState(false)
+  // Começa visível: garante que o botão ← sempre seja acessível, mesmo se
+  // o EPUB não renderizar conteúdo (tela preta). O backdrop fecha no 1º tap.
+  const [chromeVisible, setChromeVisible] = useState(true)
   const [ttsFinished, setTtsFinished] = useState(false)
   // Controla visibilidade do mini player — true do início até o usuário apertar ⏹
   const [ttsPlayerVisible, setTtsPlayerVisible] = useState(false)

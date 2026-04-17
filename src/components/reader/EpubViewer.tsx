@@ -523,18 +523,32 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       let view: View | null = null
 
       async function setup() {
+        // [nr-debug] Instrumentação para diagnosticar tela preta.
+        // Prefixo [nr-debug] permite filtrar: `adb logcat | grep nr-debug`
+        const DBG = '[nr-debug]'
+        console.log(DBG, 'setup start', {
+          bookId: book.id,
+          title: book.title,
+          fileBlobSize: book.fileBlob?.size,
+          fileBlobType: book.fileBlob?.type,
+          savedCfi,
+        })
+
         // Import dinâmico: registra o custom element como side-effect
         // e mantém o bundle do foliate fora do chunk inicial
         await import('foliate-js/view.js')
         if (cancelled) return
+        console.log(DBG, 'foliate-js view.js imported')
 
         view = document.createElement('foliate-view') as unknown as View
         view.style.cssText = 'width:100%;height:100%;display:block'
         container!.appendChild(view)
         viewRef.current = view
+        console.log(DBG, 'foliate-view element created and appended')
 
         view.addEventListener('relocate', (e: CustomEvent<RelocateDetail>) => {
           const { cfi, fraction, tocItem } = e.detail
+          console.log(DBG, 'relocate event', { cfi, fraction, tocLabel: tocItem?.label })
           onRelocate(cfi, Math.round(fraction * 100), tocItem?.label)
         })
 
@@ -542,6 +556,29 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         // o Document do iframe — toda a lógica de tradução inline acontece aqui.
         view.addEventListener('load', (e: CustomEvent<{ doc: Document; index: number }>) => {
           const { doc } = e.detail
+          // [nr-debug] Inspeção do Document do iframe — fonte principal da "tela preta"
+          const htmlLen = doc.documentElement?.outerHTML?.length ?? 0
+          const bodyText = doc.body?.textContent?.trim() ?? ''
+          const paraCount = doc.querySelectorAll('p, div, span, h1, h2, h3, h4, h5, h6, li').length
+          const imgCount = doc.querySelectorAll('img, svg').length
+          console.log('[nr-debug]', 'section load event', {
+            sectionIndex: e.detail.index,
+            htmlLength: htmlLen,
+            bodyTextLength: bodyText.length,
+            bodyTextPreview: bodyText.slice(0, 80),
+            elementCount: paraCount,
+            imageCount: imgCount,
+            bodyComputedDisplay: doc.defaultView?.getComputedStyle?.(doc.body)?.display,
+            bodyComputedVisibility: doc.defaultView?.getComputedStyle?.(doc.body)?.visibility,
+          })
+          // Captura erros do próprio iframe (ex: falha de CSS/script do EPUB)
+          doc.defaultView?.addEventListener('error', (err: ErrorEvent) => {
+            console.error('[nr-debug]', 'iframe error', {
+              message: err.message,
+              filename: err.filename,
+              lineno: err.lineno,
+            })
+          })
           const BLOCK = 'p, li, blockquote, h1, h2, h3, h4, h5, h6'
 
           // Armazena parágrafos da seção para uso pelo TTS (audiobook e karaokê)
@@ -726,9 +763,38 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           })
         })
 
+        // Se open()+init() não concluírem em 15 s, EPUB provavelmente está corrompido
+        // ou em formato não suportado (foliate-js pode travar silenciosamente sem lançar).
+        let loadTimeout: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+          loadTimeout = null
+          if (!cancelled) {
+            cancelled = true
+            onError(new Error('Não foi possível abrir este livro. O arquivo pode estar corrompido ou em formato não suportado.'))
+          }
+        }, 8_000)
+
         try {
+          console.log('[nr-debug]', 'calling view.open()')
           await view.open(book.fileBlob)
-          if (cancelled) return
+          if (cancelled) { clearTimeout(loadTimeout!); return }
+          // [nr-debug] Após open(): inspeciona estrutura do book parseado.
+          // Um spine vazio/ausente aqui é uma das principais causas de tela preta.
+          const bk = view.book as unknown as {
+            sections?: unknown[]
+            toc?: unknown[]
+            spine?: unknown[]
+            metadata?: { title?: string; language?: string }
+            resources?: unknown
+          } | undefined
+          console.log('[nr-debug]', 'view.open() resolved', {
+            hasBook: !!bk,
+            sectionsLength: bk?.sections?.length,
+            tocLength: bk?.toc?.length,
+            spineLength: bk?.spine?.length,
+            metadataTitle: bk?.metadata?.title,
+            metadataLanguage: bk?.metadata?.language,
+            firstSectionExists: !!(bk?.sections?.[0]),
+          })
 
           // Total de seções: usado para checar se há próximo capítulo ao atingir o fundo
           totalSectionsRef.current = view.book?.sections?.length ?? 1
@@ -739,18 +805,28 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           view.renderer.setAttribute('margin', '48px')
           view.renderer.setAttribute('animated', '')
           view.renderer.setStyles?.(buildReaderCSS(fontSize))
+          console.log('[nr-debug]', 'renderer configured')
 
           onTocReady(view.book?.toc ?? [])
 
-          // Restaura posição ou vai para o início do texto principal
+          // CFI com [Cover] = capa sem conteúdo legível → tela preta no tema escuro.
+          // Tratamos como "sem posição salva" e começamos pelo primeiro texto real.
+          const isAtCover = !!savedCfi?.match(/\[Cover\]/i)
+          const initCfi = savedCfi && !isAtCover ? savedCfi : null
+          console.log('[nr-debug]', 'calling view.init()', { savedCfi, isAtCover, initCfi })
           await view.init(
-            savedCfi
-              ? { lastLocation: savedCfi }
+            initCfi
+              ? { lastLocation: initCfi }
               : { showTextStart: true },
           )
+          console.log('[nr-debug]', 'view.init() resolved')
 
+          if (loadTimeout) clearTimeout(loadTimeout)
           if (!cancelled) onLoad()
         } catch (err) {
+          // [nr-debug] Loga erro ANTES de propagar — garante que nenhuma exceção silenciosa seja perdida
+          console.error('[nr-debug]', 'setup caught exception', err)
+          if (loadTimeout) clearTimeout(loadTimeout)
           if (!cancelled) onError(err instanceof Error ? err : new Error(String(err)))
         }
       }

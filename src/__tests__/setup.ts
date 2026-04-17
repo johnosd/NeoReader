@@ -27,7 +27,7 @@ class FoliateViewMock extends HTMLElement {
   ) {
     if (event === 'load' || event === 'relocate') {
       if (!this._fCbs.has(event)) this._fCbs.set(event, [])
-      this._fCbs.get(event)!.push(cb as (e: { detail: unknown }) => void)
+      this._fCbs.get(event)!.push(cb as unknown as (e: { detail: unknown }) => void)
     } else {
       super.addEventListener(event, cb, options)
     }
