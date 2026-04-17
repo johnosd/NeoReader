@@ -604,15 +604,22 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           doc.addEventListener('touchend', (ev: TouchEvent) => {
             // deltaY positivo = dedo foi para cima = intenção de rolar para baixo
             const deltaY = touchStartY - ev.changedTouches[0].clientY
-            if (isAtBottomRef.current && deltaY > 30) {
-              const hasNext = currentSectionIdxRef.current < totalSectionsRef.current - 1
-              if (!hasNext) return
-              scrollOverflowCount++
-              // 2ª tentativa consecutiva de scroll além do fim → avança capítulo
-              if (scrollOverflowCount >= 2) {
-                scrollOverflowCount = 0
-                onSwipeAtBottomRef.current?.()
-              }
+            if (deltaY <= 30) return
+            // Lê posição diretamente — não depende de isAtBottomRef ser atualizado
+            // pelo scroll event antes do touchend (timing não garantido no Android WebView)
+            const dv = doc.defaultView!
+            const atBottom = dv.scrollY + dv.innerHeight >= doc.documentElement.scrollHeight - 20
+            if (!atBottom) {
+              scrollOverflowCount = 0
+              return
+            }
+            const hasNext = currentSectionIdxRef.current < totalSectionsRef.current - 1
+            if (!hasNext) return
+            scrollOverflowCount++
+            // 2ª tentativa consecutiva de scroll além do fim → avança capítulo
+            if (scrollOverflowCount >= 2) {
+              scrollOverflowCount = 0
+              onSwipeAtBottomRef.current?.()
             }
           }, { passive: true })
 
