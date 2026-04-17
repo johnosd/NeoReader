@@ -349,6 +349,9 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     // Texto original e traduzido da frase ativa — usados pelos botões Ouvir/Salvar no iframe
     const activeSourceTextRef = useRef<string>('')
     const activeTranslatedTextRef = useRef<string>('')
+    // Lock: bloqueia nova seleção enquanto a tradução HTTP anterior ainda está em voo.
+    // Evita que dois parágrafos fiquem simultaneamente marcados com data-nr-active.
+    const translationInProgressRef = useRef(false)
 
     // TTS scroll automático: controla se o auto-scroll deve seguir o TTS ou foi bloqueado
     // pelo usuário rolar manualmente durante a leitura
@@ -476,8 +479,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       showTranslationLoading: () => {
         const para = activeTranslationParaRef.current
         if (!para) return
+        translationInProgressRef.current = true
         const doc = para.ownerDocument!
-        // Remove bloco anterior caso exista (ex: tap rápido em parágrafos diferentes)
         doc.getElementById('nr-translation-block')?.remove()
         const block = doc.createElement('div')
         block.id = 'nr-translation-block'
@@ -491,6 +494,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       },
 
       injectTranslation: (translatedText: string) => {
+        translationInProgressRef.current = false
         const para = activeTranslationParaRef.current
         if (!para) return
         const block = para.ownerDocument?.getElementById('nr-translation-block')
@@ -505,6 +509,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       },
 
       clearTranslation: () => {
+        translationInProgressRef.current = false
         const para = activeTranslationParaRef.current
         if (!para) return
         para.ownerDocument?.getElementById('nr-translation-block')?.remove()
@@ -711,6 +716,23 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               return
             }
 
+            // Bloqueia nova seleção enquanto a tradução anterior ainda está em voo
+            if (translationInProgressRef.current) return
+
+            // Limpa parágrafo anterior se o tap foi em um parágrafo diferente
+            const prevPara = activeTranslationParaRef.current
+            if (prevPara && prevPara !== para) {
+              prevPara.ownerDocument?.getElementById('nr-translation-block')?.remove()
+              prevPara.removeAttribute('data-nr-active')
+              prevPara.classList.remove('nr-hl')
+              const prevSpan = prevPara.querySelector('.nr-hl-sentence')
+              if (prevSpan) {
+                const parent = prevSpan.parentNode!
+                while (prevSpan.firstChild) parent.insertBefore(prevSpan.firstChild, prevSpan)
+                prevSpan.remove()
+              }
+            }
+
             // Toggle on: detecta a frase clicada, destaca no iframe e emite para o ReaderScreen.
             // O ReaderScreen injeta o bloco de tradução diretamente no iframe via showTranslationLoading/injectTranslation.
             const sourceText = getSentenceFromClick(ev, para)
@@ -718,6 +740,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             highlightSentenceInParagraph(para, sourceText)
             activeTranslationParaRef.current = para
             activeSourceTextRef.current = sourceText
+            activeTranslatedTextRef.current = ''
             onTranslateRef.current(sourceText)
           })
         })
