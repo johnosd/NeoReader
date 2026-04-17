@@ -771,7 +771,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             cancelled = true
             onError(new Error('Não foi possível abrir este livro. O arquivo pode estar corrompido ou em formato não suportado.'))
           }
-        }, 15_000)
+        }, 8_000)
 
         try {
           console.log('[nr-debug]', 'calling view.open()')
