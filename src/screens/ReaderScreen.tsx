@@ -179,9 +179,9 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
     setChapterEndState(atBottom ? (hasNext ? 'atEnd' : 'noNext') : 'idle')
   }
 
-  // Segundo swipe no fundo: navega para o próximo capítulo
+  // 2º swipe consecutivo no fundo: navega para o próximo capítulo.
+  // hasNext já verificado no EpubViewer antes de chamar este callback.
   function handleSwipeAtBottom() {
-    if (chapterEndState !== 'atEnd') return
     setChapterEndState('idle')
     viewerRef.current?.next()
   }

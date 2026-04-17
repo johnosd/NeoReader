@@ -560,6 +560,10 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           // Detecta scroll: TTS auto-scroll + fundo do capítulo.
           // passive:true = não bloqueia o scroll nativo (performance).
           // capture:true = captura antes de qualquer handler filho (garante que não perca eventos).
+          let lastScrollY = 0
+          // scrollOverflowCount: contador de tentativas de scroll além do fim do capítulo.
+          // Resetado ao rolar para cima ou ao carregar nova seção (re-declarado no load).
+          let scrollOverflowCount = 0
           doc.defaultView?.addEventListener('scroll', () => {
             // TTS: detecta scroll manual durante leitura para pausar auto-scroll
             if (ttsActiveRef.current && Date.now() > scrollingProgrammaticallyUntilRef.current) {
@@ -568,7 +572,11 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             // Capítulo: detecta quando o usuário chega ao fundo da seção
             // scrollHeight - innerHeight - scrollY ≤ 20px → considerado "no fundo"
             const dv = doc.defaultView!
-            const atBottom = dv.scrollY + dv.innerHeight >= doc.documentElement.scrollHeight - 20
+            const currentScrollY = dv.scrollY
+            // Scroll para cima cancela intenção de avançar capítulo
+            if (currentScrollY < lastScrollY - 5) scrollOverflowCount = 0
+            lastScrollY = currentScrollY
+            const atBottom = currentScrollY + dv.innerHeight >= doc.documentElement.scrollHeight - 20
             if (atBottom !== isAtBottomRef.current) {
               isAtBottomRef.current = atBottom
               const hasNext = currentSectionIdxRef.current < totalSectionsRef.current - 1
@@ -576,19 +584,15 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             }
           }, { passive: true, capture: true })
 
-          // Detecta swipe para baixo quando já no fundo — segundo gesto intencional de avançar.
-          // wasAtBottomOnTouchStart: captura o estado no início do toque.
-          // Se já estava no fundo E termina mais acima (arrasta para cima = rola para baixo) → navega.
-          let touchStartY = 0
-          let touchStartX = 0
-          let wasAtBottomOnTouchStart = false
+          // Detecta swipe para baixo quando no fundo — 2 gestos consecutivos avançam o capítulo.
           // didScroll: Android WebView dispara 'click' mesmo após scroll curto.
           // Rastreamos touchmove para distinguir tap intencional de fim de scroll.
+          let touchStartY = 0
+          let touchStartX = 0
           let didScroll = false
           doc.addEventListener('touchstart', (ev: TouchEvent) => {
             touchStartY = ev.touches[0].clientY
             touchStartX = ev.touches[0].clientX
-            wasAtBottomOnTouchStart = isAtBottomRef.current
             didScroll = false
           }, { passive: true })
           doc.addEventListener('touchmove', (ev: TouchEvent) => {
@@ -600,8 +604,15 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           doc.addEventListener('touchend', (ev: TouchEvent) => {
             // deltaY positivo = dedo foi para cima = intenção de rolar para baixo
             const deltaY = touchStartY - ev.changedTouches[0].clientY
-            if (wasAtBottomOnTouchStart && isAtBottomRef.current && deltaY > 30) {
-              onSwipeAtBottomRef.current?.()
+            if (isAtBottomRef.current && deltaY > 30) {
+              const hasNext = currentSectionIdxRef.current < totalSectionsRef.current - 1
+              if (!hasNext) return
+              scrollOverflowCount++
+              // 2ª tentativa consecutiva de scroll além do fim → avança capítulo
+              if (scrollOverflowCount >= 2) {
+                scrollOverflowCount = 0
+                onSwipeAtBottomRef.current?.()
+              }
             }
           }, { passive: true })
 
