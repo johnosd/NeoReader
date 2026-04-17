@@ -809,11 +809,14 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
           onTocReady(view.book?.toc ?? [])
 
-          // Restaura posição ou vai para o início do texto principal
-          console.log('[nr-debug]', 'calling view.init()', { savedCfi })
+          // CFI com [Cover] = capa sem conteúdo legível → tela preta no tema escuro.
+          // Tratamos como "sem posição salva" e começamos pelo primeiro texto real.
+          const isAtCover = !!savedCfi?.match(/\[Cover\]/i)
+          const initCfi = savedCfi && !isAtCover ? savedCfi : null
+          console.log('[nr-debug]', 'calling view.init()', { savedCfi, isAtCover, initCfi })
           await view.init(
-            savedCfi
-              ? { lastLocation: savedCfi }
+            initCfi
+              ? { lastLocation: initCfi }
               : { showTextStart: true },
           )
           console.log('[nr-debug]', 'view.init() resolved')
