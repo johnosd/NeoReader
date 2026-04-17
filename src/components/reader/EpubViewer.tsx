@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { useSyncRef } from '../../hooks/useSyncRef'
 import type { Book } from '../../types/book'
 import type { View } from 'foliate-js/view.js'
+import { getSentenceAt, escapeHtml } from '../../utils/readerUtils'
 
 export type FontSize = 'sm' | 'md' | 'lg' | 'xl'
 
@@ -55,26 +56,6 @@ function splitParagraphIntoChunks(text: string, minLen = 40): Array<{ sentence: 
 }
 
 // Escapa caracteres HTML para inserção segura via innerHTML (karaokê de palavras)
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-
-// Retorna a frase do texto que contém o offset de caractere dado.
-// Frases são delimitadas por . ! ? seguidos de espaço ou fim de string.
-// Fallback: retorna o texto inteiro se não encontrar delimitadores.
-function getSentenceAt(text: string, charOffset: number): string {
-  // Divide em frases: qualquer sequência que termina com . ! ou ?
-  const parts = text.match(/[^.!?]*[.!?]+\s*/g)
-  if (!parts || parts.length <= 1) return text.trim()
-
-  let pos = 0
-  for (const part of parts) {
-    pos += part.length
-    if (charOffset < pos) return part.trim()
-  }
-  // offset além do último ponto (cauda sem pontuação) → última frase encontrada
-  return parts[parts.length - 1].trim()
-}
 
 // Envolve apenas a frase `sentence` num <span class="nr-hl-sentence"> dentro do parágrafo.
 // Usa Range + surroundContents: funciona quando a frase está dentro de um único nó de texto.
