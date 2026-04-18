@@ -472,6 +472,11 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             <span>Traduzindo…</span>
           </div>`
         para.after(block)
+        // Rola o parágrafo para o topo da tela para que o bloco apareça logo abaixo.
+        // requestAnimationFrame aguarda o layout ser recalculado após a inserção.
+        para.ownerDocument?.defaultView?.requestAnimationFrame(() => {
+          para.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        })
       },
 
       injectTranslation: (translatedText: string) => {
