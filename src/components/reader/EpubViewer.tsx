@@ -472,8 +472,28 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             <span>Traduzindo…</span>
           </div>`
         para.after(block)
-        // Rola o parágrafo para o topo da tela para que o bloco apareça logo abaixo.
-        // requestAnimationFrame aguarda o layout ser recalculado após a inserção.
+
+        // Se há texto após a frase destacada, move-o para um <p> temporário
+        // abaixo do bloco — assim o bloco aparece logo após a frase, não ao
+        // final do parágrafo inteiro.
+        const span = para.querySelector('.nr-hl-sentence')
+        if (span?.nextSibling) {
+          const range = doc.createRange()
+          range.setStartAfter(span)
+          range.setEndAfter(para.lastChild!)
+          const extracted = range.extractContents()
+          if (extracted.textContent?.trim()) {
+            const remainder = doc.createElement('p')
+            remainder.id = 'nr-para-remainder'
+            remainder.className = para.className
+            const styleAttr = para.getAttribute('style')
+            if (styleAttr) remainder.setAttribute('style', styleAttr)
+            remainder.appendChild(extracted)
+            block.after(remainder)
+          }
+        }
+
+        // Rola o parágrafo para o topo para que frase + bloco fiquem visíveis.
         para.ownerDocument?.defaultView?.requestAnimationFrame(() => {
           para.scrollIntoView({ behavior: 'smooth', block: 'start' })
         })
@@ -498,6 +518,12 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         translationInProgressRef.current = false
         const para = activeTranslationParaRef.current
         if (!para) return
+        // Reintegra o texto extraído de volta ao parágrafo original antes de remover o bloco
+        const remainder = para.ownerDocument?.getElementById('nr-para-remainder')
+        if (remainder) {
+          while (remainder.firstChild) para.appendChild(remainder.firstChild)
+          remainder.remove()
+        }
         para.ownerDocument?.getElementById('nr-translation-block')?.remove()
         para.removeAttribute('data-nr-active')
         para.classList.remove('nr-hl')
