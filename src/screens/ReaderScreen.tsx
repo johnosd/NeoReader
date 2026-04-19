@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { App as CapApp } from '@capacitor/app'
 import { EpubViewer, type EpubViewerHandle } from '../components/reader/EpubViewer'
 import { ReaderChrome } from '../components/reader/ReaderChrome'
-import { TocSheet } from '../components/reader/TocSheet'
+import { TocDrawer } from '../components/reader/TocDrawer'
 import { BookmarkSheet } from '../components/reader/BookmarkSheet'
 import { useReaderProgress } from '../hooks/useReaderProgress'
 import { useReaderStore } from '../store/readerStore'
@@ -336,7 +336,7 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
         <TtsFinishedToast onDismiss={() => setTtsFinished(false)} />
       )}
 
-      <TocSheet
+      <TocDrawer
         open={tocOpen}
         toc={toc}
         onSelect={(href) => {
