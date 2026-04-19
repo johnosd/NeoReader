@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { App as CapApp } from '@capacitor/app'
 import { Bell } from 'lucide-react'
 import { HeroBanner } from '../components/HeroBanner'
 import { BookRow } from '../components/BookRow'
@@ -16,6 +17,15 @@ interface LibraryScreenProps {
 export function LibraryScreen({ onOpenBook, onOpenVocabulary, onOpenSettings }: LibraryScreenProps) {
   const { isLoading, isEmpty, heroBook, inProgressBooks, recentBooks } = useLibraryGroups()
   const [optionsBook, setOptionsBook] = useState<Book | null>(null)
+
+  // Intercepta o botão Back físico do Android: fecha sheet aberta ou minimiza o app
+  useEffect(() => {
+    const listenerPromise = CapApp.addListener('backButton', () => {
+      if (optionsBook) { setOptionsBook(null); return }
+      void CapApp.minimizeApp()
+    })
+    return () => { void listenerPromise.then((l) => l.remove()) }
+  }, [optionsBook])
 
   return (
     <div className="min-h-screen pb-[70px]" style={{ background: '#0f0c18', color: '#fff' }}>
