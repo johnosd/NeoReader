@@ -17,7 +17,18 @@
       "Bash(gh pr:*)",
       "Bash(npm run:*)",
       "Bash(npx --prefix \"C:/Users/johns/Documents/Projetos/NeoReader/NeoReader\" tsc --noEmit)",
-      "WebFetch(domain:docs.sws.speechify.com)"
+      "WebFetch(domain:docs.sws.speechify.com)",
+      "Bash(xargs wc *)",
+      "Bash(ls -d */)",
+      "Bash(find /c/Users/johns/Documents/Projetos/NeoReader/NeoReader/src -type f \\\\\\( -name \"*.ts\" -o -name \"*.tsx\" \\\\\\) -exec wc -l {} \\\\;)",
+      "Bash(awk '{sum+=$1} END {print \"Total lines:\", sum}')",
+      "Bash(findstr /v node_modules)",
+      "Bash(xargs grep *)",
+      "Bash(xargs -0 grep -l \"catch\\\\|throw\\\\|Error\")",
+      "Bash(ls *)",
+      "Bash(wc *)",
+      "Bash(npm run *)",
+      "Read(//tmp/**)"
     ]
   }
 }

@@ -4,7 +4,7 @@
 
 ---
 
-## 1. Stack Técnica
+## 1. Stack Técnica 
 
 | Camada | Escolha | Justificativa |
 |---|---|---|

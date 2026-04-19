@@ -12,9 +12,13 @@ export async function getAllBooks(): Promise<Book[]> {
 }
 
 export async function deleteBook(id: number): Promise<void> {
-  await db.transaction('rw', db.books, db.progress, async () => {
+  // Apaga o livro e todos os dados relacionados numa transação atômica.
+  // Sem isso, progresso, marcadores e vocabulário ficam órfãos no IndexedDB.
+  await db.transaction('rw', db.books, db.progress, db.bookmarks, db.vocabulary, async () => {
     await db.books.delete(id)
     await db.progress.where('bookId').equals(id).delete()
+    await db.bookmarks.where('bookId').equals(id).delete()
+    await db.vocabulary.where('bookId').equals(id).delete()
   })
 }
 
