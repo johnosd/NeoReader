@@ -1,0 +1,2866 @@
+<!DOCTYPE html>
+<html lang="pt-BR" dir="ltr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
+  <title>NeoReader — Design System Android Mobile</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700;900&family=Playfair+Display:ital,wght@0,400;0,600;0,700;0,900;1,400&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    /* ═══════════════════════════════════════════════════════════════════════
+       NEOREADER — DESIGN SYSTEM ANDROID MOBILE
+       Adaptação fiel do design system web para Android mobile-first.
+       Unidades: px CSS representam dp/sp Android (1px CSS ≈ 1dp a 160dpi).
+       ═══════════════════════════════════════════════════════════════════════ */
+
+    /* ──────────────────────────────────────────────────────────────────────
+       1. TOKENS — preservados do DS original, convertidos para dp/sp
+       ────────────────────────────────────────────────────────────────────── */
+    :root {
+      /* ── Color Tokens (idênticos ao DS web) ── */
+      --nr-bg-base:      #07030c;   /* Android: colorBackground */
+      --nr-bg-surface:   #12091a;   /* Android: colorSurface */
+      --nr-bg-surface-2: #1e0e2d;   /* Android: colorSurfaceVariant */
+
+      --nr-purple-primary: #7b2cbf; /* Android: colorPrimary */
+      --nr-purple-light:   #9d4edd; /* Android: colorPrimaryContainer */
+      --nr-purple-dark:    #3c096c; /* Android: colorSecondary */
+      --nr-purple-glow:    rgba(123, 44, 191, 0.4);
+
+      --nr-gray-50:  #f8fafc;
+      --nr-gray-100: #f1f5f9;
+      --nr-gray-200: #e2e8f0;
+      --nr-gray-300: #cbd5e1;
+      --nr-gray-400: #94a3b8;
+      --nr-gray-500: #64748b;
+      --nr-gray-600: #475569;
+      --nr-gray-700: #334155;
+      --nr-gray-800: #1e293b;
+      --nr-gray-900: #0f172a;
+
+      --nr-text-primary:   #f8fafc;         /* sp: onBackground */
+      --nr-text-secondary: #cbd5e1;         /* sp: onSurfaceVariant */
+      --nr-text-muted:     #94a3b8;         /* sp: outline */
+
+      --nr-glass-bg:     rgba(15, 7, 24, 0.85);
+      --nr-glass-border: rgba(255, 255, 255, 0.08);
+
+      --nr-error:   #ef4444;  /* Android: colorError */
+      --nr-success: #10b981;
+      --nr-warning: #f59e0b;
+
+      /* ── Typography Tokens (px aqui = sp Android) ── */
+      --nr-font-sans:  'Inter', -apple-system, Roboto, sans-serif;
+      --nr-font-serif: 'Playfair Display', Georgia, serif;
+      --nr-font-mono:  'JetBrains Mono', monospace;
+
+      /* Escala tipográfica mobile em sp (web px → dp/sp Android) */
+      --nr-text-display:     36sp; /* web: clamp(3–5rem) → 36sp mobile */
+      --nr-text-h1:          28sp; /* web: clamp(2.25–3.5rem) → 28sp */
+      --nr-text-h2:          22sp; /* web: clamp(1.75–2.5rem) → 22sp */
+      --nr-text-h3:          18sp; /* web: clamp(1.25–1.75rem) → 18sp */
+      --nr-text-h4:          16sp; /* web: 1.25rem → 16sp */
+      --nr-text-body-lg:     16sp; /* web: 1.125rem → 16sp */
+      --nr-text-body:        14sp; /* web: 1rem → 14sp */
+      --nr-text-small:       12sp; /* web: 0.875rem → 12sp */
+      --nr-text-caption:     11sp; /* web: 0.75rem → 11sp */
+      --nr-text-overline:    10sp; /* web: 0.6875rem → 10sp */
+      --nr-text-helper:      12sp; /* web: 0.75rem → 12sp */
+
+      /* ── Spacing Tokens em dp ── */
+      --nr-space-2:   2px;   /* 2dp */
+      --nr-space-4:   4px;   /* 4dp */
+      --nr-space-6:   6px;   /* 6dp */
+      --nr-space-8:   8px;   /* 8dp */
+      --nr-space-12:  12px;  /* 12dp */
+      --nr-space-16:  16px;  /* 16dp — margin horizontal padrão Android */
+      --nr-space-20:  20px;  /* 20dp */
+      --nr-space-24:  24px;  /* 24dp */
+      --nr-space-32:  32px;  /* 32dp */
+      --nr-space-40:  40px;  /* 40dp */
+      --nr-space-48:  48px;  /* 48dp — touch target mínimo */
+      --nr-space-56:  56px;  /* 56dp — Top App Bar height */
+      --nr-space-64:  64px;  /* 64dp — Bottom Nav height */
+      --nr-space-80:  80px;  /* 80dp */
+
+      /* ── Radius Tokens em dp ── */
+      --nr-radius-xs:   4px;    /* 4dp — badge, chip */
+      --nr-radius-sm:   8px;    /* 8dp — botões pequenos, inputs */
+      --nr-radius-md:   12px;   /* 12dp — cards, botões padrão */
+      --nr-radius-lg:   16px;   /* 16dp — modais, bottom sheets */
+      --nr-radius-xl:   24px;   /* 24dp — bottom sheet handle */
+      --nr-radius-pill: 9999px; /* pill — chips, badges redondos */
+
+      /* ── Elevation (Android dp) ── */
+      --nr-elev-0: none;
+      --nr-elev-1: 0 1px 3px rgba(0,0,0,0.4);
+      --nr-elev-2: 0 2px 8px rgba(0,0,0,0.45);
+      --nr-elev-3: 0 4px 16px rgba(0,0,0,0.5);
+      --nr-elev-4: 0 8px 24px rgba(0,0,0,0.55);
+      --nr-elev-5: 0 12px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(123,44,191,0.25);
+
+      /* ── Motion Tokens ── */
+      --nr-ease-cinematic: cubic-bezier(0.4, 0, 0, 1);   /* M3 emphasized */
+      --nr-ease-bounce:    cubic-bezier(0.34, 1.56, 0.64, 1);
+      --nr-ease-standard:  cubic-bezier(0.2, 0, 0, 1);   /* M3 standard */
+      --nr-duration-fast:   150ms;
+      --nr-duration-normal: 300ms;
+      --nr-duration-slow:   500ms;
+
+      /* ── Layout Tokens mobile ── */
+      --nr-margin-h:     16px;  /* 16dp — margem horizontal padrão */
+      --nr-gutter:       12px;  /* 12dp — gutter entre colunas */
+      --nr-screen-max:   412px; /* largura máxima ref (Pixel 6) */
+      --nr-top-bar-h:    56px;  /* 56dp */
+      --nr-bottom-nav-h: 64px;  /* 64dp */
+      --nr-status-bar-h: 24px;  /* 24dp estimado */
+
+      /* ── Z-Index ── */
+      --nr-z-content:    1;
+      --nr-z-topbar:     100;
+      --nr-z-bottomnav:  100;
+      --nr-z-sheet:      200;
+      --nr-z-modal:      300;
+      --nr-z-snackbar:   400;
+    }
+
+    /* ──────────────────────────────────────────────────────────────────────
+       2. RESET & BASE
+       ────────────────────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; font-size: 14px; }
+
+    body {
+      background-color: var(--nr-bg-base);
+      color: var(--nr-text-primary);
+      font-family: var(--nr-font-sans);
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+      min-height: 100vh;
+    }
+
+    /* Acessibilidade */
+    :focus-visible {
+      outline: 2px solid var(--nr-purple-light);
+      outline-offset: 2px;
+    }
+
+    /* Reduced motion */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+
+    /* ──────────────────────────────────────────────────────────────────────
+       3. DOCUMENTO DE DESIGN SYSTEM — ESTRUTURA DA PÁGINA
+       ────────────────────────────────────────────────────────────────────── */
+    .ds-doc-nav {
+      position: sticky;
+      top: 0;
+      z-index: 500;
+      background: rgba(7,3,12,0.95);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--nr-glass-border);
+      padding: 0 16px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .ds-doc-nav-logo {
+      font-size: 16px;
+      font-weight: 900;
+      color: var(--nr-text-primary);
+      text-decoration: none;
+      letter-spacing: -0.02em;
+    }
+    .ds-doc-nav-logo span { color: var(--nr-purple-primary); }
+    .ds-doc-nav-badge {
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      background: rgba(123,44,191,0.25);
+      color: var(--nr-purple-light);
+      border: 1px solid rgba(123,44,191,0.4);
+      padding: 2px 7px;
+      border-radius: 3px;
+    }
+    .ds-doc-nav-links {
+      display: flex;
+      gap: 4px;
+      overflow-x: auto;
+      scrollbar-width: none;
+      margin-left: auto;
+    }
+    .ds-doc-nav-links::-webkit-scrollbar { display: none; }
+    .ds-doc-nav-link {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--nr-text-muted);
+      text-decoration: none;
+      white-space: nowrap;
+      padding: 6px 10px;
+      border-radius: 6px;
+      transition: color 0.15s, background 0.15s;
+    }
+    .ds-doc-nav-link:hover, .ds-doc-nav-link.active {
+      color: var(--nr-purple-light);
+      background: rgba(123,44,191,0.12);
+    }
+
+    .ds-section {
+      padding: 48px 0 40px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .ds-section-inner {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+    .ds-section-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .ds-section-tag::before {
+      content: '';
+      width: 28px; height: 3px;
+      background: var(--nr-purple-primary);
+      border-radius: 2px;
+    }
+    .ds-section-tag span {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--nr-purple-light);
+    }
+    .ds-section-title {
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: var(--nr-text-primary);
+      margin-bottom: 6px;
+    }
+    .ds-section-desc {
+      font-size: 14px;
+      color: var(--nr-text-secondary);
+      line-height: 1.6;
+      max-width: 640px;
+      margin-bottom: 32px;
+    }
+
+    /* Ambient background (decorativo) */
+    .ambient-background {
+      position: fixed; top: 0; left: 0;
+      width: 100vw; height: 100vh;
+      z-index: -1; overflow: hidden; pointer-events: none;
+    }
+    .ambient-glow {
+      position: absolute; border-radius: 50%;
+      filter: blur(120px); opacity: 0.25;
+      animation: ambientShift 15s infinite alternate ease-in-out;
+    }
+    .ambient-glow.glow-1 {
+      top: -10%; left: -10%; width: 60vw; height: 60vw;
+      background: radial-gradient(circle, var(--nr-purple-dark) 0%, transparent 70%);
+    }
+    .ambient-glow.glow-2 {
+      bottom: -20%; right: -10%; width: 70vw; height: 70vw;
+      background: radial-gradient(circle, #240046 0%, transparent 70%);
+      animation-delay: -5s;
+    }
+    @keyframes ambientShift {
+      0%   { transform: translate(0,0) scale(1); opacity: 0.2; }
+      50%  { transform: translate(5%,5%) scale(1.1); opacity: 0.35; }
+      100% { transform: translate(-5%,-5%) scale(0.9); opacity: 0.2; }
+    }
+
+    /* ──────────────────────────────────────────────────────────────────────
+       4. TIPOGRAFIA MOBILE (sp values, linha line-height ampliada para touch)
+       ────────────────────────────────────────────────────────────────────── */
+    .type-scale { display: flex; flex-direction: column; gap: 0; }
+    .type-row {
+      display: grid;
+      grid-template-columns: 140px 1fr;
+      gap: 20px;
+      align-items: start;
+      padding: 16px 0;
+      border-bottom: 1px solid var(--nr-glass-border);
+    }
+    .type-row:last-child { border-bottom: none; }
+    .type-meta { display: flex; flex-direction: column; gap: 3px; }
+    .type-label {
+      font-size: 9px; font-weight: 700;
+      letter-spacing: 0.1em; text-transform: uppercase;
+      color: var(--nr-purple-light);
+    }
+    .type-specs {
+      font-size: 10px; color: var(--nr-text-muted);
+      font-family: var(--nr-font-mono);
+      line-height: 1.4;
+    }
+
+    /* Amostras tipográficas — tamanhos em px = sp Android */
+    .ts-display   { font-family: var(--nr-font-serif); font-size: 36px; font-weight: 900; line-height: 1.05; letter-spacing: -0.03em; }
+    .ts-h1        { font-family: var(--nr-font-serif); font-size: 28px; font-weight: 800; line-height: 1.1; letter-spacing: -0.02em; }
+    .ts-h2        { font-family: var(--nr-font-serif); font-size: 22px; font-weight: 700; line-height: 1.15; letter-spacing: -0.015em; }
+    .ts-h3        { font-size: 18px; font-weight: 600; line-height: 1.25; }
+    .ts-h4        { font-size: 16px; font-weight: 600; line-height: 1.3; }
+    .ts-body-lg   { font-size: 16px; font-weight: 400; line-height: 1.55; color: var(--nr-text-secondary); }
+    .ts-body      { font-size: 14px; font-weight: 400; line-height: 1.55; color: var(--nr-text-secondary); }
+    .ts-small     { font-size: 12px; font-weight: 400; line-height: 1.5; color: var(--nr-text-muted); }
+    .ts-caption   { font-size: 11px; font-weight: 500; line-height: 1.4; letter-spacing: 0.04em; text-transform: uppercase; color: var(--nr-text-muted); }
+    .ts-overline  { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--nr-purple-light); }
+    .ts-helper    { font-size: 12px; font-weight: 400; color: var(--nr-text-muted); }
+
+    /* ──────────────────────────────────────────────────────────────────────
+       5. CORES
+       ────────────────────────────────────────────────────────────────────── */
+    .color-group { margin-bottom: 28px; }
+    .color-group-title {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.12em;
+      text-transform: uppercase; color: var(--nr-text-muted); margin-bottom: 12px;
+    }
+    .color-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 8px;
+    }
+    .color-swatch {
+      border-radius: var(--nr-radius-sm);
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+    .swatch-chip { height: 64px; width: 100%; }
+    .swatch-info { padding: 8px 10px; background: var(--nr-bg-surface); }
+    .swatch-name { display: block; font-size: 9px; font-weight: 700; color: var(--nr-text-primary); margin-bottom: 2px; }
+    .swatch-hex  { display: block; font-size: 9px; font-family: var(--nr-font-mono); color: var(--nr-text-muted); }
+
+    /* ──────────────────────────────────────────────────────────────────────
+       6. COMPONENTES ANDROID MOBILE
+       ────────────────────────────────────────────────────────────────────── */
+
+    /* comp-block / comp-row layout */
+    .comp-block { margin-bottom: 40px; }
+    .comp-label {
+      font-size: 9px; font-weight: 700; letter-spacing: 0.1em;
+      text-transform: uppercase; color: var(--nr-text-muted); margin-bottom: 12px;
+    }
+    .comp-row {
+      display: flex; flex-wrap: wrap;
+      gap: 10px; align-items: center; margin-bottom: 16px;
+    }
+    .comp-col { display: flex; flex-direction: column; gap: 10px; }
+
+    /* ── BUTTONS ──
+       Mínimo 48dp de touch target.
+       Sem hover — estados: default, pressed, disabled, loading.
+    ── */
+    .nr-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      gap: 8px;
+      min-height: 48px;         /* touch target mínimo 48dp */
+      padding: 12px 24px;
+      border-radius: var(--nr-radius-md);
+      font-size: 14px; font-weight: 600;
+      font-family: var(--nr-font-sans);
+      cursor: pointer; border: none;
+      transition: all var(--nr-duration-fast) var(--nr-ease-standard);
+      text-decoration: none; white-space: nowrap;
+      -webkit-tap-highlight-color: transparent;
+      position: relative; overflow: hidden;
+      user-select: none;
+    }
+    /* Ripple effect Android */
+    .nr-btn::after {
+      content: '';
+      position: absolute; inset: 0;
+      background: rgba(255,255,255,0.12);
+      opacity: 0; border-radius: inherit;
+      transition: opacity var(--nr-duration-fast) ease;
+    }
+    .nr-btn:active::after { opacity: 1; }
+    .nr-btn:active { transform: scale(0.97); }
+    .nr-btn:disabled { opacity: 0.38; cursor: not-allowed; pointer-events: none; }
+
+    .nr-btn-primary {
+      background: var(--nr-purple-primary);
+      color: #fff;
+      box-shadow: var(--nr-elev-2), 0 0 0 0 var(--nr-purple-glow);
+    }
+    .nr-btn-primary:active {
+      background: var(--nr-purple-dark);
+      box-shadow: var(--nr-elev-1);
+    }
+
+    .nr-btn-secondary {
+      background: rgba(255,255,255,0.08);
+      color: var(--nr-text-primary);
+      border: 1px solid var(--nr-glass-border);
+    }
+    .nr-btn-secondary:active { background: rgba(255,255,255,0.14); }
+
+    .nr-btn-ghost {
+      background: transparent;
+      color: var(--nr-purple-light);
+      border: 1.5px solid var(--nr-purple-primary);
+    }
+    .nr-btn-ghost:active { background: rgba(123,44,191,0.15); }
+
+    .nr-btn-danger {
+      background: rgba(239,68,68,0.12);
+      color: var(--nr-error);
+      border: 1px solid rgba(239,68,68,0.3);
+    }
+    .nr-btn-danger:active { background: rgba(239,68,68,0.22); }
+
+    /* Tamanhos */
+    .nr-btn-sm  { min-height: 40px; padding: 10px 16px; font-size: 12px; border-radius: var(--nr-radius-sm); }
+    .nr-btn-lg  { min-height: 56px; padding: 16px 32px; font-size: 16px; }
+    .nr-btn-full { width: 100%; }
+
+    /* Icon button — mínimo 48x48dp */
+    .nr-btn-icon {
+      width: 48px; height: 48px;
+      padding: 0; border-radius: 50%;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid var(--nr-glass-border);
+      color: var(--nr-text-primary);
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .nr-btn-icon:active { background: rgba(255,255,255,0.16); }
+
+    /* Loading state */
+    .nr-btn-loading { pointer-events: none; opacity: 0.7; }
+    .nr-btn-loading .btn-spinner {
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+
+    /* ── BADGES ── */
+    .nr-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 3px 8px;
+      border-radius: var(--nr-radius-pill);
+      font-size: 10px; font-weight: 700;
+      letter-spacing: 0.06em; text-transform: uppercase;
+    }
+    .nr-badge-purple  { background: rgba(123,44,191,0.18); color: var(--nr-purple-light); border: 1px solid rgba(123,44,191,0.3); }
+    .nr-badge-success { background: rgba(16,185,129,0.12);  color: var(--nr-success); border: 1px solid rgba(16,185,129,0.25); }
+    .nr-badge-warning { background: rgba(245,158,11,0.12);  color: var(--nr-warning); border: 1px solid rgba(245,158,11,0.25); }
+    .nr-badge-error   { background: rgba(239,68,68,0.12);   color: var(--nr-error);   border: 1px solid rgba(239,68,68,0.25); }
+    .nr-badge-neutral { background: rgba(255,255,255,0.06); color: var(--nr-text-muted); border: 1px solid var(--nr-glass-border); }
+
+    /* ── INPUTS (TextField M3) ──
+       Altura mínima: 56dp. Label acima (outlined style).
+       Sem hover — estados: default, focused, error, disabled.
+    ── */
+    .nr-input-wrap { display: flex; flex-direction: column; gap: 4px; }
+    .nr-input-label {
+      font-size: 12px; font-weight: 500; color: var(--nr-text-secondary);
+    }
+    .nr-input {
+      background: rgba(255,255,255,0.04);
+      border: 1.5px solid var(--nr-glass-border);
+      border-radius: var(--nr-radius-sm);
+      padding: 0 16px;
+      height: 56px;               /* 56dp — touch-friendly */
+      font-size: 14px;
+      color: var(--nr-text-primary);
+      font-family: var(--nr-font-sans);
+      width: 100%;
+      transition: border-color 0.2s ease, background 0.2s ease;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .nr-input::placeholder { color: var(--nr-text-muted); }
+    .nr-input:focus {
+      outline: none;
+      border-color: var(--nr-purple-primary);
+      background: rgba(255,255,255,0.07);
+    }
+    .nr-input:disabled { opacity: 0.38; cursor: not-allowed; }
+    .nr-input.is-error { border-color: var(--nr-error); }
+    .nr-input-hint { font-size: 11px; color: var(--nr-text-muted); padding-left: 4px; }
+    .nr-input-hint.is-error { color: var(--nr-error); }
+
+    /* Search bar M3 — full-width, 56dp */
+    .nr-search-bar {
+      display: flex; align-items: center; gap: 12px;
+      background: var(--nr-bg-surface);
+      border: 1px solid var(--nr-glass-border);
+      border-radius: var(--nr-radius-pill);
+      padding: 0 16px;
+      height: 56px;
+      transition: border-color 0.2s ease;
+    }
+    .nr-search-bar:focus-within { border-color: var(--nr-purple-primary); }
+    .nr-search-bar input {
+      flex: 1; background: transparent; border: none;
+      font-size: 14px; color: var(--nr-text-primary);
+      font-family: var(--nr-font-sans);
+    }
+    .nr-search-bar input:focus { outline: none; }
+    .nr-search-bar input::placeholder { color: var(--nr-text-muted); }
+    .nr-search-icon { color: var(--nr-text-muted); flex-shrink: 0; }
+
+    /* ── CHECKBOX / RADIO / SWITCH ──
+       Touch target de 48x48dp via padding.
+    ── */
+    .nr-control-wrap {
+      display: inline-flex; align-items: center; gap: 12px;
+      cursor: pointer; min-height: 48px; padding: 4px 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .nr-control-input { position: absolute; opacity: 0; width: 0; height: 0; }
+    .nr-control-box {
+      width: 20px; height: 20px;
+      border: 1.5px solid var(--nr-glass-border);
+      background: rgba(255,255,255,0.04);
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.2s ease; color: transparent; flex-shrink: 0;
+    }
+    .nr-checkbox .nr-control-box { border-radius: 4px; }
+    .nr-radio .nr-control-box {
+      border-radius: 50%;
+    }
+    .nr-radio .nr-control-box::after {
+      content: ''; width: 10px; height: 10px;
+      border-radius: 50%; background: transparent; transition: all 0.2s ease;
+    }
+    .nr-control-input:checked ~ .nr-control-box {
+      background: var(--nr-purple-primary);
+      border-color: var(--nr-purple-primary); color: white;
+    }
+    .nr-radio .nr-control-input:checked ~ .nr-control-box::after { background: white; }
+    .nr-control-input:disabled ~ .nr-control-box { opacity: 0.38; cursor: not-allowed; }
+    .nr-control-input:disabled ~ .nr-control-label { opacity: 0.38; }
+    .nr-control-label { font-size: 14px; color: var(--nr-text-secondary); user-select: none; }
+
+    /* Switch — 52x32dp (M3 spec) */
+    .nr-switch .nr-control-box {
+      width: 52px; height: 32px; border-radius: var(--nr-radius-pill); position: relative;
+    }
+    .nr-switch .nr-control-box::after {
+      content: ''; position: absolute;
+      left: 4px; top: 4px;
+      width: 22px; height: 22px;
+      border-radius: 50%; background: var(--nr-text-muted);
+      transition: all 0.25s var(--nr-ease-bounce);
+    }
+    .nr-switch .nr-control-input:checked ~ .nr-control-box {
+      background: var(--nr-purple-primary); border-color: var(--nr-purple-primary);
+    }
+    .nr-switch .nr-control-input:checked ~ .nr-control-box::after {
+      background: white; transform: translateX(20px);
+    }
+
+    /* ── TABS (scrollável horizontal) ── */
+    .nr-tabs {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid var(--nr-glass-border);
+      overflow-x: auto; scrollbar-width: none;
+      margin-bottom: 16px;
+    }
+    .nr-tabs::-webkit-scrollbar { display: none; }
+    .nr-tab {
+      padding: 0 20px; height: 48px; /* 48dp touch target */
+      font-size: 13px; font-weight: 600;
+      color: var(--nr-text-muted);
+      cursor: pointer; position: relative;
+      background: none; border: none;
+      white-space: nowrap; flex-shrink: 0;
+      transition: color 0.2s ease;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .nr-tab.active { color: var(--nr-purple-light); }
+    .nr-tab::after {
+      content: ''; position: absolute;
+      bottom: 0; left: 12px; right: 12px;
+      height: 2px; border-radius: 2px 2px 0 0;
+      background: transparent; transition: background 0.2s ease;
+    }
+    .nr-tab.active::after { background: var(--nr-purple-primary); }
+    .nr-tab:active { background: rgba(123,44,191,0.08); }
+
+    /* ── BOOK CARD (mobile) ──
+       Sem hover. Pressed state via :active.
+       Ação explícita — long-press ou botão de 3 pontos.
+    ── */
+    .nr-book-card {
+      border-radius: var(--nr-radius-md);
+      overflow: hidden;
+      background: var(--nr-bg-surface);
+      border: 1px solid var(--nr-glass-border);
+      cursor: pointer;
+      transition: transform var(--nr-duration-fast) var(--nr-ease-standard),
+                  box-shadow var(--nr-duration-fast) ease;
+      -webkit-tap-highlight-color: transparent;
+      position: relative;
+    }
+    .nr-book-card:active {
+      transform: scale(0.96);
+      box-shadow: var(--nr-elev-2);
+    }
+    .card-cover {
+      width: 100%; aspect-ratio: 2/3;
+      background-size: cover; background-position: center; position: relative;
+    }
+    /* Overlay de ação explícita no mobile */
+    .card-action-btn {
+      position: absolute; top: 8px; right: 8px;
+      width: 32px; height: 32px;
+      background: rgba(0,0,0,0.65);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; border: none; cursor: pointer;
+      backdrop-filter: blur(4px);
+    }
+    .card-progress-bar {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      height: 3px;
+      background: rgba(255,255,255,0.15);
+    }
+    .card-progress-fill {
+      height: 100%;
+      background: var(--nr-purple-primary);
+    }
+    .card-info { padding: 10px; }
+    .card-title {
+      font-size: 12px; font-weight: 600; color: var(--nr-text-primary);
+      display: -webkit-box; -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical; overflow: hidden;
+      line-height: 1.3; margin-bottom: 3px;
+    }
+    .card-meta { font-size: 10px; color: var(--nr-text-muted); }
+
+    /* Cover gradients */
+    .c1 { background: linear-gradient(145deg,#240046,#7b2cbf); }
+    .c2 { background: linear-gradient(145deg,#03071e,#6a040f); }
+    .c3 { background: linear-gradient(145deg,#001233,#00509d); }
+    .c4 { background: linear-gradient(145deg,#1b4332,#40916c); }
+    .c5 { background: linear-gradient(145deg,#370617,#e85d04); }
+
+    /* ── PROGRESS CARD (Continue Lendo) ── */
+    .nr-progress-card {
+      display: flex;
+      background: var(--nr-bg-surface);
+      border: 1px solid var(--nr-glass-border);
+      border-radius: var(--nr-radius-md);
+      overflow: hidden;
+      cursor: pointer;
+      transition: transform var(--nr-duration-fast) ease;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .nr-progress-card:active { transform: scale(0.98); }
+    .nr-pc-cover { width: 72px; flex-shrink: 0; background-size: cover; background-position: center; }
+    .nr-pc-content { padding: 12px 14px; flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 6px; }
+    .nr-pc-title { font-size: 14px; font-weight: 600; color: var(--nr-text-primary); }
+    .nr-pc-meta  { font-size: 11px; color: var(--nr-text-secondary); }
+    .nr-pc-bar-wrap { width: 100%; height: 3px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
+    .nr-pc-bar-fill { height: 100%; background: var(--nr-purple-primary); border-radius: 2px; }
+    .nr-pc-status { font-size: 10px; font-weight: 600; color: var(--nr-purple-light); display: flex; justify-content: space-between; }
+
+    /* ── LIST ITEM ── */
+    .nr-list-item {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 16px; min-height: 72px; /* M3 list item */
+      border-bottom: 1px solid var(--nr-glass-border);
+      transition: background 0.15s ease;
+      -webkit-tap-highlight-color: transparent;
+      cursor: pointer;
+    }
+    .nr-list-item:active { background: rgba(255,255,255,0.04); }
+    .nr-li-cover { width: 40px; height: 56px; border-radius: 4px; background-size: cover; flex-shrink: 0; }
+    .nr-li-main { flex: 1; min-width: 0; }
+    .nr-li-title { font-size: 14px; font-weight: 600; color: var(--nr-text-primary); margin-bottom: 2px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .nr-li-meta  { font-size: 11px; color: var(--nr-text-muted); }
+    /* action zone 48x48dp */
+    .nr-li-action {
+      width: 48px; height: 48px; border-radius: 50%;
+      background: none; border: none; cursor: pointer;
+      color: var(--nr-text-muted);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; transition: background 0.15s ease;
+    }
+    .nr-li-action:active { background: rgba(255,255,255,0.08); }
+
+    /* ── EMPTY STATE ── */
+    .nr-empty-state {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; text-align: center;
+      padding: 64px 24px;
+      background: rgba(255,255,255,0.02);
+      border: 1px dashed var(--nr-glass-border);
+      border-radius: var(--nr-radius-lg);
+    }
+    .nr-empty-icon { width: 64px; height: 64px; color: var(--nr-text-muted); opacity: 0.4; margin-bottom: 20px; }
+    .nr-empty-title { font-size: 18px; font-weight: 600; color: var(--nr-text-primary); margin-bottom: 8px; }
+    .nr-empty-desc  { font-size: 14px; color: var(--nr-text-secondary); max-width: 280px; line-height: 1.5; margin-bottom: 24px; }
+
+    /* ── MODAL / DIALOG ── */
+    .nr-modal-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.72);
+      backdrop-filter: blur(6px);
+      z-index: var(--nr-z-modal);
+      display: flex; align-items: center; justify-content: center;
+      padding: 24px 16px;
+      opacity: 0; pointer-events: none;
+      transition: opacity var(--nr-duration-normal) ease;
+    }
+    .nr-modal-backdrop.is-open { opacity: 1; pointer-events: auto; }
+    .nr-modal-panel {
+      background: var(--nr-bg-surface-2);
+      border: 1px solid var(--nr-glass-border);
+      border-radius: var(--nr-radius-lg);
+      padding: 24px;
+      width: 100%; max-width: 340px;  /* Dialog M3 = max 560dp, mobile = full - 32dp */
+      box-shadow: var(--nr-elev-5);
+      transform: scale(0.92) translateY(20px);
+      transition: transform var(--nr-duration-normal) var(--nr-ease-cinematic);
+    }
+    .nr-modal-backdrop.is-open .nr-modal-panel { transform: scale(1) translateY(0); }
+    .nr-modal-title { font-size: 18px; font-weight: 700; color: var(--nr-text-primary); margin-bottom: 8px; }
+    .nr-modal-desc  { font-size: 14px; color: var(--nr-text-secondary); line-height: 1.5; margin-bottom: 20px; }
+    .nr-modal-footer { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+
+    /* ── BOTTOM SHEET ──
+       Substitui Dropdown desktop.
+       Animação: translateY(100%) → translateY(0).
+    ── */
+    .nr-sheet-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.6);
+      z-index: var(--nr-z-sheet);
+      opacity: 0; pointer-events: none;
+      transition: opacity var(--nr-duration-normal) ease;
+    }
+    .nr-sheet-backdrop.is-open { opacity: 1; pointer-events: auto; }
+    .nr-sheet {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      background: var(--nr-bg-surface-2);
+      border-top: 1px solid var(--nr-glass-border);
+      border-radius: var(--nr-radius-xl) var(--nr-radius-xl) 0 0;
+      z-index: var(--nr-z-sheet);
+      padding-bottom: env(safe-area-inset-bottom, 16px);
+      transform: translateY(100%);
+      transition: transform var(--nr-duration-slow) var(--nr-ease-cinematic);
+    }
+    .nr-sheet.is-open { transform: translateY(0); }
+    .nr-sheet-handle {
+      width: 36px; height: 4px; border-radius: 2px;
+      background: rgba(255,255,255,0.2);
+      margin: 12px auto 0;
+    }
+    .nr-sheet-header { padding: 16px 20px 8px; }
+    .nr-sheet-title { font-size: 16px; font-weight: 700; color: var(--nr-text-primary); }
+    .nr-sheet-item {
+      display: flex; align-items: center; gap: 16px;
+      padding: 0 20px; height: 56px; /* 56dp */
+      font-size: 14px; color: var(--nr-text-secondary);
+      cursor: pointer; transition: background 0.15s ease;
+      background: transparent; border: none; width: 100%; text-align: left;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .nr-sheet-item:active { background: rgba(255,255,255,0.06); }
+    .nr-sheet-divider { height: 1px; background: var(--nr-glass-border); margin: 4px 0; }
+    .nr-sheet-item.danger { color: var(--nr-error); }
+
+    /* ── SNACKBAR (substitui Toast desktop) ──
+       Aparece na parte inferior, acima do bottom nav.
+       Auto-dismiss em 4s.
+    ── */
+    .nr-snackbar {
+      position: fixed;
+      bottom: calc(var(--nr-bottom-nav-h) + 12px);
+      left: 16px; right: 16px;
+      background: var(--nr-bg-surface-2);
+      border: 1px solid var(--nr-glass-border);
+      border-radius: var(--nr-radius-md);
+      padding: 14px 16px;
+      display: flex; align-items: center; gap: 12px;
+      box-shadow: var(--nr-elev-4);
+      z-index: var(--nr-z-snackbar);
+      transform: translateY(calc(100% + 80px));
+      opacity: 0;
+      transition: all var(--nr-duration-normal) var(--nr-ease-cinematic);
+    }
+    .nr-snackbar.is-open { transform: translateY(0); opacity: 1; }
+    .nr-snackbar-icon { color: var(--nr-success); flex-shrink: 0; }
+    .nr-snackbar-text { font-size: 13px; color: var(--nr-text-primary); font-weight: 500; flex: 1; }
+    .nr-snackbar-action {
+      background: none; border: none; padding: 8px 4px;
+      font-size: 12px; font-weight: 700; color: var(--nr-purple-light);
+      cursor: pointer; min-width: 48px; /* touch target */
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* ── LOADING STATES ── */
+    /* Skeleton shimmer */
+    .skeleton-block {
+      border-radius: var(--nr-radius-xs);
+      background: linear-gradient(90deg,
+        var(--nr-bg-surface-2) 25%,
+        rgba(123,44,191,0.08) 50%,
+        var(--nr-bg-surface-2) 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.4s infinite;
+    }
+    .skeleton-card    { width: 120px; height: 180px; border-radius: var(--nr-radius-md); }
+    .skeleton-card-lg { width: 140px; height: 210px; border-radius: var(--nr-radius-md); }
+    .sk-line    { height: 12px; border-radius: 4px; }
+    .sk-title   { width: 140px; }
+    .sk-sub     { width: 90px; opacity: 0.6; }
+    .sk-body    { width: 200px; }
+    .skeleton-text-group { display: flex; flex-direction: column; gap: 6px; }
+
+    /* Spinner ring */
+    .spinner-ring {
+      width: 36px; height: 36px; border-radius: 50%;
+      border: 3px solid rgba(255,255,255,0.1);
+      border-top-color: var(--nr-purple-light);
+      animation: spin 0.8s linear infinite;
+    }
+    .spinner-ring-sm { width: 22px; height: 22px; border-width: 2px; }
+    .spinner-ring-lg { width: 48px; height: 48px; border-width: 4px; }
+
+    /* Pulse dots */
+    .spinner-dots { display: flex; align-items: center; gap: 5px; }
+    .spinner-dots span {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--nr-purple-light);
+      animation: dotPulse 1.2s ease-in-out infinite;
+    }
+    .spinner-dots span:nth-child(2) { animation-delay: 0.2s; }
+    .spinner-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+    /* PV Badges */
+    .pv-badge {
+      display: inline-flex; align-items: center; gap: 3px;
+      font-size: 9px; font-weight: 800;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      padding: 2px 6px; border-radius: 2px;
+    }
+    .pv-badge-prime     { background: #00a8e1; color: #fff; }
+    .pv-badge-new       { background: #1bcc64; color: #fff; }
+    .pv-badge-top10     { background: linear-gradient(135deg,#e50914,#b81d24); color: #fff; }
+    .pv-badge-exclusive { background: linear-gradient(135deg,#7b2cbf,#9d4edd); color: #fff; }
+    .pv-badge-row { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+
+    /* Keyframes */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes dotPulse {
+      0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+      40%            { transform: scale(1); opacity: 1; }
+    }
+    @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+    /* ──────────────────────────────────────────────────────────────────────
+       7. PADRÕES DE NAVEGAÇÃO ANDROID
+       ────────────────────────────────────────────────────────────────────── */
+
+    /* Top App Bar (M3) — 56dp */
+    .nr-top-bar {
+      position: sticky; top: 0; z-index: var(--nr-z-topbar);
+      height: 56px;
+      background: rgba(7,3,12,0.96);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--nr-glass-border);
+      display: flex; align-items: center;
+      padding: 0 4px 0 4px;
+      gap: 0;
+    }
+    .nr-top-bar-btn {
+      width: 48px; height: 48px;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 50%; border: none;
+      background: transparent; color: var(--nr-text-primary);
+      cursor: pointer; flex-shrink: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .nr-top-bar-btn:active { background: rgba(255,255,255,0.1); }
+    .nr-top-bar-title {
+      flex: 1; font-size: 18px; font-weight: 700;
+      color: var(--nr-text-primary); padding: 0 8px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .nr-top-bar-logo {
+      flex: 1; font-size: 20px; font-weight: 900;
+      letter-spacing: -0.02em; color: var(--nr-text-primary);
+      padding: 0 8px; text-decoration: none;
+    }
+    .nr-top-bar-logo span { color: var(--nr-purple-primary); }
+    .nr-top-bar-actions { display: flex; align-items: center; }
+
+    /* Bottom Navigation — 64dp */
+    .nr-bottom-nav {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      height: 64px;
+      padding-bottom: env(safe-area-inset-bottom, 0);
+      background: rgba(12,5,22,0.97);
+      backdrop-filter: blur(16px);
+      border-top: 1px solid var(--nr-glass-border);
+      display: flex; align-items: stretch;
+      z-index: var(--nr-z-bottomnav);
+    }
+    .nr-nav-item {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 3px; cursor: pointer; position: relative;
+      background: none; border: none;
+      color: var(--nr-text-muted); font-size: 10px;
+      font-family: var(--nr-font-sans); font-weight: 500;
+      transition: color 0.2s ease;
+      -webkit-tap-highlight-color: transparent;
+      min-width: 48px; /* touch target */
+    }
+    .nr-nav-item.active { color: var(--nr-purple-light); }
+    .nr-nav-item-indicator {
+      position: absolute;
+      top: 8px;
+      width: 56px; height: 32px;
+      background: rgba(123,44,191,0.18);
+      border-radius: 16px;
+      opacity: 0; transition: opacity 0.2s ease;
+    }
+    .nr-nav-item.active .nr-nav-item-indicator { opacity: 1; }
+    .nr-nav-item svg { position: relative; z-index: 1; }
+    .nr-nav-label { font-size: 10px; font-weight: 500; position: relative; z-index: 1; }
+
+    /* ──────────────────────────────────────────────────────────────────────
+       8. CARROSSEL MOBILE (swipe horizontal, sem botões laterais)
+       ────────────────────────────────────────────────────────────────────── */
+    .nr-content-row { position: relative; }
+    .nr-content-row-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 12px; padding: 0 var(--nr-margin-h);
+    }
+    .nr-content-row-title { font-size: 15px; font-weight: 700; color: var(--nr-text-primary); }
+    .nr-content-row-link {
+      font-size: 12px; font-weight: 600; color: var(--nr-purple-light);
+      text-decoration: none; display: flex; align-items: center; gap: 3px;
+    }
+    .nr-carousel {
+      display: flex; gap: 10px;
+      overflow-x: auto; scroll-snap-type: x mandatory;
+      scrollbar-width: none; padding: 4px var(--nr-margin-h) 8px;
+      -webkit-overflow-scrolling: touch;
+    }
+    .nr-carousel::-webkit-scrollbar { display: none; }
+    .nr-carousel-item {
+      flex: 0 0 120px; /* ~120dp card width */
+      scroll-snap-align: start;
+      border-radius: var(--nr-radius-md);
+      overflow: hidden;
+      background: var(--nr-bg-surface);
+      border: 1px solid var(--nr-glass-border);
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: transform var(--nr-duration-fast) ease;
+    }
+    .nr-carousel-item:active { transform: scale(0.96); }
+
+    /* ──────────────────────────────────────────────────────────────────────
+       9. TELAS EXEMPLO — viewport simulado (360x760dp)
+       ────────────────────────────────────────────────────────────────────── */
+    .screen-container {
+      display: flex; flex-wrap: wrap; gap: 32px;
+      justify-content: center; margin: 0 auto;
+    }
+    .screen-frame {
+      width: 360px;
+      background: var(--nr-bg-base);
+      border-radius: 20px;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.1);
+      box-shadow: var(--nr-elev-5), 0 0 0 6px rgba(255,255,255,0.04);
+      position: relative;
+      display: flex; flex-direction: column;
+    }
+    .screen-label {
+      text-align: center;
+      font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--nr-text-muted);
+      margin-bottom: 12px;
+    }
+    /* Status bar simulada */
+    .screen-status-bar {
+      height: 24px; background: var(--nr-bg-base);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 16px; font-size: 10px; font-weight: 600;
+      color: var(--nr-text-secondary); flex-shrink: 0;
+    }
+    .screen-content {
+      flex: 1; overflow-y: auto; scrollbar-width: none;
+      max-height: 640px;
+    }
+    .screen-content::-webkit-scrollbar { display: none; }
+
+    /* ──────────────────────────────────────────────────────────────────────
+       10. LAYOUT TOKENS — GRID MOBILE
+       ────────────────────────────────────────────────────────────────────── */
+    .grid-demo-wrap { background: var(--nr-bg-surface); border-radius: var(--nr-radius-md); padding: 16px; overflow: hidden; }
+    .grid-demo-row { display: grid; gap: 8px; margin-bottom: 12px; }
+    .grid-col {
+      background: rgba(123,44,191,0.15);
+      border: 1px solid rgba(157,78,221,0.3);
+      border-radius: 4px; padding: 8px 0;
+      text-align: center; font-size: 10px;
+      font-weight: 700; letter-spacing: 0.06em; color: var(--nr-purple-light);
+    }
+    .grid-demo-label { font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--nr-text-muted); margin-bottom: 6px; }
+    .spacing-demo-row { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+    .spacing-block-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    .spacing-block { background: rgba(123,44,191,0.35); border: 1px solid rgba(157,78,221,0.5); border-radius: 2px; width: 24px; }
+    .spacing-label { font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--nr-text-muted); text-align: center; }
+    .spacing-val   { font-size: 9px; font-family: 'Courier New'; color: var(--nr-purple-light); }
+
+    /* ──────────────────────────────────────────────────────────────────────
+       11. TABELA DE CONVERSÕES
+       ────────────────────────────────────────────────────────────────────── */
+    .conv-table-wrap {
+      overflow-x: auto;
+      background: var(--nr-bg-surface);
+      border: 1px solid var(--nr-glass-border);
+      border-radius: var(--nr-radius-md);
+    }
+    .conv-table { width: 100%; border-collapse: collapse; min-width: 600px; }
+    .conv-table th {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.05em; color: var(--nr-text-muted);
+      padding: 12px 16px; border-bottom: 1px solid var(--nr-glass-border);
+      background: rgba(255,255,255,0.02); text-align: left;
+    }
+    .conv-table td {
+      padding: 10px 16px; font-size: 12px; color: var(--nr-text-secondary);
+      border-bottom: 1px solid rgba(255,255,255,0.04); vertical-align: top;
+    }
+    .conv-table tbody tr:last-child td { border-bottom: none; }
+    .conv-table tbody tr:hover td { background: rgba(255,255,255,0.02); }
+    .conv-table .primary { font-weight: 600; color: var(--nr-text-primary); }
+    .conv-table code {
+      background: rgba(255,255,255,0.06); border-radius: 3px;
+      padding: 1px 5px; font-family: var(--nr-font-mono); font-size: 11px;
+    }
+
+    /* ──────────────────────────────────────────────────────────────────────
+       12. COMPOSE SNIPPETS
+       ────────────────────────────────────────────────────────────────────── */
+    .code-block {
+      background: var(--nr-bg-surface);
+      border: 1px solid var(--nr-glass-border);
+      border-radius: var(--nr-radius-md);
+      padding: 16px 20px;
+      font-family: var(--nr-font-mono);
+      font-size: 11px;
+      color: #c9d1d9;
+      overflow-x: auto;
+      line-height: 1.6;
+      margin-bottom: 20px;
+      white-space: pre;
+    }
+    .code-kw  { color: #ff79c6; }
+    .code-fn  { color: #50fa7b; }
+    .code-str { color: #f1fa8c; }
+    .code-cm  { color: #6272a4; }
+    .code-nm  { color: #bd93f9; }
+
+    /* ──────────────────────────────────────────────────────────────────────
+       13. CHECKLIST
+       ────────────────────────────────────────────────────────────────────── */
+    .checklist { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+    .checklist li {
+      display: flex; align-items: flex-start; gap: 10px;
+      font-size: 13px; color: var(--nr-text-secondary); line-height: 1.5;
+    }
+    .check-icon { flex-shrink: 0; margin-top: 2px; }
+    .check-done { color: var(--nr-success); }
+    .check-todo { color: var(--nr-text-muted); }
+
+    /* Info cards */
+    .info-card {
+      background: rgba(123,44,191,0.08);
+      border: 1px solid rgba(123,44,191,0.25);
+      border-radius: var(--nr-radius-md);
+      padding: 14px 18px;
+      font-size: 12px; color: var(--nr-text-secondary);
+      line-height: 1.6; margin-bottom: 16px;
+    }
+    .info-card strong { color: var(--nr-purple-light); }
+    .warn-card {
+      background: rgba(245,158,11,0.08);
+      border: 1px solid rgba(245,158,11,0.25);
+      border-radius: var(--nr-radius-md);
+      padding: 14px 18px; font-size: 12px;
+      color: var(--nr-text-secondary); line-height: 1.6; margin-bottom: 16px;
+    }
+    .warn-card strong { color: var(--nr-warning); }
+
+    /* Hero section da documentação */
+    .doc-hero {
+      padding: 48px var(--nr-margin-h) 40px;
+      background: linear-gradient(180deg, rgba(60,9,108,0.3) 0%, transparent 100%);
+      border-bottom: 1px solid var(--nr-glass-border);
+    }
+    .doc-hero-eyebrow {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--nr-purple-light); margin-bottom: 8px;
+    }
+    .doc-hero-title {
+      font-family: var(--nr-font-serif);
+      font-size: 32px; font-weight: 900; line-height: 1.1;
+      letter-spacing: -0.02em; color: var(--nr-text-primary); margin-bottom: 12px;
+    }
+    .doc-hero-desc { font-size: 14px; color: var(--nr-text-secondary); line-height: 1.6; max-width: 560px; }
+  </style>
+</head>
+<body>
+
+<div class="ambient-background" aria-hidden="true">
+  <div class="ambient-glow glow-1"></div>
+  <div class="ambient-glow glow-2"></div>
+</div>
+
+<!-- ── NAVEGAÇÃO DO DOCUMENTO ── -->
+<nav class="ds-doc-nav">
+  <a href="#" class="ds-doc-nav-logo">Neo<span>Reader</span></a>
+  <span class="ds-doc-nav-badge">Android</span>
+  <div class="ds-doc-nav-links">
+    <a href="#hero"         class="ds-doc-nav-link active">Hero</a>
+    <a href="#tokens"       class="ds-doc-nav-link">Tokens</a>
+    <a href="#components"   class="ds-doc-nav-link">Componentes</a>
+    <a href="#conversoes"   class="ds-doc-nav-link">Conversões</a>
+    <a href="#navegacao"    class="ds-doc-nav-link">Navegação</a>
+    <a href="#layout"       class="ds-doc-nav-link">Layout</a>
+    <a href="#telas"        class="ds-doc-nav-link">Telas</a>
+    <a href="#compose"      class="ds-doc-nav-link">Compose</a>
+    <a href="#checklist"    class="ds-doc-nav-link">Checklist</a>
+  </div>
+</nav>
+
+<main>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     HERO — MOBILE ONBOARDING
+     Web: hero full-viewport com form inline email+CTA horizontal.
+     Mobile: tela de onboarding com cover art + stack vertical full-width.
+     ══════════════════════════════════════════════════════════════════════ -->
+<section id="hero" style="padding:48px 0;border-bottom:1px solid rgba(255,255,255,0.05);background:linear-gradient(180deg,rgba(60,9,108,0.2) 0%,transparent 100%)">
+  <div style="max-width:900px;margin:0 auto;padding:0 24px">
+    <div style="display:flex;flex-wrap:wrap;gap:48px;align-items:flex-start">
+
+      <!-- Contexto e descrição -->
+      <div style="flex:1;min-width:240px;max-width:380px">
+        <p style="font-size:10px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:var(--nr-purple-light);margin-bottom:10px">Design System · Android Mobile</p>
+        <h1 style="font-family:var(--nr-font-serif);font-size:34px;font-weight:900;line-height:1.05;letter-spacing:-0.02em;color:var(--nr-text-primary);margin-bottom:14px">Neo<span style="color:var(--nr-purple-primary)">Reader</span><br>Mobile DS</h1>
+        <p style="font-size:14px;color:var(--nr-text-secondary);line-height:1.65;margin-bottom:20px">Adaptação fiel do design system web para Android. Mesma identidade visual, mesmos tokens — convertidos para dp/sp, touch e padrões M3.</p>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:28px">
+          <span class="nr-badge nr-badge-purple">Jetpack Compose</span>
+          <span class="nr-badge nr-badge-neutral">Material 3</span>
+          <span class="nr-badge nr-badge-success">Android-first</span>
+          <span class="nr-badge nr-badge-neutral">dp / sp</span>
+        </div>
+        <div class="info-card">
+          <strong>Identidade preservada:</strong> paleta roxa profunda, tipografia Inter + Playfair Display, glassmorphism e motion cinemático. Apenas o necessário muda para mobile.
+        </div>
+      </div>
+
+      <!-- Viewport simulado: tela de onboarding Android -->
+      <div style="flex:0 0 auto">
+        <p class="screen-label">Hero → Onboarding Screen (360dp)</p>
+        <div class="screen-frame" style="width:320px">
+          <!-- Status bar -->
+          <div class="screen-status-bar">
+            <span>9:41</span>
+            <span style="display:flex;gap:6px;align-items:center">
+              <i data-lucide="signal" width="12" height="12"></i>
+              <i data-lucide="wifi" width="12" height="12"></i>
+              <i data-lucide="battery" width="14" height="14"></i>
+            </span>
+          </div>
+          <!-- Cover hero: colagem de capas (substitui hero-bg-image) -->
+          <div style="position:relative;height:260px;overflow:hidden">
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;height:100%;gap:2px">
+              <div class="c1" style="height:100%"></div>
+              <div style="display:grid;grid-template-rows:1fr 1fr;gap:2px">
+                <div class="c3"></div>
+                <div class="c5"></div>
+              </div>
+              <div style="display:grid;grid-template-rows:1fr 1fr 1fr;gap:2px">
+                <div class="c2"></div>
+                <div class="c4"></div>
+                <div style="background:linear-gradient(145deg,#1b4332,#40916c)"></div>
+              </div>
+            </div>
+            <!-- Overlay (preservado do original: gradiente to-top) -->
+            <div style="position:absolute;inset:0;background:linear-gradient(to top,var(--nr-bg-base) 0%,rgba(7,3,12,0.4) 55%,transparent 100%)"></div>
+            <!-- Branding no topo (substitui navbar web) -->
+            <div style="position:absolute;top:0;left:0;right:0;padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
+              <span style="font-family:var(--nr-font-serif);font-size:20px;font-weight:900;color:#fff;letter-spacing:-0.02em;text-shadow:0 2px 8px rgba(0,0,0,0.5)">Neo<span style="color:var(--nr-purple-primary)">Reader</span></span>
+              <button style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);color:#fff;border-radius:20px;padding:6px 14px;font-size:11px;font-weight:600;cursor:pointer;backdrop-filter:blur(8px)">Entrar</button>
+            </div>
+          </div>
+          <!-- Content: stack vertical (substitui form inline horizontal) -->
+          <div style="padding:20px 20px 28px;background:var(--nr-bg-base)">
+            <!-- Headline (mesma copy do original) -->
+            <h2 style="font-family:var(--nr-font-serif);font-size:20px;font-weight:900;line-height:1.1;letter-spacing:-0.02em;color:var(--nr-text-primary);margin-bottom:8px;text-shadow:none">Milhares de livros. Uma experiência feita para viciar em leitura.</h2>
+            <!-- Subheadline -->
+            <p style="font-size:12px;color:var(--nr-text-secondary);line-height:1.55;margin-bottom:20px">Explore romances, fantasia, negócios e muito mais numa plataforma pensada para quem quer descobrir grandes histórias sem atrito.</p>
+            <!-- CTA primário — full-width (hero-cta adaptado) -->
+            <button class="nr-btn nr-btn-primary nr-btn-full" style="margin-bottom:10px;font-size:14px">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+              Começar agora
+            </button>
+            <!-- CTA secundário — full-width -->
+            <button class="nr-btn nr-btn-secondary nr-btn-full" style="margin-bottom:14px;font-size:13px">Já tenho conta — Entrar</button>
+            <!-- Microcopy (preservada do original) -->
+            <p style="font-size:10px;color:var(--nr-text-muted);text-align:center;line-height:1.5">Leitura ilimitada a partir de R$ 19,90.<br>Cancele quando quiser.</p>
+          </div>
+        </div>
+        <!-- Nota de adaptação -->
+        <div style="margin-top:12px;max-width:320px">
+          <p style="font-size:10px;color:var(--nr-text-muted);line-height:1.65">
+            <span style="color:var(--nr-purple-light);font-weight:700">Adaptação web → mobile:</span>
+            Form inline email+botão → stack vertical full-width.
+            Hero bg image → colagem de capas.
+            Navbar com links → branding + botão ghost.
+            Headline e copy preservados.
+          </p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     2. TOKENS ANDROID
+     ══════════════════════════════════════════════════════════════════════ -->
+<section id="tokens" class="ds-section">
+  <div class="ds-section-inner">
+    <div class="ds-section-tag"><span>Seção 2 · Tokens</span></div>
+    <h2 class="ds-section-title">Tokens Android</h2>
+    <p class="ds-section-desc">Todos os tokens do DS web convertidos para Android. Valores em dp/sp. Nomes preservados do original.</p>
+
+    <!-- CORES -->
+    <div class="comp-label" style="margin-bottom: 16px;">Color Tokens</div>
+
+    <div class="color-group">
+      <p class="color-group-title">Purple Scale (Brand)</p>
+      <div class="color-grid">
+        <div class="color-swatch"><div class="swatch-chip" style="background:#7b2cbf"></div><div class="swatch-info"><span class="swatch-name">nr_purple_primary</span><span class="swatch-hex">#7b2cbf · colorPrimary</span></div></div>
+        <div class="color-swatch"><div class="swatch-chip" style="background:#9d4edd"></div><div class="swatch-info"><span class="swatch-name">nr_purple_light</span><span class="swatch-hex">#9d4edd · colorPrimaryContainer</span></div></div>
+        <div class="color-swatch"><div class="swatch-chip" style="background:#3c096c"></div><div class="swatch-info"><span class="swatch-name">nr_purple_dark</span><span class="swatch-hex">#3c096c · colorSecondary</span></div></div>
+        <div class="color-swatch"><div class="swatch-chip" style="background:#240046"></div><div class="swatch-info"><span class="swatch-name">nr_purple_950</span><span class="swatch-hex">#240046</span></div></div>
+      </div>
+    </div>
+
+    <div class="color-group">
+      <p class="color-group-title">Backgrounds</p>
+      <div class="color-grid">
+        <div class="color-swatch"><div class="swatch-chip" style="background:#07030c; border-bottom:1px solid rgba(255,255,255,0.1)"></div><div class="swatch-info"><span class="swatch-name">nr_bg_base</span><span class="swatch-hex">#07030c · colorBackground</span></div></div>
+        <div class="color-swatch"><div class="swatch-chip" style="background:#12091a"></div><div class="swatch-info"><span class="swatch-name">nr_bg_surface</span><span class="swatch-hex">#12091a · colorSurface</span></div></div>
+        <div class="color-swatch"><div class="swatch-chip" style="background:#1e0e2d"></div><div class="swatch-info"><span class="swatch-name">nr_bg_surface_2</span><span class="swatch-hex">#1e0e2d · colorSurfaceVariant</span></div></div>
+      </div>
+    </div>
+
+    <div class="color-group">
+      <p class="color-group-title">Text / On-surface</p>
+      <div class="color-grid">
+        <div class="color-swatch"><div class="swatch-chip" style="background:#f8fafc"></div><div class="swatch-info"><span class="swatch-name">nr_text_primary</span><span class="swatch-hex">#f8fafc · onBackground</span></div></div>
+        <div class="color-swatch"><div class="swatch-chip" style="background:#cbd5e1"></div><div class="swatch-info"><span class="swatch-name">nr_text_secondary</span><span class="swatch-hex">#cbd5e1 · onSurfaceVariant</span></div></div>
+        <div class="color-swatch"><div class="swatch-chip" style="background:#94a3b8"></div><div class="swatch-info"><span class="swatch-name">nr_text_muted</span><span class="swatch-hex">#94a3b8 · outline</span></div></div>
+      </div>
+    </div>
+
+    <div class="color-group">
+      <p class="color-group-title">Semantic Colors</p>
+      <div class="color-grid">
+        <div class="color-swatch"><div class="swatch-chip" style="background:#10b981"></div><div class="swatch-info"><span class="swatch-name">nr_success</span><span class="swatch-hex">#10b981</span></div></div>
+        <div class="color-swatch"><div class="swatch-chip" style="background:#f59e0b"></div><div class="swatch-info"><span class="swatch-name">nr_warning</span><span class="swatch-hex">#f59e0b</span></div></div>
+        <div class="color-swatch"><div class="swatch-chip" style="background:#ef4444"></div><div class="swatch-info"><span class="swatch-name">nr_error</span><span class="swatch-hex">#ef4444 · colorError</span></div></div>
+      </div>
+    </div>
+
+    <!-- TIPOGRAFIA -->
+    <div class="comp-label" style="margin-top: 32px; margin-bottom: 16px;">Typography Tokens (sp)</div>
+    <div class="type-scale">
+      <div class="type-row">
+        <div class="type-meta"><span class="type-label">Display</span><span class="type-specs">36sp · W900<br>Playfair Display<br>lh: 1.05</span></div>
+        <span class="ts-display" style="font-size:28px">NeoReader</span>
+      </div>
+      <div class="type-row">
+        <div class="type-meta"><span class="type-label">H1 / Title Large</span><span class="type-specs">28sp · W800<br>Playfair Display<br>lh: 1.1</span></div>
+        <span class="ts-h1" style="font-size:22px">Milhares de livros, uma experiência imersiva.</span>
+      </div>
+      <div class="type-row">
+        <div class="type-meta"><span class="type-label">H2 / Title Med.</span><span class="type-specs">22sp · W700<br>Playfair Display<br>lh: 1.15</span></div>
+        <span class="ts-h2" style="font-size:18px">Explore o catálogo</span>
+      </div>
+      <div class="type-row">
+        <div class="type-meta"><span class="type-label">H3 / Title Small</span><span class="type-specs">18sp · W600<br>Inter · lh: 1.25</span></div>
+        <span class="ts-h3">Ficção Científica em Alta</span>
+      </div>
+      <div class="type-row">
+        <div class="type-meta"><span class="type-label">H4 / Label Large</span><span class="type-specs">16sp · W600<br>Inter · lh: 1.3</span></div>
+        <span class="ts-h4">Continuar lendo: Duna</span>
+      </div>
+      <div class="type-row">
+        <div class="type-meta"><span class="type-label">Body Large</span><span class="type-specs">16sp · W400<br>Inter · lh: 1.55</span></div>
+        <span class="ts-body-lg">Explore romances, fantasia, negócios, suspense e muito mais.</span>
+      </div>
+      <div class="type-row">
+        <div class="type-meta"><span class="type-label">Body / Body Med.</span><span class="type-specs">14sp · W400<br>Inter · lh: 1.55</span></div>
+        <span class="ts-body">O NeoReader é a experiência de leitura que você sempre quis.</span>
+      </div>
+      <div class="type-row">
+        <div class="type-meta"><span class="type-label">Small / Body Small</span><span class="type-specs">12sp · W400<br>Inter · lh: 1.5</span></div>
+        <span class="ts-small">Leitura ilimitada a partir de R$ 19,90. Cancele quando quiser.</span>
+      </div>
+      <div class="type-row">
+        <div class="type-meta"><span class="type-label">Caption</span><span class="type-specs">11sp · W500 · UC<br>ls: 0.04em</span></div>
+        <span class="ts-caption">Categoria · Suspense · 2024</span>
+      </div>
+      <div class="type-row">
+        <div class="type-meta"><span class="type-label">Overline</span><span class="type-specs">10sp · W700 · UC<br>ls: 0.1em</span></div>
+        <span class="ts-overline">Destaque do mês</span>
+      </div>
+      <div class="type-row">
+        <div class="type-meta"><span class="type-label">Helper Text</span><span class="type-specs">12sp · W400<br>Inter</span></div>
+        <span class="ts-helper">O campo de senha precisa ter no mínimo 8 caracteres.</span>
+      </div>
+    </div>
+
+    <!-- SPACING -->
+    <div class="comp-label" style="margin-top: 32px; margin-bottom: 16px;">Spacing Tokens (dp)</div>
+    <div class="spacing-demo-row">
+      <div class="spacing-block-wrap"><div class="spacing-block" style="height:2px"></div><span class="spacing-label">2dp</span><span class="spacing-val">xs</span></div>
+      <div class="spacing-block-wrap"><div class="spacing-block" style="height:4px"></div><span class="spacing-label">4dp</span><span class="spacing-val">sm</span></div>
+      <div class="spacing-block-wrap"><div class="spacing-block" style="height:8px"></div><span class="spacing-label">8dp</span><span class="spacing-val">md</span></div>
+      <div class="spacing-block-wrap"><div class="spacing-block" style="height:12px"></div><span class="spacing-label">12dp</span><span class="spacing-val">lg</span></div>
+      <div class="spacing-block-wrap"><div class="spacing-block" style="height:16px"></div><span class="spacing-label">16dp</span><span class="spacing-val">xl ←margin</span></div>
+      <div class="spacing-block-wrap"><div class="spacing-block" style="height:20px"></div><span class="spacing-label">20dp</span><span class="spacing-val">2xl</span></div>
+      <div class="spacing-block-wrap"><div class="spacing-block" style="height:24px"></div><span class="spacing-label">24dp</span><span class="spacing-val">3xl</span></div>
+      <div class="spacing-block-wrap"><div class="spacing-block" style="height:32px"></div><span class="spacing-label">32dp</span><span class="spacing-val">4xl</span></div>
+      <div class="spacing-block-wrap"><div class="spacing-block" style="height:48px"></div><span class="spacing-label">48dp</span><span class="spacing-val">touch</span></div>
+    </div>
+
+    <!-- RADIUS -->
+    <div class="comp-label" style="margin-top: 24px; margin-bottom: 12px;">Radius Tokens (dp)</div>
+    <div class="comp-row">
+      <div style="text-align:center"><div style="width:48px;height:48px;background:var(--nr-purple-primary);border-radius:4px;margin:0 auto 4px"></div><span class="spacing-label">4dp xs</span></div>
+      <div style="text-align:center"><div style="width:48px;height:48px;background:var(--nr-purple-primary);border-radius:8px;margin:0 auto 4px"></div><span class="spacing-label">8dp sm</span></div>
+      <div style="text-align:center"><div style="width:48px;height:48px;background:var(--nr-purple-primary);border-radius:12px;margin:0 auto 4px"></div><span class="spacing-label">12dp md</span></div>
+      <div style="text-align:center"><div style="width:48px;height:48px;background:var(--nr-purple-primary);border-radius:16px;margin:0 auto 4px"></div><span class="spacing-label">16dp lg</span></div>
+      <div style="text-align:center"><div style="width:48px;height:48px;background:var(--nr-purple-primary);border-radius:24px;margin:0 auto 4px"></div><span class="spacing-label">24dp xl</span></div>
+      <div style="text-align:center"><div style="width:48px;height:48px;background:var(--nr-purple-primary);border-radius:9999px;margin:0 auto 4px"></div><span class="spacing-label">pill</span></div>
+    </div>
+
+    <!-- MOTION -->
+    <div class="comp-label" style="margin-top: 24px; margin-bottom: 12px;">Motion Tokens</div>
+    <div class="conv-table-wrap">
+      <table class="conv-table">
+        <thead><tr><th>Token</th><th>Valor</th><th>Uso Android</th></tr></thead>
+        <tbody>
+          <tr><td class="primary">nr-ease-cinematic</td><td><code>cubic-bezier(0.4, 0, 0, 1)</code></td><td>M3 emphasized — bottom sheet, modal entry</td></tr>
+          <tr><td class="primary">nr-ease-bounce</td><td><code>cubic-bezier(0.34, 1.56, 0.64, 1)</code></td><td>Switch toggle, card pop-in</td></tr>
+          <tr><td class="primary">nr-ease-standard</td><td><code>cubic-bezier(0.2, 0, 0, 1)</code></td><td>M3 standard — transições de tela</td></tr>
+          <tr><td class="primary">nr-duration-fast</td><td>150ms</td><td>Pressed state, ripple, micro-interações</td></tr>
+          <tr><td class="primary">nr-duration-normal</td><td>300ms</td><td>Modal, sheet, nav transitions</td></tr>
+          <tr><td class="primary">nr-duration-slow</td><td>500ms</td><td>Hero entry, shared element transitions</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+<!-- ══════════════════════════════════════════════════════════════════════
+     3. COMPONENTES ANDROID MOBILE
+     ══════════════════════════════════════════════════════════════════════ -->
+<section id="components" class="ds-section">
+  <div class="ds-section-inner">
+    <div class="ds-section-tag"><span>Seção 3 · Componentes</span></div>
+    <h2 class="ds-section-title">Biblioteca de Componentes Android</h2>
+    <p class="ds-section-desc">Todos os componentes adaptados para touch. Touch target mínimo 48dp. Sem hover states — interações por pressed (:active) e ripple.</p>
+
+    <!-- BUTTONS -->
+    <div class="comp-block">
+      <p class="comp-label">Botões — hierarquia × variante</p>
+      <div class="comp-row">
+        <button class="nr-btn nr-btn-primary">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+          Começar agora
+        </button>
+        <button class="nr-btn nr-btn-secondary">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          Avaliar
+        </button>
+        <button class="nr-btn nr-btn-ghost">+ Lista de leitura</button>
+        <button class="nr-btn nr-btn-danger">Remover</button>
+      </div>
+      <p class="comp-label">Tamanhos</p>
+      <div class="comp-row">
+        <button class="nr-btn nr-btn-primary nr-btn-sm">Pequeno · 40dp</button>
+        <button class="nr-btn nr-btn-primary">Médio · 48dp</button>
+        <button class="nr-btn nr-btn-primary nr-btn-lg">Grande · 56dp</button>
+        <button class="nr-btn nr-btn-primary" disabled>Desabilitado</button>
+      </div>
+      <p class="comp-label">Loading state</p>
+      <div class="comp-row">
+        <button class="nr-btn nr-btn-primary nr-btn-loading">
+          <span class="btn-spinner"></span>
+          Carregando...
+        </button>
+        <button class="nr-btn nr-btn-secondary nr-btn-loading">
+          <span class="btn-spinner" style="border-color:rgba(255,255,255,0.2);border-top-color:var(--nr-text-primary)"></span>
+          Salvando
+        </button>
+      </div>
+      <p class="comp-label">Icon Buttons (48×48dp)</p>
+      <div class="comp-row">
+        <button class="nr-btn-icon" aria-label="Pesquisar"><i data-lucide="search" width="20" height="20"></i></button>
+        <button class="nr-btn-icon" aria-label="Favoritar"><i data-lucide="heart" width="20" height="20"></i></button>
+        <button class="nr-btn-icon" aria-label="Compartilhar"><i data-lucide="share-2" width="20" height="20"></i></button>
+        <button class="nr-btn-icon" aria-label="Mais opções"><i data-lucide="more-vertical" width="20" height="20"></i></button>
+      </div>
+      <div class="info-card">
+        <strong>Anti-patterns:</strong> Não use translateY(-2px) em hover. Não use botões menores que 40dp de altura (mínimo acessível). Não use apenas cor para diferenciar botões — use ícone ou label. Full-width (<code>nr-btn-full</code>) em modais e sheets.
+      </div>
+    </div>
+
+    <!-- BADGES -->
+    <div class="comp-block">
+      <p class="comp-label">Badges / Chips — status e categorias</p>
+      <div class="comp-row">
+        <span class="nr-badge nr-badge-purple">Novo</span>
+        <span class="nr-badge nr-badge-success">Disponível</span>
+        <span class="nr-badge nr-badge-warning">Em breve</span>
+        <span class="nr-badge nr-badge-error">Esgotado</span>
+        <span class="nr-badge nr-badge-neutral">Arquivo</span>
+        <span class="nr-badge nr-badge-purple">
+          <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+          Destaque
+        </span>
+        <span class="nr-badge nr-badge-neutral">Ficção</span>
+        <span class="nr-badge nr-badge-neutral">Suspense</span>
+      </div>
+      <p class="comp-label">PV Badges (streaming-style)</p>
+      <div class="pv-badge-row">
+        <span class="pv-badge pv-badge-prime">Prime</span>
+        <span class="pv-badge pv-badge-new">Novo</span>
+        <span class="pv-badge pv-badge-top10">Top 10</span>
+        <span class="pv-badge pv-badge-exclusive">Exclusivo</span>
+      </div>
+    </div>
+
+    <!-- INPUTS -->
+    <div class="comp-block">
+      <p class="comp-label">TextField — 56dp de altura (M3)</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:560px">
+        <div class="nr-input-wrap">
+          <label class="nr-input-label">E-mail</label>
+          <input class="nr-input" type="email" placeholder="seu@email.com" />
+          <span class="nr-input-hint">Use seu melhor e-mail.</span>
+        </div>
+        <div class="nr-input-wrap">
+          <label class="nr-input-label">Senha</label>
+          <input class="nr-input" type="password" placeholder="Mínimo 8 caracteres" />
+        </div>
+        <div class="nr-input-wrap">
+          <label class="nr-input-label">Código (erro)</label>
+          <input class="nr-input is-error" type="text" value="código inválido" />
+          <span class="nr-input-hint is-error">Código promocional inválido.</span>
+        </div>
+        <div class="nr-input-wrap">
+          <label class="nr-input-label" style="opacity:.38">Campo desabilitado</label>
+          <input class="nr-input" type="text" placeholder="Não editável" disabled />
+        </div>
+      </div>
+      <p class="comp-label" style="margin-top:20px">Search Bar (M3 Search)</p>
+      <div class="nr-search-bar" style="max-width:420px">
+        <i data-lucide="search" class="nr-search-icon" width="20" height="20"></i>
+        <input type="text" placeholder="Título, autor ou gênero…" />
+        <button class="nr-btn-icon" style="width:40px;height:40px;border:none;background:transparent" aria-label="Filtros">
+          <i data-lucide="sliders-horizontal" width="18" height="18" style="color:var(--nr-text-muted)"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- FORM CONTROLS -->
+    <div class="comp-block">
+      <p class="comp-label">Checkboxes, Radios & Switches (48dp touch target)</p>
+      <div class="comp-row" style="margin-bottom:12px">
+        <label class="nr-control-wrap nr-checkbox">
+          <input type="checkbox" class="nr-control-input" checked />
+          <div class="nr-control-box"><i data-lucide="check" width="13" height="13" stroke-width="3"></i></div>
+          <span class="nr-control-label">Ativo</span>
+        </label>
+        <label class="nr-control-wrap nr-checkbox">
+          <input type="checkbox" class="nr-control-input" />
+          <div class="nr-control-box"><i data-lucide="check" width="13" height="13" stroke-width="3"></i></div>
+          <span class="nr-control-label">Inativo</span>
+        </label>
+        <label class="nr-control-wrap nr-checkbox">
+          <input type="checkbox" class="nr-control-input" disabled />
+          <div class="nr-control-box"><i data-lucide="check" width="13" height="13" stroke-width="3"></i></div>
+          <span class="nr-control-label">Disabled</span>
+        </label>
+      </div>
+      <div class="comp-row" style="margin-bottom:12px">
+        <label class="nr-control-wrap nr-radio">
+          <input type="radio" name="r1" class="nr-control-input" checked />
+          <div class="nr-control-box"></div>
+          <span class="nr-control-label">Radio selecionado</span>
+        </label>
+        <label class="nr-control-wrap nr-radio">
+          <input type="radio" name="r1" class="nr-control-input" />
+          <div class="nr-control-box"></div>
+          <span class="nr-control-label">Radio padrão</span>
+        </label>
+      </div>
+      <div class="comp-row">
+        <label class="nr-control-wrap nr-switch">
+          <input type="checkbox" class="nr-control-input" checked />
+          <div class="nr-control-box"></div>
+          <span class="nr-control-label">Modo Escuro</span>
+        </label>
+        <label class="nr-control-wrap nr-switch">
+          <input type="checkbox" class="nr-control-input" />
+          <div class="nr-control-box"></div>
+          <span class="nr-control-label">Notificações</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- TABS -->
+    <div class="comp-block">
+      <p class="comp-label">Tabs — scrollável horizontal, 48dp height</p>
+      <div class="nr-tabs">
+        <button class="nr-tab active">Sua Biblioteca</button>
+        <button class="nr-tab">Baixados</button>
+        <button class="nr-tab">Listas</button>
+        <button class="nr-tab" style="opacity:.38;cursor:not-allowed">Estatísticas</button>
+      </div>
+    </div>
+
+    <!-- BOOK CARDS -->
+    <div class="comp-block">
+      <p class="comp-label">Book Cards — pressed state, ação explícita (sem hover)</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <div class="nr-book-card" style="width:120px">
+          <div class="card-cover c1">
+            <button class="card-action-btn" aria-label="Mais opções"><i data-lucide="more-vertical" width="14" height="14"></i></button>
+            <div class="card-progress-bar"><div class="card-progress-fill" style="width:82%"></div></div>
+          </div>
+          <div class="card-info"><p class="card-title">Duna</p><span class="card-meta">Frank Herbert</span></div>
+        </div>
+        <div class="nr-book-card" style="width:120px">
+          <div class="card-cover c2">
+            <button class="card-action-btn" aria-label="Mais opções"><i data-lucide="more-vertical" width="14" height="14"></i></button>
+          </div>
+          <div class="card-info"><p class="card-title">1984</p><span class="card-meta">George Orwell</span></div>
+        </div>
+        <div class="nr-book-card" style="width:120px">
+          <div class="card-cover c3">
+            <button class="card-action-btn" aria-label="Mais opções"><i data-lucide="more-vertical" width="14" height="14"></i></button>
+            <span class="pv-badge pv-badge-new" style="position:absolute;top:8px;left:8px">Novo</span>
+          </div>
+          <div class="card-info"><p class="card-title">Sapiens</p><span class="card-meta">Yuval Harari</span></div>
+        </div>
+        <div class="nr-book-card" style="width:120px">
+          <div class="card-cover c4">
+            <button class="card-action-btn" aria-label="Mais opções"><i data-lucide="more-vertical" width="14" height="14"></i></button>
+            <div class="card-progress-bar"><div class="card-progress-fill" style="width:35%"></div></div>
+          </div>
+          <div class="card-info"><p class="card-title">O Problema dos 3 Corpos</p><span class="card-meta">Liu Cixin</span></div>
+        </div>
+        <div class="nr-book-card" style="width:120px">
+          <div class="card-cover c5">
+            <button class="card-action-btn" aria-label="Mais opções"><i data-lucide="more-vertical" width="14" height="14"></i></button>
+          </div>
+          <div class="card-info"><p class="card-title">Admirável Mundo Novo</p><span class="card-meta">Huxley</span></div>
+        </div>
+      </div>
+      <div class="info-card" style="margin-top:16px">
+        <strong>Web → Mobile:</strong> hover overlay com play button <strong>não existe</strong> em touch. Substituído por botão de 3 pontos sempre visível (32dp) + pressed state no card todo. Progress bar na borda inferior da capa para "continuar lendo".
+      </div>
+    </div>
+
+    <!-- PROGRESS CARDS -->
+    <div class="comp-block">
+      <p class="comp-label">Progress Cards (Continuar Lendo)</p>
+      <div style="display:flex;flex-direction:column;gap:10px;max-width:360px">
+        <div class="nr-progress-card">
+          <div class="nr-pc-cover c1"></div>
+          <div class="nr-pc-content">
+            <div class="nr-pc-title">Duna</div>
+            <div class="nr-pc-meta">Capítulo 12 · O Deserto</div>
+            <div class="nr-pc-bar-wrap"><div class="nr-pc-bar-fill" style="width:82%"></div></div>
+            <div class="nr-pc-status"><span>82% concluído</span><span>Falta 45m</span></div>
+          </div>
+          <button class="nr-btn-icon" style="border:none;background:transparent;align-self:center;margin-right:8px" aria-label="Mais opções">
+            <i data-lucide="more-vertical" width="18" height="18" style="color:var(--nr-text-muted)"></i>
+          </button>
+        </div>
+        <div class="nr-progress-card">
+          <div class="nr-pc-cover c2"></div>
+          <div class="nr-pc-content">
+            <div class="nr-pc-title">1984</div>
+            <div class="nr-pc-meta">Capítulo 4 · O Grande Irmão</div>
+            <div class="nr-pc-bar-wrap"><div class="nr-pc-bar-fill" style="width:45%"></div></div>
+            <div class="nr-pc-status"><span>45% concluído</span><span>Faltam 2h</span></div>
+          </div>
+          <button class="nr-btn-icon" style="border:none;background:transparent;align-self:center;margin-right:8px" aria-label="Mais opções">
+            <i data-lucide="more-vertical" width="18" height="18" style="color:var(--nr-text-muted)"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- LIST ITEMS -->
+    <div class="comp-block">
+      <p class="comp-label">List Items — 72dp height (M3 spec)</p>
+      <div style="max-width:380px;background:var(--nr-bg-surface-2);border-radius:12px;overflow:hidden;border:1px solid var(--nr-glass-border)">
+        <div class="nr-list-item">
+          <div class="nr-li-cover c3"></div>
+          <div class="nr-li-main">
+            <h4 class="nr-li-title">Sapiens</h4>
+            <p class="nr-li-meta">Adicionado ontem</p>
+          </div>
+          <button class="nr-li-action" aria-label="Mais opções"><i data-lucide="more-vertical" width="16" height="16"></i></button>
+        </div>
+        <div class="nr-list-item">
+          <div class="nr-li-cover c1"></div>
+          <div class="nr-li-main">
+            <h4 class="nr-li-title">O Poder do Hábito</h4>
+            <p class="nr-li-meta">Adicionado há 1 semana · <span style="color:var(--nr-success)">Concluído</span></p>
+          </div>
+          <button class="nr-li-action" aria-label="Mais opções"><i data-lucide="more-vertical" width="16" height="16"></i></button>
+        </div>
+        <div class="nr-list-item" style="border-bottom:none">
+          <div class="nr-li-cover c5"></div>
+          <div class="nr-li-main">
+            <h4 class="nr-li-title">Neuromancer</h4>
+            <p class="nr-li-meta">Não iniciado · <span class="nr-badge nr-badge-neutral" style="font-size:9px;padding:1px 5px">0%</span></p>
+          </div>
+          <button class="nr-li-action" aria-label="Mais opções"><i data-lucide="more-vertical" width="16" height="16"></i></button>
+        </div>
+      </div>
+      <div class="info-card" style="margin-top:12px">
+        <strong>Table → List:</strong> A data table web (4 colunas) foi convertida para list items com título, meta e action button. Em Android, tabelas densas são ilegíveis; a lista preserva os dados com ergonomia touch.
+      </div>
+    </div>
+
+    <!-- EMPTY STATE -->
+    <div class="comp-block">
+      <p class="comp-label">Empty State</p>
+      <div class="nr-empty-state">
+        <i data-lucide="book-open" class="nr-empty-icon"></i>
+        <h3 class="nr-empty-title">Sua biblioteca está vazia</h3>
+        <p class="nr-empty-desc">Explore o catálogo e adicione histórias para começar sua jornada literária.</p>
+        <button class="nr-btn nr-btn-primary">Explorar Catálogo</button>
+      </div>
+    </div>
+
+    <!-- LOADING STATES -->
+    <div class="comp-block">
+      <p class="comp-label">Loading States — Skeleton & Spinners</p>
+      <div class="comp-row" style="align-items:flex-start;gap:24px">
+        <div>
+          <p class="comp-label">Skeleton Cards</p>
+          <div style="display:flex;gap:10px">
+            <div class="skeleton-block skeleton-card"></div>
+            <div class="skeleton-block skeleton-card"></div>
+            <div class="skeleton-block skeleton-card"></div>
+          </div>
+        </div>
+        <div>
+          <p class="comp-label">Skeleton Text</p>
+          <div class="skeleton-text-group">
+            <div class="skeleton-block sk-line sk-title"></div>
+            <div class="skeleton-block sk-line sk-sub"></div>
+            <div class="skeleton-block sk-line sk-body"></div>
+          </div>
+        </div>
+        <div>
+          <p class="comp-label">Spinners</p>
+          <div class="comp-row">
+            <div style="text-align:center"><div class="spinner-ring spinner-ring-sm"></div><span class="spacing-label" style="display:block;margin-top:4px">sm</span></div>
+            <div style="text-align:center"><div class="spinner-ring"></div><span class="spacing-label" style="display:block;margin-top:4px">md</span></div>
+            <div style="text-align:center"><div class="spinner-ring spinner-ring-lg"></div><span class="spacing-label" style="display:block;margin-top:4px">lg</span></div>
+            <div style="text-align:center"><div class="spinner-dots"><span></span><span></span><span></span></div><span class="spacing-label" style="display:block;margin-top:4px">dots</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL -->
+    <div class="comp-block">
+      <p class="comp-label">Dialog (Modal) & Bottom Sheet & Snackbar</p>
+      <div class="comp-row">
+        <button class="nr-btn nr-btn-primary" onclick="openModal('demo-modal')">Abrir Dialog</button>
+        <button class="nr-btn nr-btn-secondary" onclick="openSheet('demo-sheet')">Abrir Bottom Sheet</button>
+        <button class="nr-btn nr-btn-ghost" onclick="showSnackbar()">Mostrar Snackbar</button>
+      </div>
+      <div class="info-card">
+        <strong>Tooltip → Helper text:</strong> Tooltips web ativados por hover não existem em touch. Use <code>nr-input-hint</code> abaixo do campo, ou expanda em Bottom Sheet para explicações maiores.
+      </div>
+    </div>
+
+    <!-- CARROSSEL -->
+    <div class="comp-block">
+      <p class="comp-label">Carrossel — swipe horizontal com scroll-snap</p>
+      <div class="nr-content-row">
+        <div class="nr-content-row-header">
+          <span class="nr-content-row-title">Em alta esta semana</span>
+          <a href="#" class="nr-content-row-link">Ver tudo <i data-lucide="chevron-right" width="14" height="14"></i></a>
+        </div>
+        <div class="nr-carousel">
+          <div class="nr-carousel-item"><div class="card-cover c1" style="height:180px"></div><div class="card-info"><p class="card-title">Duna</p><span class="card-meta">Frank Herbert</span></div></div>
+          <div class="nr-carousel-item"><div class="card-cover c2" style="height:180px"></div><div class="card-info"><p class="card-title">1984</p><span class="card-meta">Orwell</span></div></div>
+          <div class="nr-carousel-item"><div class="card-cover c3" style="height:180px"></div><div class="card-info"><p class="card-title">Sapiens</p><span class="card-meta">Harari</span></div></div>
+          <div class="nr-carousel-item"><div class="card-cover c4" style="height:180px"></div><div class="card-info"><p class="card-title">Fundação</p><span class="card-meta">Asimov</span></div></div>
+          <div class="nr-carousel-item"><div class="card-cover c5" style="height:180px"></div><div class="card-info"><p class="card-title">Admirável Mundo Novo</p><span class="card-meta">Huxley</span></div></div>
+          <div class="nr-carousel-item"><div class="card-cover c1" style="height:180px;background:linear-gradient(145deg,#1b4332,#40916c)"></div><div class="card-info"><p class="card-title">O Hobbit</p><span class="card-meta">Tolkien</span></div></div>
+        </div>
+      </div>
+      <div class="info-card" style="margin-top:16px">
+        <strong>Scroll buttons → Swipe:</strong> Os botões laterais do carrossel web (prev/next) foram removidos. No Android, o swipe é nativo e mais ergonômico. <code>scroll-snap-type: x mandatory</code> garante snap point preciso em cada card.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     4. CONVERSÕES WEB → MOBILE
+     ══════════════════════════════════════════════════════════════════════ -->
+<section id="conversoes" class="ds-section">
+  <div class="ds-section-inner">
+    <div class="ds-section-tag"><span>Seção 4 · Conversões</span></div>
+    <h2 class="ds-section-title">Conversões Web → Android</h2>
+    <p class="ds-section-desc">Tabela completa de cada elemento do DS original e sua adaptação Android correspondente.</p>
+
+    <div class="conv-table-wrap">
+      <table class="conv-table">
+        <thead>
+          <tr>
+            <th>Elemento Original</th>
+            <th>Adaptação Android</th>
+            <th>Tokens Preservados</th>
+            <th>Observação</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="primary">Navbar desktop (64px, links horizontais)</td>
+            <td>Top App Bar (56dp) + Bottom Navigation (64dp)</td>
+            <td>glass bg, border-bottom, purple primary para item ativo</td>
+            <td>Navigation indicator M3 (pill 56×32dp) acima do ícone ativo</td>
+          </tr>
+          <tr>
+            <td class="primary">Hero section (full-viewport, form inline)</td>
+            <td>Onboarding screen com cover art, título, campos em stack vertical full-width</td>
+            <td>bg-base, font-serif, hero-headline, glassmorphism input</td>
+            <td>Keyboard-aware: campos sobem com o teclado virtual</td>
+          </tr>
+          <tr>
+            <td class="primary"><code>:hover</code> em botões (translateY -2px)</td>
+            <td><code>:active</code> com scale(0.97) + ripple rgba(255,255,255,0.12)</td>
+            <td>duration-fast, ease-standard</td>
+            <td>Ripple é a linguagem visual de pressed no Android</td>
+          </tr>
+          <tr>
+            <td class="primary">Card hover (scale 1.04 + shadow)</td>
+            <td>Card :active (scale 0.96) + botão de 3 pontos sempre visível</td>
+            <td>border-radius-md, bg-surface, glass-border</td>
+            <td>Ação explícita substitui hover overlay com play button</td>
+          </tr>
+          <tr>
+            <td class="primary">Dropdown menu (position: absolute)</td>
+            <td>Modal Bottom Sheet com handle, título e items (56dp cada)</td>
+            <td>bg-surface-2, glass-border, radius-xl (topo), ease-cinematic</td>
+            <td>Sheet fecha ao clicar no backdrop ou arrastar para baixo</td>
+          </tr>
+          <tr>
+            <td class="primary">Tooltip (hover)</td>
+            <td>Helper text abaixo do campo (<code>nr-input-hint</code>)</td>
+            <td>text-muted, 12sp</td>
+            <td>Para tooltips informativos: use ícone info + Bottom Sheet expandível</td>
+          </tr>
+          <tr>
+            <td class="primary">Toast (bottom-right fixed)</td>
+            <td>Snackbar full-width acima do Bottom Nav (left:16dp, right:16dp)</td>
+            <td>bg-surface-2, glass-border, ease-cinematic, duration-normal</td>
+            <td>Auto-dismiss em 4s. Action button (48dp touch target)</td>
+          </tr>
+          <tr>
+            <td class="primary">Modal (max-width: 480px)</td>
+            <td>Dialog M3 (max-width: 340dp) ou Bottom Sheet para formulários</td>
+            <td>bg-surface-2, radius-lg, elev-5, ease-cinematic</td>
+            <td>Dialog para decisões simples. Sheet para seleções ou listas longas</td>
+          </tr>
+          <tr>
+            <td class="primary">Data table (4 colunas)</td>
+            <td>List items (72dp) com avatar/cover, título, meta e action button</td>
+            <td>list-item, nr-li-cover, glass-border</td>
+            <td>Swipe-to-action (M3) pode expor ações rápidas ao deslizar o item</td>
+          </tr>
+          <tr>
+            <td class="primary">Carousel scroll buttons (prev/next)</td>
+            <td>Removidos. Swipe nativo com scroll-snap</td>
+            <td>gap:10dp, padding:16dp, scroll-snap: mandatory</td>
+            <td>Indicador de scroll opcional: dots ou fade nas bordas</td>
+          </tr>
+          <tr>
+            <td class="primary">Grid auto-fill minmax(160px)</td>
+            <td>Carrossel horizontal (120dp cards) ou grid 2 colunas (layout biblioteca)</td>
+            <td>radius-md, bg-surface, glass-border</td>
+            <td>2 colunas: <code>(screenWidth - 16*2 - 10) / 2</code> ≈ 163dp em 360dp</td>
+          </tr>
+          <tr>
+            <td class="primary">Sidebar layout (200px + content)</td>
+            <td>Navigation Drawer (oculto, abre por swipe da esquerda ou hamburger)</td>
+            <td>bg-surface, glass-border, purple-primary para item ativo</td>
+            <td>Apenas se houver muitas seções. Preferir Bottom Nav para ≤5 destinos</td>
+          </tr>
+          <tr>
+            <td class="primary">Hero input (height: 56px, min-width: 250px)</td>
+            <td>TextField full-width (height: 56dp, width: 100%)</td>
+            <td>glass-bg, glass-border, radius-sm, purple-primary focused</td>
+            <td>Placeholder + label externo. Sem label flutuante (not M3 filled style)</td>
+          </tr>
+          <tr>
+            <td class="primary">Navbar logo font-size: 1.25rem</td>
+            <td>Top Bar logo: 20sp, bold 900, letra-spacing -0.02em</td>
+            <td>font-serif, text-primary, purple-primary (span)</td>
+            <td>Centralizado ou à esquerda conforme tipo de tela (home vs. detalhe)</td>
+          </tr>
+          <tr>
+            <td class="primary">rem (web font unit)</td>
+            <td>sp (scale-independent pixels Android)</td>
+            <td>Base 1rem = 16sp</td>
+            <td>sp respeita acessibilidade de tamanho de fonte do sistema</td>
+          </tr>
+          <tr>
+            <td class="primary">px (layout unit)</td>
+            <td>dp (density-independent pixels)</td>
+            <td>1px CSS ≈ 1dp (160dpi base)</td>
+            <td>Em Compose: usar Int.dp extension. Em XML: usar @dimen</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     5. PADRÕES DE NAVEGAÇÃO ANDROID
+     ══════════════════════════════════════════════════════════════════════ -->
+<section id="navegacao" class="ds-section">
+  <div class="ds-section-inner">
+    <div class="ds-section-tag"><span>Seção 5 · Navegação</span></div>
+    <h2 class="ds-section-title">Padrões de Navegação Android</h2>
+    <p class="ds-section-desc">Top App Bar, Bottom Navigation, Bottom Sheet, Dialog e Snackbar — todos preservando a identidade NeoReader.</p>
+
+    <!-- TOP APP BAR -->
+    <div class="comp-block">
+      <p class="comp-label">Top App Bar (56dp) — variantes</p>
+
+      <p class="comp-label" style="color:var(--nr-text-secondary)">Home (logo centralizada, ações à direita)</p>
+      <div class="nr-top-bar" style="position:relative;border-radius:var(--nr-radius-sm);margin-bottom:12px">
+        <button class="nr-top-bar-btn" aria-label="Abrir menu"><i data-lucide="menu" width="22" height="22"></i></button>
+        <a href="#" class="nr-top-bar-logo" style="text-align:center">Neo<span>Reader</span></a>
+        <div class="nr-top-bar-actions">
+          <button class="nr-top-bar-btn" aria-label="Pesquisar"><i data-lucide="search" width="22" height="22"></i></button>
+          <button class="nr-top-bar-btn" aria-label="Perfil"><i data-lucide="user" width="22" height="22"></i></button>
+        </div>
+      </div>
+
+      <p class="comp-label" style="color:var(--nr-text-secondary)">Tela interna (back button + título + ação)</p>
+      <div class="nr-top-bar" style="position:relative;border-radius:var(--nr-radius-sm);margin-bottom:12px">
+        <button class="nr-top-bar-btn" aria-label="Voltar"><i data-lucide="arrow-left" width="22" height="22"></i></button>
+        <span class="nr-top-bar-title">Biblioteca</span>
+        <div class="nr-top-bar-actions">
+          <button class="nr-top-bar-btn" aria-label="Ordenar"><i data-lucide="arrow-up-down" width="20" height="20"></i></button>
+          <button class="nr-top-bar-btn" aria-label="Mais opções"><i data-lucide="more-vertical" width="22" height="22"></i></button>
+        </div>
+      </div>
+
+      <p class="comp-label" style="color:var(--nr-text-secondary)">Detalhe do livro (back + overflow)</p>
+      <div class="nr-top-bar" style="position:relative;border-radius:var(--nr-radius-sm);background:transparent;border-bottom:none">
+        <button class="nr-top-bar-btn" aria-label="Voltar"><i data-lucide="arrow-left" width="22" height="22"></i></button>
+        <span style="flex:1"></span>
+        <div class="nr-top-bar-actions">
+          <button class="nr-top-bar-btn" aria-label="Favoritar"><i data-lucide="heart" width="20" height="20"></i></button>
+          <button class="nr-top-bar-btn" aria-label="Compartilhar"><i data-lucide="share-2" width="20" height="20"></i></button>
+          <button class="nr-top-bar-btn" aria-label="Mais opções"><i data-lucide="more-vertical" width="22" height="22"></i></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- BOTTOM NAV -->
+    <div class="comp-block">
+      <p class="comp-label">Bottom Navigation (64dp) — 4 destinos</p>
+      <div class="nr-bottom-nav" style="position:relative;border-radius:var(--nr-radius-md)">
+        <button class="nr-nav-item active" aria-label="Home">
+          <span class="nr-nav-item-indicator"></span>
+          <i data-lucide="home" width="22" height="22"></i>
+          <span class="nr-nav-label">Início</span>
+        </button>
+        <button class="nr-nav-item" aria-label="Busca">
+          <span class="nr-nav-item-indicator"></span>
+          <i data-lucide="search" width="22" height="22"></i>
+          <span class="nr-nav-label">Buscar</span>
+        </button>
+        <button class="nr-nav-item" aria-label="Biblioteca">
+          <span class="nr-nav-item-indicator"></span>
+          <i data-lucide="library" width="22" height="22"></i>
+          <span class="nr-nav-label">Biblioteca</span>
+        </button>
+        <button class="nr-nav-item" aria-label="Perfil">
+          <span class="nr-nav-item-indicator"></span>
+          <i data-lucide="user" width="22" height="22"></i>
+          <span class="nr-nav-label">Perfil</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- BOTTOM SHEET (demo interativo) -->
+    <div class="comp-block">
+      <p class="comp-label">Bottom Sheet — substitui Dropdown desktop</p>
+      <button class="nr-btn nr-btn-secondary" onclick="openSheet('demo-sheet')">
+        <i data-lucide="chevrons-up" width="16" height="16"></i>
+        Abrir Sheet de Ações
+      </button>
+    </div>
+
+    <!-- DIALOG -->
+    <div class="comp-block">
+      <p class="comp-label">Dialog — decisões e confirmações</p>
+      <button class="nr-btn nr-btn-danger" onclick="openModal('demo-modal')">
+        <i data-lucide="trash-2" width="16" height="16"></i>
+        Remover livro (demo)
+      </button>
+    </div>
+
+    <!-- SNACKBAR -->
+    <div class="comp-block">
+      <p class="comp-label">Snackbar — feedback de ações</p>
+      <div class="comp-row">
+        <button class="nr-btn nr-btn-ghost" onclick="showSnackbar()">
+          <i data-lucide="bell" width="16" height="16"></i>
+          Disparar Snackbar
+        </button>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     6. PADRÕES DE LAYOUT MOBILE
+     ══════════════════════════════════════════════════════════════════════ -->
+<section id="layout" class="ds-section">
+  <div class="ds-section-inner">
+    <div class="ds-section-tag"><span>Seção 6 · Layout</span></div>
+    <h2 class="ds-section-title">Padrões de Layout Mobile</h2>
+    <p class="ds-section-desc">Grid, margens, safe areas, carrosséis e padrões de tela para Android. Referência: 360×800dp (mínimo) a 412×915dp.</p>
+
+    <div class="info-card">
+      <strong>Regras fundamentais:</strong> Margem horizontal = 16dp. Gutter entre colunas = 10–12dp. Bottom padding = 64dp (Bottom Nav) + safe-area-inset-bottom. Top padding = 56dp (Top Bar) + 24dp (status bar).
+    </div>
+
+    <!-- GRID -->
+    <div class="comp-block">
+      <p class="comp-label">Grids Mobile Android</p>
+      <div class="grid-demo-wrap">
+        <p class="grid-demo-label">1 Coluna — layout padrão, formulários, listas</p>
+        <div class="grid-demo-row" style="grid-template-columns:1fr">
+          <div class="grid-col">col-1 (100% - 32dp)</div>
+        </div>
+        <p class="grid-demo-label">2 Colunas — biblioteca de livros, grade de categorias</p>
+        <div class="grid-demo-row" style="grid-template-columns:1fr 1fr">
+          <div class="grid-col">col-1</div><div class="grid-col">col-2</div>
+        </div>
+        <p class="grid-demo-label">3 Colunas — apenas em 412dp+ e apenas para cards compactos</p>
+        <div class="grid-demo-row" style="grid-template-columns:1fr 1fr 1fr">
+          <div class="grid-col">c1</div><div class="grid-col">c2</div><div class="grid-col">c3</div>
+        </div>
+        <p class="grid-demo-label">Carrossel (scroll horizontal) — rows Netflix-style</p>
+        <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;scrollbar-width:none">
+          <div class="grid-col" style="flex:0 0 110px;padding:32px 0">item</div>
+          <div class="grid-col" style="flex:0 0 110px;padding:32px 0">item</div>
+          <div class="grid-col" style="flex:0 0 110px;padding:32px 0">item</div>
+          <div class="grid-col" style="flex:0 0 110px;padding:32px 0">item</div>
+          <div class="grid-col" style="flex:0 0 110px;padding:32px 0">item</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SAFE AREAS -->
+    <div class="comp-block">
+      <p class="comp-label">Safe Areas & Insets Android</p>
+      <div class="conv-table-wrap">
+        <table class="conv-table">
+          <thead><tr><th>Área</th><th>Valor típico</th><th>Uso</th></tr></thead>
+          <tbody>
+            <tr><td class="primary">Status Bar</td><td>24dp (varia por device)</td><td><code>WindowInsets.statusBars</code> em Compose</td></tr>
+            <tr><td class="primary">Top App Bar</td><td>56dp (após status bar)</td><td>Conteúdo começa em 56dp + status bar</td></tr>
+            <tr><td class="primary">Bottom Navigation</td><td>64dp</td><td>Padding bottom do conteúdo = 64dp + nav bar</td></tr>
+            <tr><td class="primary">Navigation Bar (gesture)</td><td>0–32dp (varia)</td><td><code>WindowInsets.navigationBars</code></td></tr>
+            <tr><td class="primary">Margem horizontal</td><td>16dp (mínimo), 24dp (recomendado)</td><td>Padding lateral de todo conteúdo</td></tr>
+            <tr><td class="primary">Touch target mínimo</td><td>48×48dp</td><td>Todos os elementos clicáveis</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- BREAKPOINTS ANDROID -->
+    <div class="comp-block">
+      <p class="comp-label">Devices de referência</p>
+      <div class="conv-table-wrap">
+        <table class="conv-table">
+          <thead><tr><th>Device</th><th>Resolução (dp)</th><th>Categoria M3</th></tr></thead>
+          <tbody>
+            <tr><td class="primary">Moto G (mínimo)</td><td>360 × 800dp</td><td>Compact</td></tr>
+            <tr><td class="primary">Pixel 6 / Galaxy S23</td><td>393 × 873dp</td><td>Compact (target principal)</td></tr>
+            <tr><td class="primary">Pixel 6 Pro / Note</td><td>412 × 915dp</td><td>Compact wide</td></tr>
+            <tr><td class="primary">Tablet 7"</td><td>600 × 960dp</td><td>Medium (futuro)</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     7. TELAS EXEMPLO
+     ══════════════════════════════════════════════════════════════════════ -->
+<section id="telas" class="ds-section">
+  <div class="ds-section-inner">
+    <div class="ds-section-tag"><span>Seção 7 · Telas</span></div>
+    <h2 class="ds-section-title">Telas Exemplo</h2>
+    <p class="ds-section-desc">8 telas usando o design system adaptado. Viewport simulado: 360×760dp. Role o conteúdo interno de cada tela.</p>
+
+    <div class="screen-container">
+
+      <!-- ── HOME ── -->
+      <div>
+        <p class="screen-label">Home</p>
+        <div class="screen-frame">
+          <div class="screen-status-bar">
+            <span>9:41</span>
+            <span style="display:flex;gap:6px;align-items:center">
+              <i data-lucide="wifi" width="12" height="12"></i>
+              <i data-lucide="battery" width="14" height="14"></i>
+            </span>
+          </div>
+          <!-- Top Bar -->
+          <div class="nr-top-bar" style="position:relative">
+            <button class="nr-top-bar-btn"><i data-lucide="menu" width="20" height="20"></i></button>
+            <a href="#" class="nr-top-bar-logo" style="text-align:center;font-size:18px">Neo<span>Reader</span></a>
+            <div class="nr-top-bar-actions">
+              <button class="nr-top-bar-btn"><i data-lucide="search" width="20" height="20"></i></button>
+              <button class="nr-top-bar-btn"><i data-lucide="user" width="20" height="20"></i></button>
+            </div>
+          </div>
+          <!-- Content -->
+          <div class="screen-content">
+            <!-- Hero Banner -->
+            <div style="position:relative;height:200px;overflow:hidden">
+              <div class="c1" style="width:100%;height:100%"></div>
+              <div style="position:absolute;inset:0;background:linear-gradient(to top,var(--nr-bg-base) 0%,transparent 60%)"></div>
+              <div style="position:absolute;bottom:16px;left:16px;right:16px">
+                <div class="pv-badge-row" style="margin-bottom:6px">
+                  <span class="pv-badge pv-badge-exclusive">Exclusivo</span>
+                  <span class="pv-badge pv-badge-top10">Top 10</span>
+                </div>
+                <h2 style="font-family:var(--nr-font-serif);font-size:20px;font-weight:900;color:#fff;margin-bottom:8px;line-height:1.15">Duna<br><span style="font-weight:400;font-size:14px;opacity:.8">Frank Herbert</span></h2>
+                <div style="display:flex;gap:8px">
+                  <button class="nr-btn nr-btn-primary" style="min-height:40px;padding:8px 16px;font-size:13px;flex:1">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
+                    Ler agora
+                  </button>
+                  <button class="nr-btn nr-btn-secondary" style="min-height:40px;padding:8px 12px;font-size:13px">
+                    <i data-lucide="plus" width="14" height="14"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+            <!-- Continuar Lendo -->
+            <div style="padding:16px 0 0">
+              <div class="nr-content-row-header">
+                <span class="nr-content-row-title">Continuar Lendo</span>
+                <a href="#" class="nr-content-row-link">Ver tudo <i data-lucide="chevron-right" width="12" height="12"></i></a>
+              </div>
+              <div class="nr-carousel" style="padding:4px 16px 8px">
+                <div style="flex:0 0 260px">
+                  <div class="nr-progress-card">
+                    <div class="nr-pc-cover c1"></div>
+                    <div class="nr-pc-content">
+                      <div class="nr-pc-title" style="font-size:13px">Duna</div>
+                      <div class="nr-pc-meta" style="font-size:10px">Cap. 12</div>
+                      <div class="nr-pc-bar-wrap"><div class="nr-pc-bar-fill" style="width:82%"></div></div>
+                      <div class="nr-pc-status" style="font-size:9px"><span>82%</span><span>45m</span></div>
+                    </div>
+                  </div>
+                </div>
+                <div style="flex:0 0 260px">
+                  <div class="nr-progress-card">
+                    <div class="nr-pc-cover c2"></div>
+                    <div class="nr-pc-content">
+                      <div class="nr-pc-title" style="font-size:13px">1984</div>
+                      <div class="nr-pc-meta" style="font-size:10px">Cap. 4</div>
+                      <div class="nr-pc-bar-wrap"><div class="nr-pc-bar-fill" style="width:45%"></div></div>
+                      <div class="nr-pc-status" style="font-size:9px"><span>45%</span><span>2h</span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <!-- Em Alta -->
+            <div style="padding:8px 0">
+              <div class="nr-content-row-header">
+                <span class="nr-content-row-title">Em Alta esta Semana</span>
+                <a href="#" class="nr-content-row-link">Ver tudo</a>
+              </div>
+              <div class="nr-carousel" style="padding:4px 16px 8px">
+                <div class="nr-carousel-item" style="flex:0 0 100px"><div class="card-cover c3" style="height:150px"></div><div class="card-info"><p class="card-title">Sapiens</p><span class="card-meta">Harari</span></div></div>
+                <div class="nr-carousel-item" style="flex:0 0 100px"><div class="card-cover c4" style="height:150px"></div><div class="card-info"><p class="card-title">Fundação</p><span class="card-meta">Asimov</span></div></div>
+                <div class="nr-carousel-item" style="flex:0 0 100px"><div class="card-cover c5" style="height:150px"></div><div class="card-info"><p class="card-title">Admirável Mundo Novo</p><span class="card-meta">Huxley</span></div></div>
+                <div class="nr-carousel-item" style="flex:0 0 100px"><div class="card-cover c1" style="height:150px;background:linear-gradient(145deg,#1b4332,#40916c)"></div><div class="card-info"><p class="card-title">O Hobbit</p><span class="card-meta">Tolkien</span></div></div>
+              </div>
+            </div>
+            <!-- Bottom padding for nav -->
+            <div style="height:64px"></div>
+          </div>
+          <!-- Bottom Nav -->
+          <div class="nr-bottom-nav" style="position:relative;border-radius:0 0 20px 20px">
+            <button class="nr-nav-item active"><span class="nr-nav-item-indicator"></span><i data-lucide="home" width="20" height="20"></i><span class="nr-nav-label">Início</span></button>
+            <button class="nr-nav-item"><span class="nr-nav-item-indicator"></span><i data-lucide="search" width="20" height="20"></i><span class="nr-nav-label">Buscar</span></button>
+            <button class="nr-nav-item"><span class="nr-nav-item-indicator"></span><i data-lucide="library" width="20" height="20"></i><span class="nr-nav-label">Biblioteca</span></button>
+            <button class="nr-nav-item"><span class="nr-nav-item-indicator"></span><i data-lucide="user" width="20" height="20"></i><span class="nr-nav-label">Perfil</span></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── BUSCA ── -->
+      <div>
+        <p class="screen-label">Busca</p>
+        <div class="screen-frame">
+          <div class="screen-status-bar"><span>9:41</span><span style="display:flex;gap:6px"><i data-lucide="wifi" width="12" height="12"></i><i data-lucide="battery" width="14" height="14"></i></span></div>
+          <div class="nr-top-bar" style="position:relative">
+            <button class="nr-top-bar-btn"><i data-lucide="arrow-left" width="20" height="20"></i></button>
+            <div class="nr-search-bar" style="flex:1;height:40px;margin:0 4px 0 0;border-radius:var(--nr-radius-pill)">
+              <i data-lucide="search" class="nr-search-icon" width="16" height="16"></i>
+              <input type="text" placeholder="Título, autor ou gênero…" style="font-size:13px" />
+            </div>
+          </div>
+          <div class="screen-content" style="padding:16px">
+            <p class="comp-label">Resultados para "ficção"</p>
+            <div style="background:var(--nr-bg-surface-2);border-radius:12px;overflow:hidden;border:1px solid var(--nr-glass-border)">
+              <div class="nr-list-item">
+                <div class="nr-li-cover c1"></div>
+                <div class="nr-li-main"><h4 class="nr-li-title">Duna</h4><p class="nr-li-meta">Frank Herbert · <span class="nr-badge nr-badge-purple" style="font-size:8px;padding:1px 5px">Ficção</span></p></div>
+                <button class="nr-li-action"><i data-lucide="plus" width="16" height="16"></i></button>
+              </div>
+              <div class="nr-list-item">
+                <div class="nr-li-cover c2"></div>
+                <div class="nr-li-main"><h4 class="nr-li-title">1984</h4><p class="nr-li-meta">George Orwell · <span class="nr-badge nr-badge-neutral" style="font-size:8px;padding:1px 5px">Distopia</span></p></div>
+                <button class="nr-li-action"><i data-lucide="plus" width="16" height="16"></i></button>
+              </div>
+              <div class="nr-list-item">
+                <div class="nr-li-cover c3"></div>
+                <div class="nr-li-main"><h4 class="nr-li-title">Fundação</h4><p class="nr-li-meta">Isaac Asimov · <span class="nr-badge nr-badge-purple" style="font-size:8px;padding:1px 5px">FC</span></p></div>
+                <button class="nr-li-action"><i data-lucide="plus" width="16" height="16"></i></button>
+              </div>
+              <div class="nr-list-item" style="border-bottom:none">
+                <div class="nr-li-cover c4"></div>
+                <div class="nr-li-main"><h4 class="nr-li-title">Neuromancer</h4><p class="nr-li-meta">William Gibson · <span class="nr-badge nr-badge-warning" style="font-size:8px;padding:1px 5px">Cyberpunk</span></p></div>
+                <button class="nr-li-action"><i data-lucide="plus" width="16" height="16"></i></button>
+              </div>
+            </div>
+            <div style="height:64px"></div>
+          </div>
+          <div class="nr-bottom-nav" style="position:relative;border-radius:0 0 20px 20px">
+            <button class="nr-nav-item"><span class="nr-nav-item-indicator"></span><i data-lucide="home" width="20" height="20"></i><span class="nr-nav-label">Início</span></button>
+            <button class="nr-nav-item active"><span class="nr-nav-item-indicator"></span><i data-lucide="search" width="20" height="20"></i><span class="nr-nav-label">Buscar</span></button>
+            <button class="nr-nav-item"><span class="nr-nav-item-indicator"></span><i data-lucide="library" width="20" height="20"></i><span class="nr-nav-label">Biblioteca</span></button>
+            <button class="nr-nav-item"><span class="nr-nav-item-indicator"></span><i data-lucide="user" width="20" height="20"></i><span class="nr-nav-label">Perfil</span></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── DETALHE DO LIVRO ── -->
+      <div>
+        <p class="screen-label">Detalhe do Livro</p>
+        <div class="screen-frame">
+          <div class="screen-status-bar"><span>9:41</span><span style="display:flex;gap:6px"><i data-lucide="wifi" width="12" height="12"></i><i data-lucide="battery" width="14" height="14"></i></span></div>
+          <div class="nr-top-bar" style="position:relative;background:transparent;border-bottom:none">
+            <button class="nr-top-bar-btn"><i data-lucide="arrow-left" width="20" height="20"></i></button>
+            <span style="flex:1"></span>
+            <button class="nr-top-bar-btn"><i data-lucide="heart" width="20" height="20"></i></button>
+            <button class="nr-top-bar-btn"><i data-lucide="share-2" width="20" height="20"></i></button>
+          </div>
+          <div class="screen-content">
+            <!-- Cover hero -->
+            <div style="height:220px;position:relative;margin-top:-56px">
+              <div class="c1" style="width:100%;height:100%"></div>
+              <div style="position:absolute;inset:0;background:linear-gradient(to top,var(--nr-bg-base) 0%,rgba(7,3,12,0.3) 60%,transparent 100%)"></div>
+            </div>
+            <!-- Book info -->
+            <div style="padding:0 16px 16px;margin-top:-40px;position:relative">
+              <div class="pv-badge-row" style="margin-bottom:8px">
+                <span class="pv-badge pv-badge-exclusive">Exclusivo</span>
+                <span class="pv-badge pv-badge-top10">Top 10</span>
+              </div>
+              <h1 style="font-family:var(--nr-font-serif);font-size:24px;font-weight:900;color:var(--nr-text-primary);margin-bottom:4px">Duna</h1>
+              <p style="font-size:13px;color:var(--nr-text-secondary);margin-bottom:12px">Frank Herbert · Ficção Científica · 1965</p>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
+                <button class="nr-btn nr-btn-primary" style="min-height:48px">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
+                  Ler agora
+                </button>
+                <button class="nr-btn nr-btn-secondary" style="min-height:48px">
+                  <i data-lucide="headphones" width="16" height="16"></i>
+                  Ouvir
+                </button>
+              </div>
+              <!-- Progress -->
+              <div style="background:var(--nr-bg-surface);border-radius:var(--nr-radius-md);padding:14px;margin-bottom:16px">
+                <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+                  <span style="font-size:12px;font-weight:600;color:var(--nr-text-primary)">Seu progresso</span>
+                  <span style="font-size:12px;color:var(--nr-purple-light);font-weight:600">82%</span>
+                </div>
+                <div class="nr-pc-bar-wrap"><div class="nr-pc-bar-fill" style="width:82%"></div></div>
+                <p style="font-size:11px;color:var(--nr-text-muted);margin-top:6px">Capítulo 12 de 21 · Falta ~45 min</p>
+              </div>
+              <!-- Sinopse -->
+              <h3 style="font-size:14px;font-weight:700;color:var(--nr-text-primary);margin-bottom:8px">Sinopse</h3>
+              <p style="font-size:13px;color:var(--nr-text-secondary);line-height:1.6">Em um futuro distante, Paul Atreides herda o planeta desértico Arrakis, o único lugar onde existe a preciosa especiaria...</p>
+              <button class="nr-btn-icon" style="width:auto;border-radius:4px;padding:6px;background:transparent;border:none;color:var(--nr-purple-light);font-size:12px;font-weight:600;margin-top:4px">Ler mais</button>
+            </div>
+            <div style="height:32px"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── BIBLIOTECA ── -->
+      <div>
+        <p class="screen-label">Biblioteca</p>
+        <div class="screen-frame">
+          <div class="screen-status-bar"><span>9:41</span><span style="display:flex;gap:6px"><i data-lucide="wifi" width="12" height="12"></i><i data-lucide="battery" width="14" height="14"></i></span></div>
+          <div class="nr-top-bar" style="position:relative">
+            <span class="nr-top-bar-title">Minha Biblioteca</span>
+            <div class="nr-top-bar-actions">
+              <button class="nr-top-bar-btn"><i data-lucide="search" width="20" height="20"></i></button>
+              <button class="nr-top-bar-btn"><i data-lucide="filter" width="20" height="20"></i></button>
+            </div>
+          </div>
+          <div class="screen-content">
+            <div class="nr-tabs" style="padding:0 16px">
+              <button class="nr-tab active">Todos</button>
+              <button class="nr-tab">Lendo</button>
+              <button class="nr-tab">Concluídos</button>
+              <button class="nr-tab">Baixados</button>
+            </div>
+            <div style="padding:8px 16px;display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <div class="nr-book-card"><div class="card-cover c1" style="height:150px"><button class="card-action-btn"><i data-lucide="more-vertical" width="12" height="12"></i></button><div class="card-progress-bar"><div class="card-progress-fill" style="width:82%"></div></div></div><div class="card-info"><p class="card-title">Duna</p><span class="card-meta">Frank Herbert</span></div></div>
+              <div class="nr-book-card"><div class="card-cover c2" style="height:150px"><button class="card-action-btn"><i data-lucide="more-vertical" width="12" height="12"></i></button><div class="card-progress-bar"><div class="card-progress-fill" style="width:45%"></div></div></div><div class="card-info"><p class="card-title">1984</p><span class="card-meta">George Orwell</span></div></div>
+              <div class="nr-book-card"><div class="card-cover c3" style="height:150px"><button class="card-action-btn"><i data-lucide="more-vertical" width="12" height="12"></i></button></div><div class="card-info"><p class="card-title">Sapiens</p><span class="card-meta">Harari</span></div></div>
+              <div class="nr-book-card"><div class="card-cover c4" style="height:150px"><button class="card-action-btn"><i data-lucide="more-vertical" width="12" height="12"></i></button></div><div class="card-info"><p class="card-title">Fundação</p><span class="card-meta">Asimov</span></div></div>
+            </div>
+            <div style="height:64px"></div>
+          </div>
+          <div class="nr-bottom-nav" style="position:relative;border-radius:0 0 20px 20px">
+            <button class="nr-nav-item"><span class="nr-nav-item-indicator"></span><i data-lucide="home" width="20" height="20"></i><span class="nr-nav-label">Início</span></button>
+            <button class="nr-nav-item"><span class="nr-nav-item-indicator"></span><i data-lucide="search" width="20" height="20"></i><span class="nr-nav-label">Buscar</span></button>
+            <button class="nr-nav-item active"><span class="nr-nav-item-indicator"></span><i data-lucide="library" width="20" height="20"></i><span class="nr-nav-label">Biblioteca</span></button>
+            <button class="nr-nav-item"><span class="nr-nav-item-indicator"></span><i data-lucide="user" width="20" height="20"></i><span class="nr-nav-label">Perfil</span></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── PERFIL / CONFIGURAÇÕES ── -->
+      <div>
+        <p class="screen-label">Perfil / Configurações</p>
+        <div class="screen-frame">
+          <div class="screen-status-bar"><span>9:41</span><span style="display:flex;gap:6px"><i data-lucide="wifi" width="12" height="12"></i><i data-lucide="battery" width="14" height="14"></i></span></div>
+          <div class="nr-top-bar" style="position:relative"><span class="nr-top-bar-title">Perfil</span></div>
+          <div class="screen-content" style="padding:0">
+            <!-- Avatar area -->
+            <div style="display:flex;align-items:center;gap:16px;padding:20px 16px;border-bottom:1px solid var(--nr-glass-border)">
+              <div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(145deg,#3c096c,#7b2cbf);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                <i data-lucide="user" width="24" height="24" style="color:#fff"></i>
+              </div>
+              <div>
+                <p style="font-size:16px;font-weight:700;color:var(--nr-text-primary)">João Costa</p>
+                <p style="font-size:12px;color:var(--nr-text-muted)">johncosta@email.com</p>
+              </div>
+              <button class="nr-btn-icon" style="margin-left:auto;border:none;background:transparent"><i data-lucide="edit" width="18" height="18" style="color:var(--nr-text-muted)"></i></button>
+            </div>
+            <!-- Stats -->
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;padding:16px;gap:8px;border-bottom:1px solid var(--nr-glass-border)">
+              <div style="text-align:center"><p style="font-size:20px;font-weight:800;color:var(--nr-purple-light)">24</p><p style="font-size:10px;color:var(--nr-text-muted)">Livros lidos</p></div>
+              <div style="text-align:center"><p style="font-size:20px;font-weight:800;color:var(--nr-purple-light)">142</p><p style="font-size:10px;color:var(--nr-text-muted)">Horas</p></div>
+              <div style="text-align:center"><p style="font-size:20px;font-weight:800;color:var(--nr-purple-light)">89</p><p style="font-size:10px;color:var(--nr-text-muted)">Vocabulário</p></div>
+            </div>
+            <!-- Settings list -->
+            <div>
+              <div class="nr-list-item"><div style="width:40px;height:40px;border-radius:10px;background:rgba(123,44,191,0.15);display:flex;align-items:center;justify-content:center;flex-shrink:0"><i data-lucide="bell" width="18" height="18" style="color:var(--nr-purple-light)"></i></div><div class="nr-li-main"><h4 class="nr-li-title">Notificações</h4><p class="nr-li-meta">Lembretes de leitura</p></div><label class="nr-control-wrap nr-switch" style="min-height:auto"><input type="checkbox" class="nr-control-input" checked /><div class="nr-control-box"></div></label></div>
+              <div class="nr-list-item"><div style="width:40px;height:40px;border-radius:10px;background:rgba(123,44,191,0.15);display:flex;align-items:center;justify-content:center;flex-shrink:0"><i data-lucide="cloud" width="18" height="18" style="color:var(--nr-purple-light)"></i></div><div class="nr-li-main"><h4 class="nr-li-title">Sincronização</h4><p class="nr-li-meta">Google Drive</p></div><i data-lucide="chevron-right" width="16" height="16" style="color:var(--nr-text-muted)"></i></div>
+              <div class="nr-list-item"><div style="width:40px;height:40px;border-radius:10px;background:rgba(123,44,191,0.15);display:flex;align-items:center;justify-content:center;flex-shrink:0"><i data-lucide="key" width="18" height="18" style="color:var(--nr-purple-light)"></i></div><div class="nr-li-main"><h4 class="nr-li-title">API Speechify</h4><p class="nr-li-meta">Configurar TTS</p></div><i data-lucide="chevron-right" width="16" height="16" style="color:var(--nr-text-muted)"></i></div>
+              <div class="nr-list-item"><div style="width:40px;height:40px;border-radius:10px;background:rgba(239,68,68,0.1);display:flex;align-items:center;justify-content:center;flex-shrink:0"><i data-lucide="log-out" width="18" height="18" style="color:var(--nr-error)"></i></div><div class="nr-li-main"><h4 class="nr-li-title" style="color:var(--nr-error)">Sair</h4><p class="nr-li-meta">Fazer logout</p></div></div>
+            </div>
+            <div style="height:64px"></div>
+          </div>
+          <div class="nr-bottom-nav" style="position:relative;border-radius:0 0 20px 20px">
+            <button class="nr-nav-item"><span class="nr-nav-item-indicator"></span><i data-lucide="home" width="20" height="20"></i><span class="nr-nav-label">Início</span></button>
+            <button class="nr-nav-item"><span class="nr-nav-item-indicator"></span><i data-lucide="search" width="20" height="20"></i><span class="nr-nav-label">Buscar</span></button>
+            <button class="nr-nav-item"><span class="nr-nav-item-indicator"></span><i data-lucide="library" width="20" height="20"></i><span class="nr-nav-label">Biblioteca</span></button>
+            <button class="nr-nav-item active"><span class="nr-nav-item-indicator"></span><i data-lucide="user" width="20" height="20"></i><span class="nr-nav-label">Perfil</span></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── EMPTY STATE ── -->
+      <div>
+        <p class="screen-label">Estado Vazio</p>
+        <div class="screen-frame" style="min-height:600px">
+          <div class="screen-status-bar"><span>9:41</span><span style="display:flex;gap:6px"><i data-lucide="wifi" width="12" height="12"></i><i data-lucide="battery" width="14" height="14"></i></span></div>
+          <div class="nr-top-bar" style="position:relative"><span class="nr-top-bar-title">Minha Biblioteca</span></div>
+          <div class="screen-content" style="display:flex;align-items:center;justify-content:center;min-height:400px">
+            <div class="nr-empty-state" style="border:none;background:transparent;padding:32px 24px">
+              <i data-lucide="book-open" class="nr-empty-icon"></i>
+              <h3 class="nr-empty-title">Biblioteca vazia</h3>
+              <p class="nr-empty-desc">Explore o catálogo e adicione histórias para começar sua jornada literária.</p>
+              <button class="nr-btn nr-btn-primary">
+                <i data-lucide="compass" width="16" height="16"></i>
+                Explorar Catálogo
+              </button>
+            </div>
+          </div>
+          <div class="nr-bottom-nav" style="position:relative;border-radius:0 0 20px 20px">
+            <button class="nr-nav-item"><span class="nr-nav-item-indicator"></span><i data-lucide="home" width="20" height="20"></i><span class="nr-nav-label">Início</span></button>
+            <button class="nr-nav-item"><span class="nr-nav-item-indicator"></span><i data-lucide="search" width="20" height="20"></i><span class="nr-nav-label">Buscar</span></button>
+            <button class="nr-nav-item active"><span class="nr-nav-item-indicator"></span><i data-lucide="library" width="20" height="20"></i><span class="nr-nav-label">Biblioteca</span></button>
+            <button class="nr-nav-item"><span class="nr-nav-item-indicator"></span><i data-lucide="user" width="20" height="20"></i><span class="nr-nav-label">Perfil</span></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── LOADING ── -->
+      <div>
+        <p class="screen-label">Estado Loading</p>
+        <div class="screen-frame">
+          <div class="screen-status-bar"><span>9:41</span><span style="display:flex;gap:6px"><i data-lucide="wifi" width="12" height="12"></i><i data-lucide="battery" width="14" height="14"></i></span></div>
+          <div class="nr-top-bar" style="position:relative"><a href="#" class="nr-top-bar-logo" style="text-align:center;font-size:18px">Neo<span>Reader</span></a></div>
+          <div class="screen-content" style="padding:16px">
+            <!-- Skeleton banner -->
+            <div class="skeleton-block" style="width:100%;height:200px;border-radius:12px;margin-bottom:20px"></div>
+            <!-- Skeleton section -->
+            <div style="margin-bottom:20px">
+              <div style="display:flex;justify-content:space-between;margin-bottom:12px">
+                <div class="skeleton-block sk-line sk-title"></div>
+                <div class="skeleton-block sk-line" style="width:48px"></div>
+              </div>
+              <div style="display:flex;gap:10px">
+                <div class="skeleton-block skeleton-card" style="flex:0 0 100px;height:150px"></div>
+                <div class="skeleton-block skeleton-card" style="flex:0 0 100px;height:150px"></div>
+                <div class="skeleton-block skeleton-card" style="flex:0 0 100px;height:150px"></div>
+              </div>
+            </div>
+            <div style="margin-bottom:20px">
+              <div style="display:flex;justify-content:space-between;margin-bottom:12px">
+                <div class="skeleton-block sk-line sk-title"></div>
+                <div class="skeleton-block sk-line" style="width:48px"></div>
+              </div>
+              <div style="display:flex;gap:10px">
+                <div class="skeleton-block skeleton-card" style="flex:0 0 100px;height:150px"></div>
+                <div class="skeleton-block skeleton-card" style="flex:0 0 100px;height:150px"></div>
+                <div class="skeleton-block skeleton-card" style="flex:0 0 100px;height:150px"></div>
+              </div>
+            </div>
+            <div style="height:64px"></div>
+          </div>
+          <div class="nr-bottom-nav" style="position:relative;border-radius:0 0 20px 20px">
+            <button class="nr-nav-item active"><span class="nr-nav-item-indicator"></span><i data-lucide="home" width="20" height="20"></i><span class="nr-nav-label">Início</span></button>
+            <button class="nr-nav-item"><span class="nr-nav-item-indicator"></span><i data-lucide="search" width="20" height="20"></i><span class="nr-nav-label">Buscar</span></button>
+            <button class="nr-nav-item"><span class="nr-nav-item-indicator"></span><i data-lucide="library" width="20" height="20"></i><span class="nr-nav-label">Biblioteca</span></button>
+            <button class="nr-nav-item"><span class="nr-nav-item-indicator"></span><i data-lucide="user" width="20" height="20"></i><span class="nr-nav-label">Perfil</span></button>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /screen-container -->
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     8. JETPACK COMPOSE SNIPPETS
+     ══════════════════════════════════════════════════════════════════════ -->
+<section id="compose" class="ds-section">
+  <div class="ds-section-inner">
+    <div class="ds-section-tag"><span>Seção 8 · Jetpack Compose</span></div>
+    <h2 class="ds-section-title">Snippets Jetpack Compose</h2>
+    <p class="ds-section-desc">Pseudo-código Compose para os componentes principais. Pronto para adaptar em um projeto real Android.</p>
+
+    <p class="comp-label">Theme / Tokens</p>
+    <div class="code-block"><span class="code-cm">// NeoReaderTheme.kt</span>
+<span class="code-kw">private val</span> <span class="code-nm">DarkColorScheme</span> = darkColorScheme(
+    background        = Color(<span class="code-str">0xFF07030C</span>),  <span class="code-cm">// nr_bg_base</span>
+    surface           = Color(<span class="code-str">0xFF12091A</span>),  <span class="code-cm">// nr_bg_surface</span>
+    surfaceVariant    = Color(<span class="code-str">0xFF1E0E2D</span>),  <span class="code-cm">// nr_bg_surface_2</span>
+    primary           = Color(<span class="code-str">0xFF7B2CBF</span>),  <span class="code-cm">// nr_purple_primary</span>
+    primaryContainer  = Color(<span class="code-str">0xFF9D4EDD</span>),  <span class="code-cm">// nr_purple_light</span>
+    secondary         = Color(<span class="code-str">0xFF3C096C</span>),  <span class="code-cm">// nr_purple_dark</span>
+    onBackground      = Color(<span class="code-str">0xFFF8FAFC</span>),  <span class="code-cm">// nr_text_primary</span>
+    onSurfaceVariant  = Color(<span class="code-str">0xFFCBD5E1</span>),  <span class="code-cm">// nr_text_secondary</span>
+    error             = Color(<span class="code-str">0xFFEF4444</span>)
+)
+
+<span class="code-kw">val</span> <span class="code-nm">NeoReaderTypography</span> = Typography(
+    displayLarge  = TextStyle(fontFamily = PlayfairDisplay, fontSize = <span class="code-nm">36.sp</span>, fontWeight = W900),
+    headlineLarge = TextStyle(fontFamily = PlayfairDisplay, fontSize = <span class="code-nm">28.sp</span>, fontWeight = W800),
+    headlineMedium= TextStyle(fontFamily = PlayfairDisplay, fontSize = <span class="code-nm">22.sp</span>, fontWeight = W700),
+    titleLarge    = TextStyle(fontFamily = Inter, fontSize = <span class="code-nm">18.sp</span>, fontWeight = W600),
+    titleMedium   = TextStyle(fontFamily = Inter, fontSize = <span class="code-nm">16.sp</span>, fontWeight = W600),
+    bodyLarge     = TextStyle(fontFamily = Inter, fontSize = <span class="code-nm">16.sp</span>),
+    bodyMedium    = TextStyle(fontFamily = Inter, fontSize = <span class="code-nm">14.sp</span>),
+    bodySmall     = TextStyle(fontFamily = Inter, fontSize = <span class="code-nm">12.sp</span>),
+    labelSmall    = TextStyle(fontFamily = Inter, fontSize = <span class="code-nm">10.sp</span>, fontWeight = W700,
+                              letterSpacing = <span class="code-nm">0.1.sp</span>)
+)</div>
+
+    <p class="comp-label">NrButton</p>
+    <div class="code-block"><span class="code-kw">@Composable</span>
+<span class="code-kw">fun</span> <span class="code-fn">NrButton</span>(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    variant: ButtonVariant = ButtonVariant.Primary,
+    enabled: Boolean = <span class="code-kw">true</span>,
+    loading: Boolean = <span class="code-kw">false</span>,
+    leadingIcon: ImageVector? = <span class="code-kw">null</span>
+) {
+    <span class="code-kw">val</span> colors = <span class="code-kw">when</span> (variant) {
+        Primary   -> ButtonDefaults.buttonColors(containerColor = NrPurplePrimary)
+        Secondary -> ButtonDefaults.buttonColors(containerColor = NrGlassBg)
+        Ghost     -> ButtonDefaults.outlinedButtonColors()
+        Danger    -> ButtonDefaults.buttonColors(containerColor = NrErrorContainer)
+    }
+    Button(
+        onClick = onClick,
+        modifier = modifier.heightIn(min = <span class="code-nm">48.dp</span>),  <span class="code-cm">// touch target mínimo</span>
+        enabled = enabled &amp;&amp; !loading,
+        colors = colors,
+        shape = RoundedCornerShape(<span class="code-nm">12.dp</span>),  <span class="code-cm">// nr_radius_md</span>
+        elevation = ButtonDefaults.buttonElevation(defaultElevation = <span class="code-nm">2.dp</span>)
+    ) {
+        <span class="code-kw">if</span> (loading) CircularProgressIndicator(modifier = Modifier.size(<span class="code-nm">16.dp</span>), strokeWidth = <span class="code-nm">2.dp</span>)
+        <span class="code-kw">else</span> leadingIcon?.let { Icon(it, contentDescription = <span class="code-kw">null</span>, modifier = Modifier.size(<span class="code-nm">16.dp</span>)) }
+        Spacer(Modifier.width(<span class="code-nm">8.dp</span>))
+        Text(text, style = MaterialTheme.typography.titleMedium)
+    }
+}</div>
+
+    <p class="comp-label">BookCard</p>
+    <div class="code-block"><span class="code-kw">@Composable</span>
+<span class="code-kw">fun</span> <span class="code-fn">BookCard</span>(
+    book: Book,
+    onClick: () -> Unit,
+    onMoreClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .width(<span class="code-nm">120.dp</span>)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(<span class="code-nm">12.dp</span>),
+        colors = CardDefaults.cardColors(containerColor = NrBgSurface),
+        border = BorderStroke(<span class="code-nm">1.dp</span>, NrGlassBorder)
+    ) {
+        Box {
+            AsyncImage(  <span class="code-cm">// Coil</span>
+                model = book.coverUrl,
+                contentDescription = book.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxWidth().aspectRatio(<span class="code-nm">2f</span> / <span class="code-nm">3f</span>)
+            )
+            <span class="code-cm">// Botão de ação sempre visível (substitui hover web)</span>
+            IconButton(
+                onClick = onMoreClick,
+                modifier = Modifier.align(Alignment.TopEnd).padding(<span class="code-nm">4.dp</span>)
+                    .size(<span class="code-nm">32.dp</span>)
+                    .background(Color.Black.copy(alpha = <span class="code-nm">0.65f</span>), CircleShape)
+            ) {
+                Icon(Icons.Default.MoreVert, tint = Color.White,
+                     contentDescription = <span class="code-str">"Opções"</span>, modifier = Modifier.size(<span class="code-nm">14.dp</span>))
+            }
+            <span class="code-cm">// Progress bar na borda inferior</span>
+            book.progress?.let { p ->
+                LinearProgressIndicator(
+                    progress = { p },
+                    modifier = Modifier.fillMaxWidth().height(<span class="code-nm">3.dp</span>).align(Alignment.BottomCenter),
+                    color = NrPurplePrimary,
+                    trackColor = Color.White.copy(alpha = <span class="code-nm">0.15f</span>)
+                )
+            }
+        }
+        Column(Modifier.padding(<span class="code-nm">10.dp</span>)) {
+            Text(book.title, style = MaterialTheme.typography.bodySmall.copy(fontWeight = W600),
+                 maxLines = <span class="code-nm">2</span>, overflow = TextOverflow.Ellipsis)
+            Text(book.author, style = MaterialTheme.typography.labelSmall,
+                 color = NrTextMuted, maxLines = <span class="code-nm">1</span>, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}</div>
+
+    <p class="comp-label">ContinueReadingCard</p>
+    <div class="code-block"><span class="code-kw">@Composable</span>
+<span class="code-kw">fun</span> <span class="code-fn">ContinueReadingCard</span>(book: Book, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Card(
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(<span class="code-nm">12.dp</span>),
+        colors = CardDefaults.cardColors(containerColor = NrBgSurface),
+        border = BorderStroke(<span class="code-nm">1.dp</span>, NrGlassBorder)
+    ) {
+        Row(Modifier.height(IntrinsicSize.Min)) {
+            AsyncImage(model = book.coverUrl, contentDescription = <span class="code-kw">null</span>,
+                       contentScale = ContentScale.Crop,
+                       modifier = Modifier.width(<span class="code-nm">72.dp</span>).fillMaxHeight())
+            Column(Modifier.weight(<span class="code-nm">1f</span>).padding(<span class="code-nm">12.dp</span>, <span class="code-nm">14.dp</span>), verticalArrangement = Arrangement.spacedBy(<span class="code-nm">4.dp</span>)) {
+                Text(book.title, style = MaterialTheme.typography.titleMedium)
+                Text(book.currentChapter, style = MaterialTheme.typography.bodySmall, color = NrTextSecondary)
+                LinearProgressIndicator(
+                    progress = { book.progress ?: <span class="code-nm">0f</span> },
+                    modifier = Modifier.fillMaxWidth().height(<span class="code-nm">3.dp</span>).clip(RoundedCornerShape(<span class="code-nm">2.dp</span>)),
+                    color = NrPurplePrimary, trackColor = Color.White.copy(alpha = <span class="code-nm">0.1f</span>)
+                )
+                Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
+                    Text(<span class="code-str">"${(book.progress!! * 100).toInt()}% concluído"</span>,
+                         style = MaterialTheme.typography.labelSmall, color = NrPurpleLight)
+                    Text(book.remainingTime, style = MaterialTheme.typography.labelSmall, color = NrPurpleLight)
+                }
+            }
+        }
+    }
+}</div>
+
+    <p class="comp-label">NrBottomSheet (substitui Dropdown)</p>
+    <div class="code-block"><span class="code-kw">@OptIn</span>(ExperimentalMaterial3Api::class)
+<span class="code-kw">@Composable</span>
+<span class="code-kw">fun</span> <span class="code-fn">BookActionsSheet</span>(
+    book: Book,
+    onDismiss: () -> Unit,
+    onDelete: () -> Unit,
+    onShare: () -> Unit
+) {
+    <span class="code-kw">val</span> sheetState = rememberModalBottomSheetState()
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = NrBgSurface2,
+        shape = RoundedCornerShape(topStart = <span class="code-nm">24.dp</span>, topEnd = <span class="code-nm">24.dp</span>),
+        tonalElevation = <span class="code-nm">0.dp</span>
+    ) {
+        Column(Modifier.padding(bottom = <span class="code-nm">16.dp</span>)) {
+            Text(book.title, style = MaterialTheme.typography.titleMedium,
+                 modifier = Modifier.padding(horizontal = <span class="code-nm">20.dp</span>, vertical = <span class="code-nm">8.dp</span>))
+            SheetItem(icon = Icons.Default.Share, label = <span class="code-str">"Compartilhar"</span>, onClick = onShare)
+            SheetItem(icon = Icons.Default.Edit, label = <span class="code-str">"Editar lista"</span>, onClick = {})
+            Divider(color = NrGlassBorder, modifier = Modifier.padding(vertical = <span class="code-nm">4.dp</span>))
+            SheetItem(icon = Icons.Default.Delete, label = <span class="code-str">"Excluir"</span>,
+                      labelColor = NrError, onClick = onDelete)
+        }
+    }
+}</div>
+
+    <p class="comp-label">NrSnackbar (substitui Toast)</p>
+    <div class="code-block"><span class="code-cm">// No ViewModel:</span>
+<span class="code-kw">val</span> snackbarHostState = remember { SnackbarHostState() }
+
+<span class="code-cm">// No Scaffold:</span>
+Scaffold(
+    snackbarHost = {
+        SnackbarHost(snackbarHostState) { data ->
+            Snackbar(
+                snackbarData = data,
+                containerColor = NrBgSurface2,
+                contentColor = NrTextPrimary,
+                actionColor = NrPurpleLight,
+                shape = RoundedCornerShape(<span class="code-nm">12.dp</span>)
+            )
+        }
+    },
+    <span class="code-cm">// bottomBar, topBar...</span>
+)
+
+<span class="code-cm">// Disparar:</span>
+LaunchedEffect(event) {
+    snackbarHostState.showSnackbar(
+        message = <span class="code-str">"Livro adicionado à biblioteca"</span>,
+        actionLabel = <span class="code-str">"Desfazer"</span>,
+        duration = SnackbarDuration.Short
+    )
+}</div>
+
+    <p class="comp-label">NrTopAppBar</p>
+    <div class="code-block"><span class="code-kw">@OptIn</span>(ExperimentalMaterial3Api::class)
+<span class="code-kw">@Composable</span>
+<span class="code-kw">fun</span> <span class="code-fn">NrTopBar</span>(title: String? = <span class="code-kw">null</span>, isHome: Boolean = <span class="code-kw">false</span>,
+               onBack: (() -> Unit)? = <span class="code-kw">null</span>, actions: @Composable RowScope.() -> Unit = {}) {
+    TopAppBar(
+        title = {
+            <span class="code-kw">if</span> (isHome) {
+                Text(<span class="code-str">"NeoReader"</span>,  <span class="code-cm">// logo text</span>
+                     fontFamily = PlayfairDisplay, fontWeight = W900, fontSize = <span class="code-nm">20.sp</span>)
+            } <span class="code-kw">else</span> {
+                Text(title ?: <span class="code-str">""</span>, style = MaterialTheme.typography.titleLarge)
+            }
+        },
+        navigationIcon = {
+            onBack?.let {
+                IconButton(onClick = it) { Icon(Icons.AutoMirrored.Default.ArrowBack, <span class="code-str">"Voltar"</span>) }
+            }
+        },
+        actions = actions,
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = NrBgBase.copy(alpha = <span class="code-nm">0.96f</span>),
+            titleContentColor = NrTextPrimary,
+            actionIconContentColor = NrTextPrimary
+        )
+    )
+}</div>
+
+    <p class="comp-label">NrBottomNavigation</p>
+    <div class="code-block"><span class="code-kw">@Composable</span>
+<span class="code-kw">fun</span> <span class="code-fn">NrBottomNav</span>(currentRoute: String, onNavigate: (String) -> Unit) {
+    <span class="code-kw">val</span> items = listOf(
+        NavItem(<span class="code-str">"home"</span>,      Icons.Default.Home,    <span class="code-str">"Início"</span>),
+        NavItem(<span class="code-str">"search"</span>,    Icons.Default.Search,  <span class="code-str">"Buscar"</span>),
+        NavItem(<span class="code-str">"library"</span>,   Icons.Default.Book,    <span class="code-str">"Biblioteca"</span>),
+        NavItem(<span class="code-str">"profile"</span>,   Icons.Default.Person,  <span class="code-str">"Perfil"</span>)
+    )
+    NavigationBar(
+        containerColor = Color(<span class="code-str">0xFF0C0516</span>).copy(alpha = <span class="code-nm">0.97f</span>),
+        tonalElevation = <span class="code-nm">0.dp</span>
+    ) {
+        items.forEach { item ->
+            NavigationBarItem(
+                selected = currentRoute == item.route,
+                onClick = { onNavigate(item.route) },
+                icon = { Icon(item.icon, item.label, Modifier.size(<span class="code-nm">22.dp</span>)) },
+                label = { Text(item.label, fontSize = <span class="code-nm">10.sp</span>) },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = NrPurpleLight,
+                    selectedTextColor = NrPurpleLight,
+                    indicatorColor = NrPurplePrimary.copy(alpha = <span class="code-nm">0.18f</span>),
+                    unselectedIconColor = NrTextMuted,
+                    unselectedTextColor = NrTextMuted
+                )
+            )
+        }
+    }
+}</div>
+
+    <p class="comp-label">SkeletonCard (Loading)</p>
+    <div class="code-block"><span class="code-kw">@Composable</span>
+<span class="code-kw">fun</span> <span class="code-fn">SkeletonCard</span>(modifier: Modifier = Modifier) {
+    <span class="code-kw">val</span> shimmerBrush = shimmerBrush()  <span class="code-cm">// helper com infiniteTransition</span>
+    Column(modifier.width(<span class="code-nm">120.dp</span>)) {
+        Box(Modifier.fillMaxWidth().aspectRatio(<span class="code-nm">2f</span> / <span class="code-nm">3f</span>)
+            .clip(RoundedCornerShape(<span class="code-nm">12.dp</span>)).background(shimmerBrush))
+        Spacer(Modifier.height(<span class="code-nm">8.dp</span>))
+        Box(Modifier.fillMaxWidth(<span class="code-nm">0.8f</span>).height(<span class="code-nm">12.dp</span>)
+            .clip(RoundedCornerShape(<span class="code-nm">4.dp</span>)).background(shimmerBrush))
+        Spacer(Modifier.height(<span class="code-nm">4.dp</span>))
+        Box(Modifier.fillMaxWidth(<span class="code-nm">0.5f</span>).height(<span class="code-nm">10.dp</span>)
+            .clip(RoundedCornerShape(<span class="code-nm">4.dp</span>)).background(shimmerBrush))
+    }
+}</div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     9. CHECKLIST DE IMPLEMENTAÇÃO
+     ══════════════════════════════════════════════════════════════════════ -->
+<section id="checklist" class="ds-section">
+  <div class="ds-section-inner">
+    <div class="ds-section-tag"><span>Seção 9 · Checklist</span></div>
+    <h2 class="ds-section-title">Checklist de Implementação Android</h2>
+    <p class="ds-section-desc">Lista objetiva para transformar este design system em biblioteca Android real.</p>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+
+      <div>
+        <p class="comp-label" style="margin-bottom:12px">Tokens & Tema</p>
+        <ul class="checklist">
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> Criar <code>NeoReaderTheme.kt</code> com darkColorScheme completo</li>
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> Adicionar fontes Inter + Playfair Display via Google Fonts Compose</li>
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> Definir <code>Typography</code> com todos os 11 estilos em sp</li>
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> Criar <code>res/values/dimens.xml</code> com spacing tokens em dp</li>
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> Criar <code>res/values/colors.xml</code> com todos os color tokens</li>
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> Definir Shape scale (xs=4dp até xl=24dp)</li>
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> Configurar Elevation tokens (0–5dp)</li>
+        </ul>
+      </div>
+
+      <div>
+        <p class="comp-label" style="margin-bottom:12px">Componentes base</p>
+        <ul class="checklist">
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> NrButton (primary, secondary, ghost, danger + loading + disabled)</li>
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> NrTextField (outlined, error, disabled)</li>
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> NrSearchBar (M3 search, com filtro)</li>
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> NrBadge (purple, success, warning, error, neutral)</li>
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> NrSwitch, NrCheckbox, NrRadio (48dp touch target)</li>
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> NrTabs (scrollável, indicator 2dp)</li>
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> SkeletonCard + shimmerBrush helper</li>
+        </ul>
+      </div>
+
+      <div>
+        <p class="comp-label" style="margin-bottom:12px">Componentes de conteúdo</p>
+        <ul class="checklist">
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> BookCard (120dp, cover 2:3, action button, progress bar)</li>
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> ContinueReadingCard (progress card horizontal)</li>
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> BookListItem (72dp, cover, title, meta, action)</li>
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> ContentRow (header + LazyRow com BookCards)</li>
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> EmptyState (ícone + título + desc + CTA)</li>
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> HeroBanner (cover art + overlay + CTA buttons)</li>
+        </ul>
+      </div>
+
+      <div>
+        <p class="comp-label" style="margin-bottom:12px">Navegação & Overlays</p>
+        <ul class="checklist">
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> NrTopAppBar (home variant + internal variant)</li>
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> NrBottomNavigation (4 destinos + M3 indicator)</li>
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> BookActionsSheet (ModalBottomSheet substituindo dropdown)</li>
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> NrDialog (confirmações, max 340dp)</li>
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> NrSnackbar host configurado no Scaffold root</li>
+        </ul>
+      </div>
+
+      <div>
+        <p class="comp-label" style="margin-bottom:12px">Acessibilidade</p>
+        <ul class="checklist">
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> Touch target mínimo 48dp em todos os elementos clicáveis</li>
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> contentDescription em todos os ícones e imagens</li>
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> sp para todos os tamanhos de texto (respeita font scaling)</li>
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> Contraste ≥ 4.5:1 para texto (verificar com Accessibility Scanner)</li>
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> Não usar cor como único indicador de status</li>
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> reduceMotion: desabilitar animações se WindowInsets.isReduceMotionEnabled</li>
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> Semântica TalkBack: semantics { } em Cards e itens complexos</li>
+        </ul>
+      </div>
+
+      <div>
+        <p class="comp-label" style="margin-bottom:12px">Insets & Layout</p>
+        <ul class="checklist">
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> enableEdgeToEdge() no Activity + WindowCompat.setDecorFitsSystemWindows(false)</li>
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> Scaffold com padding de navigationBars + statusBars</li>
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> Bottom sheet com padding de navigationBars (safe area)</li>
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> LazyColumn/LazyRow com contentPadding = PaddingValues(16.dp)</li>
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> Testar em 360dp (mínimo) e 412dp (target)</li>
+          <li><i data-lucide="circle" class="check-icon check-todo" width="14" height="14"></i> Testar com fontes do sistema em tamanho grande (1.3x, 1.5x)</li>
+        </ul>
+      </div>
+
+    </div>
+
+    <div class="warn-card" style="margin-top:24px">
+      <strong>Anti-patterns a evitar:</strong> Não use <code>px</code> hardcoded no código Compose. Não use <code>hover</code> ou <code>onHover</code>. Não crie botões menores que 48dp. Não use <code>Dialog</code> para listas longas — use <code>ModalBottomSheet</code>. Não remova o handle visual do Bottom Sheet (impede que TalkBack identifique como arrastável).
+    </div>
+  </div>
+</section>
+
+<!-- ── OVERLAYS GLOBAIS (Modal, Bottom Sheet, Snackbar) ── -->
+
+<!-- Modal / Dialog -->
+<div class="nr-modal-backdrop" id="demo-modal" onclick="if(event.target===this)closeModal('demo-modal')">
+  <div class="nr-modal-panel" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <h2 class="nr-modal-title" id="modal-title">Remover livro?</h2>
+    <p class="nr-modal-desc">Tem certeza que deseja remover <strong>Duna</strong> da sua biblioteca? Seu progresso será perdido.</p>
+    <div class="nr-modal-footer">
+      <button class="nr-btn nr-btn-secondary nr-btn-sm" onclick="closeModal('demo-modal')">Cancelar</button>
+      <button class="nr-btn nr-btn-danger nr-btn-sm" onclick="closeModal('demo-modal')">Remover</button>
+    </div>
+  </div>
+</div>
+
+<!-- Bottom Sheet -->
+<div class="nr-sheet-backdrop" id="demo-sheet-backdrop" onclick="closeSheet('demo-sheet')"></div>
+<div class="nr-sheet" id="demo-sheet" role="dialog" aria-modal="true">
+  <div class="nr-sheet-handle" aria-hidden="true"></div>
+  <div class="nr-sheet-header">
+    <p class="nr-sheet-title">Ações do livro</p>
+  </div>
+  <button class="nr-sheet-item" onclick="closeSheet('demo-sheet')">
+    <i data-lucide="edit-2" width="18" height="18" style="color:var(--nr-text-muted)"></i>
+    Editar lista de leitura
+  </button>
+  <button class="nr-sheet-item" onclick="closeSheet('demo-sheet')">
+    <i data-lucide="share-2" width="18" height="18" style="color:var(--nr-text-muted)"></i>
+    Compartilhar
+  </button>
+  <button class="nr-sheet-item" onclick="closeSheet('demo-sheet')">
+    <i data-lucide="download" width="18" height="18" style="color:var(--nr-text-muted)"></i>
+    Baixar para leitura offline
+  </button>
+  <div class="nr-sheet-divider"></div>
+  <button class="nr-sheet-item danger" onclick="closeSheet('demo-sheet');openModal('demo-modal')">
+    <i data-lucide="trash-2" width="18" height="18"></i>
+    Excluir da biblioteca
+  </button>
+  <div style="height:16px"></div>
+</div>
+
+<!-- Snackbar -->
+<div class="nr-snackbar" id="demo-snackbar" role="status" aria-live="polite">
+  <i data-lucide="check-circle" class="nr-snackbar-icon" width="20" height="20"></i>
+  <span class="nr-snackbar-text">Livro adicionado à biblioteca</span>
+  <button class="nr-snackbar-action" onclick="document.getElementById('demo-snackbar').classList.remove('is-open')">Desfazer</button>
+</div>
+
+</main>
+
+<script>
+  lucide.createIcons();
+  function openModal(id) {
+    const el = document.getElementById(id);
+    if (el) el.classList.add('is-open');
+  }
+  function closeModal(id) {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('is-open');
+  }
+  function openSheet(id) {
+    document.getElementById(id + '-backdrop').classList.add('is-open');
+    document.getElementById(id).classList.add('is-open');
+  }
+  function closeSheet(id) {
+    document.getElementById(id + '-backdrop').classList.remove('is-open');
+    document.getElementById(id).classList.remove('is-open');
+  }
+  function showSnackbar() {
+    const sb = document.getElementById('demo-snackbar');
+    sb.classList.add('is-open');
+    setTimeout(() => sb.classList.remove('is-open'), 3500);
+  }
+</script>
+</body>
+</html>
