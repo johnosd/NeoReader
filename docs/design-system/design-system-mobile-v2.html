@@ -1,0 +1,2471 @@
+<!DOCTYPE html>
+<html lang="pt-BR" dir="ltr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
+  <title>NeoReader — Design System Android Mobile</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700;900&family=Playfair+Display:ital,wght@0,400;0,600;0,700;0,900;1,400&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    /* ────────────────────────────────────────────────────────────────────────
+       1. CSS RESET & GLOBAL VARIABLES (TOKENS) MOBILE-FIRST
+       ──────────────────────────────────────────────────────────────────────── */
+    :root {
+      /* Color Palette (Dark/Purple) */
+      --nr-bg-base: #07030c;
+      --nr-bg-surface: #12091a;
+      --nr-bg-surface-2: #1e0e2d;
+      
+      --nr-purple-primary: #7b2cbf;
+      --nr-purple-light: #9d4edd;
+      --nr-purple-dark: #3c096c;
+      --nr-purple-glow: rgba(123, 44, 191, 0.4);
+      
+      --nr-text-primary: #f8fafc;
+      --nr-text-secondary: #cbd5e1;
+      --nr-text-muted: #94a3b8;
+      
+      --nr-glass-bg: rgba(15, 7, 24, 0.65);
+      --nr-glass-border: rgba(255, 255, 255, 0.08);
+
+      /* Typography Tokens (px simulando sp) */
+      --nr-font-sans:  'Inter', sans-serif;
+      --nr-font-serif: 'Playfair Display', serif;
+      --nr-font-mono:  'JetBrains Mono', monospace;
+
+      --nr-text-display: 40px; /* Display Large Android */
+      --nr-text-h1:      34px; /* Headline Large */
+      --nr-text-h2:      28px; /* Headline Medium */
+      --nr-text-h3:      22px; /* Headline Small */
+      --nr-text-body-lg: 16px; /* Body Large */
+      --nr-text-body:    14px; /* Body Medium */
+      --nr-text-small:   12px; /* Body Small */
+
+      /* Spacing Tokens (px simulando dp) */
+      --nr-space-4:   4px;
+      --nr-space-8:   8px;
+      --nr-space-12:  12px;
+      --nr-space-16:  16px;  /* Margin mobile padrão */
+      --nr-space-24:  24px;
+      --nr-space-32:  32px;
+      --nr-space-48:  48px;  /* Touch target mínimo */
+      --nr-space-56:  56px;
+      --nr-space-64:  64px;
+
+      /* Radius */
+      --nr-radius-sm:   4px;
+      --nr-radius-md:   8px;
+      --nr-radius-lg:   16px;
+      --nr-radius-pill: 9999px;
+
+      /* Motion */
+      --nr-duration-fast: 150ms;
+      --nr-duration-normal: 300ms;
+      --nr-ease-cinematic: cubic-bezier(0.4, 0, 0, 1);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background-color: var(--nr-bg-base);
+      color: var(--nr-text-primary);
+      font-family: var(--nr-font-sans);
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+      min-height: 100vh;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* Container simulador de celular (Opcional, para testes visuais no Desktop) */
+    .mobile-simulator {
+      max-width: 412px;
+      min-height: 100vh;
+      margin: 0 auto;
+      background: var(--nr-bg-base);
+      position: relative;
+      box-shadow: 0 0 50px rgba(0,0,0,0.5);
+    }
+
+    /* ────────────────────────────────────────────────────────────────────────
+       2. NAVEGAÇÃO PRINCIPAL (Mobile App Bar)
+       ──────────────────────────────────────────────────────────────────────── */
+    .ds-nav {
+      position: absolute; /* Ou sticky no mobile */
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 64px;
+      z-index: 100;
+      background: linear-gradient(180deg, rgba(0,0,0,0.8) 0%, transparent 100%);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 var(--nr-space-16);
+    }
+
+    .ds-nav-logo {
+      font-size: 1.25rem;
+      font-weight: 900;
+      letter-spacing: -0.02em;
+      color: var(--nr-text-primary);
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .ds-nav-logo span {
+      color: var(--nr-purple-primary);
+    }
+
+    .btn-login {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--nr-text-primary);
+      border: 1px solid var(--nr-glass-border);
+      padding: 0.4rem 1rem;
+      border-radius: var(--nr-radius-sm);
+      font-size: 0.875rem;
+      font-weight: 500;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background var(--nr-duration-fast) var(--nr-ease-cinematic);
+    }
+
+    /* Em vez de hover, estado active no mobile */
+    .btn-login:active, .btn-login.pressed {
+      background: rgba(255, 255, 255, 0.2);
+      transform: scale(0.97);
+    }
+
+    /* ────────────────────────────────────────────────────────────────────────
+       3. HERO SECTION (Igual ao Desktop, mas layout Mobile)
+       ──────────────────────────────────────────────────────────────────────── */
+    .hero-section {
+      position: relative;
+      min-height: 100vh;
+      display: flex;
+      align-items: flex-end; /* Conteúdo fixo na base */
+      padding: 0 var(--nr-space-16) var(--nr-space-48) var(--nr-space-16);
+      overflow: hidden;
+    }
+
+    /* Imagem Fotográfica da Netflix (Asset Original) */
+    .hero-bg-image {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      z-index: 0;
+      background-image: url('./assets/US-en-20260413-TRIFECTA-perspe_2a12f60712e4.jpg');
+      background-size: cover;
+      background-position: center center;
+      opacity: 0.85;
+    }
+
+    /* Overlays para Contraste (Ajustado para formato vertical de celular) */
+    .hero-overlay {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: 
+        linear-gradient(to top, var(--nr-bg-base) 0%, rgba(7, 3, 12, 0.8) 40%, transparent 100%);
+      z-index: 1;
+    }
+
+    /* Conteúdo Principal */
+    .hero-content {
+      position: relative;
+      z-index: 2;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: var(--nr-space-16);
+    }
+
+    .hero-content > * {
+      opacity: 0;
+      animation: heroStaggerUp 0.8s var(--nr-ease-cinematic) forwards;
+    }
+
+    .hero-headline { 
+      font-family: var(--nr-font-serif);
+      font-size: var(--nr-text-h1); /* 34px/sp */
+      font-weight: 900;
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+      animation-delay: 0.1s; 
+    }
+    
+    .hero-subheadline { 
+      font-size: var(--nr-text-body-lg); /* 16px/sp */
+      color: var(--nr-text-secondary);
+      line-height: 1.5;
+      animation-delay: 0.2s; 
+    }
+    
+    .hero-form { 
+      display: flex;
+      flex-direction: column; /* Em vez de row como no desktop */
+      gap: var(--nr-space-12);
+      width: 100%;
+      margin-top: var(--nr-space-8);
+      animation-delay: 0.3s; 
+    }
+    
+    .hero-microcopy { 
+      font-size: var(--nr-text-small); /* 12px/sp */
+      color: var(--nr-text-muted);
+      text-align: center;
+      animation-delay: 0.4s; 
+    }
+
+    @keyframes heroStaggerUp {
+      from { opacity: 0; transform: translateY(40px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Formulário Mobile */
+    .hero-input {
+      width: 100%;
+      height: 56px; /* Touch target grande */
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--nr-glass-border);
+      border-radius: var(--nr-radius-md);
+      padding: 0 var(--nr-space-16);
+      font-size: var(--nr-text-body-lg);
+      color: var(--nr-text-primary);
+      font-family: var(--nr-font-sans);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      transition: border-color var(--nr-duration-fast) ease, background var(--nr-duration-fast) ease;
+    }
+
+    .hero-input::placeholder {
+      color: var(--nr-text-muted);
+    }
+
+    .hero-input:focus {
+      outline: none;
+      border-color: var(--nr-purple-primary);
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .hero-cta {
+      height: 56px; /* Mesma altura do input pra ficar harmonioso */
+      background: var(--nr-purple-primary);
+      color: white;
+      border: none;
+      border-radius: var(--nr-radius-md);
+      font-size: var(--nr-text-body-lg); /* 16px/sp */
+      font-weight: 700;
+      font-family: var(--nr-font-sans);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      transition: all var(--nr-duration-fast) var(--nr-ease-cinematic);
+      box-shadow: 0 4px 20px var(--nr-purple-glow);
+    }
+
+    /* Estado Pressionado nativo do Android em vez de hover */
+    .hero-cta:active, .hero-cta.pressed {
+      transform: scale(0.97);
+      background: var(--nr-purple-light);
+      box-shadow: 0 2px 10px var(--nr-purple-glow);
+    }
+
+    /* ────────────────────────────────────────────────────────────────────────
+       5. DESIGN SYSTEM SECTION LAYOUT
+       ──────────────────────────────────────────────────────────────────────── */
+    .ds-section {
+      padding: var(--nr-space-48) var(--nr-space-16);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    
+    .ds-section-header {
+      margin-bottom: var(--nr-space-32);
+    }
+
+    .ds-section-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--nr-purple-light);
+      background: rgba(123,44,191,0.25);
+      padding: 4px 8px;
+      border-radius: 4px;
+      margin-bottom: var(--nr-space-12);
+    }
+
+    .ds-section-title {
+      font-family: var(--nr-font-serif);
+      font-size: var(--nr-text-h2); /* 28px */
+      color: var(--nr-text-primary);
+      margin-bottom: var(--nr-space-8);
+      font-weight: 700;
+    }
+
+    .ds-section-desc {
+      font-size: var(--nr-text-body);
+      color: var(--nr-text-secondary);
+      line-height: 1.6;
+    }
+    
+    .ds-section-desc code {
+      font-family: var(--nr-font-mono);
+      background: var(--nr-bg-surface-2);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.9em;
+      color: var(--nr-purple-light);
+    }
+
+    /* ────────────────────────────────────────────────────────────────────────
+       6. TIPOGRAFIA (MOBILE)
+       ──────────────────────────────────────────────────────────────────────── */
+    .type-scale {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .type-row {
+      display: flex;
+      flex-direction: column;
+      gap: var(--nr-space-8);
+      padding: var(--nr-space-16) 0;
+      border-bottom: 1px solid var(--nr-glass-border);
+    }
+    .type-row:last-child { border-bottom: none; }
+
+    .type-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .type-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--nr-purple-light);
+    }
+
+    .type-specs {
+      font-size: 10px;
+      color: var(--nr-text-muted);
+      font-family: var(--nr-font-mono);
+    }
+
+    /* Tamanhos exatos em sp (simulados via px) */
+    .type-sample-display  { font-family: var(--nr-font-serif); font-size: 40px; font-weight: 900; line-height: 1.1; letter-spacing: -0.03em; }
+    .type-sample-h1       { font-family: var(--nr-font-serif); font-size: 34px; font-weight: 800; line-height: 1.15; letter-spacing: -0.02em; }
+    .type-sample-h2       { font-family: var(--nr-font-serif); font-size: 28px; font-weight: 700; line-height: 1.2; letter-spacing: -0.015em; }
+    .type-sample-h3       { font-size: 22px; font-weight: 600; line-height: 1.3; }
+    .type-sample-h4       { font-size: 18px; font-weight: 600; line-height: 1.3; color: var(--nr-text-primary); }
+    .type-sample-h5       { font-size: 16px; font-weight: 600; line-height: 1.3; color: var(--nr-text-primary); }
+    .type-sample-h6       { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--nr-text-secondary); }
+    .type-sample-body-lg  { font-size: 18px; font-weight: 400; line-height: 1.5; color: var(--nr-text-secondary); }
+    .type-sample-body     { font-size: 16px; font-weight: 400; line-height: 1.5; color: var(--nr-text-secondary); }
+    .type-sample-small    { font-size: 14px; font-weight: 400; line-height: 1.5; color: var(--nr-text-muted); }
+    .type-sample-caption  { font-size: 12px; font-weight: 500; line-height: 1.4; letter-spacing: 0.04em; color: var(--nr-text-muted); text-transform: uppercase; }
+    .type-sample-overline { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--nr-purple-light); }
+    .type-sample-helper   { font-size: 12px; font-weight: 400; line-height: 1.4; color: var(--nr-text-muted); }
+
+    /* ────────────────────────────────────────────────────────────────────────
+       7. CORES (MOBILE)
+       ──────────────────────────────────────────────────────────────────────── */
+    .color-group {
+      margin-bottom: var(--nr-space-32);
+    }
+    .color-group-title {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--nr-text-muted);
+      margin: 0 0 var(--nr-space-12) 0;
+    }
+    .color-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: var(--nr-space-12);
+    }
+    .color-swatch {
+      border-radius: var(--nr-radius-md);
+      overflow: hidden;
+      border: 1px solid var(--nr-glass-border);
+      transition: transform var(--nr-duration-fast), box-shadow var(--nr-duration-fast);
+      background: var(--nr-bg-surface);
+      /* Impede highlight nativo e força o uso da classe .pressed */
+      -webkit-tap-highlight-color: transparent;
+    }
+    .color-swatch:active, .color-swatch.pressed {
+      transform: scale(0.95);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    }
+    .swatch-chip {
+      height: 72px;
+      width: 100%;
+    }
+    .swatch-info {
+      padding: var(--nr-space-8) var(--nr-space-12);
+    }
+    .swatch-name {
+      display: block;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--nr-text-primary);
+      margin-bottom: 2px;
+    }
+    .swatch-hex {
+      display: block;
+      font-size: 10px;
+      font-family: var(--nr-font-mono);
+      color: var(--nr-text-muted);
+    }
+
+    /* ────────────────────────────────────────────────────────────────────────
+       8. COMPONENTES DE UI (MOBILE)
+       ──────────────────────────────────────────────────────────────────────── */
+    .comp-block { margin-bottom: var(--nr-space-32); }
+    .comp-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--nr-text-muted);
+      margin: 0 0 var(--nr-space-12) 0;
+    }
+    .comp-row {
+      display: flex;
+      flex-direction: column; /* Mobile stack for form and buttons */
+      gap: var(--nr-space-16);
+      align-items: stretch;
+    }
+    
+    /* Para quando quisermos badges ou elementos inline no celular */
+    .comp-row.inline-wrap {
+      flex-direction: row;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--nr-space-12);
+    }
+
+    /* --- BUTTONS --- */
+    .nr-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--nr-space-8);
+      padding: 0 var(--nr-space-24);
+      min-height: var(--nr-space-48); /* Touch target de 48dp */
+      border-radius: var(--nr-radius-pill); /* Pill comum no M3 */
+      font-size: var(--nr-text-body);
+      font-weight: 600;
+      font-family: var(--nr-font-sans);
+      border: none;
+      transition: transform var(--nr-duration-fast), background var(--nr-duration-fast);
+      -webkit-tap-highlight-color: transparent;
+      width: 100%; /* Botões primary ocupam toda a tela no celular */
+    }
+    .nr-btn-primary { background: var(--nr-purple-primary); color: #fff; box-shadow: 0 4px 12px var(--nr-purple-glow); }
+    .nr-btn-primary:active, .nr-btn-primary.pressed { background: var(--nr-purple-light); transform: scale(0.97); }
+    
+    .nr-btn-secondary { background: rgba(255,255,255,0.08); color: var(--nr-text-primary); border: 1px solid var(--nr-glass-border); }
+    .nr-btn-secondary:active, .nr-btn-secondary.pressed { background: rgba(255,255,255,0.15); transform: scale(0.97); }
+
+    .nr-btn-ghost { background: transparent; color: var(--nr-purple-light); }
+    .nr-btn-ghost:active, .nr-btn-ghost.pressed { background: rgba(123,44,191,0.1); transform: scale(0.97); }
+
+    .nr-btn-danger { background: rgba(239, 68, 68, 0.1); color: #ef4444; }
+    .nr-btn-danger:active, .nr-btn-danger.pressed { background: rgba(239, 68, 68, 0.2); transform: scale(0.97); }
+
+    .nr-btn:disabled { opacity: 0.5; pointer-events: none; }
+
+    /* --- OUTLINE BUTTONS --- */
+    .nr-btn-outline-white { background: transparent; color: #fff; border: 1.5px solid rgba(255,255,255,0.5); }
+    .nr-btn-outline-white:active, .nr-btn-outline-white.pressed { background: rgba(255,255,255,0.1); border-color: #fff; transform: scale(0.97); }
+    .nr-btn-outline-purple { background: transparent; color: var(--nr-purple-light); border: 1.5px solid var(--nr-purple-primary); }
+    .nr-btn-outline-purple:active, .nr-btn-outline-purple.pressed { background: rgba(123,44,191,0.15); border-color: var(--nr-purple-light); transform: scale(0.97); }
+
+    /* --- BADGES --- */
+    .nr-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 6px 12px;
+      border-radius: var(--nr-radius-pill);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .nr-badge-purple { background: rgba(123,44,191,0.2); color: var(--nr-purple-light); border: 1px solid rgba(123,44,191,0.4); }
+    .nr-badge-success { background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3); }
+    .nr-badge-warning { background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.3); }
+    .nr-badge-error { background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); }
+    .nr-badge-neutral { background: var(--nr-bg-surface-2); color: var(--nr-text-secondary); border: 1px solid var(--nr-glass-border); }
+
+    /* --- PRIME VIDEO BADGES --- */
+    .pv-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 10px; font-weight: 800;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      padding: 3px 8px;
+      border-radius: 2px;
+    }
+    .pv-badge-prime { background: #00a8e1; color: #fff; }
+    .pv-badge-new { background: #1bcc64; color: #fff; }
+    .pv-badge-top10 { background: linear-gradient(135deg, #e50914, #b81d24); color: #fff; }
+    .pv-badge-4k { background: transparent; color: #aaa; border: 1px solid #555; }
+    .pv-badge-exclusive { background: linear-gradient(135deg, #7b2cbf, #9d4edd); color: #fff; }
+    .pv-rating-strip {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 11px; color: var(--nr-text-muted);
+    }
+    .pv-rating-score { font-weight: 700; color: #1bcc64; font-size: 12px; }
+    .pv-badge-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+    /* --- LOAD SPINNERS (Modern & Premium) --- */
+    .spinner-wrap { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+    .spinner-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--nr-text-muted); }
+    .spinners-row { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+
+    /* Cinematic Ring Spinner (Conic Gradient Style) */
+    .spinner-ring {
+      width: 40px; height: 40px;
+      border-radius: 50%;
+      background: conic-gradient(from 180deg at 50% 50%, transparent 0deg, var(--nr-purple-primary) 360deg);
+      position: relative;
+      animation: nr-spin 1s linear infinite;
+    }
+    .spinner-ring::before {
+      content: '';
+      position: absolute; inset: 3px;
+      background: var(--nr-bg-surface);
+      border-radius: 50%;
+    }
+    .spinner-ring-sm { width: 24px; height: 24px; }
+    .spinner-ring-sm::before { inset: 2px; }
+    .spinner-ring-lg { width: 56px; height: 56px; }
+    .spinner-ring-lg::before { inset: 4px; }
+    @keyframes nr-spin { 100% { transform: rotate(360deg); } }
+
+    /* Bouncing Dots Pulse */
+    .spinner-dots { display: flex; gap: 6px; align-items: center; height: 24px; }
+    .spinner-dots span {
+      width: 8px; height: 8px;
+      background: var(--nr-purple-light);
+      border-radius: 50%;
+      animation: nr-bounce 1.4s infinite ease-in-out both;
+    }
+    .spinner-dots span:nth-child(1) { animation-delay: -0.32s; }
+    .spinner-dots span:nth-child(2) { animation-delay: -0.16s; }
+    @keyframes nr-bounce {
+      0%, 80%, 100% { transform: scale(0); opacity: 0.3; }
+      40% { transform: scale(1); opacity: 1; box-shadow: 0 0 8px var(--nr-purple-glow); }
+    }
+
+    /* Skeleton Loading (Shimmer) */
+    .skeleton-block {
+      background: rgba(255,255,255,0.05);
+      position: relative;
+      overflow: hidden;
+      border-radius: 4px;
+    }
+    .skeleton-block::after {
+      content: '';
+      position: absolute;
+      top: 0; right: 0; bottom: 0; left: 0;
+      transform: translateX(-100%);
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+      animation: nr-shimmer 1.5s infinite;
+    }
+    @keyframes nr-shimmer { 100% { transform: translateX(100%); } }
+
+    .skeleton-card { width: 80px; height: 120px; border-radius: var(--nr-radius-sm); }
+    .skeleton-text-group { display: flex; flex-direction: column; gap: 6px; width: 140px; }
+    .sk-title { height: 16px; width: 90%; border-radius: 4px; }
+    .sk-sub { height: 12px; width: 60%; border-radius: 3px; }
+    .sk-body { height: 12px; width: 100%; border-radius: 3px; }
+
+    /* Indeterminate Progress Bar */
+    .nr-progress-bar-wrap {
+      width: 100%; height: 4px; background: rgba(255,255,255,0.1);
+      border-radius: 2px; overflow: hidden; position: relative;
+    }
+    .nr-progress-bar-fill {
+      position: absolute; top: 0; left: 0; bottom: 0;
+      background: var(--nr-purple-light);
+      border-radius: 2px;
+      animation: nr-indeterminate-bar 1.5s infinite ease-in-out;
+    }
+    @keyframes nr-indeterminate-bar {
+      0% { transform: translateX(-100%); width: 30%; }
+      50% { width: 80%; }
+      100% { transform: translateX(250%); width: 30%; }
+    }
+
+    /* --- ICONS (Mobile) --- */
+    .icon-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr); /* 4 ícones por linha no celular */
+      gap: var(--nr-space-12);
+      margin-top: var(--nr-space-16);
+    }
+    .icon-card {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: var(--nr-radius-sm);
+      padding: var(--nr-space-12) 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      transition: transform var(--nr-duration-fast), background var(--nr-duration-fast);
+      color: var(--nr-text-secondary);
+      -webkit-tap-highlight-color: transparent;
+      cursor: pointer;
+    }
+    .icon-card:active, .icon-card.pressed {
+      background: rgba(123,44,191,0.15);
+      color: #fff;
+      border-color: rgba(123,44,191,0.3);
+      transform: scale(0.92);
+    }
+    .icon-card.primary {
+      color: var(--nr-purple-light);
+      background: rgba(123,44,191,0.08);
+      border-color: rgba(123,44,191,0.3);
+      box-shadow: inset 0 0 15px rgba(123,44,191,0.2);
+    }
+    .icon-card.primary:active, .icon-card.primary.pressed {
+      background: rgba(123,44,191,0.25);
+      box-shadow: inset 0 0 25px rgba(123,44,191,0.4);
+    }
+    .icon-name { font-size: 10px; text-align: center; font-weight: 500; }
+
+    /* --- MOTION / ANIMATIONS --- */
+    .motion-box {
+      width: 80px; height: 80px;
+      background: linear-gradient(135deg, var(--nr-purple-primary), var(--nr-purple-dark));
+      border-radius: var(--nr-radius-md);
+      display: flex; align-items: center; justify-content: center;
+      color: white; font-size: 12px; font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+      -webkit-tap-highlight-color: transparent;
+    }
+    /* Slide Up */
+    @keyframes nr-slide-up {
+      0% { transform: translateY(40px); opacity: 0; }
+      100% { transform: translateY(0); opacity: 1; }
+    }
+    .anim-slide-up { animation: nr-slide-up 0.6s var(--nr-ease-cinematic) both; }
+    
+    /* Fade In */
+    @keyframes nr-fade-in {
+      0% { opacity: 0; }
+      100% { opacity: 1; }
+    }
+    .anim-fade-in { animation: nr-fade-in 0.8s ease-in-out both; }
+    
+    /* Scale In / Pop */
+    @keyframes nr-scale-in {
+      0% { transform: scale(0.8); opacity: 0; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    .anim-scale-in { animation: nr-scale-in 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) both; }
+
+    /* Ping / Pulse */
+    @keyframes nr-ping {
+      0% { transform: scale(1); opacity: 0.8; }
+      80%, 100% { transform: scale(2.5); opacity: 0; }
+    }
+    .anim-ping-wrap { position: relative; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; }
+    .anim-ping-dot { width: 12px; height: 12px; background: #ef4444; border-radius: 50%; position: relative; z-index: 2; }
+    .anim-ping-ring {
+      position: absolute; inset: 0; background: #ef4444; border-radius: 50%;
+      animation: nr-ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite; z-index: 1;
+    }
+
+    /* Spinner (Generic rotate) */
+    .anim-rotate { animation: nr-spin 2s linear infinite; }
+
+    /* Card Drop Shadow (Mobile Interactive) */
+    .anim-shadow-box {
+      width: 80px; height: 80px;
+      background: var(--nr-bg-surface-2);
+      border: 1px solid var(--nr-glass-border);
+      border-radius: var(--nr-radius-md);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--nr-text-primary); font-size: 11px; font-weight: 600; text-align: center;
+      transition: box-shadow 0.2s ease, transform 0.2s ease;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+      -webkit-tap-highlight-color: transparent;
+      cursor: pointer;
+      user-select: none;
+    }
+    .anim-shadow-box:active, .anim-shadow-box.pressed {
+      transform: scale(0.95);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.9); /* Sombra "afunda" no mobile */
+    }
+
+
+    /* --- INPUTS --- */
+    .nr-input-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: var(--nr-space-8);
+      width: 100%;
+    }
+    .nr-input-label {
+      font-size: var(--nr-text-small);
+      font-weight: 600;
+      color: var(--nr-text-secondary);
+    }
+    .nr-input {
+      width: 100%;
+      height: var(--nr-space-56); /* 56dp M3 Standard Form Touch Target */
+      background: var(--nr-bg-surface);
+      border: 1px solid var(--nr-glass-border);
+      border-radius: var(--nr-radius-md);
+      padding: 0 var(--nr-space-16);
+      font-size: var(--nr-text-body);
+      color: var(--nr-text-primary);
+      font-family: var(--nr-font-sans);
+      transition: border-color var(--nr-duration-fast);
+      -webkit-appearance: none;
+    }
+    .nr-input:focus { outline: none; border-color: var(--nr-purple-primary); background: rgba(255,255,255,0.04); }
+    .nr-input.is-error { border-color: #ef4444; }
+    .nr-input-hint { font-size: 11px; color: var(--nr-text-muted); }
+    .nr-input-hint.is-error { color: #ef4444; }
+
+    /* --- ADVANCED FORM CONTROLS (Checkbox, Radio, Switch) --- */
+    .nr-control-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--nr-space-12);
+      min-height: var(--nr-space-48); /* Touch target mínimo de 48dp */
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .nr-control-input { position: absolute; opacity: 0; width: 0; height: 0; }
+    .nr-control-box {
+      width: 24px;
+      height: 24px;
+      border: 2px solid var(--nr-text-muted);
+      background: transparent;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all var(--nr-duration-fast);
+      color: transparent;
+    }
+    .nr-checkbox .nr-control-box { border-radius: 4px; }
+    .nr-radio .nr-control-box { border-radius: 50%; }
+    .nr-radio .nr-control-box::after {
+      content: '';
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: transparent;
+      transition: all var(--nr-duration-fast);
+    }
+    
+    .nr-control-input:checked ~ .nr-control-box {
+      background: var(--nr-purple-primary);
+      border-color: var(--nr-purple-primary);
+      color: white;
+    }
+    .nr-radio .nr-control-input:checked ~ .nr-control-box::after { background: white; }
+    
+    .nr-control-input:disabled ~ .nr-control-box,
+    .nr-control-input:disabled ~ .nr-control-label {
+      opacity: 0.4;
+      pointer-events: none;
+    }
+    .nr-control-label {
+      font-size: var(--nr-text-body);
+      color: var(--nr-text-primary);
+      user-select: none;
+    }
+    
+    /* Switch Mobile */
+    .nr-switch .nr-control-box {
+      width: 52px;
+      height: 32px;
+      border-radius: var(--nr-radius-pill);
+      border: 2px solid var(--nr-text-muted);
+      position: relative;
+      background: transparent;
+    }
+    .nr-switch .nr-control-box::after {
+      content: '';
+      position: absolute;
+      left: 4px;
+      top: 4px;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: var(--nr-text-muted);
+      transition: all 0.25s cubic-bezier(0.4, 0.0, 0.2, 1);
+    }
+    .nr-switch .nr-control-input:checked ~ .nr-control-box {
+      background: var(--nr-purple-primary);
+      border-color: var(--nr-purple-primary);
+    }
+    .nr-switch .nr-control-input:checked ~ .nr-control-box::after {
+      background: white;
+      transform: translateX(20px);
+    }
+
+    /* --- TABS --- */
+    .nr-tabs {
+      display: flex;
+      overflow-x: auto; /* Scroll horizontal no celular */
+      gap: var(--nr-space-24);
+      border-bottom: 1px solid var(--nr-glass-border);
+      -webkit-overflow-scrolling: touch;
+      /* Esconde a scrollbar default */
+      scrollbar-width: none; 
+    }
+    .nr-tabs::-webkit-scrollbar { display: none; }
+    .nr-tab {
+      background: transparent;
+      border: none;
+      color: var(--nr-text-muted);
+      font-size: var(--nr-text-body);
+      font-weight: 500;
+      padding: var(--nr-space-12) 0;
+      position: relative;
+      white-space: nowrap;
+      transition: color var(--nr-duration-fast);
+      -webkit-tap-highlight-color: transparent;
+    }
+    .nr-tab.active { color: var(--nr-purple-light); font-weight: 700; }
+    .nr-tab.active::after {
+      content: '';
+      position: absolute;
+      bottom: -1px; left: 0; right: 0;
+      height: 2px;
+      background: var(--nr-purple-primary);
+      border-radius: 2px 2px 0 0;
+    }
+
+    /* --- PROGRESS CARDS (Mobile) --- */
+    .nr-progress-card {
+      display: flex;
+      background: var(--nr-bg-surface);
+      border: 1px solid var(--nr-glass-border);
+      border-radius: var(--nr-radius-md);
+      overflow: hidden;
+      width: 100%;
+      cursor: pointer;
+      transition: transform var(--nr-duration-fast), background var(--nr-duration-fast);
+      -webkit-tap-highlight-color: transparent;
+    }
+    .nr-progress-card:active, .nr-progress-card.pressed {
+      transform: scale(0.97);
+      background: rgba(255,255,255,0.05);
+    }
+    .nr-pc-cover {
+      width: 80px;
+      flex-shrink: 0;
+      background-size: cover; background-position: center;
+    }
+    .nr-pc-content {
+      padding: var(--nr-space-12) var(--nr-space-16);
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    .nr-pc-title { font-size: 16px; font-weight: 600; color: var(--nr-text-primary); margin: 0 0 4px 0; }
+    .nr-pc-meta { font-size: 12px; color: var(--nr-text-secondary); margin: 0 0 12px 0; }
+    .nr-pc-bar-wrap { width: 100%; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; margin-bottom: 6px; }
+    .nr-pc-bar-fill { height: 100%; background: var(--nr-purple-primary); border-radius: 2px; }
+    .nr-pc-status { font-size: 10px; font-weight: 700; color: var(--nr-purple-light); display: flex; justify-content: space-between; text-transform: uppercase; letter-spacing: 0.05em; }
+
+    /* --- LIST ITEMS --- */
+    .nr-list-item {
+      display: flex; align-items: center; gap: var(--nr-space-16);
+      padding: var(--nr-space-12) var(--nr-space-8);
+      border-bottom: 1px solid var(--nr-glass-border);
+      transition: background var(--nr-duration-fast);
+      -webkit-tap-highlight-color: transparent;
+      cursor: pointer;
+    }
+    .nr-list-item:active, .nr-list-item.pressed { background: rgba(255,255,255,0.05); }
+    .nr-li-cover { width: 48px; height: 72px; border-radius: var(--nr-radius-sm); background-size: cover; flex-shrink: 0; }
+    .nr-li-main { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+    .nr-li-title { font-size: 16px; font-weight: 600; color: var(--nr-text-primary); margin: 0; }
+    .nr-li-meta { font-size: 12px; color: var(--nr-text-muted); margin: 0; }
+    .nr-li-action {
+      color: var(--nr-text-muted); background: none; border: none; cursor: pointer;
+      padding: var(--nr-space-12); margin-right: -12px;
+      transition: color var(--nr-duration-fast);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .nr-li-action:active, .nr-li-action.pressed { color: var(--nr-purple-light); transform: scale(0.9); }
+
+    /* --- EMPTY STATE --- */
+    .nr-empty-state {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      text-align: center;
+      padding: var(--nr-space-48) var(--nr-space-24);
+      background: rgba(255,255,255,0.02);
+      border: 1px dashed var(--nr-glass-border);
+      border-radius: var(--nr-radius-lg);
+    }
+    .nr-empty-icon { width: 48px; height: 48px; color: var(--nr-text-muted); opacity: 0.5; margin-bottom: var(--nr-space-16); }
+    .nr-empty-title { font-size: 18px; font-weight: 600; color: var(--nr-text-primary); margin: 0 0 8px 0; }
+    .nr-empty-desc { font-size: 14px; color: var(--nr-text-secondary); margin: 0 0 var(--nr-space-24) 0; line-height: 1.5; }
+
+    /* --- DROPDOWN / MENU (Mobile) --- */
+    .nr-dropdown { position: relative; display: inline-block; }
+    .nr-dropdown-menu {
+      position: absolute; top: 100%; left: 0; margin-top: var(--nr-space-8);
+      background: var(--nr-bg-surface-2); border: 1px solid var(--nr-glass-border);
+      border-radius: var(--nr-radius-md); min-width: 200px; padding: var(--nr-space-8) 0;
+      box-shadow: 0 12px 32px rgba(0,0,0,0.8); opacity: 0; transform: translateY(-10px);
+      pointer-events: none; transition: all var(--nr-duration-normal) var(--nr-ease-cinematic); z-index: 100;
+      overflow: hidden; /* Garante que os itens não vazem as bordas arredondadas */
+    }
+    .nr-dropdown-menu.drop-left { left: auto; right: 0; }
+    .nr-dropdown.is-open .nr-dropdown-menu { opacity: 1; transform: translateY(0); pointer-events: auto; }
+    .nr-dropdown-item {
+      display: flex; align-items: center; gap: var(--nr-space-12); width: 100%;
+      padding: var(--nr-space-12) var(--nr-space-16);
+      font-size: 14px; color: var(--nr-text-secondary); background: transparent;
+      border: none; text-align: left; cursor: pointer; transition: background var(--nr-duration-fast), color var(--nr-duration-fast);
+      -webkit-tap-highlight-color: transparent;
+    }
+    .nr-dropdown-item:active, .nr-dropdown-item.pressed {
+      background: rgba(255,255,255,0.06); color: var(--nr-text-primary);
+    }
+    .nr-dropdown-divider { height: 1px; background: var(--nr-glass-border); margin: var(--nr-space-8) 0; }
+
+    /* --- DATA TABLE (Mobile Horizontal Scroll) --- */
+    .nr-table-wrap {
+      width: 100%; overflow-x: auto; background: var(--nr-bg-surface);
+      border: 1px solid var(--nr-glass-border); border-radius: var(--nr-radius-lg);
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none; 
+    }
+    .nr-table-wrap::-webkit-scrollbar { display: none; }
+    .nr-table { width: 100%; border-collapse: collapse; text-align: left; min-width: 500px; /* Força scroll em telas menores */ }
+    .nr-table th {
+      font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+      color: var(--nr-text-muted); padding: var(--nr-space-12) var(--nr-space-16);
+      border-bottom: 1px solid var(--nr-glass-border); background: rgba(255,255,255,0.02);
+    }
+    .nr-table td {
+      padding: var(--nr-space-12) var(--nr-space-16); font-size: 14px; color: var(--nr-text-secondary);
+      border-bottom: 1px solid rgba(255,255,255,0.04); vertical-align: middle;
+    }
+    .nr-table tbody tr { transition: background var(--nr-duration-fast); cursor: pointer; -webkit-tap-highlight-color: transparent; }
+    .nr-table tbody tr:active, .nr-table tbody tr.pressed { background: rgba(255,255,255,0.03); }
+    .nr-table tbody tr:last-child td { border-bottom: none; }
+    .nr-table-primary-text { font-weight: 600; color: var(--nr-text-primary); display: block; margin-bottom: 2px; }
+    .nr-table-subtext { font-size: 12px; color: var(--nr-text-muted); }
+
+    /* ────────────────────────────────────────────────────────────────────────
+       9. LAYOUT & BOOK CARDS (MOBILE)
+       ──────────────────────────────────────────────────────────────────────── */
+    .nr-card-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr); /* 2 colunas para Book Cards no celular */
+      gap: var(--nr-space-16);
+      width: 100%;
+    }
+    .nr-book-card {
+      background: transparent;
+      border-radius: var(--nr-radius-sm);
+      overflow: hidden;
+      cursor: pointer;
+      transition: transform var(--nr-duration-fast);
+      -webkit-tap-highlight-color: transparent;
+    }
+    .nr-book-card:active, .nr-book-card.pressed {
+      transform: scale(0.96);
+    }
+    .card-img-wrap {
+      position: relative;
+      aspect-ratio: 2/3;
+      background: var(--nr-bg-surface-2);
+      border-radius: var(--nr-radius-md);
+      overflow: hidden;
+      margin-bottom: var(--nr-space-8);
+      border: 1px solid var(--nr-glass-border);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    }
+    .card-img {
+      width: 100%; height: 100%;
+      object-fit: cover;
+    }
+    .card-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.4);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transition: opacity var(--nr-duration-fast);
+    }
+    .nr-book-card:active .card-overlay, .nr-book-card.pressed .card-overlay { opacity: 1; }
+    .card-play-btn {
+      width: 48px; height: 48px;
+      border-radius: 50%;
+      background: var(--nr-purple-primary);
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 4px 20px var(--nr-purple-glow);
+      color: white;
+    }
+    .card-info { padding: 0 4px; }
+    .card-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--nr-text-primary);
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      margin-bottom: 2px;
+      line-height: 1.3;
+    }
+    .card-meta { font-size: 11px; color: var(--nr-text-muted); margin: 0; }
+
+    /* --- CAROUSEL (Mobile) --- */
+    .nr-carousel-wrapper { position: relative; margin-top: var(--nr-space-12); width: 100%; }
+    .nr-carousel {
+      display: flex;
+      gap: var(--nr-space-12);
+      overflow-x: auto;
+      scroll-snap-type: x mandatory; /* Snap nativo do Android/iOS */
+      padding-bottom: var(--nr-space-16);
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none; 
+    }
+    .nr-carousel::-webkit-scrollbar { display: none; }
+    .nr-carousel-item {
+      flex: 0 0 130px; /* Largura reduzida para mostrar um "pedaço" do próximo no mobile */
+      scroll-snap-align: start;
+    }
+
+    /* --- CONTENT ROW (Netflix Style) --- */
+    .nr-content-row { position: relative; margin-bottom: var(--nr-space-24); }
+    .nr-content-row-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: var(--nr-space-12);
+      padding: 0 var(--nr-space-4);
+    }
+    .nr-content-row-title {
+      font-size: 16px; font-weight: 700; color: var(--nr-text-primary); margin: 0;
+    }
+    .nr-content-row-link {
+      font-size: 12px; font-weight: 600;
+      color: var(--nr-purple-light);
+      text-decoration: none;
+      display: flex; align-items: center; gap: 4px;
+      padding: 4px 8px; border-radius: var(--nr-radius-sm);
+      -webkit-tap-highlight-color: transparent;
+    }
+    .nr-content-row-link:active, .nr-content-row-link.pressed { background: rgba(123,44,191,0.1); }
+
+    /* --- CAROUSEL SCROLL BUTTONS (Mobile Fallback) --- */
+    .carousel-scroll-btn {
+      width: 40px; height: 40px;
+      border-radius: 50%;
+      border: none;
+      cursor: pointer;
+      display: inline-flex; align-items: center; justify-content: center;
+      transition: transform var(--nr-duration-fast), background var(--nr-duration-fast);
+      -webkit-tap-highlight-color: transparent;
+      position: absolute; top: 50%; transform: translateY(-50%);
+      z-index: 10;
+    }
+    .carousel-scroll-btn:active, .carousel-scroll-btn.pressed { transform: translateY(-50%) scale(0.9); }
+    .csb-dark { background: rgba(0,0,0,0.7); color: #fff; backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.1); }
+    .csb-glass { background: rgba(255,255,255,0.08); color: #fff; backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.12); }
+    .csb-purple { background: var(--nr-purple-primary); color: #fff; box-shadow: 0 4px 16px var(--nr-purple-glow); }
+    .carousel-btn-prev { left: 4px; }
+    .carousel-btn-next { right: 4px; }
+
+    /* --- SYSTEM LAYOUT & NAVIGATION --- */
+    .bottom-nav {
+      position: relative;
+      width: 100%;
+      background: rgba(15,7,24,0.85);
+      backdrop-filter: blur(16px);
+      border-top: 1px solid var(--nr-glass-border);
+      display: flex;
+      justify-content: space-around;
+      padding: var(--nr-space-12) var(--nr-space-8);
+      padding-bottom: calc(var(--nr-space-12) + env(safe-area-inset-bottom, 0px));
+      border-radius: var(--nr-radius-lg);
+    }
+    .bottom-nav-item {
+      display: flex; flex-direction: column; align-items: center; gap: 4px;
+      color: var(--nr-text-muted); text-decoration: none;
+      -webkit-tap-highlight-color: transparent; transition: transform var(--nr-duration-fast), color var(--nr-duration-fast);
+      cursor: pointer;
+    }
+    .bottom-nav-item:active, .bottom-nav-item.pressed { transform: scale(0.92); }
+    .bottom-nav-item.active { color: var(--nr-purple-primary); }
+    .bottom-nav-label { font-size: 10px; font-weight: 600; }
+
+    .safe-area-demo {
+      width: 100%; height: 60px;
+      border: 1px dashed var(--nr-glass-border);
+      background: repeating-linear-gradient(45deg, rgba(255,255,255,0.02), rgba(255,255,255,0.02) 10px, transparent 10px, transparent 20px);
+      border-radius: var(--nr-radius-md);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--nr-text-secondary); font-size: 12px; margin-top: 16px;
+    }
+
+    /* --- HERO FEATURE LAYOUT (Mobile) --- */
+    .mobile-feature-hero {
+      position: relative; width: 100%; height: 460px;
+      border-radius: var(--nr-radius-lg); overflow: hidden;
+      margin-bottom: var(--nr-space-24);
+      border: 1px solid var(--nr-glass-border);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+    }
+    .mobile-feature-bg {
+      position: absolute; inset: 0;
+      background: url('./assets/AAAABQ0Na02Dh6sgSIaBMBoRuAl0Ol_ec72bd01ff4f.jpg') center/cover no-repeat;
+    }
+    .mobile-feature-overlay {
+      position: absolute; inset: 0;
+      background: linear-gradient(to top, #07030c 0%, rgba(7,3,12,0.6) 40%, transparent 100%);
+    }
+    .mobile-feature-content {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      padding: var(--nr-space-24) var(--nr-space-16);
+      display: flex; flex-direction: column; align-items: center; text-align: center;
+    }
+    .mobile-feature-tags { display: flex; gap: 8px; justify-content: center; margin-bottom: 12px; }
+    .mobile-feature-title {
+      font-size: 28px; font-weight: 800; font-family: var(--nr-font-serif);
+      color: white; margin: 0 0 8px 0; line-height: 1.1;
+      text-shadow: 0 2px 8px rgba(0,0,0,0.8);
+    }
+    .mobile-feature-desc { font-size: 13px; color: var(--nr-text-secondary); margin: 0 0 20px 0; max-width: 90%; line-height: 1.4; }
+    .mobile-feature-actions { display: flex; gap: 12px; width: 100%; }
+
+    /* --- APP SHELL DEMO --- */
+    .app-shell-demo {
+      width: 100%; max-width: 360px; height: 640px; margin: 0 auto;
+      background: var(--nr-bg-base);
+      border-radius: 32px; border: 8px solid #222;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.9);
+      position: relative; overflow: hidden; display: flex; flex-direction: column;
+    }
+    .app-shell-header {
+      padding: 32px 16px 16px 16px; /* Simula status bar */
+      display: flex; justify-content: space-between; align-items: center;
+      background: linear-gradient(to bottom, rgba(7,3,12,0.95), transparent);
+      z-index: 10; position: absolute; top: 0; left: 0; right: 0;
+    }
+    .app-shell-body {
+      flex: 1; overflow-y: auto; overflow-x: hidden;
+      padding-top: 80px; padding-bottom: 100px;
+    }
+    .app-shell-bottom {
+      position: absolute; bottom: 0; left: 0; right: 0; z-index: 10;
+    }
+
+    /* --- BRAND LOGOS --- */
+    .logo-grid {
+      display: grid; grid-template-columns: 1fr; gap: var(--nr-space-16);
+    }
+    .logo-card {
+      background: var(--nr-bg-surface-2); border: 1px solid var(--nr-glass-border);
+      border-radius: var(--nr-radius-md); padding: var(--nr-space-24);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: var(--nr-space-12); text-align: center;
+    }
+    .logo-card.dark { background: #07030c; }
+    .logo-card.light { background: #ffffff; color: #000; }
+    .logo-card img { max-width: 100%; height: auto; max-height: 80px; }
+    .logo-label {
+      font-size: 11px; color: var(--nr-text-muted); font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .logo-card.light .logo-label { color: #666; }
+    /* --- BOOK DETAIL SCREEN (State of the Art) --- */
+    /* 1. Cinematic Header */
+    .bds-hero-wrapper {
+      position: relative; width: 100%; height: 380px;
+      display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+      padding-bottom: 24px;
+    }
+    .bds-hero-bg {
+      position: absolute; inset: 0; z-index: 1;
+      background: url('./assets/AAAABQKMyGZrlqL5JV6OyK8f34jwSv_01a189bbc711.jpg') center/cover no-repeat;
+      filter: blur(40px) brightness(0.6); transform: scale(1.1);
+    }
+    .bds-hero-overlay {
+      position: absolute; inset: 0; z-index: 2;
+      background: linear-gradient(to bottom, rgba(7,3,12,0.2) 0%, #07030c 100%);
+    }
+    .bds-hero-content {
+      position: relative; z-index: 3; display: flex; flex-direction: column; align-items: center; text-align: center; width: 100%;
+    }
+    .bds-hero-cover {
+      width: 130px; height: 195px; border-radius: var(--nr-radius-sm);
+      box-shadow: 0 24px 40px rgba(0,0,0,0.8); margin-bottom: 20px;
+      border: 1px solid rgba(255,255,255,0.15); object-fit: cover;
+    }
+    .bds-title { font-size: 26px; font-weight: 800; font-family: var(--nr-font-serif); margin-bottom: 6px; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,0.8); }
+    .bds-author { font-size: 15px; color: var(--nr-text-secondary); margin-bottom: 12px; }
+    
+    /* 2. Metrics Cluster */
+    .bds-metrics { display: flex; gap: 16px; align-items: center; justify-content: center; margin-bottom: 24px; }
+    .bds-metric-item { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; color: var(--nr-text-primary); }
+    .bds-metric-item i { color: var(--nr-text-muted); }
+    .bds-metric-divider { width: 4px; height: 4px; border-radius: 50%; background: rgba(255,255,255,0.2); }
+
+    /* 3. Action Bar (Smart Reading Button) */
+    .bds-action-bar { display: flex; gap: 12px; width: 100%; padding: 0 20px; margin-bottom: 32px; }
+    .btn-smart-read {
+      flex: 1; position: relative; overflow: hidden; background: var(--nr-purple-primary);
+      border: none; border-radius: 28px; color: white; font-weight: 700; font-size: 16px;
+      display: flex; align-items: center; justify-content: center; gap: 8px; height: 56px;
+      box-shadow: 0 8px 24px var(--nr-purple-glow); transition: transform 0.2s; cursor: pointer;
+    }
+    .btn-smart-read:active { transform: scale(0.96); }
+    .btn-smart-progress { position: absolute; bottom: 0; left: 0; height: 4px; background: #fff; border-radius: 0 4px 4px 0; }
+    
+    .btn-circle {
+      width: 56px; height: 56px; border-radius: 50%; background: var(--nr-bg-surface-2);
+      border: 1px solid var(--nr-glass-border); color: white; display: flex; align-items: center; justify-content: center;
+      transition: transform 0.2s, background 0.2s; cursor: pointer;
+    }
+    .btn-circle:active { transform: scale(0.92); background: rgba(255,255,255,0.1); }
+
+    /* 4. Neo AI Premium Card */
+    .bds-ai-card {
+      margin: 0 20px 32px 20px; padding: 16px; border-radius: var(--nr-radius-lg);
+      background: linear-gradient(135deg, rgba(123,44,191,0.1) 0%, rgba(60,9,108,0.3) 100%);
+      border: 1px solid rgba(157, 78, 221, 0.4); display: flex; align-items: center; gap: 16px;
+      box-shadow: 0 8px 32px rgba(123,44,191,0.15); cursor: pointer; position: relative; overflow: hidden;
+    }
+    .bds-ai-card::after {
+      content: ''; position: absolute; top: 0; left: -100%; width: 50%; height: 100%;
+      background: linear-gradient(to right, transparent, rgba(255,255,255,0.1), transparent);
+      animation: nr-shimmer 3s infinite;
+    }
+    .bds-ai-icon-wrap {
+      width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(135deg, #9d4edd, #3c096c);
+      display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    }
+    .bds-ai-text { flex: 1; }
+    .bds-ai-title { font-size: 15px; font-weight: 700; color: white; margin-bottom: 2px; }
+    .bds-ai-sub { font-size: 12px; color: var(--nr-purple-light); }
+
+    /* 5. Clamped Synopsis */
+    .bds-section { padding: 0 20px; margin-bottom: 32px; }
+    .bds-section-title { font-size: 18px; font-weight: 700; margin-bottom: 16px; color: white; }
+    .bds-synopsis {
+      font-size: 15px; color: var(--nr-text-secondary); line-height: 1.5;
+      display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+      position: relative;
+    }
+    .bds-read-more { font-size: 15px; font-weight: 600; color: var(--nr-purple-light); cursor: pointer; display: inline-block; margin-top: 8px; }
+
+    /* 6. Settings Pills */
+    .bds-settings-row { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px; }
+    .bds-settings-row::-webkit-scrollbar { display: none; }
+    .bds-setting-pill {
+      background: var(--nr-bg-surface-2); border: 1px solid var(--nr-glass-border);
+      border-radius: 20px; padding: 10px 16px; display: flex; align-items: center; gap: 8px;
+      color: white; font-size: 14px; font-weight: 500; white-space: nowrap; cursor: pointer;
+    }
+
+    /* 7. Timeline Chapters */
+    .bds-timeline { display: flex; flex-direction: column; gap: 20px; position: relative; margin-left: 12px; }
+    .bds-timeline::before { content: ''; position: absolute; left: 5px; top: 8px; bottom: 8px; width: 2px; background: rgba(255,255,255,0.1); }
+    .bds-timeline-item { display: flex; gap: 16px; position: relative; align-items: flex-start; }
+    .bds-timeline-dot {
+      width: 12px; height: 12px; border-radius: 50%; background: var(--nr-gray-600);
+      border: 2px solid var(--nr-bg-base); position: relative; z-index: 2; margin-top: 4px;
+    }
+    .bds-timeline-item.active .bds-timeline-dot { background: var(--nr-purple-primary); box-shadow: 0 0 0 4px rgba(123,44,191,0.2); }
+    .bds-timeline-item.active .bds-ping { position: absolute; inset: -4px; background: var(--nr-purple-primary); border-radius: 50%; animation: nr-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite; z-index: 1; }
+    
+    .bds-tl-content { flex: 1; }
+    .bds-tl-title { font-size: 15px; font-weight: 500; color: var(--nr-text-secondary); margin-bottom: 2px; }
+    .bds-timeline-item.active .bds-tl-title { color: white; font-weight: 700; }
+    .bds-tl-meta { font-size: 12px; color: var(--nr-text-muted); }
+
+  </style>
+</head>
+<body>
+
+  <!-- Container simulador para apresentar o UI Kit corretamente -->
+  <div class="mobile-simulator">
+    
+    <!-- App Bar (transparente sobre a Hero) -->
+    <nav class="ds-nav">
+      <a href="#" class="ds-nav-logo">
+        <i data-lucide="book-open" width="24" height="24" stroke="var(--nr-purple-primary)"></i>
+        Neo<span>Reader</span>
+      </a>
+      <div class="ds-nav-actions">
+        <a href="#" class="btn-login" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">Entrar</a>
+      </div>
+    </nav>
+
+    <!-- Hero Section idêntica ao Desktop -->
+    <header id="hero" class="hero-section">
+      
+      <!-- Fundo: Imagem original -->
+      <div class="hero-bg-image" aria-hidden="true"></div>
+
+      <!-- Overlay Escuro ajustado para vertical -->
+      <div class="hero-overlay"></div>
+
+      <!-- Conteúdo da Hero -->
+      <div class="hero-content">
+        <h1 class="hero-headline">Milhares de livros. Uma experiência feita para viciar em leitura.</h1>
+        <p class="hero-subheadline">Explore romances, fantasia, negócios, suspense e muito mais em uma plataforma 
+pensada para quem quer descobrir, salvar e ler grandes histórias sem atrito.</p>
+        
+        <form class="hero-form" onsubmit="event.preventDefault();">
+          <input type="email" class="hero-input" placeholder="Digite seu e-mail" required />
+          <button type="submit" class="hero-cta" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            Começar agora
+            <i data-lucide="arrow-right" stroke-width="2" width="20" height="20"></i>
+          </button>
+        </form>
+        
+        <p class="hero-microcopy">Leitura ilimitada a partir de R$ 19,90. Cancele quando quiser.</p>
+      </div>
+    </header>
+
+    <!-- ETAPA 1: Marca & Logos (Mobile) -->
+    <section id="brand" class="ds-section">
+      <div class="ds-section-header">
+        <span class="ds-section-tag">Identidade Mobile</span>
+        <h2 class="ds-section-title">Marca & Ícones do App</h2>
+        <p class="ds-section-desc">Ativos oficiais da marca, incluindo o ícone principal do aplicativo otimizado para as telas iniciais de iOS e Android.</p>
+      </div>
+
+      <div class="logo-grid">
+        <div class="logo-card dark">
+          <img src="./logo/pacote_logos/neo_reader_logo_system_preview.svg" alt="NeoReader Logo Horizontal" />
+          <span class="logo-label" style="margin-top: 8px;">Horizontal (Padrão)</span>
+        </div>
+
+        <div class="logo-card dark" style="padding: 32px;">
+          <img src="./logo/pacote_logos/neo_reader_app_icon.png" alt="NeoReader App Icon" style="border-radius: 22%; box-shadow: 0 8px 24px rgba(0,0,0,0.6); max-height: 100px; width: 100px; height: 100px; object-fit: cover;" />
+          <span class="logo-label" style="margin-top: 16px;">App Icon (iOS / Android)</span>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+          <div class="logo-card dark">
+            <img src="./logo/pacote_logos/neo_reader_icon_reduced_transparent.svg" alt="NeoReader Ícone" style="max-height: 40px;" />
+            <span class="logo-label" style="margin-top: 8px;">Reduzido</span>
+          </div>
+          <div class="logo-card light">
+            <img src="./logo/pacote_logos/neo_reader_icon_reduced_light.svg" alt="NeoReader Ícone Claro" style="max-height: 40px;" />
+            <span class="logo-label" style="margin-top: 8px;">Claro</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ETAPA 3: Tipografia (Mobile) -->
+    <section id="typography" class="ds-section">
+      <div class="ds-section-header">
+        <span class="ds-section-tag">Tipografia Mobile</span>
+        <h2 class="ds-section-title">Escala Tipográfica</h2>
+        <p class="ds-section-desc">Fonte <strong>Inter</strong> e <strong>Playfair Display</strong> em <code>sp</code>. Dimensionamento fixo para mobile garantindo excelente legibilidade e alinhamento com Android e Material 3.</p>
+      </div>
+
+      <div class="type-scale">
+        <div class="type-row">
+          <div class="type-meta">
+            <span class="type-label display">Display</span>
+            <span class="type-specs">40sp · W900</span>
+          </div>
+          <span class="type-sample-display">NeoReader</span>
+        </div>
+        <div class="type-row">
+          <div class="type-meta">
+            <span class="type-label display">Heading 1</span>
+            <span class="type-specs">34sp · W800</span>
+          </div>
+          <span class="type-sample-h1">Milhares de livros, uma experiência imersiva.</span>
+        </div>
+        <div class="type-row">
+          <div class="type-meta">
+            <span class="type-label display">Heading 2</span>
+            <span class="type-specs">28sp · W700</span>
+          </div>
+          <span class="type-sample-h2">Explore o catálogo</span>
+        </div>
+        <div class="type-row">
+          <div class="type-meta">
+            <span class="type-label display">Heading 3</span>
+            <span class="type-specs">22sp · W600</span>
+          </div>
+          <span class="type-sample-h3">Ficção Científica em Alta</span>
+        </div>
+        <div class="type-row">
+          <div class="type-meta">
+            <span class="type-label display">Heading 4</span>
+            <span class="type-specs">18sp · W600</span>
+          </div>
+          <span class="type-sample-h4">Continuar lendo: Duna</span>
+        </div>
+        <div class="type-row">
+          <div class="type-meta">
+            <span class="type-label display">Heading 5</span>
+            <span class="type-specs">16sp · W600</span>
+          </div>
+          <span class="type-sample-h5">Recomendações baseadas em Duna</span>
+        </div>
+        <div class="type-row">
+          <div class="type-meta">
+            <span class="type-label display">Heading 6</span>
+            <span class="type-specs">14sp · W700</span>
+          </div>
+          <span class="type-sample-h6">Livros Similares</span>
+        </div>
+        <div class="type-row">
+          <div class="type-meta">
+            <span class="type-label body">Body Large</span>
+            <span class="type-specs">18sp · W400</span>
+          </div>
+          <span class="type-sample-body-lg">Explore romances, fantasia, negócios, suspense e muito mais em uma plataforma pensada para quem quer descobrir grandes histórias.</span>
+        </div>
+        <div class="type-row">
+          <div class="type-meta">
+            <span class="type-label body">Body</span>
+            <span class="type-specs">16sp · W400</span>
+          </div>
+          <span class="type-sample-body">O NeoReader é a experiência de leitura que você sempre quis. Descubra, salve e leia sem atrito.</span>
+        </div>
+        <div class="type-row">
+          <div class="type-meta">
+            <span class="type-label body">Small</span>
+            <span class="type-specs">14sp · W400</span>
+          </div>
+          <span class="type-sample-small">Leitura ilimitada a partir de R$ 19,90. Cancele quando quiser.</span>
+        </div>
+        <div class="type-row">
+          <div class="type-meta">
+            <span class="type-label body">Caption</span>
+            <span class="type-specs">12sp · W500</span>
+          </div>
+          <span class="type-sample-caption">Categoria · Suspense · 2024</span>
+        </div>
+        <div class="type-row">
+          <div class="type-meta">
+            <span class="type-label body">Overline</span>
+            <span class="type-specs">11sp · W700</span>
+          </div>
+          <span class="type-sample-overline">Destaque do mês</span>
+        </div>
+        <div class="type-row">
+          <div class="type-meta">
+            <span class="type-label body">Helper Text</span>
+            <span class="type-specs">12sp · W400</span>
+          </div>
+          <span class="type-sample-helper">O campo de senha precisa ter no mínimo 8 caracteres.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ETAPA 4: Cores (Mobile) -->
+    <section id="colors" class="ds-section">
+      <div class="ds-section-header">
+        <span class="ds-section-tag">Cores Mobile</span>
+        <h2 class="ds-section-title">Sistema de Cores</h2>
+        <p class="ds-section-desc">Paleta central otimizada para o Dark Mode do Android, utilizando o Material 3 colorScheme como fundação.</p>
+      </div>
+
+      <!-- Escala Roxa -->
+      <div class="color-group">
+        <p class="color-group-title">Escala Roxa (Primary)</p>
+        <div class="color-grid">
+          <div class="color-swatch" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')"><div class="swatch-chip" style="background:#7b2cbf"></div><div class="swatch-info"><span class="swatch-name">Primary</span><span class="swatch-hex">#7b2cbf</span></div></div>
+          <div class="color-swatch" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')"><div class="swatch-chip" style="background:#9d4edd"></div><div class="swatch-info"><span class="swatch-name">Primary Cntr</span><span class="swatch-hex">#9d4edd</span></div></div>
+          <div class="color-swatch" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')"><div class="swatch-chip" style="background:#3c096c"></div><div class="swatch-info"><span class="swatch-name">Secondary</span><span class="swatch-hex">#3c096c</span></div></div>
+          <div class="color-swatch" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')"><div class="swatch-chip" style="background:rgba(123,44,191,0.4); border: 1px solid rgba(255,255,255,0.1)"></div><div class="swatch-info"><span class="swatch-name">Glow</span><span class="swatch-hex">rgba(123,44,191,.4)</span></div></div>
+        </div>
+      </div>
+
+      <!-- Backgrounds -->
+      <div class="color-group">
+        <p class="color-group-title">Superfícies (Backgrounds)</p>
+        <div class="color-grid">
+          <div class="color-swatch" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')"><div class="swatch-chip" style="background:#07030c; border-bottom: 1px solid rgba(255,255,255,0.1)"></div><div class="swatch-info"><span class="swatch-name">Background</span><span class="swatch-hex">#07030c</span></div></div>
+          <div class="color-swatch" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')"><div class="swatch-chip" style="background:#12091a"></div><div class="swatch-info"><span class="swatch-name">Surface</span><span class="swatch-hex">#12091a</span></div></div>
+          <div class="color-swatch" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')"><div class="swatch-chip" style="background:#1e0e2d"></div><div class="swatch-info"><span class="swatch-name">Surface Var</span><span class="swatch-hex">#1e0e2d</span></div></div>
+          <div class="color-swatch" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')"><div class="swatch-chip" style="background:rgba(15,7,24,0.65); backdrop-filter:blur(8px)"></div><div class="swatch-info"><span class="swatch-name">Glass BG</span><span class="swatch-hex">rgba(15,7,24,.65)</span></div></div>
+        </div>
+      </div>
+
+      <!-- Texto -->
+      <div class="color-group">
+        <p class="color-group-title">Texto (On Surfaces)</p>
+        <div class="color-grid">
+          <div class="color-swatch" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')"><div class="swatch-chip" style="background:rgba(255,255,255,1)"></div><div class="swatch-info"><span class="swatch-name">Text Primary</span><span class="swatch-hex">rgba(255...1)</span></div></div>
+          <div class="color-swatch" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')"><div class="swatch-chip" style="background:rgba(255,255,255,0.7)"></div><div class="swatch-info"><span class="swatch-name">Text Sec.</span><span class="swatch-hex">rgba(255...0.7)</span></div></div>
+          <div class="color-swatch" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')"><div class="swatch-chip" style="background:rgba(255,255,255,0.4)"></div><div class="swatch-info"><span class="swatch-name">Text Muted</span><span class="swatch-hex">rgba(255...0.4)</span></div></div>
+        </div>
+      </div>
+
+      <!-- Semânticas -->
+      <div class="color-group">
+        <p class="color-group-title">Semânticas</p>
+        <div class="color-grid">
+          <div class="color-swatch" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')"><div class="swatch-chip" style="background:#10b981"></div><div class="swatch-info"><span class="swatch-name">Success</span><span class="swatch-hex">#10b981</span></div></div>
+          <div class="color-swatch" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')"><div class="swatch-chip" style="background:#f59e0b"></div><div class="swatch-info"><span class="swatch-name">Warning</span><span class="swatch-hex">#f59e0b</span></div></div>
+          <div class="color-swatch" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')"><div class="swatch-chip" style="background:#ef4444"></div><div class="swatch-info"><span class="swatch-name">Error</span><span class="swatch-hex">#ef4444</span></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ETAPA 5: Componentes de UI (Mobile) -->
+    <section id="components" class="ds-section">
+      <div class="ds-section-header">
+        <span class="ds-section-tag">Componentes Mobile</span>
+        <h2 class="ds-section-title">Biblioteca de UI</h2>
+        <p class="ds-section-desc">Adaptados rigorosamente para toque. Botões empilhados (width 100%), formulários de 56dp, tabs com scroll horizontal nativo e micro-interações táteis (.pressed).</p>
+      </div>
+
+      <!-- BUTTONS -->
+      <div class="comp-block">
+        <p class="comp-label">Botões (Touch Target 48dp min)</p>
+        <div class="comp-row">
+          <button class="nr-btn nr-btn-primary" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            Começar agora
+            <i data-lucide="arrow-right" width="18" height="18"></i>
+          </button>
+          <button class="nr-btn nr-btn-secondary" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            Avaliar Livro
+          </button>
+          <button class="nr-btn nr-btn-ghost" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <i data-lucide="plus" width="18" height="18"></i> Lista de leitura
+          </button>
+          <button class="nr-btn nr-btn-danger" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            Remover
+          </button>
+        </div>
+        <p class="comp-label" style="margin-top: 24px;">Outlines / Ghost Extras</p>
+        <div class="comp-row">
+          <button class="nr-btn nr-btn-outline-white" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">Outline White</button>
+          <button class="nr-btn nr-btn-outline-purple" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">Outline Purple</button>
+        </div>
+
+      <!-- BADGES -->
+      <div class="comp-block">
+        <p class="comp-label">Badges</p>
+        <div class="comp-row inline-wrap">
+          <span class="nr-badge nr-badge-purple">Novo</span>
+          <span class="nr-badge nr-badge-success">Disponível</span>
+          <span class="nr-badge nr-badge-warning">Em breve</span>
+          <span class="nr-badge nr-badge-error">Esgotado</span>
+          <span class="nr-badge nr-badge-neutral">Arquivo</span>
+          <span class="nr-badge nr-badge-purple">
+            <i data-lucide="star" width="12" height="12" fill="currentColor"></i> Destaque
+          </span>
+          <span class="nr-badge nr-badge-neutral">Ficção</span>
+          <span class="nr-badge nr-badge-neutral">Suspense</span>
+        </div>
+      </div>
+
+      <!-- PRIME VIDEO BADGES -->
+      <div class="comp-block">
+        <p class="comp-label">Badges / Labels — Estilo Prime Video</p>
+        <div class="comp-row inline-wrap">
+          <span class="pv-badge pv-badge-prime">Prime</span>
+          <span class="pv-badge pv-badge-new">Novo</span>
+          <span class="pv-badge pv-badge-top10">#1 Hoje</span>
+          <span class="pv-badge pv-badge-4k">4K Ultra HD</span>
+          <span class="pv-badge pv-badge-exclusive">Exclusivo</span>
+        </div>
+        <div class="comp-row" style="margin-top: 16px;">
+          <!-- Exemplo de uso em card -->
+          <div style="position:relative;display:inline-block;border-radius:8px;overflow:hidden;width:140px;">
+            <div style="width:140px;aspect-ratio:2/3;background: linear-gradient(145deg,#240046,#7b2cbf);"></div>
+            <div style="position:absolute;top:8px;left:8px;display:flex;flex-direction:column;gap:4px;">
+              <span class="pv-badge pv-badge-prime">Prime</span>
+              <span class="pv-badge pv-badge-new">Novo</span>
+            </div>
+            <div style="position:absolute;bottom:8px;left:8px;right:8px;">
+              <div class="pv-badge-row">
+                <div class="pv-rating-strip">
+                  <i data-lucide="star" width="12" height="12" fill="#1bcc64" stroke="#1bcc64" style="color: #1bcc64;"></i>
+                  <span class="pv-rating-score">9.2</span>
+                  <span style="font-size:10px;">/10</span>
+                </div>
+                <span class="pv-badge pv-badge-4k">4K</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- LOAD SPINNERS -->
+      <div class="comp-block">
+        <p class="comp-label">Load Spinners (Premium Shimmer & Conic Rings)</p>
+        <div class="spinners-row">
+          
+          <div class="spinner-wrap">
+            <div class="spinner-ring"></div>
+            <span class="spinner-label">Ring</span>
+          </div>
+          
+          <div class="spinner-wrap">
+            <div class="spinner-ring spinner-ring-sm"></div>
+            <span class="spinner-label">SM</span>
+          </div>
+
+          <div class="spinner-wrap">
+            <div class="spinner-ring spinner-ring-lg"></div>
+            <span class="spinner-label">LG</span>
+          </div>
+
+          <div class="spinner-wrap">
+            <div class="spinner-dots">
+              <span></span><span></span><span></span>
+            </div>
+            <span class="spinner-label">Pulse</span>
+          </div>
+        </div>
+        
+        <div class="spinners-row" style="margin-top: 24px;">
+          <div class="spinner-wrap">
+            <div class="skeleton-card skeleton-block"></div>
+            <span class="spinner-label">Card</span>
+          </div>
+
+          <div class="spinner-wrap" style="align-items:flex-start;">
+            <div class="skeleton-text-group">
+              <div class="sk-line sk-title skeleton-block"></div>
+              <div class="sk-line sk-sub skeleton-block"></div>
+              <div style="height: 4px;"></div>
+              <div class="sk-line sk-body skeleton-block"></div>
+              <div class="sk-line sk-body skeleton-block" style="width: 80%;"></div>
+            </div>
+            <span class="spinner-label" style="margin-top: 8px;">Text Group</span>
+          </div>
+        </div>
+
+        <div class="spinners-row" style="margin-top: 24px;">
+          <div class="spinner-wrap" style="width: 100%; align-items: flex-start;">
+            <div class="nr-progress-bar-wrap"><div class="nr-progress-bar-fill"></div></div>
+            <span class="spinner-label" style="margin-top: 4px;">Progress Bar (Indeterminate)</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- INPUTS -->
+      <div class="comp-block">
+        <p class="comp-label">Formulários (Stacked - 56dp)</p>
+        <div class="comp-row">
+          <div class="nr-input-wrap">
+            <label class="nr-input-label">E-mail</label>
+            <input class="nr-input" type="email" placeholder="seu@email.com" />
+            <span class="nr-input-hint">Use seu melhor e-mail.</span>
+          </div>
+          <div class="nr-input-wrap">
+            <label class="nr-input-label">Senha</label>
+            <input class="nr-input" type="password" placeholder="Mínimo 8 caracteres" />
+          </div>
+          <div class="nr-input-wrap">
+            <label class="nr-input-label">Código (erro)</label>
+            <input class="nr-input is-error" type="text" value="código inválido" />
+            <span class="nr-input-hint is-error">Código promocional inválido.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ADVANCED FORM CONTROLS -->
+      <div class="comp-block">
+        <p class="comp-label">Checkboxes, Radios & Switches (48dp)</p>
+        <div class="comp-row" style="gap: var(--nr-space-8); margin-bottom: var(--nr-space-16);">
+          <label class="nr-control-wrap nr-checkbox">
+            <input type="checkbox" class="nr-control-input" checked />
+            <div class="nr-control-box">
+              <i data-lucide="check" width="16" height="16" stroke-width="3"></i>
+            </div>
+            <span class="nr-control-label">Checkbox Ativo</span>
+          </label>
+          <label class="nr-control-wrap nr-checkbox">
+            <input type="checkbox" class="nr-control-input" />
+            <div class="nr-control-box">
+              <i data-lucide="check" width="16" height="16" stroke-width="3"></i>
+            </div>
+            <span class="nr-control-label">Checkbox Inativo</span>
+          </label>
+          <label class="nr-control-wrap nr-checkbox">
+            <input type="checkbox" class="nr-control-input" disabled />
+            <div class="nr-control-box">
+              <i data-lucide="check" width="16" height="16" stroke-width="3"></i>
+            </div>
+            <span class="nr-control-label">Desabilitado</span>
+          </label>
+        </div>
+
+        <div class="comp-row" style="gap: var(--nr-space-8); margin-bottom: var(--nr-space-16);">
+          <label class="nr-control-wrap nr-radio">
+            <input type="radio" name="demo-radio" class="nr-control-input" checked />
+            <div class="nr-control-box"></div>
+            <span class="nr-control-label">Radio Selecionado</span>
+          </label>
+          <label class="nr-control-wrap nr-radio">
+            <input type="radio" name="demo-radio" class="nr-control-input" />
+            <div class="nr-control-box"></div>
+            <span class="nr-control-label">Radio Padrão</span>
+          </label>
+        </div>
+
+        <div class="comp-row" style="gap: var(--nr-space-8);">
+          <label class="nr-control-wrap nr-switch">
+            <input type="checkbox" class="nr-control-input" checked />
+            <div class="nr-control-box"></div>
+            <span class="nr-control-label">Modo Escuro</span>
+          </label>
+          <label class="nr-control-wrap nr-switch">
+            <input type="checkbox" class="nr-control-input" />
+            <div class="nr-control-box"></div>
+            <span class="nr-control-label">Notificações Push</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- TABS -->
+      <div class="comp-block">
+        <p class="comp-label">Abas com Scroll Horizontal</p>
+        <div class="nr-tabs">
+          <button class="nr-tab active" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')">Sua Biblioteca</button>
+          <button class="nr-tab" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')">Baixados</button>
+          <button class="nr-tab" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')">Listas de Leitura</button>
+          <button class="nr-tab" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')">Estatísticas</button>
+        </div>
+      </div>
+
+      <!-- PROGRESS CARDS -->
+      <div class="comp-block">
+        <p class="comp-label">Progress Cards (Continue Lendo)</p>
+        <div class="comp-row">
+          <div class="nr-progress-card" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <div class="nr-pc-cover" style="background-image: url('./assets/US-en-20260413-TRIFECTA-perspe_2a12f60712e4.jpg');"></div>
+            <div class="nr-pc-content">
+              <h4 class="nr-pc-title">O Problema dos 3 Corpos</h4>
+              <p class="nr-pc-meta">Cixin Liu</p>
+              <div class="nr-pc-bar-wrap"><div class="nr-pc-bar-fill" style="width: 65%;"></div></div>
+              <div class="nr-pc-status"><span>Capítulo 12</span><span>65%</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- LIST ITEMS -->
+      <div class="comp-block">
+        <p class="comp-label">List Items (Histórico / Lista)</p>
+        <div class="comp-row" style="gap: 0;">
+          <div class="nr-list-item" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <div class="nr-li-cover" style="background-color: var(--nr-purple-dark);"></div>
+            <div class="nr-li-main">
+              <p class="nr-li-title">Neuromancer</p>
+              <p class="nr-li-meta">William Gibson · Lido em Fev 2024</p>
+            </div>
+            <button class="nr-li-action" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')">
+              <i data-lucide="more-vertical" width="20" height="20"></i>
+            </button>
+          </div>
+          <div class="nr-list-item" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <div class="nr-li-cover" style="background-color: #03071e;"></div>
+            <div class="nr-li-main">
+              <p class="nr-li-title">A Fundação</p>
+              <p class="nr-li-meta">Isaac Asimov · Lido em Jan 2024</p>
+            </div>
+            <button class="nr-li-action" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')">
+              <i data-lucide="more-vertical" width="20" height="20"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- EMPTY STATE -->
+      <div class="comp-block">
+        <p class="comp-label">Empty State</p>
+        <div class="comp-row">
+          <div class="nr-empty-state">
+            <i data-lucide="inbox" class="nr-empty-icon"></i>
+            <h4 class="nr-empty-title">Nenhum livro salvo</h4>
+            <p class="nr-empty-desc">Sua biblioteca está vazia. Comece a explorar nosso catálogo para salvar suas histórias favoritas.</p>
+            <button class="nr-btn nr-btn-secondary" style="min-height: 40px; padding: 0 16px; border-radius: var(--nr-radius-pill); font-size: 14px; width: auto;" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')">Explorar catálogo</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- DROPDOWNS / MENUS -->
+      <div class="comp-block">
+        <p class="comp-label">Dropdowns / Menus Suspensos</p>
+        <div class="comp-row" style="flex-direction: row; justify-content: space-between; align-items: flex-start; min-height: 260px;">
+          
+          <!-- Dropdown Default (Alinhado a esquerda) -->
+          <div class="nr-dropdown is-open">
+            <button class="nr-btn nr-btn-secondary nr-btn-sm" style="width: auto;">
+              Padrão <i data-lucide="chevron-down" width="16" height="16"></i>
+            </button>
+            <div class="nr-dropdown-menu">
+              <button class="nr-dropdown-item" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')">
+                <i data-lucide="book-open" width="18" height="18"></i> Ler
+              </button>
+              <button class="nr-dropdown-item" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')">
+                <i data-lucide="download" width="18" height="18"></i> Baixar
+              </button>
+            </div>
+          </div>
+
+          <!-- Dropdown Drop-left (Alinhado a direita) -->
+          <div class="nr-dropdown is-open">
+            <button class="nr-btn nr-btn-secondary nr-btn-sm" style="width: auto;">
+              Drop Left <i data-lucide="chevron-down" width="16" height="16"></i>
+            </button>
+            <div class="nr-dropdown-menu drop-left">
+              <button class="nr-dropdown-item" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')">
+                <i data-lucide="bookmark" width="18" height="18"></i> Salvar na lista
+              </button>
+              <button class="nr-dropdown-item" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')">
+                <i data-lucide="share-2" width="18" height="18"></i> Compartilhar
+              </button>
+              <div class="nr-dropdown-divider"></div>
+              <button class="nr-dropdown-item" style="color: #ef4444;" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')">
+                <i data-lucide="trash-2" width="18" height="18"></i> Remover
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- TABLES -->
+      <div class="comp-block">
+        <p class="comp-label">Tables (Data Grids com Scroll Horizontal)</p>
+        <div class="nr-table-wrap">
+          <table class="nr-table">
+            <thead>
+              <tr>
+                <th>Livro</th>
+                <th>Status</th>
+                <th>Progresso</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+                <td>
+                  <span class="nr-table-primary-text">O Problema dos 3 Corpos</span>
+                  <span class="nr-table-subtext">Cixin Liu</span>
+                </td>
+                <td><span class="nr-badge nr-badge-purple">Lendo</span></td>
+                <td>65%</td>
+              </tr>
+              <tr ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+                <td>
+                  <span class="nr-table-primary-text">Neuromancer</span>
+                  <span class="nr-table-subtext">William Gibson</span>
+                </td>
+                <td><span class="nr-badge nr-badge-success">Concluído</span></td>
+                <td>100%</td>
+              </tr>
+              <tr ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+                <td>
+                  <span class="nr-table-primary-text">A Fundação</span>
+                  <span class="nr-table-subtext">Isaac Asimov</span>
+                </td>
+                <td><span class="nr-badge nr-badge-neutral">Na fila</span></td>
+                <td>0%</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ETAPA 6: Iconografia -->
+    <section id="icons" class="ds-section">
+      <div class="ds-section-header">
+        <span class="ds-section-tag">Iconografia Mobile</span>
+        <h2 class="ds-section-title">Iconografia Base</h2>
+        <p class="ds-section-desc">Biblioteca baseada no pacote <strong>Lucide Icons</strong>. Tamanho padrão de toque 24x24px, com outline consistente e labels descritivos para facilitar o uso no app.</p>
+      </div>
+
+      <div class="comp-block">
+        <p class="comp-label">Navegação e Ação</p>
+        <div class="icon-grid">
+          <div class="icon-card primary" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <i data-lucide="book-open" width="24" height="24"></i>
+            <span class="icon-name">Ler</span>
+          </div>
+          <div class="icon-card" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <i data-lucide="headphones" width="24" height="24"></i>
+            <span class="icon-name">Áudio</span>
+          </div>
+          <div class="icon-card" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <i data-lucide="play" width="24" height="24"></i>
+            <span class="icon-name">Play</span>
+          </div>
+          <div class="icon-card" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <i data-lucide="search" width="24" height="24"></i>
+            <span class="icon-name">Buscar</span>
+          </div>
+          
+          <div class="icon-card" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <i data-lucide="bookmark" width="24" height="24"></i>
+            <span class="icon-name">Salvar</span>
+          </div>
+          <div class="icon-card" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <i data-lucide="heart" width="24" height="24"></i>
+            <span class="icon-name">Favorito</span>
+          </div>
+          <div class="icon-card" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <i data-lucide="download" width="24" height="24"></i>
+            <span class="icon-name">Baixar</span>
+          </div>
+          <div class="icon-card" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <i data-lucide="share-2" width="24" height="24"></i>
+            <span class="icon-name">Share</span>
+          </div>
+
+          <div class="icon-card" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <i data-lucide="list" width="24" height="24"></i>
+            <span class="icon-name">Lista</span>
+          </div>
+          <div class="icon-card" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <i data-lucide="align-left" width="24" height="24"></i>
+            <span class="icon-name">Texto</span>
+          </div>
+          <div class="icon-card" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <i data-lucide="type" width="24" height="24"></i>
+            <span class="icon-name">Fonte</span>
+          </div>
+          <div class="icon-card" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <i data-lucide="moon" width="24" height="24"></i>
+            <span class="icon-name">Tema</span>
+          </div>
+
+          <div class="icon-card" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <i data-lucide="star" width="24" height="24"></i>
+            <span class="icon-name">Avaliar</span>
+          </div>
+          <div class="icon-card" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <i data-lucide="message-circle" width="24" height="24"></i>
+            <span class="icon-name">Chat</span>
+          </div>
+          <div class="icon-card" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <i data-lucide="bell" width="24" height="24"></i>
+            <span class="icon-name">Avisos</span>
+          </div>
+          <div class="icon-card" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <i data-lucide="clock" width="24" height="24"></i>
+            <span class="icon-name">Tempo</span>
+          </div>
+
+          <div class="icon-card" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <i data-lucide="check-circle" width="24" height="24"></i>
+            <span class="icon-name">Lido</span>
+          </div>
+          <div class="icon-card" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <i data-lucide="wifi-off" width="24" height="24"></i>
+            <span class="icon-name">Offline</span>
+          </div>
+          <div class="icon-card" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <i data-lucide="battery" width="24" height="24"></i>
+            <span class="icon-name">Bateria</span>
+          </div>
+          <div class="icon-card" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <i data-lucide="more-vertical" width="24" height="24"></i>
+            <span class="icon-name">Mais</span>
+          </div>
+
+          <div class="icon-card" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <i data-lucide="home" width="24" height="24"></i>
+            <span class="icon-name">Início</span>
+          </div>
+          <div class="icon-card" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <i data-lucide="user" width="24" height="24"></i>
+            <span class="icon-name">Perfil</span>
+          </div>
+          <div class="icon-card" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <i data-lucide="settings" width="24" height="24"></i>
+            <span class="icon-name">Ajustes</span>
+          </div>
+          <div class="icon-card" style="color: #ef4444;" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <i data-lucide="trash-2" width="24" height="24"></i>
+            <span class="icon-name">Excluir</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ETAPA 7: Motion & Animações -->
+    <section id="motion" class="ds-section">
+      <div class="ds-section-header">
+        <span class="ds-section-tag">Motion Mobile</span>
+        <h2 class="ds-section-title">Animações & Transições</h2>
+        <p class="ds-section-desc">Padrões de movimento otimizados para 60fps usando aceleração de hardware. Toque nos quadros abaixo para reproduzir a animação.</p>
+      </div>
+
+      <div class="comp-block">
+        <div class="comp-row" style="flex-direction: row; gap: var(--nr-space-24); align-items: flex-end; justify-content: center;">
+          
+          <div style="display:flex; flex-direction:column; gap:8px; align-items:center;">
+            <div class="motion-box anim-fade-in" ontouchstart="this.style.animation='none'; setTimeout(()=>this.style.animation='', 10);" onmousedown="this.style.animation='none'; setTimeout(()=>this.style.animation='', 10);">
+              Fade In
+            </div>
+            <span style="font-size:11px; color:var(--nr-text-muted);">Imagens</span>
+          </div>
+
+          <div style="display:flex; flex-direction:column; gap:8px; align-items:center;">
+            <div class="motion-box anim-slide-up" ontouchstart="this.style.animation='none'; setTimeout(()=>this.style.animation='', 10);" onmousedown="this.style.animation='none'; setTimeout(()=>this.style.animation='', 10);">
+              Slide Up
+            </div>
+            <span style="font-size:11px; color:var(--nr-text-muted);">Menús / Sheets</span>
+          </div>
+
+          <div style="display:flex; flex-direction:column; gap:8px; align-items:center;">
+            <div class="motion-box anim-scale-in" ontouchstart="this.style.animation='none'; setTimeout(()=>this.style.animation='', 10);" onmousedown="this.style.animation='none'; setTimeout(()=>this.style.animation='', 10);">
+              Scale Pop
+            </div>
+            <span style="font-size:11px; color:var(--nr-text-muted);">Dialogs</span>
+          </div>
+
+        </div>
+
+        <div class="comp-row" style="flex-direction: row; gap: var(--nr-space-24); align-items: flex-end; justify-content: center; margin-top: var(--nr-space-24);">
+          
+          <div style="display:flex; flex-direction:column; gap:8px; align-items:center;">
+            <div class="motion-box" style="background: transparent; box-shadow: none;">
+              <i data-lucide="loader-2" width="32" height="32" class="anim-rotate" style="color: var(--nr-purple-primary);"></i>
+            </div>
+            <span style="font-size:11px; color:var(--nr-text-muted);">Spinner</span>
+          </div>
+
+          <div style="display:flex; flex-direction:column; gap:8px; align-items:center;">
+            <div class="motion-box" style="background: transparent; box-shadow: none;">
+              <div class="anim-ping-wrap">
+                <div class="anim-ping-dot"></div>
+                <div class="anim-ping-ring"></div>
+              </div>
+            </div>
+            <span style="font-size:11px; color:var(--nr-text-muted);">Ping/Pulse</span>
+          </div>
+
+          <div style="display:flex; flex-direction:column; gap:8px; align-items:center;">
+            <div class="anim-shadow-box" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+              Press<br/>Shadow
+            </div>
+            <span style="font-size:11px; color:var(--nr-text-muted);">Drop Shadow</span>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ETAPA 8: Layout & Book Cards -->
+    <section id="layout" class="ds-section">
+      <div class="ds-section-header">
+        <span class="ds-section-tag">Layout Mobile</span>
+        <h2 class="ds-section-title">Cards & Grid</h2>
+        <p class="ds-section-desc">Capas com aspect ratio 2:3. Em grid (2 colunas) ou em Carrossel com snap horizontal nativo.</p>
+      </div>
+
+      <!-- HERO FEATURE -->
+      <div class="comp-block">
+        <p class="comp-label">Destaque Principal (Hero Feature)</p>
+        <div class="mobile-feature-hero">
+          <div class="mobile-feature-bg"></div>
+          <div class="mobile-feature-overlay"></div>
+          
+          <div style="position: absolute; top: 16px; left: 16px;">
+            <span class="pv-badge pv-badge-exclusive">Original</span>
+          </div>
+
+          <div class="mobile-feature-content">
+            <div class="mobile-feature-tags">
+              <span class="nr-badge nr-badge-neutral" style="background:rgba(0,0,0,0.5); backdrop-filter:blur(4px);">Ficção</span>
+              <span class="nr-badge nr-badge-neutral" style="background:rgba(0,0,0,0.5); backdrop-filter:blur(4px);">Clássico</span>
+            </div>
+            <h2 class="mobile-feature-title">Fundação e Império</h2>
+            <p class="mobile-feature-desc">Uma jornada épica pela sobrevivência humana e a reconstrução da civilização em um universo em colapso.</p>
+            <div class="mobile-feature-actions">
+              <button class="nr-btn nr-btn-primary" style="flex: 1;" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')">
+                <i data-lucide="play" width="18" height="18" fill="currentColor"></i> Retomar
+              </button>
+              <button class="nr-btn nr-btn-secondary" style="flex: 1;" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')">
+                <i data-lucide="plus" width="18" height="18"></i> Minha Lista
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- GRID DE CARDS -->
+      <div class="comp-block">
+        <p class="comp-label">Grid (2 Colunas)</p>
+        <div class="nr-card-grid">
+          
+          <div class="nr-book-card" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <div class="card-img-wrap">
+              <img class="card-img" src="./assets/AAAABQKMyGZrlqL5JV6OyK8f34jwSv_01a189bbc711.jpg" alt="Capa Matéria Escura" />
+              <div class="card-overlay">
+                <div class="card-play-btn"><i data-lucide="play" width="20" height="20" fill="currentColor"></i></div>
+              </div>
+            </div>
+            <div class="card-info">
+              <h3 class="card-title">Matéria Escura</h3>
+              <p class="card-meta">Blake Crouch</p>
+            </div>
+          </div>
+
+          <div class="nr-book-card" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <div class="card-img-wrap">
+              <img class="card-img" src="./assets/AAAABQQB9v8RMTadNSOUgRP1EYK0ys_83a1bd95363c.jpg" alt="Capa Recursão" />
+              <div class="card-overlay">
+                <div class="card-play-btn"><i data-lucide="play" width="20" height="20" fill="currentColor"></i></div>
+              </div>
+            </div>
+            <div class="card-info">
+              <h3 class="card-title">Recursão</h3>
+              <p class="card-meta">Blake Crouch</p>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- CONTENT ROW & CAROUSEL -->
+      <div class="comp-block">
+        <p class="comp-label">Content Row (Estilo Netflix) & Carousel Scroll Buttons</p>
+        
+        <div class="nr-content-row">
+          <div class="nr-content-row-header">
+            <h2 class="nr-content-row-title">Ficção Científica</h2>
+            <a href="#" class="nr-content-row-link" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')">
+              Ver tudo <i data-lucide="chevron-right" width="14" height="14"></i>
+            </a>
+          </div>
+
+          <div class="nr-carousel-wrapper">
+            <!-- Botão Scroll (Geralmente oculto no mobile puro, mas adicionado conforme DS) -->
+            <button class="carousel-scroll-btn csb-dark carousel-btn-next" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')">
+              <i data-lucide="chevron-right" width="20" height="20"></i>
+            </button>
+
+            <div class="nr-carousel">
+              
+              <div class="nr-carousel-item">
+                <div class="nr-book-card" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+                  <div class="card-img-wrap">
+                    <img class="card-img" src="./assets/AAAABQ0Na02Dh6sgSIaBMBoRuAl0Ol_ec72bd01ff4f.jpg" alt="Capa Fundação e Império" />
+                  </div>
+                  <div class="card-info">
+                    <h3 class="card-title">Fundação e Império</h3>
+                    <p class="card-meta">Isaac Asimov</p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="nr-carousel-item">
+                <div class="nr-book-card" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+                  <div class="card-img-wrap">
+                    <img class="card-img" src="./assets/capa1.jpg" alt="Capa Duna" />
+                  </div>
+                  <div class="card-info">
+                    <h3 class="card-title">Duna</h3>
+                    <p class="card-meta">Frank Herbert</p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="nr-carousel-item">
+                <div class="nr-book-card" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+                  <div class="card-img-wrap">
+                    <img class="card-img" src="./assets/AAAABQURouaq_vulDbyI11xZqo2aHY_b7ed11b8542d.jpg" alt="Capa O Fim da Infância" />
+                  </div>
+                  <div class="card-info">
+                    <h3 class="card-title">O Fim da Infância</h3>
+                    <p class="card-meta">Arthur C. Clarke</p>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ETAPA 9: Sistema de Layout & Navegação -->
+    <section id="layout-system" class="ds-section">
+      <div class="ds-section-header">
+        <span class="ds-section-tag">Fundação de Layout</span>
+        <h2 class="ds-section-title">Sistema & Navegação</h2>
+        <p class="ds-section-desc">Padrões estruturais otimizados para usabilidade com uma mão (Thumb Zone), Safe Areas e Bottom Navigation Bar.</p>
+      </div>
+
+      <div class="comp-block">
+        <p class="comp-label">Bottom Navigation</p>
+        <div class="bottom-nav">
+          <div class="bottom-nav-item active" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <i data-lucide="home" width="24" height="24"></i>
+            <span class="bottom-nav-label">Início</span>
+          </div>
+          <div class="bottom-nav-item" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <i data-lucide="search" width="24" height="24"></i>
+            <span class="bottom-nav-label">Buscar</span>
+          </div>
+          <div class="bottom-nav-item" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <i data-lucide="book-open" width="24" height="24"></i>
+            <span class="bottom-nav-label">Biblioteca</span>
+          </div>
+          <div class="bottom-nav-item" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')" onmousedown="this.classList.add('pressed')" onmouseup="this.classList.remove('pressed')">
+            <i data-lucide="user" width="24" height="24"></i>
+            <span class="bottom-nav-label">Perfil</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="comp-block">
+        <p class="comp-label">Safe Areas (Notches & Home Indicators)</p>
+        <p style="font-size: 13px; color: var(--nr-text-secondary); margin-bottom: 8px; line-height: 1.4;">
+          Utilizamos <code>env(safe-area-inset-*)</code> para garantir que componentes (como a Bottom Nav) não sejam encobertos pelo recorte da câmera frontal ou pela barra de navegação nativa dos sistemas iOS/Android.
+        </p>
+        <div class="safe-area-demo">Área de Segurança Reservada (env)</div>
+      </div>
+      
+      <div class="comp-block" style="margin-top: 32px;">
+        <p class="comp-label">Mobile Grid System (4 Colunas)</p>
+        <div style="display:flex; gap: 16px; width: 100%; height: 80px; margin-top: 16px;">
+          <div style="flex:1; background:rgba(123,44,191,0.2); border:1px dashed var(--nr-purple-primary); border-radius:4px; display:flex; align-items:center; justify-content:center; color:var(--nr-purple-light); font-size:10px;">Col 1</div>
+          <div style="flex:1; background:rgba(123,44,191,0.2); border:1px dashed var(--nr-purple-primary); border-radius:4px; display:flex; align-items:center; justify-content:center; color:var(--nr-purple-light); font-size:10px;">Col 2</div>
+          <div style="flex:1; background:rgba(123,44,191,0.2); border:1px dashed var(--nr-purple-primary); border-radius:4px; display:flex; align-items:center; justify-content:center; color:var(--nr-purple-light); font-size:10px;">Col 3</div>
+          <div style="flex:1; background:rgba(123,44,191,0.2); border:1px dashed var(--nr-purple-primary); border-radius:4px; display:flex; align-items:center; justify-content:center; color:var(--nr-purple-light); font-size:10px;">Col 4</div>
+        </div>
+        <p style="font-size: 12px; color: var(--nr-text-muted); margin-top: 8px; text-align: center;">Margin Lateral: 16px | Gutter (Espaçamento): 16px</p>
+      </div>
+
+      <!-- APP SHELL COMPOSITION -->
+      <div class="comp-block" style="margin-top: 48px;">
+        <p class="comp-label">App Shell Composition (Integração Total)</p>
+        <p style="font-size: 13px; color: var(--nr-text-secondary); margin-bottom: 24px; line-height: 1.4;">
+          Demonstração de como os componentes se unem para formar uma tela realista, imersiva e com excelente hierarquia visual no formato mobile.
+        </p>
+
+        <div class="app-shell-demo">
+          <!-- Header (Absoluto) -->
+          <div class="app-shell-header">
+            <a href="#" class="ds-nav-logo" style="font-size: 18px;">
+              <i data-lucide="book-open" width="20" height="20" stroke="var(--nr-purple-primary)"></i>
+              Neo<span>Reader</span>
+            </a>
+            <i data-lucide="cast" width="20" height="20" style="color: var(--nr-text-secondary);"></i>
+          </div>
+
+          <!-- Conteúdo -->
+          <div class="app-shell-body">
+            
+            <div class="nr-content-row" style="margin-bottom: 16px;">
+              <div class="nr-content-row-header">
+                <h2 class="nr-content-row-title" style="font-size: 18px;">Continuar Lendo</h2>
+              </div>
+              <div class="nr-progress-card" style="margin: 0 16px; width: calc(100% - 32px);">
+                <div class="nr-pc-cover" style="background-image: url('./assets/capa1.jpg');"></div>
+                <div class="nr-pc-content">
+                  <h4 class="nr-pc-title">Duna</h4>
+                  <p class="nr-pc-meta">Frank Herbert</p>
+                  <div class="nr-pc-bar-wrap"><div class="nr-pc-bar-fill" style="width: 40%;"></div></div>
+                  <div class="nr-pc-status"><span>Capítulo 4</span><span>40%</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="nr-content-row">
+              <div class="nr-content-row-header">
+                <h2 class="nr-content-row-title" style="font-size: 18px;">Populares Hoje</h2>
+                <a href="#" class="nr-content-row-link">Ver tudo <i data-lucide="chevron-right" width="14" height="14"></i></a>
+              </div>
+              <div class="nr-carousel-wrapper">
+                <div class="nr-carousel" style="padding-left: 16px; padding-right: 16px;">
+                  <div class="nr-carousel-item" style="flex: 0 0 110px;">
+                    <div class="nr-book-card">
+                      <div class="card-img-wrap"><img class="card-img" src="./assets/AAAABQKMyGZrlqL5JV6OyK8f34jwSv_01a189bbc711.jpg" /></div>
+                    </div>
+                  </div>
+                  <div class="nr-carousel-item" style="flex: 0 0 110px;">
+                    <div class="nr-book-card">
+                      <div class="card-img-wrap"><img class="card-img" src="./assets/AAAABQQB9v8RMTadNSOUgRP1EYK0ys_83a1bd95363c.jpg" /></div>
+                    </div>
+                  </div>
+                  <div class="nr-carousel-item" style="flex: 0 0 110px;">
+                    <div class="nr-book-card">
+                      <div class="card-img-wrap"><img class="card-img" src="./assets/AAAABQURouaq_vulDbyI11xZqo2aHY_b7ed11b8542d.jpg" /></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Bottom Nav (Absoluto) -->
+          <div class="app-shell-bottom">
+            <div class="bottom-nav" style="margin-top: 0; border-radius: 0; background: rgba(15,7,24,0.95);">
+              <div class="bottom-nav-item active"><i data-lucide="home" width="22" height="22"></i><span class="bottom-nav-label">Início</span></div>
+              <div class="bottom-nav-item"><i data-lucide="search" width="22" height="22"></i><span class="bottom-nav-label">Buscar</span></div>
+              <div class="bottom-nav-item"><i data-lucide="book-open" width="22" height="22"></i><span class="bottom-nav-label">Biblioteca</span></div>
+              <div class="bottom-nav-item"><i data-lucide="user" width="22" height="22"></i><span class="bottom-nav-label">Perfil</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ETAPA 10: Tela de Detalhes do Livro -->
+    <section id="book-details" class="ds-section">
+      <div class="ds-section-header">
+        <span class="ds-section-tag">Screen Preview</span>
+        <h2 class="ds-section-title">Tela de Detalhes do Livro</h2>
+        <p class="ds-section-desc">Ponto central antes da leitura. Reúne metadados, ações principais, índice e configurações de leitura específicas para a obra.</p>
+      </div>
+
+      <div class="comp-block">
+        <div class="app-shell-demo" style="height: 720px;">
+          <!-- Navbar Top -->
+          <div class="app-shell-header" style="background: rgba(7,3,12,0.8); backdrop-filter: blur(12px);">
+            <i data-lucide="arrow-left" width="24" height="24" style="color: white; cursor:pointer;"></i>
+            <div style="display:flex; gap:16px;">
+              <i data-lucide="share-2" width="20" height="20" style="color: white; cursor:pointer;"></i>
+              <i data-lucide="more-vertical" width="20" height="20" style="color: white; cursor:pointer;"></i>
+            </div>
+          </div>
+
+          <!-- Body -->
+          <div class="app-shell-body" style="padding-top: 0; padding-bottom: 32px;">
+            
+            <!-- 1. Immersive Hero -->
+            <div class="bds-hero-wrapper">
+              <div class="bds-hero-bg"></div>
+              <div class="bds-hero-overlay"></div>
+              <div class="bds-hero-content">
+                <img src="./assets/AAAABQKMyGZrlqL5JV6OyK8f34jwSv_01a189bbc711.jpg" alt="Matéria Escura" class="bds-hero-cover" />
+                <h1 class="bds-title">Matéria Escura</h1>
+                <p class="bds-author">Blake Crouch</p>
+              </div>
+            </div>
+
+            <!-- 2. Metrics Cluster -->
+            <div class="bds-metrics">
+              <div class="bds-metric-item"><i data-lucide="star" width="16" height="16" fill="currentColor" style="color: #fbbf24;"></i> 4.8</div>
+              <div class="bds-metric-divider"></div>
+              <div class="bds-metric-item"><i data-lucide="clock" width="16" height="16"></i> 5h 30m</div>
+              <div class="bds-metric-divider"></div>
+              <div class="bds-metric-item"><i data-lucide="file-text" width="16" height="16"></i> 342 Págs</div>
+            </div>
+
+            <!-- 3. Smart Action Bar -->
+            <div class="bds-action-bar">
+              <button class="btn-smart-read" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')">
+                <i data-lucide="book-open" width="20" height="20"></i> Continuar Lendo
+                <div class="btn-smart-progress" style="width: 45%;"></div>
+              </button>
+              <div class="btn-circle" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')"><i data-lucide="heart" width="22" height="22"></i></div>
+              <div class="btn-circle" ontouchstart="this.classList.add('pressed')" ontouchend="this.classList.remove('pressed')"><i data-lucide="download" width="22" height="22"></i></div>
+            </div>
+
+            <!-- 4. Neo AI Premium Card -->
+            <div class="bds-ai-card">
+              <div class="bds-ai-icon-wrap">
+                <i data-lucide="bot" width="24" height="24" style="color: white;"></i>
+              </div>
+              <div class="bds-ai-text">
+                <h3 class="bds-ai-title">Falar com o Livro</h3>
+                <p class="bds-ai-sub">Resumos, análise de personagens e mais.</p>
+              </div>
+              <i data-lucide="chevron-right" width="20" height="20" style="color: rgba(255,255,255,0.5);"></i>
+            </div>
+
+            <!-- 5. Clamped Synopsis -->
+            <div class="bds-section">
+              <h3 class="bds-section-title">Sobre o livro</h3>
+              <p class="bds-synopsis">"Você é feliz com a vida que tem?" Essas são as últimas palavras que Jason Dessen ouve antes de acordar em um laboratório, preso a uma maca. Neste mundo, sua esposa não é sua esposa. Seu filho nunca nasceu. E ele não é um professor de física comum, mas um gênio célebre que conseguiu algo impossível.</p>
+              <span class="bds-read-more">Ler mais</span>
+            </div>
+
+            <!-- 6. Quick Settings Pills -->
+            <div class="bds-section">
+              <div class="bds-settings-row">
+                <div class="bds-setting-pill"><i data-lucide="type" width="16" height="16" style="color: var(--nr-purple-light);"></i> Aa · Fonte</div>
+                <div class="bds-setting-pill"><i data-lucide="moon" width="16" height="16" style="color: var(--nr-purple-light);"></i> Noturno</div>
+                <div class="bds-setting-pill"><i data-lucide="settings-2" width="16" height="16" style="color: var(--nr-purple-light);"></i> Mais opções</div>
+              </div>
+            </div>
+
+            <!-- 7. Timeline Capítulos -->
+            <div class="bds-section">
+              <h3 class="bds-section-title">Índice</h3>
+              <div class="bds-timeline">
+                <div class="bds-timeline-item">
+                  <div class="bds-timeline-dot"></div>
+                  <div class="bds-tl-content">
+                    <h4 class="bds-tl-title">Prólogo</h4>
+                    <span class="bds-tl-meta">Lido</span>
+                  </div>
+                </div>
+                <div class="bds-timeline-item active">
+                  <div class="bds-ping"></div>
+                  <div class="bds-timeline-dot"></div>
+                  <div class="bds-tl-content">
+                    <h4 class="bds-tl-title">Capítulo 1</h4>
+                    <span class="bds-tl-meta" style="color: var(--nr-purple-light);">Lendo agora</span>
+                  </div>
+                </div>
+                <div class="bds-timeline-item">
+                  <div class="bds-timeline-dot"></div>
+                  <div class="bds-tl-content">
+                    <h4 class="bds-tl-title">Capítulo 2</h4>
+                    <span class="bds-tl-meta">12 págs</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Informações Detalhadas Ocultas (simulando expansão) -->
+            <div class="bds-section" style="text-align: center;">
+              <span class="bds-read-more">Ver todos os detalhes do arquivo</span>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div> <!-- /mobile-simulator -->
+
+  <script>
+    lucide.createIcons();
+  </script>
+</body>
+</html>
