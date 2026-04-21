@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie'
-import type { Book, ReadingProgress, Bookmark } from '../types/book'
+import type { Book, ReadingProgress, Bookmark, BookSettings } from '../types/book'
 import type { VocabItem, TranslationCache } from '../types/vocabulary'
 import type { UserSettings } from '../types/settings'
 
@@ -12,6 +12,7 @@ class NeoReaderDB extends Dexie {
   vocabulary!: Table<VocabItem>
   translations!: Table<TranslationCache>
   settings!: Table<UserSettings>
+  bookSettings!: Table<BookSettings>
 
   constructor() {
     super('NeoReaderDB')
@@ -48,6 +49,17 @@ class NeoReaderDB extends Dexie {
       vocabulary:  '++id, bookId, createdAt',
       translations:'++id, textHash, createdAt',
       settings:    '++id',
+    })
+
+    // v5: configurações por livro (fonte, futuro: tema, espaçamento)
+    this.version(5).stores({
+      books:        '++id, title, author, addedAt, lastOpenedAt',
+      progress:     '++id, bookId, updatedAt',
+      bookmarks:    '++id, bookId, createdAt',
+      vocabulary:   '++id, bookId, createdAt',
+      translations: '++id, textHash, createdAt',
+      settings:     '++id',
+      bookSettings: '++id, bookId',
     })
   }
 }

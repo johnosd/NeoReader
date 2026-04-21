@@ -12,6 +12,7 @@ import { updateLastOpened } from '../db/books'
 import { addBookmark, deleteBookmark } from '../db/bookmarks'
 import { addVocabItem } from '../db/vocabulary'
 import { getSettings } from '../db/settings'
+import { getBookSettings, updateBookSettings } from '../db/bookSettings'
 import { db } from '../db/database'
 import { useTTS } from '../hooks/useTTS'
 import { TtsMiniPlayer } from '../components/reader/TtsMiniPlayer'
@@ -22,11 +23,12 @@ import type { FontSize } from '../types/settings'
 
 interface ReaderScreenProps {
   book: Book
+  startHref?: string   // capítulo inicial — se definido, ignora o progresso salvo
   onBack: () => void
   onOpenVocabulary: () => void
 }
 
-export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenProps) {
+export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: ReaderScreenProps) {
   const viewerRef = useRef<EpubViewerHandle>(null)
 
   // Estado local — não precisa ser compartilhado entre siblings
@@ -70,17 +72,16 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
     if (book.id !== undefined) updateLastOpened(book.id)
   }, [book.id])
 
-  // Carrega preferências do usuário (fonte padrão, idioma de tradução, engine TTS)
+  // Carrega preferências: fonte por livro (override) > fonte global > padrão
   useEffect(() => {
-    getSettings().then((s) => {
-      setFontSize(s.defaultFontSize)
+    void Promise.all([getSettings(), getBookSettings(book.id!)]).then(([s, bs]) => {
+      setFontSize(bs.fontSize ?? s.defaultFontSize)
       setTargetLang(s.translationTargetLang)
-      // Verifica se há key Speechify disponível (DB ou .env)
       void SpeechifyService.isConfigured().then((ok) =>
         setTtsEngine(ok ? 'speechify' : 'native')
       )
     })
-  }, [])
+  }, [book.id])
 
   // Intercepta o botão Back físico do Android (via plugin Capacitor)
   useEffect(() => {
@@ -264,7 +265,11 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
           savedCfi={savedCfi}
           onRelocate={handleRelocate}
           onTocReady={setToc}
-          onLoad={() => setIsLoading(false)}
+          onLoad={() => {
+            setIsLoading(false)
+            // Navega para o capítulo selecionado na tela de detalhes (se houver)
+            if (startHref) viewerRef.current?.goTo(startHref)
+          }}
           onError={(err) => { setIsLoading(false); setError(err.message) }}
           onSaveVocab={handleSaveVocab}
           onCenterTap={handleCenterTap}
@@ -303,7 +308,10 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
         isBookmarked={isBookmarked}
         bookmarkCount={bookmarks.length}
         onBack={handleBack}
-        onFontSizeChange={setFontSize}
+        onFontSizeChange={(size) => {
+            setFontSize(size)
+            void updateBookSettings(book.id!, { fontSize: size })
+          }}
         onBookmark={handleBookmarkToggle}
         onBookmarkList={() => setBookmarkSheetOpen(true)}
         onTocOpen={() => setTocOpen(true)}

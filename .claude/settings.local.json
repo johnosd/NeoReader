@@ -41,7 +41,10 @@
       "PowerShell(& cmd /c \"npm run lint 2>&1\" | Select-Object -Last 30)",
       "PowerShell(& cmd /c \"npx tsc --noEmit 2>&1\" | Select-Object -Last 30)",
       "PowerShell(& cmd /c \"npm run lint 2>&1\" | Select-Object -Last 15)",
-      "PowerShell(Copy-Item *)"
+      "PowerShell(Copy-Item *)",
+      "PowerShell(& cmd /c \"npx tsc --noEmit 2>&1\" | Select-Object -Last 20)",
+      "PowerShell(& cmd /c \"npm run build 2>&1\" | Select-Object -Last 8)",
+      "PowerShell(& cmd /c \"npx tsc --noEmit 2>&1\" | Select-Object -Last 5)"
     ]
   }
 }
