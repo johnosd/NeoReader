@@ -1,0 +1,12 @@
+// Barrel export — importar via `from '@/components/ui'` ou caminho relativo.
+export { Button } from './Button'
+export { Input } from './Input'
+export { Switch } from './Switch'
+export { Checkbox } from './Checkbox'
+export { Badge } from './Badge'
+export { ListItem } from './ListItem'
+export { BottomSheet } from './BottomSheet'
+export { Toast } from './Toast'
+export { EmptyState } from './EmptyState'
+export { Skeleton } from './Skeleton'
+export { Spinner } from './Spinner'

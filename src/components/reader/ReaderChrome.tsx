@@ -64,38 +64,38 @@ export function ReaderChrome({
     <>
       {/* Top bar */}
       <div
-        className={`absolute top-0 left-0 right-0 z-20 bg-[#0a0a0a]/90 backdrop-blur-sm
+        className={`absolute top-0 left-0 right-0 z-20 bg-bg-reader/90 backdrop-blur-sm
           transition-transform duration-300 ${translateTop}`}
         onPointerUp={handleBarTap}
       >
         <div className="flex items-center justify-between px-4 pt-10 pb-3 gap-3">
           <button
             onClick={onBack}
-            className="p-2 -ml-2 text-white active:opacity-60"
+            className="p-2 -ml-2 text-text-primary active:opacity-60"
             aria-label="Voltar"
           >
             <ChevronLeft size={24} />
           </button>
 
-          <p className="flex-1 text-white text-sm font-semibold truncate text-center">
+          <p className="flex-1 text-text-primary text-sm font-semibold truncate text-center">
             {title}
           </p>
 
-          {/* Bookmark: ícone preenchido (accent) se marcado, outline se não */}
+          {/* Bookmark: ícone preenchido (accent índigo) se marcado, outline se não */}
           <button
             onClick={onBookmark}
             className="p-2 active:opacity-60"
             aria-label={isBookmarked ? 'Remover marcador' : 'Adicionar marcador'}
           >
             {isBookmarked
-              ? <BookmarkCheck size={22} className="text-[#6366f1]" />
-              : <Bookmark size={22} className="text-white" />
+              ? <BookmarkCheck size={22} className="text-indigo-primary" />
+              : <Bookmark size={22} className="text-text-primary" />
             }
           </button>
 
           <button
             onClick={onTocOpen}
-            className="p-2 -mr-2 text-white active:opacity-60"
+            className="p-2 -mr-2 text-text-primary active:opacity-60"
             aria-label="Marcadores"
           >
             <List size={24} />
@@ -105,14 +105,14 @@ export function ReaderChrome({
 
       {/* Bottom bar */}
       <div
-        className={`absolute bottom-0 left-0 right-0 z-20 bg-[#0a0a0a]/90 backdrop-blur-sm
+        className={`absolute bottom-0 left-0 right-0 z-20 bg-bg-reader/90 backdrop-blur-sm
           transition-transform duration-300 ${translateBottom}`}
         onPointerUp={handleBarTap}
       >
         {/* Barra de progresso fina */}
-        <div className="h-1 bg-[#1a1a1a]">
+        <div className="h-1 bg-bg-elevated">
           <div
-            className="h-full bg-[#22c55e] transition-all duration-500"
+            className="h-full bg-success transition-all duration-500"
             style={{ width: `${percentage}%` }}
           />
         </div>
@@ -127,8 +127,8 @@ export function ReaderChrome({
                 className={`w-9 h-9 rounded-md flex items-center justify-center font-serif
                   ${FONT_BUTTON_SIZES[item.value]}
                   ${fontSize === item.value
-                    ? 'bg-[#6366f1] text-white'
-                    : 'bg-[#1a1a1a] text-[#a0a0a0] active:opacity-60'
+                    ? 'bg-indigo-primary text-white'
+                    : 'bg-bg-elevated text-text-muted active:opacity-60'
                   }`}
                 aria-label={`Fonte ${item.value}`}
               >
@@ -137,15 +137,15 @@ export function ReaderChrome({
             ))}
           </div>
 
-          {/* Botão dedicado para abrir a lista de marcadores — separado do toggle 🔖 no top bar */}
+          {/* Botão dedicado para abrir a lista de marcadores — separado do toggle no top bar */}
           <button
             onClick={onBookmarkList}
-            className="relative p-2 text-[#a0a0a0] active:opacity-60"
+            className="relative p-2 text-text-muted active:opacity-60"
             aria-label="Ver marcadores"
           >
             <Bookmark size={20} />
             {bookmarkCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 text-[10px] leading-none tabular-nums text-[#6366f1] font-semibold">
+              <span className="absolute -top-0.5 -right-0.5 text-[10px] leading-none tabular-nums text-indigo-primary font-semibold">
                 {bookmarkCount}
               </span>
             )}
@@ -153,7 +153,7 @@ export function ReaderChrome({
 
           <button
             onClick={onOpenVocabulary}
-            className="p-2 text-[#a0a0a0] active:opacity-60"
+            className="p-2 text-text-muted active:opacity-60"
             aria-label="Vocabulário"
           >
             <GraduationCap size={20} />
@@ -162,21 +162,21 @@ export function ReaderChrome({
           {/* TTS: Volume2 (parado) / VolumeX verde (tocando) + badge AI quando Speechify */}
           <button
             onClick={onTtsToggle}
-            className="relative p-2 text-[#a0a0a0] active:opacity-60"
+            className="relative p-2 text-text-muted active:opacity-60"
             aria-label={ttsIsPlaying ? 'Parar leitura' : 'Iniciar leitura'}
           >
             {ttsIsPlaying
-              ? <VolumeX size={20} className="text-[#22c55e]" />
+              ? <VolumeX size={20} className="text-success" />
               : <Volume2 size={20} />}
             {ttsEngine === 'speechify' && (
-              <span className="absolute -top-0.5 -right-0.5 text-[9px] leading-none font-bold text-[#22c55e]">
+              <span className="absolute -top-0.5 -right-0.5 text-[9px] leading-none font-bold text-success">
                 AI
               </span>
             )}
           </button>
 
           {/* Percentual de progresso */}
-          <span className="text-[#a0a0a0] text-sm tabular-nums">
+          <span className="text-text-muted text-sm tabular-nums">
             {percentage}%
           </span>
         </div>

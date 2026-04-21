@@ -1,5 +1,6 @@
-import { useRef, useState } from 'react'
-import { ImagePlus, RefreshCw, Trash2, X } from 'lucide-react'
+import { useRef, useState, type ReactNode } from 'react'
+import { ImagePlus, RefreshCw, Trash2 } from 'lucide-react'
+import { BottomSheet, Button, Spinner } from './ui'
 import { EpubService } from '../services/EpubService'
 import { updateBookCover, deleteBook } from '../db/books'
 import type { Book } from '../types/book'
@@ -15,10 +16,9 @@ export function BookOptionsSheet({ book, onClose }: BookOptionsSheetProps) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const imageInputRef = useRef<HTMLInputElement>(null)
 
-  const translateY = book ? 'translate-y-0' : 'translate-y-full'
-
   function handleClose() {
     setConfirmDelete(false)
+    setError(null)
     onClose()
   }
 
@@ -27,7 +27,7 @@ export function BookOptionsSheet({ book, onClose }: BookOptionsSheetProps) {
     setLoading(true)
     try {
       await deleteBook(book.id)
-      handleClose() // useLiveQuery atualiza a biblioteca automaticamente
+      handleClose()
     } catch {
       setError('Erro ao deletar livro.')
       setLoading(false)
@@ -58,28 +58,24 @@ export function BookOptionsSheet({ book, onClose }: BookOptionsSheetProps) {
     }
   }
 
-  // Usa a imagem selecionada pelo usuário como nova capa
   async function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file || !book?.id) return
     setLoading(true)
     setError(null)
     try {
-      // Salva o arquivo diretamente como Blob — sem redimensionamento no MVP
       await updateBookCover(book.id, file)
       onClose()
     } catch {
       setError('Erro ao salvar imagem.')
     } finally {
       setLoading(false)
-      // Limpa o input para permitir selecionar o mesmo arquivo novamente
       if (imageInputRef.current) imageInputRef.current.value = ''
     }
   }
 
   return (
     <>
-      {/* Input oculto para seleção de imagem */}
       <input
         ref={imageInputRef}
         type="file"
@@ -88,110 +84,88 @@ export function BookOptionsSheet({ book, onClose }: BookOptionsSheetProps) {
         onChange={handleImageChange}
       />
 
-      {/* Backdrop */}
-      {book && (
-        <div
-          className="fixed inset-0 z-30 bg-black/60"
-          onPointerUp={handleClose}
-        />
-      )}
-
-      {/* Sheet deslizante */}
-      <div
-        className={`fixed bottom-0 left-0 right-0 z-40 bg-[#1a1a1a] rounded-t-2xl
-          transition-transform duration-300 ${translateY}`}
-      >
-        {/* Handle + header */}
-        <div className="flex items-center justify-between px-4 pt-4 pb-2">
-          <div className="w-10 h-1 rounded-full bg-[#3a3a3a] mx-auto absolute left-1/2 -translate-x-1/2 top-2" />
-          <h2 className="text-white font-semibold text-base mt-2">Opções do livro</h2>
-          <button onClick={handleClose} className="p-1 text-[#a0a0a0] active:opacity-60">
-            <X size={20} />
-          </button>
-        </div>
-
+      <BottomSheet open={book !== null} onClose={handleClose} title="Opções do livro">
         {book && (
-          <p className="px-4 pb-3 text-[#a0a0a0] text-xs truncate">{book.title}</p>
+          <p className="text-text-muted text-xs truncate mb-4 -mt-2">{book.title}</p>
         )}
 
-        <div className="px-4 pb-8 flex flex-col gap-2">
-          {/* Recriar capa do EPUB */}
-          <button
+        <div className="flex flex-col gap-2">
+          <OptionRow
+            icon={<RefreshCw size={18} />}
+            title="Recriar capa"
+            description="Reextrai a imagem original do arquivo EPUB"
             onClick={handleRecriarCapa}
             disabled={loading}
-            className="flex items-center gap-3 w-full px-4 py-4 rounded-xl bg-[#2a2a2a]
-              text-white text-sm active:opacity-60 disabled:opacity-40"
-          >
-            <RefreshCw size={18} className="text-[#6366f1] shrink-0" />
-            <div className="text-left">
-              <p className="font-medium">Recriar capa</p>
-              <p className="text-[#a0a0a0] text-xs mt-0.5">Reextrai a imagem original do arquivo EPUB</p>
-            </div>
-          </button>
-
-          {/* Escolher imagem externa */}
-          <button
+          />
+          <OptionRow
+            icon={<ImagePlus size={18} />}
+            title="Escolher imagem"
+            description="Seleciona uma imagem do dispositivo como capa"
             onClick={() => imageInputRef.current?.click()}
             disabled={loading}
-            className="flex items-center gap-3 w-full px-4 py-4 rounded-xl bg-[#2a2a2a]
-              text-white text-sm active:opacity-60 disabled:opacity-40"
-          >
-            <ImagePlus size={18} className="text-[#6366f1] shrink-0" />
-            <div className="text-left">
-              <p className="font-medium">Escolher imagem</p>
-              <p className="text-[#a0a0a0] text-xs mt-0.5">Seleciona uma imagem do dispositivo como capa</p>
-            </div>
-          </button>
+          />
 
-          {/* Deletar livro — dois toques: primeiro pede confirmação */}
           {!confirmDelete ? (
-            <button
+            <OptionRow
+              icon={<Trash2 size={18} />}
+              title="Deletar livro"
+              description="Remove o livro e todo o progresso salvo"
               onClick={() => setConfirmDelete(true)}
               disabled={loading}
-              className="flex items-center gap-3 w-full px-4 py-4 rounded-xl bg-[#2a2a2a]
-                text-red-400 text-sm active:opacity-60 disabled:opacity-40"
-            >
-              <Trash2 size={18} className="shrink-0" />
-              <div className="text-left">
-                <p className="font-medium">Deletar livro</p>
-                <p className="text-[#a0a0a0] text-xs mt-0.5">Remove o livro e todo o progresso salvo</p>
-              </div>
-            </button>
+              danger
+            />
           ) : (
-            <div className="rounded-xl bg-red-950/60 border border-red-800/50 px-4 py-3 flex flex-col gap-2">
-              <p className="text-red-300 text-sm font-medium">Confirmar exclusão?</p>
-              <p className="text-red-400/70 text-xs">Esta ação não pode ser desfeita.</p>
-              <div className="flex gap-2 mt-1">
-                <button
-                  onClick={() => setConfirmDelete(false)}
-                  className="flex-1 py-2 rounded-lg bg-[#2a2a2a] text-[#a0a0a0] text-sm active:opacity-60"
-                >
+            <div className="rounded-md bg-error/15 border border-error/30 px-4 py-3 flex flex-col gap-2">
+              <p className="text-error text-sm font-semibold">Confirmar exclusão?</p>
+              <p className="text-error/70 text-xs">Esta ação não pode ser desfeita.</p>
+              <div className="flex gap-2 mt-2">
+                <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)}>
                   Cancelar
-                </button>
-                <button
-                  onClick={handleDelete}
-                  disabled={loading}
-                  className="flex-1 py-2 rounded-lg bg-red-700 text-white text-sm font-semibold
-                    active:opacity-60 disabled:opacity-40"
-                >
+                </Button>
+                <Button variant="danger" size="sm" onClick={handleDelete} disabled={loading}>
                   {loading ? 'Deletando…' : 'Deletar'}
-                </button>
+                </Button>
               </div>
             </div>
           )}
 
-          {/* Feedback de loading/erro */}
           {loading && !confirmDelete && (
-            <div className="flex items-center justify-center py-2 gap-2 text-[#a0a0a0] text-sm">
-              <div className="w-4 h-4 border-2 border-[#6366f1] border-t-transparent rounded-full animate-spin" />
-              Processando…
+            <div className="flex justify-center py-2">
+              <Spinner size={18} label="Processando" />
             </div>
           )}
           {error && (
-            <p className="text-red-400 text-sm text-center px-2">{error}</p>
+            <p className="text-error text-sm text-center px-2 mt-2">{error}</p>
           )}
         </div>
-      </div>
+      </BottomSheet>
     </>
+  )
+}
+
+interface OptionRowProps {
+  icon: ReactNode
+  title: string
+  description: string
+  onClick: () => void
+  disabled?: boolean
+  danger?: boolean
+}
+
+function OptionRow({ icon, title, description, onClick, disabled, danger }: OptionRowProps) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`flex items-center gap-3 w-full px-4 py-4 rounded-md bg-bg-hover text-left
+        text-sm active:scale-[0.98] transition-transform duration-150 disabled:opacity-40
+        ${danger ? 'text-error' : 'text-text-primary'}`}
+    >
+      <span className={`shrink-0 ${danger ? 'text-error' : 'text-purple-light'}`}>{icon}</span>
+      <div>
+        <p className="font-semibold">{title}</p>
+        <p className="text-text-muted text-xs mt-0.5">{description}</p>
+      </div>
+    </button>
   )
 }

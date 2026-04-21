@@ -253,7 +253,7 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
   if (!initialLoadDone) return <ReaderSkeleton />
 
   return (
-    <div className="fixed inset-0 bg-[#0a0a0a]">
+    <div className="fixed inset-0 bg-bg-reader">
       {isLoading && <ReaderSkeleton />}
 
       <div className="absolute inset-0">
@@ -358,9 +358,9 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
       />
 
       {error && (
-        <div className="absolute inset-0 z-40 bg-[#0a0a0a] flex flex-col items-center justify-center gap-4 px-8">
-          <p className="text-red-400 text-sm text-center">{error}</p>
-          <button onClick={handleBack} className="text-[#6366f1] text-sm underline">
+        <div className="absolute inset-0 z-40 bg-bg-reader flex flex-col items-center justify-center gap-4 px-8">
+          <p className="text-error text-sm text-center">{error}</p>
+          <button onClick={handleBack} className="text-indigo-primary text-sm underline">
             Voltar à biblioteca
           </button>
         </div>
@@ -371,8 +371,8 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
 
 function ReaderSkeleton() {
   return (
-    <div className="fixed inset-0 bg-[#0a0a0a] flex items-center justify-center">
-      <div className="w-8 h-8 border-2 border-[#6366f1] border-t-transparent rounded-full animate-spin" />
+    <div className="fixed inset-0 bg-bg-reader flex items-center justify-center">
+      <div className="w-8 h-8 border-2 border-indigo-primary border-t-transparent rounded-full animate-spin" />
     </div>
   )
 }
@@ -384,13 +384,14 @@ function ChapterEndBanner({ hasNext }: { hasNext: boolean }) {
   return (
     <div
       className="absolute bottom-0 left-0 right-0 z-20 flex flex-col items-center py-5 pointer-events-none"
-      style={{ background: 'linear-gradient(to top, #0f0f1a 55%, transparent)' }}
+      // Gradiente com CSS var: Tailwind v4 não gera utility para gradient-stop a 55% com token arbitrário
+      style={{ background: 'linear-gradient(to top, var(--color-bg-reader) 55%, transparent)' }}
     >
-      <p className="text-sm font-medium mb-1" style={{ color: '#e8e8e8' }}>
+      <p className="text-sm font-medium mb-1 text-text-primary">
         {hasNext ? 'Fim do capítulo' : 'Fim do livro'}
       </p>
       {hasNext && (
-        <p className="text-xs" style={{ color: '#6b6b7a' }}>
+        <p className="text-xs text-text-muted">
           Arraste para baixo para o próximo capítulo
         </p>
       )}
@@ -407,17 +408,13 @@ function TtsFinishedToast({ onDismiss }: { onDismiss: () => void }) {
   }, [onDismiss])
 
   return (
-    <div
-      className="absolute bottom-24 left-4 right-4 z-30 flex items-center justify-between px-4 py-3 rounded-xl"
-      style={{ background: '#1a1a2e', border: '1px solid rgba(99,102,241,0.3)' }}
-    >
-      <span className="text-sm" style={{ color: '#a5a5a5' }}>
+    <div className="absolute bottom-24 left-4 right-4 z-30 flex items-center justify-between px-4 py-3 rounded-md bg-bg-elevated border border-indigo-primary/30">
+      <span className="text-sm text-text-secondary">
         Fim do capítulo
       </span>
       <button
         onPointerUp={onDismiss}
-        className="text-sm font-medium px-3 py-1 rounded-lg"
-        style={{ color: '#6366f1' }}
+        className="text-sm font-medium px-3 py-1 rounded-md text-indigo-primary active:opacity-60"
       >
         OK
       </button>

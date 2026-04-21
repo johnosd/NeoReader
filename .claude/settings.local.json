@@ -28,7 +28,20 @@
       "Bash(ls *)",
       "Bash(wc *)",
       "Bash(npm run *)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(npm i *)",
+      "Bash(echo \"EXIT=$?\")",
+      "PowerShell(npm run *)",
+      "PowerShell(& cmd /c \"npm run build 2>&1\" | Select-Object -Last 40)",
+      "PowerShell(& cmd /c \"npm run build 2>&1\" | Select-Object -Last 50)",
+      "PowerShell(& cmd /c \"npm run build 2>&1\" | Select-Object -Last 30)",
+      "PowerShell(& cmd /c \"npm run build 2>&1\" | Select-Object -Last 15)",
+      "PowerShell(& cmd /c \"npm run build 2>&1\" | Select-Object -Last 10)",
+      "PowerShell(& cmd /c \"npm run build 2>&1\" | Select-Object -Last 80)",
+      "PowerShell(& cmd /c \"npm run lint 2>&1\" | Select-Object -Last 30)",
+      "PowerShell(& cmd /c \"npx tsc --noEmit 2>&1\" | Select-Object -Last 30)",
+      "PowerShell(& cmd /c \"npm run lint 2>&1\" | Select-Object -Last 15)",
+      "PowerShell(Copy-Item *)"
     ]
   }
 }
