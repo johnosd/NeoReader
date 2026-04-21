@@ -841,15 +841,22 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           onTocReady(view.book?.toc ?? [])
 
           // CFI com [Cover] = capa sem conteúdo legível → tela preta no tema escuro.
-          // Tratamos como "sem posição salva" e começamos pelo primeiro texto real.
+          // Validamos o formato antes de usar: CFI inválido (livro reprocessado, seção removida)
+          // deve fazer fallback silencioso em vez de mostrar tela de erro.
           const isAtCover = !!savedCfi?.match(/\[Cover\]/i)
-          const initCfi = savedCfi && !isAtCover ? savedCfi : null
-          console.log('[nr-debug]', 'calling view.init()', { savedCfi, isAtCover, initCfi })
-          await view.init(
-            initCfi
-              ? { lastLocation: initCfi }
-              : { showTextStart: true },
-          )
+          const isValidCfi = savedCfi && !isAtCover && savedCfi.startsWith('epubcfi(')
+          const initCfi = isValidCfi ? savedCfi : null
+          console.log('[nr-debug]', 'calling view.init()', { savedCfi, isValidCfi, initCfi })
+          try {
+            await view.init(
+              initCfi
+                ? { lastLocation: initCfi }
+                : { showTextStart: true },
+            )
+          } catch {
+            // CFI inválido (seção removida, livro reprocessado) → recomeça do início sem erro
+            await view.init({ showTextStart: true })
+          }
           console.log('[nr-debug]', 'view.init() resolved')
 
           if (loadTimeout) clearTimeout(loadTimeout)

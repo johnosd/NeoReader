@@ -7,12 +7,12 @@ import { TocDrawer } from '../components/reader/TocDrawer'
 import { BookmarkSheet } from '../components/reader/BookmarkSheet'
 import { useReaderProgress } from '../hooks/useReaderProgress'
 import { useReaderStore } from '../store/readerStore'
-import { upsertProgress } from '../db/progress'
 import { updateLastOpened } from '../db/books'
 import { addBookmark, deleteBookmark } from '../db/bookmarks'
 import { addVocabItem } from '../db/vocabulary'
 import { getSettings } from '../db/settings'
 import { db } from '../db/database'
+import { normalizeCfi } from '../utils/cfiUtils'
 import { useTTS } from '../hooks/useTTS'
 import { TtsMiniPlayer } from '../components/reader/TtsMiniPlayer'
 import { SpeechifyService } from '../services/SpeechifyService'
@@ -51,7 +51,7 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
   const { cfi, percentage, tocLabel, toc, setCfi, setToc, reset } = useReaderStore()
 
   // Progresso do IndexedDB (async)
-  const { savedCfi, initialLoadDone, saveProgress } = useReaderProgress(book.id!)
+  const { savedCfi, initialLoadDone, saveProgress, flush: flushProgress } = useReaderProgress(book.id!)
 
   // Marcadores do livro atual — useLiveQuery: reativo, atualiza automaticamente
   const bookmarks = useLiveQuery(
@@ -59,8 +59,8 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
     [book.id],
   ) ?? []
 
-  // true se a posição atual já tem marcador salvo
-  const isBookmarked = bookmarks.some((b) => b.cfi === cfi)
+  // Compara por nó (sem offset de caractere) — o mesmo ponto visual pode ter CFIs com :offset diferente
+  const isBookmarked = cfi ? bookmarks.some((b) => normalizeCfi(b.cfi) === normalizeCfi(cfi)) : false
 
   // Limpa o store ao desmontar para não vazar estado entre livros
   useEffect(() => { return () => reset() }, [reset])
@@ -226,17 +226,16 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
   // Flush imediato ao sair — garante que a posição não seja perdida
   // se o usuário voltar antes do debounce de 1.5s disparar
   function handleBack() {
-    if (cfi && book.id !== undefined) {
-      void upsertProgress(book.id, cfi, percentage)
-    }
+    flushProgress()
     onBack()
   }
 
   // Toggle puro: adiciona se não existe, remove se já existe na posição atual.
-  // A lista de marcadores é acessada pelo botão dedicado no bottom bar.
+  // Usa normalizeCfi para comparar por nó (sem offset) — evita falso negativo.
   function handleBookmarkToggle() {
     if (!cfi || book.id === undefined) return
-    const existing = bookmarks.find((b) => b.cfi === cfi)
+    const norm = normalizeCfi(cfi)
+    const existing = bookmarks.find((b) => normalizeCfi(b.cfi) === norm)
     if (existing?.id !== undefined) {
       void deleteBookmark(existing.id)
     } else {

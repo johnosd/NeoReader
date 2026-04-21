@@ -49,6 +49,31 @@ class NeoReaderDB extends Dexie {
       translations:'++id, textHash, createdAt',
       settings:    '++id',
     })
+
+    // v5: índice único em progress.bookId (elimina duplicatas) + índice cfi em bookmarks (busca eficiente)
+    // A migration deduplica registros de progress antes de aplicar o índice único (&bookId)
+    this.version(5)
+      .stores({
+        books:        '++id, title, author, addedAt, lastOpenedAt',
+        progress:     '++id, &bookId, updatedAt',
+        bookmarks:    '++id, bookId, cfi, createdAt',
+        vocabulary:   '++id, bookId, createdAt',
+        translations: '++id, textHash, createdAt',
+        settings:     '++id',
+      })
+      .upgrade(async tx => {
+        // Mantém apenas o registro mais recente por bookId antes de aplicar índice único
+        const all = await tx.table('progress').toArray()
+        const byBook = new Map<number, (typeof all)[0]>()
+        for (const row of all) {
+          const prev = byBook.get(row.bookId)
+          if (!prev || row.updatedAt > prev.updatedAt) byBook.set(row.bookId, row)
+        }
+        const toDelete = all
+          .filter(r => byBook.get(r.bookId)?.id !== r.id)
+          .map(r => r.id!)
+        if (toDelete.length > 0) await tx.table('progress').bulkDelete(toDelete)
+      })
   }
 }
 
