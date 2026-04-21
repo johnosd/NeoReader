@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { ChevronDown, ChevronRight, X } from 'lucide-react'
 
 interface TocDrawerProps {
@@ -9,15 +9,11 @@ interface TocDrawerProps {
 }
 
 export function TocDrawer({ open, toc, onSelect, onClose }: TocDrawerProps) {
-  // Set de hrefs expandidos — por padrão, expande itens raiz que têm subseções
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
-
-  // Inicializa estado de expansão quando o TOC carrega (roda uma vez ao abrir o livro)
-  useEffect(() => {
-    setExpanded(
-      new Set(toc.filter(item => item.subitems?.length).map(item => item.href))
-    )
-  }, [toc])
+  // Inicializador lazy: expande itens raiz com subseções na montagem.
+  // toc vem do Zustand e é definido uma única vez ao carregar o livro — sem necessidade de sincronizar.
+  const [expanded, setExpanded] = useState<Set<string>>(
+    () => new Set(toc.filter(item => item.subitems?.length).map(item => item.href))
+  )
 
   function toggleExpand(href: string) {
     setExpanded(prev => {
@@ -40,15 +36,15 @@ export function TocDrawer({ open, toc, onSelect, onClose }: TocDrawerProps) {
       )}
 
       <div
-        className={`absolute left-0 top-0 bottom-0 z-30 w-4/5 max-w-[320px] bg-[#1a1a1a]
+        className={`absolute left-0 top-0 bottom-0 z-30 w-4/5 max-w-[320px] bg-bg-elevated
           transition-transform duration-300 ${translateX} flex flex-col`}
       >
         {/* pt-10 deixa espaço para status bar do Android (~24-28px) */}
-        <div className="flex items-center justify-between px-5 pt-10 pb-4 border-b border-[#2a2a2a] shrink-0">
-          <h2 className="text-white font-semibold text-base">Índice</h2>
+        <div className="flex items-center justify-between px-5 pt-10 pb-4 border-b border-border shrink-0">
+          <h2 className="text-text-primary font-semibold text-base">Índice</h2>
           <button
             onClick={onClose}
-            className="p-1 -mr-1 text-[#a0a0a0] active:opacity-60"
+            className="p-1 -mr-1 text-text-muted active:opacity-60"
             aria-label="Fechar índice"
           >
             <X size={20} />
@@ -57,7 +53,7 @@ export function TocDrawer({ open, toc, onSelect, onClose }: TocDrawerProps) {
 
         <div className="overflow-y-auto flex-1 pb-8">
           {toc.length === 0 ? (
-            <p className="text-[#a0a0a0] text-sm px-5 py-4">Índice não disponível</p>
+            <p className="text-text-muted text-sm px-5 py-4">Índice não disponível</p>
           ) : (
             <TocList
               items={toc}
@@ -102,7 +98,7 @@ function TocList({
               {hasChildren ? (
                 <button
                   onClick={() => onToggle(item.href)}
-                  className="p-2 shrink-0 text-[#6b6b7a] active:opacity-60"
+                  className="p-2 shrink-0 text-text-muted active:opacity-60"
                   aria-label={isExpanded ? 'Recolher' : 'Expandir'}
                 >
                   {isExpanded
@@ -117,8 +113,8 @@ function TocList({
 
               <button
                 onClick={() => onSelect(item.href)}
-                className={`flex-1 text-left py-3 pr-5 text-sm active:bg-[#2a2a2a]
-                  ${depth === 0 ? 'text-[#e8e8e8]' : 'text-[#a0a0a0]'}`}
+                className={`flex-1 text-left py-3 pr-5 text-sm active:bg-bg-hover
+                  ${depth === 0 ? 'text-text-primary' : 'text-text-secondary'}`}
               >
                 {item.label}
               </button>

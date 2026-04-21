@@ -48,13 +48,48 @@ Leitor de EPUB para Android focado em **incentivar a leitura** e **facilitar o a
 
 ---
 
+## Design System
+
+Paleta híbrida — dois acentos com propósito distinto:
+
+- **Roxo** (`#7b2cbf` / `#9d4edd`) — biblioteca, nav, FAB e todos os elementos fora do leitor
+- **Índigo** (`#6366f1`) — leitor (tom mais frio, distrai menos durante a leitura)
+
+Tokens definidos via `@theme` em `src/index.css`; Tailwind v4 gera utilities automaticamente (`bg-bg-surface`, `text-text-muted`, `shadow-purple-glow`, `font-serif`, etc.).
+
+Fontes carregadas via `@fontsource` (offline-first, necessário no Capacitor):
+- **Inter** 400/500/600/700/900 — UI geral
+- **Playfair Display** 600/700/800 — títulos e citações (serif)
+- **JetBrains Mono** 400/700 — valores técnicos
+
+Especificações completas em `docs/design-system/design-system-mobile-v2.html` (mobile) e `docs/design-system/design_system.html` (desktop).
+
+### Componentes UI (`src/components/ui/`)
+
+| Componente | Descrição |
+|---|---|
+| `Button` | 5 variantes (primary / secondary / ghost / danger / outline) × 2 tons (purple / indigo) |
+| `Input` | Label + hint + error + leftIcon + rightSlot, acessível via `useId` |
+| `Switch` | Toggle Material 3 (48×28), `role="switch"` |
+| `Checkbox` | 20×20, Check icon, input oculto acessível |
+| `Badge` | 6 tons (success / warning / error / purple / indigo / neutral) |
+| `ListItem` | Leading / title / meta / trailing, press state, teclado acessível |
+| `BottomSheet` | Backdrop + handle + sticky header + safe-area-inset-bottom + ESC fecha |
+| `Toast` | 4 tons com ícones Lucide, auto-dismiss configurável |
+| `EmptyState` | Ícone + título + descrição + slot de ação |
+| `Skeleton` | Variantes block / card / text com `animate-pulse` |
+| `Spinner` | Tamanho e tom configuráveis, label opcional |
+
+---
+
 ## Stack
 
 | Camada | Tecnologia |
 |--------|-----------|
-| UI | React 19 + TypeScript + Vite |
+| UI | React 18 + TypeScript + Vite |
 | Mobile | Capacitor 6 (Android) |
-| Estilo | Tailwind CSS v4 |
+| Estilo | Tailwind CSS v4 + `@theme` tokens |
+| Fontes | Inter · Playfair Display · JetBrains Mono (`@fontsource`) |
 | EPUB render | foliate-js |
 | Storage | Dexie.js (IndexedDB) |
 | Estado global | Zustand |
@@ -82,9 +117,14 @@ Pré-requisitos: Android Studio instalado, device conectado com USB debugging at
 
 ```bash
 npm run build
-npx cap sync android     # copia dist/ para o projeto Android
-npx cap run android      # builda e instala no device
-adb devices              # lista devices conectados
+npx cap sync android                    # copia dist/ para o projeto Android
+npx cap run android                     # builda e instala no device
+adb devices                             # lista devices conectados
+
+# Atualizar ícones do app (coloque icon-only.png e icon-foreground.png em assets/)
+npx @capacitor/assets generate --android
+cd android && ./gradlew clean && cd ..
+npx cap run android
 ```
 
 ---
@@ -107,14 +147,20 @@ cp .env.example .env
 
 ```
 src/
-├── components/       # UI reutilizável (BookCard, HeroBanner, BookRow...)
-│   └── reader/       # Componentes do leitor (EpubViewer, ReaderChrome...)
-├── screens/          # Telas completas (LibraryScreen, ReaderScreen, VocabularyScreen)
-├── hooks/            # React hooks (useLibraryGroups, useTTS, useReaderProgress...)
-├── services/         # Lógica de negócio (SpeechifyService, TranslationService...)
-├── db/               # Schema Dexie e queries (books, progress, bookmarks, vocabulary)
-├── store/            # Zustand stores (readerStore)
-└── types/            # Tipos TypeScript compartilhados
+├── components/
+│   ├── ui/           # Primitivos do design system (Button, Input, BottomSheet...)
+│   ├── reader/       # Componentes do leitor (EpubViewer, ReaderChrome, TocDrawer...)
+│   └── ...           # BookCard, HeroBanner, BookRow, BottomNav, BookOptionsSheet...
+├── screens/          # LibraryScreen · ReaderScreen · SettingsScreen · VocabularyScreen
+├── hooks/            # useLibraryGroups · useTTS · useReaderProgress...
+├── services/         # SpeechifyService · TranslationService · EpubService
+├── db/               # Schema Dexie e queries (books · progress · bookmarks · vocabulary · settings)
+├── store/            # Zustand (readerStore)
+├── types/            # Tipos TypeScript compartilhados
+└── utils/            # Funções puras (cn...)
+docs/
+├── design-system/    # Specs visuais mobile-v2 e desktop
+└── epub-reader-plan.md
 ```
 
 ---

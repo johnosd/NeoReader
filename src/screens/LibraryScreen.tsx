@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
 import { App as CapApp } from '@capacitor/app'
-import { Bell } from 'lucide-react'
+import { Bell, BookOpen } from 'lucide-react'
 import { HeroBanner } from '../components/HeroBanner'
 import { BookRow } from '../components/BookRow'
 import { BookOptionsSheet } from '../components/BookOptionsSheet'
 import { BottomNav } from '../components/BottomNav'
+import { EmptyState, Skeleton } from '../components/ui'
 import { useLibraryGroups } from '../hooks/useLibraryGroups'
 import type { Book } from '../types/book'
 
@@ -28,50 +29,36 @@ export function LibraryScreen({ onOpenBook, onOpenVocabulary, onOpenSettings }: 
   }, [optionsBook])
 
   return (
-    <div className="min-h-screen pb-[70px]" style={{ background: '#0f0c18', color: '#fff' }}>
-      {/* Header */}
+    <div className="min-h-screen pb-[90px] bg-bg-base text-text-primary">
       <header className="px-5 pt-10 pb-4 flex items-center justify-between">
         <div>
-          <p className="text-sm" style={{ color: '#a5a5a5' }}>Bem-vindo,</p>
-          <h1 className="text-2xl font-bold" style={{ color: '#c77dff' }}>NeoReader</h1>
+          <p className="text-sm text-text-muted">Bem-vindo,</p>
+          <h1 className="text-2xl font-serif font-bold text-purple-light tracking-tight">NeoReader</h1>
         </div>
         <button
-          className="p-2.5 rounded-xl"
-          style={{ background: '#1c182b', border: '1px solid rgba(255,255,255,0.1)' }}
+          className="p-2.5 rounded-md bg-bg-surface border border-border text-text-primary active:scale-95 transition-transform"
           aria-label="Notificações"
         >
-          <Bell size={20} className="text-white" />
+          <Bell size={20} />
         </button>
       </header>
 
       <main>
-        {/* Estado de carregamento */}
-        {isLoading && <SkeletonCurrently />}
+        {isLoading && <LibrarySkeleton />}
 
-        {/* Biblioteca vazia */}
-        {isEmpty && <EmptyState />}
+        {isEmpty && (
+          <EmptyState
+            icon={<BookOpen size={48} />}
+            title="Sua biblioteca está vazia"
+            description="Toque no botão + da barra inferior para adicionar seu primeiro livro EPUB."
+          />
+        )}
 
-        {/* Com livros */}
         {!isLoading && !isEmpty && (
           <>
-            {/* Hero — full-width, sem padding lateral */}
             {heroBook && <HeroBanner book={heroBook} onPress={onOpenBook} />}
-
-            {/* Continue lendo */}
-            <BookRow
-              title="Continue lendo"
-              books={inProgressBooks}
-              onPress={onOpenBook}
-              onOpenOptions={setOptionsBook}
-            />
-
-            {/* Meus livros */}
-            <BookRow
-              title="Meus Livros"
-              books={recentBooks}
-              onPress={onOpenBook}
-              onOpenOptions={setOptionsBook}
-            />
+            <BookRow title="Continue lendo" books={inProgressBooks} onPress={onOpenBook} onOpenOptions={setOptionsBook} />
+            <BookRow title="Meus Livros" books={recentBooks} onPress={onOpenBook} onOpenOptions={setOptionsBook} />
           </>
         )}
       </main>
@@ -88,30 +75,16 @@ export function LibraryScreen({ onOpenBook, onOpenVocabulary, onOpenSettings }: 
   )
 }
 
-
-function EmptyState() {
+function LibrarySkeleton() {
   return (
-    <div className="flex flex-col items-center justify-center py-24 gap-4 text-center px-8">
-      <span className="text-6xl">📚</span>
-      <h2 className="text-xl font-semibold text-white">Sua biblioteca está vazia</h2>
-      <p className="text-sm" style={{ color: '#a5a5a5' }}>
-        Toque no botão <span style={{ color: '#c77dff' }}>N</span> para adicionar seu primeiro livro EPUB
-      </p>
-    </div>
-  )
-}
-
-// Skeleton enquanto o IndexedDB inicializa (geralmente &lt;100ms)
-function SkeletonCurrently() {
-  return (
-    <div className="px-5 mt-2">
-      <div className="h-4 w-36 rounded mb-3" style={{ background: '#1c182b' }} />
-      <div className="flex gap-4 p-4 rounded-2xl" style={{ background: '#1c182b' }}>
-        <div className="shrink-0 rounded-xl animate-pulse" style={{ width: 80, height: 120, background: '#2d2942' }} />
+    <div className="px-5 mt-2 space-y-3">
+      <Skeleton variant="text" className="w-36" />
+      <div className="flex gap-4 p-4 rounded-md bg-bg-surface">
+        <Skeleton className="shrink-0 w-20 h-[120px]" />
         <div className="flex flex-col gap-2 flex-1">
-          <div className="h-4 w-3/4 rounded animate-pulse" style={{ background: '#2d2942' }} />
-          <div className="h-3 w-1/2 rounded animate-pulse" style={{ background: '#2d2942' }} />
-          <div className="h-2 w-full rounded animate-pulse mt-2" style={{ background: '#2d2942' }} />
+          <Skeleton variant="text" className="w-3/4" />
+          <Skeleton variant="text" className="w-1/2 h-3" />
+          <Skeleton className="w-full h-2 mt-2" />
         </div>
       </div>
     </div>

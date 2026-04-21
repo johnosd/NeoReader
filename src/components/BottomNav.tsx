@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { Home, Star, BarChart2, User, Plus } from 'lucide-react'
+import { Toast } from './ui'
 import { EpubService } from '../services/EpubService'
 import { addBook } from '../db/books'
 
@@ -10,6 +11,8 @@ interface BottomNavProps {
   onTabChange?: (tab: Tab) => void
 }
 
+type NavItem = { id: Tab; label: string; Icon: typeof Home }
+
 export function BottomNav({ activeTab = 'home', onTabChange }: BottomNavProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [importing, setImporting] = useState(false)
@@ -18,10 +21,8 @@ export function BottomNav({ activeTab = 'home', onTabChange }: BottomNavProps) {
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-
     setImporting(true)
     setError(null)
-
     try {
       const metadata = await EpubService.parseMetadata(file)
       await addBook({
@@ -35,48 +36,33 @@ export function BottomNav({ activeTab = 'home', onTabChange }: BottomNavProps) {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Erro ao importar o arquivo'
       setError(message)
-      // Limpa o erro após 3 segundos
-      setTimeout(() => setError(null), 3000)
     } finally {
       setImporting(false)
       if (inputRef.current) inputRef.current.value = ''
     }
   }
 
-  const items = [
-    { id: 'home' as Tab, label: 'Home', Icon: Home },
-    { id: 'books' as Tab, label: 'Vocab', Icon: Star },
-    null, // espaço para o FAB central
-    { id: 'progress' as Tab, label: 'Progresso', Icon: BarChart2 },
-    { id: 'profile' as Tab, label: 'Perfil', Icon: User },
+  // null marca o slot do FAB central
+  const items: Array<NavItem | null> = [
+    { id: 'home', label: 'Home', Icon: Home },
+    { id: 'books', label: 'Vocab', Icon: Star },
+    null,
+    { id: 'progress', label: 'Progresso', Icon: BarChart2 },
+    { id: 'profile', label: 'Perfil', Icon: User },
   ]
 
   return (
     <>
-      {/* Input oculto para seleção de EPUB */}
-      <input
-        ref={inputRef}
-        type="file"
-        accept=".epub"
-        className="hidden"
-        onChange={handleFileChange}
-      />
+      <input ref={inputRef} type="file" accept=".epub" className="hidden" onChange={handleFileChange} />
 
-      {/* Toast de erro */}
-      {error && (
-        <div className="fixed bottom-24 left-4 right-4 z-50 bg-red-900/90 text-white text-sm px-4 py-3 rounded-lg text-center">
-          {error}
-        </div>
-      )}
+      {error && <Toast tone="error" onDismiss={() => setError(null)}>{error}</Toast>}
 
-      {/* Barra de navegação */}
       <nav
         className="fixed bottom-0 left-0 right-0 h-[70px] z-40 flex justify-around items-center
-          border-t border-white/5"
-        style={{ background: 'rgba(15, 12, 24, 0.97)', backdropFilter: 'blur(10px)' }}
+          border-t border-border bg-bg-surface/95 backdrop-blur-md"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
       >
         {items.map((item) => {
-          // Slot central = FAB
           if (item === null) {
             return (
               <button
@@ -85,11 +71,11 @@ export function BottomNav({ activeTab = 'home', onTabChange }: BottomNavProps) {
                 disabled={importing}
                 aria-label="Adicionar livro"
                 className="-mt-7 w-[52px] h-[52px] rounded-full flex items-center justify-center
-                  border-2 border-[#0f0c18] shadow-lg active:scale-95 transition-transform duration-150
+                  border-2 border-bg-base shadow-purple-glow active:scale-95 transition-transform duration-150
                   disabled:opacity-60"
+                // Gradiente inline — Tailwind v4 não gera gradients de tokens automaticamente.
                 style={{
-                  background: 'linear-gradient(135deg, #7b2cbf 0%, #3c096c 100%)',
-                  boxShadow: '0 4px 15px rgba(157, 78, 221, 0.6)',
+                  background: 'linear-gradient(135deg, var(--color-purple-primary) 0%, var(--color-purple-dark) 100%)',
                 }}
               >
                 {importing ? (
@@ -107,12 +93,13 @@ export function BottomNav({ activeTab = 'home', onTabChange }: BottomNavProps) {
             <button
               key={id}
               onClick={() => onTabChange?.(id)}
-              className="flex flex-col items-center gap-1 py-1 px-3 transition-colors duration-150"
-              style={{ color: isActive ? '#c77dff' : '#a5a5a5' }}
+              className={`flex flex-col items-center gap-1 py-1 px-3 transition-all duration-150 active:scale-90 ${
+                isActive ? 'text-purple-light' : 'text-text-secondary'
+              }`}
               aria-label={label}
             >
               <Icon size={22} />
-              <span className="text-[10px]">{label}</span>
+              <span className="text-[10px] font-semibold">{label}</span>
             </button>
           )
         })}

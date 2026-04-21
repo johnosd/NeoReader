@@ -87,3 +87,9 @@ Veja `docs/epub-reader-plan.md` seção 5 para detalhes.
 
 ## aprendizado de claude code
  - aproveite para ir inserindo o usuario conhecimentos de claude code em nivel intermediario e avançado
+
+## Design System 
+- Para um design system consitente utilize os arquivos: 
+- [ds-desktop](docs/design-system/design_system.html)
+- [ds-mobile-v2](docs/design-system/design-system-mobile-v1.html)
+- [ds-mobile-v2](docs/design-system/design-system-mobile-v1.html)

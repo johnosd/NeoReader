@@ -61,7 +61,7 @@ export class EpubService {
 
   // Extrai o conteúdo de uma tag XML simples (sem atributos aninhados)
   private static extractTag(xml: string, tag: string): string | null {
-    const match = xml.match(new RegExp(`<${tag}[^>]*>([^<]+)<\/${tag}>`))
+    const match = xml.match(new RegExp(`<${tag}[^>]*>([^<]+)</${tag}>`))
     return match?.[1]?.trim() ?? null
   }
 
