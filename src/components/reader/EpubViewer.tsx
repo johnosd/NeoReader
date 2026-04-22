@@ -616,6 +616,10 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         .toLowerCase()
     }
 
+    function isCfiTarget(target: string): boolean {
+      return /^epubcfi\(/i.test(target.trim())
+    }
+
     function flattenToc(items: TocItem[]): TocItem[] {
       const flat: TocItem[] = []
       for (const item of items) {
@@ -841,7 +845,9 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         goToAdjacentSection(-1)
       },
       goTo: (target) => {
-        autoSkipChapterStubDirectionRef.current = 0
+        autoSkipChapterStubDirectionRef.current =
+          typeof target === 'string' && !isCfiTarget(target) ? 1 : 0
+        autoSkipChapterStubCountRef.current = 0
         viewRef.current?.goTo(target)
       },
       getVisibleLocation: () => {

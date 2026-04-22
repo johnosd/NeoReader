@@ -599,6 +599,27 @@ describe('EpubViewer — chapter auto-advance', () => {
     expect(foliateEl.renderer.nextSection).toHaveBeenCalledTimes(2)
   })
 
+  it('pula página de parte ao navegar para ela via índice (href)', async () => {
+    const { viewerRef, foliateEl } = await renderViewer()
+
+    const partDoc = document.implementation.createHTMLDocument('part')
+    const part = partDoc.createElement('div')
+    part.setAttribute('data-type', 'part')
+    const heading = partDoc.createElement('h1')
+    heading.textContent = 'Part I. Foundation and Building Blocks'
+    part.appendChild(heading)
+    const watermark = partDoc.createElement('p')
+    watermark.textContent = 'OceanofPDF.com'
+    partDoc.body.append(part, watermark)
+    injectFakeWindow(partDoc, 0, 800, 400)
+
+    act(() => { viewerRef.current?.goTo('part-1.xhtml') })
+    expect(foliateEl.goTo).toHaveBeenCalledWith('part-1.xhtml')
+
+    loadSection(foliateEl, partDoc, 1)
+    expect(foliateEl.renderer.nextSection).toHaveBeenCalledTimes(1)
+  })
+
   it('chegar ao fundo da seção não dispara navegação implícita por swipe', async () => {
     const onAtBottom = vi.fn()
     const { foliateEl } = await renderViewer({ onAtBottom })

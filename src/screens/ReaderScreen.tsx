@@ -20,7 +20,7 @@ import { SpeechifyService } from '../services/SpeechifyService'
 import { translate } from '../services/TranslationService'
 import type { Book } from '../types/book'
 import type { FontSize } from '../types/settings'
-import { areCfisEquivalent, normalizeCfi, isCfiInLocation } from '../utils/cfi'
+import { areCfisEquivalent, normalizeCfi } from '../utils/cfi'
 
 interface ReaderScreenProps {
   book: Book
@@ -69,7 +69,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
 
 
   // Estado global compartilhado (Zustand)
-  const { cfi, percentage, tocLabel, toc, setCfi, setToc, reset } = useReaderStore()
+  const { cfi, percentage, toc, setCfi, setToc, reset } = useReaderStore()
 
   // Progresso do IndexedDB (async)
   const { savedCfi, initialLoadDone, saveProgress } = useReaderProgress(book.id!)
@@ -80,9 +80,6 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     [book.id],
   ) ?? []
   const activeBookmarks = bookmarks.filter((bookmark) => !bookmark.deletedAt)
-
-  // O estado do botão reflete a localização atual do leitor, não a seção inteira.
-  const isBookmarked = !!cfi && activeBookmarks.some((bookmark) => isCfiInLocation(bookmark.cfi, cfi))
 
   // Limpa o store ao desmontar para não vazar estado entre livros
   useEffect(() => { return () => reset() }, [reset])
@@ -257,14 +254,10 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     label?: string
     percentage?: number
     snippet?: string
-    matchMode?: 'location' | 'exact'
   }) {
     if (book.id === undefined) return
 
-    const matchMode = target.matchMode ?? 'location'
-    const bookmarkCfi = matchMode === 'exact'
-      ? (normalizeCfi(target.cfi) ?? target.cfi)
-      : target.cfi
+    const bookmarkCfi = normalizeCfi(target.cfi) ?? target.cfi
     const bookmarkPercentage = target.percentage ?? percentage
     const bookmarkLabel = target.label || `${bookmarkPercentage}%`
     const bookmarkSnippet = target.snippet?.trim() || undefined
@@ -272,10 +265,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
 
     if (pendingBookmarkKeysRef.current.has(pendingKey)) return
 
-    const matchesTarget = (candidateCfi: string) =>
-      matchMode === 'exact'
-        ? areCfisEquivalent(candidateCfi, bookmarkCfi)
-        : isCfiInLocation(candidateCfi, bookmarkCfi)
+    const matchesTarget = (candidateCfi: string) => areCfisEquivalent(candidateCfi, bookmarkCfi)
 
     const runBookmarkMutation = (task: Promise<unknown>) => {
       pendingBookmarkKeysRef.current.add(pendingKey)
@@ -314,25 +304,8 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     }))
   }
 
-  // Bookmark baseado em CFI: toggle real na localização atual.
-  // O parágrafo visível é usado apenas para gerar contexto visual (snippet).
-  function handleBookmarkToggle() {
-    const visibleLocation = viewerRef.current?.getVisibleLocation()
-    const bookmarkCfi = visibleLocation?.cfi ?? cfi
-    if (!bookmarkCfi) return
-
-    const paraIndex = viewerRef.current?.getFirstVisibleParagraphIndex() ?? 0
-    const snippet = (viewerRef.current?.getParagraphs()[paraIndex] ?? '').slice(0, 150)
-    toggleBookmarkAtLocation({
-      cfi: bookmarkCfi,
-      label: visibleLocation?.tocLabel ?? tocLabel,
-      percentage: visibleLocation?.percentage ?? percentage,
-      snippet,
-    })
-  }
-
   function handleParagraphBookmark(payload: ParagraphBookmarkPayload) {
-    toggleBookmarkAtLocation({ ...payload, matchMode: 'exact' })
+    toggleBookmarkAtLocation(payload)
   }
 
   // Toggle chrome: chamado pelo EpubViewer em qualquer toque (chrome aberto fecha imediatamente)
@@ -387,15 +360,11 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
           chromeVisible. Quando true, qualquer toque no iframe fecha o chrome. Isso é mais
           confiável que overlays/backdrop, pois evita o problema de compositing do Android WebView. */}
 
-      {/* Overlay de bookmark no canto superior direito — acesso rápido ao toggle sem abrir o chrome.
-          Só renderizado quando o chrome está oculto para não conflitar com o botão da barra superior.
-          z-[25]: acima do chrome (z-20), garante que o toque chegue aqui mesmo com itens sobrepostos. */}
       <ReaderChrome
         visible={chromeVisible}
         title={book.title}
         percentage={percentage}
         fontSize={fontSize}
-        isBookmarked={isBookmarked}
         bookmarkCount={activeBookmarks.length}
         onBack={handleBack}
         onFontSizeChange={(size) => {
@@ -403,7 +372,6 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
           setFontSize(size)
           void updateBookSettings(book.id!, { fontSize: size })
         }}
-        onBookmark={handleBookmarkToggle}
         onBookmarkList={() => { resetAutoHide(); setBookmarkSheetOpen(true) }}
         onTocOpen={() => { resetAutoHide(); setTocOpen(true) }}
         onOpenVocabulary={() => { resetAutoHide(); onOpenVocabulary() }}

@@ -288,7 +288,7 @@ export function BookDetailsScreen({ book, onBack, onRead }: BookDetailsScreenPro
                 <EmptyState
                   icon={<Bookmark size={32} />}
                   title="Nenhuma marcação"
-                  description="Toque no ícone de marcador durante a leitura para salvar posições."
+                  description="Selecione um parágrafo durante a leitura e use Marcar para salvar posições."
                 />
               )
             )}
