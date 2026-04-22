@@ -31,7 +31,12 @@ export interface Bookmark {
   id?: number
   bookId: number
   cfi: string
-  label: string      // nome do capítulo atual ou "X%" como fallback
-  percentage: number // para exibição na lista
+  label: string       // nome do capítulo atual ou "X%" como fallback
+  percentage: number  // para exibição na lista
+  // Campos opcionais (ausentes em registros antigos — backward compat)
+  sectionIndex?: number  // índice da spine; permite filtrar bookmarks por seção
+  paraIndex?: number     // índice do parágrafo na seção; usado para injetar marcador visual
+  snippet?: string       // trecho inicial do parágrafo (max 150 chars) para contexto na lista
+  color?: string         // 'indigo' | 'emerald' | 'amber' | 'rose'
   createdAt: Date
 }
