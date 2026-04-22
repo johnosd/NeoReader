@@ -473,24 +473,20 @@ function ChapterEndBanner({
 }) {
   return (
     <div
-      className={`absolute bottom-0 left-0 right-0 z-20 flex flex-col items-center py-5
+      className={`absolute bottom-0 left-0 right-0 z-20 flex flex-row items-center justify-center gap-2 px-4 py-2.5
         ${onNext ? 'pointer-events-auto active:opacity-70' : 'pointer-events-none'}`}
-      // Gradiente com CSS var: Tailwind v4 não gera utility para gradient-stop a 55% com token arbitrário
-      style={{ background: 'linear-gradient(to top, var(--color-bg-reader) 55%, transparent)' }}
+      // Gradiente compacto: 35% sólido + fade para cima
+      style={{ background: 'linear-gradient(to top, var(--color-bg-reader) 35%, transparent)' }}
       onClick={onNext}
     >
-      <p className="text-sm font-medium mb-1 text-text-primary">
+      <p className="text-xs font-medium text-text-primary">
         {hasNext ? 'Fim do capítulo' : 'Fim do livro'}
       </p>
       {hasNext && (
         <>
-          {nextLabel && (
-            <p className="text-[11px] uppercase tracking-[0.18em] text-text-muted/80 mb-1">
-              Próxima seção
-            </p>
-          )}
+          <span className="text-text-muted/50 text-xs">·</span>
           <p className="text-xs text-indigo-primary font-semibold">
-            {nextLabel ? `Toque para continuar em ${nextLabel}` : 'Toque para o próximo capítulo'}
+            {nextLabel ? `Continuar em ${nextLabel}` : 'Próximo capítulo →'}
           </p>
         </>
       )}
