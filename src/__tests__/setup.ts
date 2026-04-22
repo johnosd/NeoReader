@@ -17,6 +17,7 @@ export function failNextOpen(err: Error) { _nextOpenError = err }
 // por uma implementação mínima que expõe fireFoliate() para disparar eventos sintéticos.
 class FoliateViewMock extends HTMLElement {
   private _fCbs = new Map<string, Array<(e: { detail: unknown }) => void>>()
+  private _rendererEvents = new EventTarget()
 
   // Intercepta addEventListener para 'load' e 'relocate' (eventos foliate-js)
   // Os outros eventos (resize etc.) seguem para o HTMLElement nativo.
@@ -36,6 +37,10 @@ class FoliateViewMock extends HTMLElement {
   // Permite ao teste disparar eventos foliate (load, relocate) com detail arbitrário
   fireFoliate(event: string, detail: unknown) {
     this._fCbs.get(event)?.forEach(cb => cb({ detail }))
+  }
+
+  fireRenderer(event: string) {
+    this._rendererEvents.dispatchEvent(new Event(event))
   }
 
   // API do foliate-js usada pelo EpubViewer
@@ -58,6 +63,14 @@ class FoliateViewMock extends HTMLElement {
   renderer = {
     setAttribute: vi.fn(),
     setStyles: vi.fn(),
+    nextSection: vi.fn(() => Promise.resolve()),
+    prevSection: vi.fn(() => Promise.resolve()),
+    addEventListener: vi.fn((event: string, cb: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions) => {
+      this._rendererEvents.addEventListener(event, cb as EventListener, options)
+    }),
+    removeEventListener: vi.fn((event: string, cb: EventListenerOrEventListenerObject, options?: boolean | EventListenerOptions) => {
+      this._rendererEvents.removeEventListener(event, cb as EventListener, options)
+    }),
   }
   book = {
     sections: Array(3).fill(null), // 3 seções = capítulos

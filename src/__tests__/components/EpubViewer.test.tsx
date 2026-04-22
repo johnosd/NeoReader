@@ -83,6 +83,13 @@ function click(el: Element) {
   })
 }
 
+function loadSection(foliateEl: FoliateViewMock, doc: Document, index = 0) {
+  act(() => {
+    foliateEl.fireFoliate('load', { doc, index })
+    foliateEl.fireRenderer('stabilized')
+  })
+}
+
 /** Helpers de touch sem TouchEvent nativo (compatível com jsdom). */
 function touchStart(target: EventTarget, clientY: number) {
   const evt = Object.assign(new Event('touchstart', { bubbles: true }), {
@@ -119,8 +126,9 @@ function injectFakeWindow(doc: Document, scrollY: number, innerHeight = 800, scr
 // ─── testes ─────────────────────────────────────────────────────────────────
 
 describe('EpubViewer — abertura do livro', () => {
-  it('chama onLoad após open() e init() com sucesso', async () => {
-    const { props } = await renderViewer()
+  it('chama onLoad quando a primeira seção estabiliza', async () => {
+    const { props, foliateEl } = await renderViewer()
+    loadSection(foliateEl, makeFakeDoc(), 0)
     expect(props.onLoad).toHaveBeenCalledOnce()
   })
 
@@ -159,7 +167,7 @@ describe('EpubViewer — seleção de texto', () => {
     paraA = paras[0] as HTMLElement
     paraB = paras[1] as HTMLElement
 
-    act(() => { foliateEl.fireFoliate('load', { doc: fakeDoc, index: 0 }) })
+    loadSection(foliateEl, fakeDoc, 0)
   })
 
   it('tap em parágrafo chama onTranslate', () => {
@@ -209,7 +217,7 @@ describe('EpubViewer — posição visível', () => {
     range.selectNodeContents(secondPara)
     range.collapse(true)
 
-    act(() => { foliateEl.fireFoliate('load', { doc: fakeDoc, index: 0 }) })
+    loadSection(foliateEl, fakeDoc, 0)
     act(() => {
       foliateEl.fireFoliate('relocate', {
         cfi: 'epubcfi(/6/8!/4/2/10/2,/1:0,/1:20)',
@@ -257,7 +265,7 @@ describe('EpubViewer — posição visível', () => {
     const fakeDoc = makeFakeDoc(['Preface', 'What This Book Is About'])
     const paras = fakeDoc.querySelectorAll('p')
 
-    act(() => { foliateEl.fireFoliate('load', { doc: fakeDoc, index: 0 }) })
+    loadSection(foliateEl, fakeDoc, 0)
 
     expect(paras[0].hasAttribute('data-nr-bookmark')).toBe(false)
     expect(paras[1].getAttribute('data-nr-bookmark')).toBe('rose')
@@ -301,7 +309,7 @@ describe('EpubViewer — posição visível', () => {
       toJSON: () => ({}),
     })
 
-    act(() => { foliateEl.fireFoliate('load', { doc: fakeDoc, index: 0 }) })
+    loadSection(foliateEl, fakeDoc, 0)
     act(() => {
       bookmarkedPara.dispatchEvent(new MouseEvent('click', {
         bubbles: true,
@@ -325,7 +333,7 @@ describe('EpubViewer — lock de tradução', () => {
     const paraA = paras[0] as HTMLElement
     const paraB = paras[1] as HTMLElement
 
-    act(() => { foliateEl.fireFoliate('load', { doc: fakeDoc, index: 0 }) })
+    loadSection(foliateEl, fakeDoc, 0)
 
     // 1ª seleção → lock ativado pelo showTranslationLoading
     click(paraA)
@@ -354,7 +362,7 @@ describe('EpubViewer — lock de tradução', () => {
     const paraA = paras[0] as HTMLElement
     const paraB = paras[1] as HTMLElement
 
-    act(() => { foliateEl.fireFoliate('load', { doc: fakeDoc, index: 0 }) })
+    loadSection(foliateEl, fakeDoc, 0)
 
     click(paraA)
     act(() => { viewerRef.current?.showTranslationLoading() })
@@ -378,12 +386,10 @@ describe('EpubViewer — chapter auto-advance (scroll overflow)', () => {
     injectFakeWindow(titleOnlyDoc, 0, 800, 400)
 
     act(() => { void viewerRef.current?.next() })
-    expect(foliateEl.goTo).toHaveBeenCalledTimes(1)
-    expect(foliateEl.goTo).toHaveBeenCalledWith(1)
+    expect(foliateEl.renderer.nextSection).toHaveBeenCalledTimes(1)
 
-    act(() => { foliateEl.fireFoliate('load', { doc: titleOnlyDoc, index: 1 }) })
-    expect(foliateEl.goTo).toHaveBeenCalledTimes(2)
-    expect(foliateEl.goTo).toHaveBeenLastCalledWith(2)
+    loadSection(foliateEl, titleOnlyDoc, 1)
+    expect(foliateEl.renderer.nextSection).toHaveBeenCalledTimes(2)
   })
 
   it('não pula automaticamente quando a nova seção já tem conteúdo de leitura', async () => {
@@ -401,11 +407,10 @@ describe('EpubViewer — chapter auto-advance (scroll overflow)', () => {
     injectFakeWindow(contentDoc, 0, 800, 1200)
 
     act(() => { void viewerRef.current?.next() })
-    expect(foliateEl.goTo).toHaveBeenCalledTimes(1)
-    expect(foliateEl.goTo).toHaveBeenCalledWith(1)
+    expect(foliateEl.renderer.nextSection).toHaveBeenCalledTimes(1)
 
-    act(() => { foliateEl.fireFoliate('load', { doc: contentDoc, index: 1 }) })
-    expect(foliateEl.goTo).toHaveBeenCalledTimes(1)
+    loadSection(foliateEl, contentDoc, 1)
+    expect(foliateEl.renderer.nextSection).toHaveBeenCalledTimes(1)
   })
 
   it('pula páginas de parte mesmo quando elas têm um parágrafo curto extra', async () => {
@@ -423,10 +428,10 @@ describe('EpubViewer — chapter auto-advance (scroll overflow)', () => {
     injectFakeWindow(partDoc, 0, 800, 400)
 
     act(() => { void viewerRef.current?.next() })
-    expect(foliateEl.goTo).toHaveBeenCalledWith(1)
+    expect(foliateEl.renderer.nextSection).toHaveBeenCalledTimes(1)
 
-    act(() => { foliateEl.fireFoliate('load', { doc: partDoc, index: 1 }) })
-    expect(foliateEl.goTo).toHaveBeenLastCalledWith(2)
+    loadSection(foliateEl, partDoc, 1)
+    expect(foliateEl.renderer.nextSection).toHaveBeenCalledTimes(2)
   })
 
   it('avança para o próximo capítulo após 2 swipes para baixo no fundo', async () => {
@@ -437,7 +442,7 @@ describe('EpubViewer — chapter auto-advance (scroll overflow)', () => {
     const fakeDoc = makeFakeDoc(['Long chapter content.'])
     injectFakeWindow(fakeDoc, 380, 800, 1200)
 
-    act(() => { foliateEl.fireFoliate('load', { doc: fakeDoc, index: 0 }) })
+    loadSection(foliateEl, fakeDoc, 0)
 
     // 1º swipe para baixo (startY=500, endY=450 → deltaY=50>30, atBottom=true) → count=1
     touchStart(fakeDoc, 500)
@@ -458,7 +463,7 @@ describe('EpubViewer — chapter auto-advance (scroll overflow)', () => {
     // scrollY=0 → NÃO está no fundo (0 + 800 = 800 < 1180)
     injectFakeWindow(fakeDoc, 0, 800, 1200)
 
-    act(() => { foliateEl.fireFoliate('load', { doc: fakeDoc, index: 0 }) })
+    loadSection(foliateEl, fakeDoc, 0)
 
     touchStart(fakeDoc, 500)
     touchEnd(fakeDoc, 450)
@@ -476,7 +481,7 @@ describe('EpubViewer — chapter auto-advance (scroll overflow)', () => {
     injectFakeWindow(fakeDoc, 380, 800, 1200)
 
     // index=2 = última seção (totalSections=3, então idx 2 é a última)
-    act(() => { foliateEl.fireFoliate('load', { doc: fakeDoc, index: 2 }) })
+    loadSection(foliateEl, fakeDoc, 2)
 
     touchStart(fakeDoc, 500)
     touchEnd(fakeDoc, 450)
@@ -493,7 +498,7 @@ describe('EpubViewer — chapter auto-advance (scroll overflow)', () => {
     const fakeDoc = makeFakeDoc(['Content.'])
     injectFakeWindow(fakeDoc, 380, 800, 1200)
 
-    act(() => { foliateEl.fireFoliate('load', { doc: fakeDoc, index: 0 }) })
+    loadSection(foliateEl, fakeDoc, 0)
 
     // 1º swipe para baixo → count=1
     touchStart(fakeDoc, 500)
@@ -521,7 +526,7 @@ describe('EpubViewer — voltar ao capítulo anterior (swipe topo)', () => {
     injectFakeWindow(fakeDoc, 0, 800, 1200)
 
     // index=1 = não é o primeiro capítulo (hasPrev = 1 > 0)
-    act(() => { foliateEl.fireFoliate('load', { doc: fakeDoc, index: 1 }) })
+    loadSection(foliateEl, fakeDoc, 1)
 
     // Swipe para cima: startY=300, endY=400 → deltaY=300-400=-100 < -30, atTop=true
     touchStart(fakeDoc, 300)
@@ -541,7 +546,7 @@ describe('EpubViewer — voltar ao capítulo anterior (swipe topo)', () => {
     injectFakeWindow(fakeDoc, 0, 800, 1200)
 
     // index=0 = primeiro capítulo (hasPrev = false)
-    act(() => { foliateEl.fireFoliate('load', { doc: fakeDoc, index: 0 }) })
+    loadSection(foliateEl, fakeDoc, 0)
 
     touchStart(fakeDoc, 300)
     touchEnd(fakeDoc, 400)

@@ -399,6 +399,11 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const autoSkipChapterStubDirectionRef = useRef<-1 | 0 | 1>(0)
     const autoSkipChapterStubCountRef = useRef(0)
     const scrollListenerCleanupRef = useRef<(() => void) | null>(null)
+    const pendingSectionRef = useRef<{ doc: Document; index: number; version: number } | null>(null)
+    const pendingSectionVersionRef = useRef(0)
+    const finalizedSectionVersionRef = useRef(0)
+    const finalizeSectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const initialInteractiveReadyRef = useRef(false)
     const BLOCK = 'p, li, blockquote, h1, h2, h3, h4, h5, h6'
     const bookmarksRef = useSyncRef(bookmarks)
     const onBookmarkTapRef = useSyncRef(onBookmarkTap)
@@ -488,6 +493,93 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       }
     }
 
+    function clearFinalizeSectionTimeout(): void {
+      if (finalizeSectionTimeoutRef.current) {
+        clearTimeout(finalizeSectionTimeoutRef.current)
+        finalizeSectionTimeoutRef.current = null
+      }
+    }
+
+    function scheduleSectionFinalization(reason: 'stabilized' | 'relocate'): void {
+      const schedule =
+        currentDocRef.current?.defaultView?.requestAnimationFrame?.bind(currentDocRef.current.defaultView) ??
+        requestAnimationFrame
+      schedule(() => finalizePendingSection(reason))
+    }
+
+    function setupScrollTracking(doc: Document): void {
+      scrollListenerCleanupRef.current?.()
+
+      const onScroll = () => {
+        if (ttsActiveRef.current && Date.now() > scrollingProgrammaticallyUntilRef.current) {
+          userScrolledRef.current = true
+        }
+
+        const metrics = getScrollMetrics(doc)
+        const currentScrollY = metrics.position
+        const atBottom = currentScrollY + metrics.viewport >= metrics.extent - 20
+        if (atBottom !== isAtBottomRef.current) {
+          isAtBottomRef.current = atBottom
+          const hasNext = currentSectionIdxRef.current < totalSectionsRef.current - 1
+          onAtBottomRef.current?.(atBottom, hasNext)
+        }
+      }
+
+      const scrollMetrics = getScrollMetrics(doc)
+      scrollMetrics.target.addEventListener('scroll', onScroll, { passive: true })
+      scrollListenerCleanupRef.current = () => {
+        scrollMetrics.target.removeEventListener('scroll', onScroll as EventListener)
+      }
+      onScroll()
+    }
+
+    function finalizePendingSection(reason: 'stabilized' | 'relocate' | 'timeout'): void {
+      const pendingSection = pendingSectionRef.current
+      if (!pendingSection) return
+      if (finalizedSectionVersionRef.current === pendingSection.version) return
+      if (pendingSection.doc !== currentDocRef.current || pendingSection.index !== currentSectionIdxRef.current) return
+
+      clearFinalizeSectionTimeout()
+
+      const { doc, index, version } = pendingSection
+      const hasNextSection = index < totalSectionsRef.current - 1
+      const skipDirection = autoSkipChapterStubDirectionRef.current
+
+      console.log('[nr-debug]', 'finalize section', { reason, sectionIndex: index })
+
+      if (
+        skipDirection !== 0 &&
+        (skipDirection > 0 ? hasNextSection : index > 0) &&
+        isChapterStubSection(doc) &&
+        autoSkipChapterStubCountRef.current < 4
+      ) {
+        pendingSectionRef.current = null
+        autoSkipChapterStubCountRef.current += 1
+        doc.defaultView?.requestAnimationFrame(() => {
+          goToAdjacentSection(skipDirection)
+        })
+        return
+      }
+
+      autoSkipChapterStubDirectionRef.current = 0
+      autoSkipChapterStubCountRef.current = 0
+
+      if (scrollToBottomOnLoadRef.current) {
+        scrollToBottomOnLoadRef.current = false
+        doc.defaultView?.requestAnimationFrame(() => {
+          getScrollMetrics(doc).scrollToBottom()
+        })
+      }
+
+      setupScrollTracking(doc)
+      finalizedSectionVersionRef.current = version
+
+      if (!initialInteractiveReadyRef.current) {
+        initialInteractiveReadyRef.current = true
+        onLoad()
+      }
+    }
+
     function clearBookmarkMarkers(doc?: Document | null): void {
       doc?.querySelectorAll<HTMLElement>('[data-nr-bookmark]').forEach((el) => {
         el.removeAttribute('data-nr-bookmark')
@@ -521,6 +613,15 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     function goToAdjacentSection(direction: 1 | -1): void {
       const view = viewRef.current
       if (!view) return
+
+      if (direction > 0 && typeof view.renderer.nextSection === 'function') {
+        void view.renderer.nextSection()
+        return
+      }
+      if (direction < 0 && typeof view.renderer.prevSection === 'function') {
+        void view.renderer.prevSection()
+        return
+      }
 
       const targetIndex = currentSectionIdxRef.current + direction
       if (targetIndex < 0 || targetIndex >= totalSectionsRef.current) return
@@ -759,6 +860,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
       let cancelled = false
       let view: View | null = null
+      let rendererStabilizedListener: EventListener | null = null
 
       async function setup() {
         // [nr-debug] Instrumentação para diagnosticar tela preta.
@@ -791,6 +893,9 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           lastRelocateRef.current = e.detail
           console.log(DBG, 'relocate event', { cfi, fraction, tocLabel: tocItem?.label, sIdx })
           onRelocate(cfi, Math.round(fraction * 100), tocItem?.label, sIdx)
+          if (pendingSectionRef.current?.index === sIdx) {
+            scheduleSectionFinalization('relocate')
+          }
         })
 
         // Cada seção do EPUB carrega num iframe separado. O evento 'load' expõe
@@ -828,69 +933,22 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           ttsParagraphTextsRef.current = ttsParagraphsRef.current
             .map(el => el.textContent!.trim())
 
-          // Rastreia seção atual + reseta estado de fundo (nova seção sempre começa no topo)
+          // Rastreia seção atual e marca a nova seção como pendente até o renderer estabilizar.
           currentSectionIdxRef.current = e.detail.index
           lastRelocateRef.current = null
+          pendingSectionVersionRef.current += 1
+          pendingSectionRef.current = {
+            doc,
+            index: e.detail.index,
+            version: pendingSectionVersionRef.current,
+          }
+          isAtBottomRef.current = false
+          onAtBottomRef.current?.(false, e.detail.index < totalSectionsRef.current - 1)
+          clearFinalizeSectionTimeout()
+          finalizeSectionTimeoutRef.current = setTimeout(() => {
+            finalizePendingSection('timeout')
+          }, 400)
           renderBookmarkMarkers(doc)
-
-          const hasNextSection = e.detail.index < totalSectionsRef.current - 1
-          const skipDirection = autoSkipChapterStubDirectionRef.current
-          if (
-            skipDirection !== 0 &&
-            (skipDirection > 0 ? hasNextSection : e.detail.index > 0) &&
-            isChapterStubSection(doc) &&
-            autoSkipChapterStubCountRef.current < 4
-          ) {
-            autoSkipChapterStubCountRef.current += 1
-            doc.defaultView?.requestAnimationFrame(() => {
-              goToAdjacentSection(skipDirection)
-            })
-            return
-          }
-          autoSkipChapterStubDirectionRef.current = 0
-          autoSkipChapterStubCountRef.current = 0
-
-          // prevToEnd: rola até o fundo assim que o layout da seção estiver pronto
-          if (scrollToBottomOnLoadRef.current) {
-            scrollToBottomOnLoadRef.current = false
-            // rAF garante que o conteúdo foi renderizado antes de medir scrollHeight
-            doc.defaultView?.requestAnimationFrame(() => {
-              getScrollMetrics(doc).scrollToBottom()
-            })
-          }
-
-          // Detecta scroll no container real do Foliate (ou no iframe como fallback):
-          // usado para TTS auto-scroll + fundo do capítulo.
-          // O listener é único por seção para evitar acúmulo no container persistente.
-          scrollListenerCleanupRef.current?.()
-          let lastScrollY = getScrollMetrics(doc).position
-          // scrollOverflowCount: contador de tentativas de scroll além do fim do capítulo.
-          // Resetado ao rolar para cima ou ao carregar nova seção (re-declarado no load).
-          let scrollOverflowCount = 0
-          const onScroll = () => {
-            // TTS: detecta scroll manual durante leitura para pausar auto-scroll
-            if (ttsActiveRef.current && Date.now() > scrollingProgrammaticallyUntilRef.current) {
-              userScrolledRef.current = true
-            }
-            // Capítulo: detecta quando o usuário chega ao fundo da seção
-            const metrics = getScrollMetrics(doc)
-            const currentScrollY = metrics.position
-            // Scroll para cima cancela intenção de avançar capítulo
-            if (currentScrollY < lastScrollY - 5) scrollOverflowCount = 0
-            lastScrollY = currentScrollY
-            const atBottom = currentScrollY + metrics.viewport >= metrics.extent - 20
-            if (atBottom !== isAtBottomRef.current) {
-              isAtBottomRef.current = atBottom
-              const hasNext = currentSectionIdxRef.current < totalSectionsRef.current - 1
-              onAtBottomRef.current?.(atBottom, hasNext)
-            }
-          }
-          const scrollMetrics = getScrollMetrics(doc)
-          scrollMetrics.target.addEventListener('scroll', onScroll, { passive: true })
-          scrollListenerCleanupRef.current = () => {
-            scrollMetrics.target.removeEventListener('scroll', onScroll as EventListener)
-          }
-          onScroll()
 
           // Detecta swipe para baixo quando no fundo — 2 gestos consecutivos avançam o capítulo.
           // didScroll: Android WebView dispara 'click' mesmo após scroll curto.
@@ -898,6 +956,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           let touchStartY = 0
           let touchStartX = 0
           let didScroll = false
+          let scrollOverflowCount = 0
           let scrollOverflowTopCount = 0
           doc.addEventListener('touchstart', (ev: TouchEvent) => {
             touchStartY = ev.touches[0].clientY
@@ -1062,6 +1121,16 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           console.log('[nr-debug]', 'calling view.open()')
           await view.open(book.fileBlob)
           if (cancelled) { clearTimeout(loadTimeout!); return }
+
+          rendererStabilizedListener = () => {
+            scheduleSectionFinalization('stabilized')
+          }
+          if (view.renderer?.addEventListener) {
+            view.renderer.addEventListener('stabilized', rendererStabilizedListener)
+          } else {
+            console.warn('[nr-debug]', 'renderer not ready for stabilized listener after open')
+          }
+
           // [nr-debug] Após open(): inspeciona estrutura do book parseado.
           // Um spine vazio/ausente aqui é uma das principais causas de tela preta.
           const bk = view.book as unknown as {
@@ -1120,12 +1189,17 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
       return () => {
         cancelled = true
+        clearFinalizeSectionTimeout()
         scrollListenerCleanupRef.current?.()
         scrollListenerCleanupRef.current = null
+        pendingSectionRef.current = null
         currentDocRef.current = null
         lastRelocateRef.current = null
         autoSkipChapterStubDirectionRef.current = 0
         autoSkipChapterStubCountRef.current = 0
+        if (rendererStabilizedListener) {
+          view?.renderer.removeEventListener?.('stabilized', rendererStabilizedListener)
+        }
         view?.close()
         view?.remove()
         viewRef.current = null

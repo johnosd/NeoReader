@@ -25,6 +25,8 @@ declare module 'foliate-js/view.js' {
     renderer: HTMLElement & {
       setAttribute(name: string, value: string): void
       setStyles?(css: string): void
+      nextSection?(): Promise<unknown> | void
+      prevSection?(): Promise<unknown> | void
     }
     lastLocation: RelocateDetail | null
 
