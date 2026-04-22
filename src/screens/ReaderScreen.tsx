@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { App as CapApp } from '@capacitor/app'
-import { Bookmark, BookmarkCheck } from 'lucide-react'
-
-import { EpubViewer, type EpubViewerHandle } from '../components/reader/EpubViewer'
+import { EpubViewer, type EpubViewerHandle, type ParagraphBookmarkPayload } from '../components/reader/EpubViewer'
 import { ReaderChrome } from '../components/reader/ReaderChrome'
 import { TocDrawer } from '../components/reader/TocDrawer'
 import { BookmarkSheet } from '../components/reader/BookmarkSheet'
@@ -22,7 +20,7 @@ import { SpeechifyService } from '../services/SpeechifyService'
 import { translate } from '../services/TranslationService'
 import type { Book } from '../types/book'
 import type { FontSize } from '../types/settings'
-import { isCfiInLocation } from '../utils/cfi'
+import { areCfisEquivalent, normalizeCfi, isCfiInLocation } from '../utils/cfi'
 
 interface ReaderScreenProps {
   book: Book
@@ -33,6 +31,7 @@ interface ReaderScreenProps {
 
 export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: ReaderScreenProps) {
   const viewerRef = useRef<EpubViewerHandle>(null)
+  const pendingBookmarkKeysRef = useRef(new Set<string>())
 
   // ── Estado local ────────────────────────────────────────────────────────────
   // Começa visível: dá orientação inicial ao usuário, depois some automaticamente (auto-hide).
@@ -253,48 +252,87 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     onBack()
   }
 
-  // Bookmark baseado em CFI: toggle real na localização atual.
-  // O parágrafo visível é usado apenas para gerar contexto visual (snippet).
-  function handleBookmarkToggle() {
+  function toggleBookmarkAtLocation(target: {
+    cfi: string
+    label?: string
+    percentage?: number
+    snippet?: string
+    matchMode?: 'location' | 'exact'
+  }) {
     if (book.id === undefined) return
 
-    const visibleLocation = viewerRef.current?.getVisibleLocation()
-    const bookmarkCfi = visibleLocation?.cfi ?? cfi
-    const bookmarkLabel = visibleLocation?.tocLabel ?? tocLabel
-    const bookmarkPercentage = visibleLocation?.percentage ?? percentage
-    if (!bookmarkCfi) return
+    const matchMode = target.matchMode ?? 'location'
+    const bookmarkCfi = matchMode === 'exact'
+      ? (normalizeCfi(target.cfi) ?? target.cfi)
+      : target.cfi
+    const bookmarkPercentage = target.percentage ?? percentage
+    const bookmarkLabel = target.label || `${bookmarkPercentage}%`
+    const bookmarkSnippet = target.snippet?.trim() || undefined
+    const pendingKey = normalizeCfi(bookmarkCfi) ?? bookmarkCfi
 
-    const matchingBookmarks = activeBookmarks.filter((bookmark) => isCfiInLocation(bookmark.cfi, bookmarkCfi))
+    if (pendingBookmarkKeysRef.current.has(pendingKey)) return
+
+    const matchesTarget = (candidateCfi: string) =>
+      matchMode === 'exact'
+        ? areCfisEquivalent(candidateCfi, bookmarkCfi)
+        : isCfiInLocation(candidateCfi, bookmarkCfi)
+
+    const runBookmarkMutation = (task: Promise<unknown>) => {
+      pendingBookmarkKeysRef.current.add(pendingKey)
+      void task.finally(() => {
+        pendingBookmarkKeysRef.current.delete(pendingKey)
+      })
+    }
+
+    const matchingBookmarks = activeBookmarks.filter((bookmark) => matchesTarget(bookmark.cfi))
     if (matchingBookmarks.length > 0) {
-      void Promise.all(
+      runBookmarkMutation(Promise.all(
         matchingBookmarks.map((bookmark) =>
           bookmark.id !== undefined ? softDeleteBookmark(bookmark.id) : Promise.resolve(),
         ),
-      )
+      ))
       return
     }
-
-    const paraIndex = viewerRef.current?.getFirstVisibleParagraphIndex() ?? 0
-    const snippet = (viewerRef.current?.getParagraphs()[paraIndex] ?? '').slice(0, 150)
 
     const exactDeletedBookmark = [...bookmarks]
       .reverse()
-      .find((bookmark) => !!bookmark.deletedAt && bookmark.cfi === bookmarkCfi)
+      .find((bookmark) => !!bookmark.deletedAt && areCfisEquivalent(bookmark.cfi, bookmarkCfi))
 
     if (exactDeletedBookmark?.id !== undefined) {
-      void restoreBookmark(exactDeletedBookmark.id, {
-        label: bookmarkLabel || `${bookmarkPercentage}%`,
+      runBookmarkMutation(restoreBookmark(exactDeletedBookmark.id, {
+        label: bookmarkLabel,
         percentage: bookmarkPercentage,
-        snippet: snippet || exactDeletedBookmark.snippet,
+        snippet: bookmarkSnippet || exactDeletedBookmark.snippet,
         color: exactDeletedBookmark.color ?? 'indigo',
-      })
+      }))
       return
     }
 
-    void addBookmark(book.id, bookmarkCfi, bookmarkLabel || `${bookmarkPercentage}%`, bookmarkPercentage, {
-      snippet,
+    runBookmarkMutation(addBookmark(book.id, bookmarkCfi, bookmarkLabel, bookmarkPercentage, {
+      snippet: bookmarkSnippet,
       color: 'indigo',
+    }))
+  }
+
+  // Bookmark baseado em CFI: toggle real na localização atual.
+  // O parágrafo visível é usado apenas para gerar contexto visual (snippet).
+  function handleBookmarkToggle() {
+    const visibleLocation = viewerRef.current?.getVisibleLocation()
+    const bookmarkCfi = visibleLocation?.cfi ?? cfi
+    if (!bookmarkCfi) return
+
+    const paraIndex = viewerRef.current?.getFirstVisibleParagraphIndex() ?? 0
+    const snippet = (viewerRef.current?.getParagraphs()[paraIndex] ?? '').slice(0, 150)
+    toggleBookmarkAtLocation({
+      cfi: bookmarkCfi,
+      label: visibleLocation?.tocLabel ?? tocLabel,
+      percentage: visibleLocation?.percentage ?? percentage,
+      snippet,
     })
+  }
+
+  function handleParagraphBookmark(payload: ParagraphBookmarkPayload) {
+    toggleBookmarkAtLocation({ ...payload, matchMode: 'exact' })
   }
 
   // Toggle chrome: chamado pelo EpubViewer em qualquer toque (chrome aberto fecha imediatamente)
@@ -341,6 +379,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
           ttsGlobalActive={ttsPlayerVisible}
           onAtBottom={handleAtBottom}
           onBookmarkTap={(id) => { void softDeleteBookmark(id) }}
+          onBookmarkParagraph={handleParagraphBookmark}
         />
       </div>
 
@@ -351,22 +390,6 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
       {/* Overlay de bookmark no canto superior direito — acesso rápido ao toggle sem abrir o chrome.
           Só renderizado quando o chrome está oculto para não conflitar com o botão da barra superior.
           z-[25]: acima do chrome (z-20), garante que o toque chegue aqui mesmo com itens sobrepostos. */}
-      {!chromeVisible && (
-        <button
-          onPointerUp={(e) => {
-            e.stopPropagation()
-            handleBookmarkToggle()
-          }}
-          className="absolute top-0 right-0 z-[25] h-20 w-16 flex items-end justify-center pb-3 active:opacity-60"
-          aria-label={isBookmarked ? 'Remover marcador' : 'Adicionar marcador'}
-        >
-          {isBookmarked
-            ? <BookmarkCheck size={22} className="text-indigo-primary" />
-            : <Bookmark size={22} className="text-text-primary/40" />
-          }
-        </button>
-      )}
-
       <ReaderChrome
         visible={chromeVisible}
         title={book.title}

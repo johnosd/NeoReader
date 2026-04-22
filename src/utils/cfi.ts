@@ -5,9 +5,32 @@ function unwrapCfi(cfi: string): string {
   return match ? match[1] : cfi
 }
 
+export function normalizeCfi(cfi: string | null | undefined): string | null {
+  if (!cfi) return null
+
+  try {
+    return CFI.collapse(cfi)
+  } catch {
+    return cfi
+  }
+}
+
+export function areCfisEquivalent(a: string | null | undefined, b: string | null | undefined): boolean {
+  const normalizedA = normalizeCfi(a)
+  const normalizedB = normalizeCfi(b)
+  if (!normalizedA || !normalizedB) return false
+  if (normalizedA === normalizedB) return true
+
+  try {
+    return CFI.compare(normalizedA, normalizedB) === 0
+  } catch {
+    return unwrapCfi(normalizedA) === unwrapCfi(normalizedB)
+  }
+}
+
 export function isCfiInLocation(cfi: string | null | undefined, location: string | null | undefined): boolean {
   if (!cfi || !location) return false
-  if (cfi === location) return true
+  if (areCfisEquivalent(cfi, location)) return true
   if (unwrapCfi(cfi).startsWith(unwrapCfi(location))) return true
 
   try {

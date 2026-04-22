@@ -41,6 +41,7 @@ function defaultProps(overrides: Record<string, unknown> = {}) {
     onCenterTap: vi.fn(),
     onTranslate: vi.fn(),
     onSpeakOne: vi.fn(),
+    onBookmarkParagraph: vi.fn(),
     onParagraphTapForTts: vi.fn(),
     ttsGlobalActive: false,
     onAtBottom: vi.fn(),
@@ -198,7 +199,17 @@ describe('EpubViewer — seleção de texto', () => {
 describe('EpubViewer — posição visível', () => {
   it('gera o CFI do início do parágrafo visível a partir do range atual', async () => {
     const { viewerRef, foliateEl } = await renderViewer()
-    foliateEl.getCFI.mockReturnValue('epubcfi(/6/8!/4/2/10/2/1:0)')
+    foliateEl.getCFI.mockImplementation((_index, range?: Range | null) => {
+      const startContainer = range?.startContainer
+      const startElement =
+        startContainer?.nodeType === Node.ELEMENT_NODE
+          ? (startContainer as Element)
+          : startContainer?.parentElement
+      const text = startElement?.textContent ?? ''
+      return text.includes('What This Book Is About')
+        ? 'epubcfi(/6/8!/4/2/10/2/1:0)'
+        : 'epubcfi(/6/8!/4/2/2/1:0)'
+    })
     foliateEl.getProgressOf.mockReturnValue({
       tocItem: { label: 'What This Book Is About', href: 'preface.xhtml' },
     })
@@ -228,12 +239,7 @@ describe('EpubViewer — posição visível', () => {
       percentage: 60,
     })
     expect(viewerRef.current?.getFirstVisibleParagraphIndex()).toBe(1)
-
-    const paragraphRange = foliateEl.getCFI.mock.calls[0]?.[1] as Range
-    expect(foliateEl.getCFI).toHaveBeenCalledWith(0, expect.any(Range))
-    expect(paragraphRange.collapsed).toBe(true)
-    expect(paragraphRange.startOffset).toBe(0)
-    expect(paragraphRange.startContainer.textContent).toBe('What This Book Is About')
+    expect(secondPara.getAttribute('data-nr-para-cfi')).toBe('epubcfi(/6/8!/4/2/10/2/1:0)')
   })
 
   it('projeta marcador visual no parágrafo que contém o bookmark salvo', async () => {
@@ -264,6 +270,36 @@ describe('EpubViewer — posição visível', () => {
     expect(paras[0].hasAttribute('data-nr-bookmark')).toBe(false)
     expect(paras[1].getAttribute('data-nr-bookmark')).toBe('rose')
     expect(paras[1].getAttribute('data-nr-bookmark-id')).toBe('1')
+  })
+
+  it('projeta marcador ao carregar diretamente uma seção diferente da inicial', async () => {
+    const bookmarkCfi = 'epubcfi(/6/10!/4/2/1:0)'
+    const { foliateEl } = await renderViewer({
+      bookmarks: [{
+        id: 9,
+        bookId: 1,
+        cfi: bookmarkCfi,
+        label: 'Chapter 2',
+        percentage: 55,
+        color: 'emerald',
+        createdAt: new Date(),
+      }],
+    })
+
+    foliateEl.getCFI.mockImplementation((index: number) => (
+      index === 1
+        ? 'epubcfi(/6/10!/4/2/1:0)'
+        : 'epubcfi(/6/8!/4/2/1:0)'
+    ))
+
+    const fakeDoc = makeFakeDoc(['Chapter 2 bookmarked paragraph.'])
+    const para = fakeDoc.querySelector('p') as HTMLElement
+
+    loadSection(foliateEl, fakeDoc, 1)
+
+    expect(para.getAttribute('data-nr-para-cfi')).toBe(bookmarkCfi)
+    expect(para.getAttribute('data-nr-bookmark')).toBe('emerald')
+    expect(para.getAttribute('data-nr-bookmark-id')).toBe('9')
   })
 
   it('remove o bookmark ao tocar na bandeira do parágrafo', async () => {
@@ -326,6 +362,109 @@ describe('EpubViewer — posição visível', () => {
     click(paras[0]!)
 
     expect(onTranslate).toHaveBeenCalledOnce()
+  })
+
+  it('aciona o bookmark do parágrafo pelo bloco de tradução inline', async () => {
+    const onBookmarkParagraph = vi.fn()
+    const { viewerRef, foliateEl } = await renderViewer({ onBookmarkParagraph })
+    foliateEl.getCFI.mockReturnValue('epubcfi(/6/10!/4/2/1:0)')
+    foliateEl.getProgressOf.mockReturnValue({
+      tocItem: { label: 'Chapter 2', href: 'chapter-2.xhtml' },
+    })
+    foliateEl.getSectionFractions.mockReturnValue([0, 0.2, 0.4, 1])
+
+    const fakeDoc = makeFakeDoc(['Chapter paragraph for bookmark.'])
+    const para = fakeDoc.querySelector('p') as HTMLElement
+
+    loadSection(foliateEl, fakeDoc, 1)
+    click(para)
+    act(() => { viewerRef.current?.showTranslationLoading() })
+    act(() => { viewerRef.current?.injectTranslation('Tradução') })
+
+    const bookmarkBtn = fakeDoc.getElementById('nr-translation-block')?.querySelector('[data-nr-action="bookmark"]') as HTMLElement | null
+    expect(bookmarkBtn?.textContent).toBe('Marcar')
+
+    click(bookmarkBtn!)
+
+    expect(onBookmarkParagraph).toHaveBeenCalledWith({
+      cfi: 'epubcfi(/6/10!/4/2/1:0)',
+      label: 'Chapter 2',
+      percentage: 20,
+      snippet: 'Chapter paragraph for bookmark.',
+    })
+  })
+
+  it('mantém o cfi do parágrafo estável mesmo após a tradução alterar o DOM', async () => {
+    const onBookmarkParagraph = vi.fn()
+    const { viewerRef, foliateEl } = await renderViewer({ onBookmarkParagraph })
+    foliateEl.getCFI.mockImplementation((_index, range?: Range | null) => {
+      const startContainer = range?.startContainer
+      const startElement =
+        startContainer?.nodeType === Node.ELEMENT_NODE
+          ? (startContainer as Element)
+          : startContainer?.parentElement
+      const firstChildTag = startElement?.firstElementChild?.tagName
+      return firstChildTag === 'SPAN'
+        ? 'epubcfi(/6/10!/4/2/1:99)'
+        : 'epubcfi(/6/10!/4/2/1:0)'
+    })
+    foliateEl.getProgressOf.mockReturnValue({
+      tocItem: { label: 'Chapter 2', href: 'chapter-2.xhtml' },
+    })
+    foliateEl.getSectionFractions.mockReturnValue([0, 0.2, 0.4, 1])
+
+    const fakeDoc = makeFakeDoc(['Chapter paragraph for bookmark.'])
+    const para = fakeDoc.querySelector('p') as HTMLElement
+
+    loadSection(foliateEl, fakeDoc, 1)
+    click(para)
+    act(() => { viewerRef.current?.showTranslationLoading() })
+    act(() => { viewerRef.current?.injectTranslation('Traducao') })
+
+    const bookmarkBtn = fakeDoc.getElementById('nr-translation-block')?.querySelector('[data-nr-action="bookmark"]') as HTMLElement | null
+    click(bookmarkBtn!)
+
+    expect(onBookmarkParagraph).toHaveBeenCalledWith(expect.objectContaining({
+      cfi: 'epubcfi(/6/10!/4/2/1:0)',
+    }))
+  })
+
+  it('mostra remover marcador no bloco inline quando o parágrafo já está marcado', async () => {
+    const bookmarkCfi = 'epubcfi(/6/10!/4/2/1:0)'
+    const { viewerRef, foliateEl } = await renderViewer({
+      bookmarks: [{
+        id: 3,
+        bookId: 1,
+        cfi: bookmarkCfi,
+        label: 'Chapter 2',
+        percentage: 20,
+        color: 'indigo',
+        createdAt: new Date(),
+      }],
+    })
+    foliateEl.getCFI.mockReturnValue(bookmarkCfi)
+    foliateEl.getProgressOf.mockReturnValue({
+      tocItem: { label: 'Chapter 2', href: 'chapter-2.xhtml' },
+    })
+    foliateEl.getSectionFractions.mockReturnValue([0, 0.2, 0.4, 1])
+
+    const fakeDoc = makeFakeDoc(['Already bookmarked paragraph.'])
+    const para = fakeDoc.querySelector('p') as HTMLElement
+
+    loadSection(foliateEl, fakeDoc, 1)
+    act(() => {
+      para.dispatchEvent(new MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 48,
+        clientY: 48,
+      }))
+    })
+    act(() => { viewerRef.current?.showTranslationLoading() })
+    act(() => { viewerRef.current?.injectTranslation('Tradução') })
+
+    const bookmarkBtn = fakeDoc.getElementById('nr-translation-block')?.querySelector('[data-nr-action="bookmark"]') as HTMLElement | null
+    expect(bookmarkBtn?.textContent).toBe('Remover marcador')
   })
 
   it('usa relocate para sinalizar fim da seção quando o progresso chega ao final', async () => {
@@ -469,7 +608,8 @@ describe('EpubViewer — chapter auto-advance', () => {
     loadSection(foliateEl, fakeDoc, 0)
     expect(onAtBottom).toHaveBeenLastCalledWith(false, true, 'Chapter 2')
 
-    act(() => {
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 350))
       fakeWin.fireScroll(380)
     })
 

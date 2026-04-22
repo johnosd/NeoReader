@@ -3,9 +3,14 @@ import { useSyncRef } from '../../hooks/useSyncRef'
 import type { Book, Bookmark } from '../../types/book'
 import type { View } from 'foliate-js/view.js'
 import { getSentenceAt, escapeHtml } from '../../utils/readerUtils'
-import { isCfiInLocation } from '../../utils/cfi'
+import { areCfisEquivalent, normalizeCfi } from '../../utils/cfi'
 
 export type FontSize = 'sm' | 'md' | 'lg' | 'xl'
+
+const BOOKMARK_ICON_GUTTER = 20
+const BOOKMARK_ICON_LEFT = 4
+const BOOKMARK_ICON_WIDTH = 10
+const BOOKMARK_ICON_HEIGHT = 14
 
 // Unidade mínima de leitura para o TTS.
 // Texto é partido em frases (não parágrafos inteiros) para reduzir latência de API.
@@ -241,20 +246,25 @@ function buildReaderCSS(fontSize: FontSize): string {
       cursor: pointer !important;
       font-family: inherit !important;
     }
+    .nr-tr-actions button[disabled] {
+      opacity: 0.65 !important;
+      cursor: default !important;
+    }
 
     /* Marcador visual de bookmark no próprio livro.
        A fonte de verdade continua sendo o CFI salvo; isso é apenas projeção visual. */
     [data-nr-bookmark] {
       position: relative !important;
-      padding-inline-start: 18px !important;
+      padding-inline-start: ${BOOKMARK_ICON_GUTTER}px !important;
+      overflow: visible !important;
     }
     [data-nr-bookmark]::before {
       content: '' !important;
       position: absolute !important;
-      left: 0 !important;
-      top: 0.35em !important;
-      width: 10px !important;
-      height: 14px !important;
+      left: ${BOOKMARK_ICON_LEFT}px !important;
+      top: calc(0.85em - ${Math.round(BOOKMARK_ICON_HEIGHT / 2)}px) !important;
+      width: ${BOOKMARK_ICON_WIDTH}px !important;
+      height: ${BOOKMARK_ICON_HEIGHT}px !important;
       border-radius: 3px 3px 1px 1px !important;
       background: #6366f1 !important;
       clip-path: polygon(0 0, 100% 0, 100% 78%, 50% 100%, 0 78%) !important;
@@ -295,6 +305,13 @@ export interface EpubViewerHandle {
   clearTranslation(): void
 }
 
+export interface ParagraphBookmarkPayload {
+  cfi: string
+  label: string
+  percentage: number
+  snippet: string
+}
+
 interface EpubViewerProps {
   book: Book
   bookmarks: Bookmark[]
@@ -328,6 +345,8 @@ interface EpubViewerProps {
   onAtBottom?: (atBottom: boolean, hasNext: boolean, nextLabel?: string) => void
   // Bookmarks: remove o marcador ao tocar no ícone projetado no parágrafo.
   onBookmarkTap?: (bookmarkId: number) => void
+  // Bookmarks: toggle no parágrafo atualmente selecionado no bloco de tradução inline.
+  onBookmarkParagraph?: (payload: ParagraphBookmarkPayload) => void
 }
 
 // forwardRef: padrão React para expor métodos imperativos ao componente pai.
@@ -340,7 +359,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       onSaveVocab, onCenterTap, onTranslate,
       onSpeakOne, onParagraphTapForTts, ttsGlobalActive,
       chromeVisible,
-      onAtBottom, onBookmarkTap,
+      onAtBottom, onBookmarkTap, onBookmarkParagraph,
     },
     ref,
   ) => {
@@ -383,8 +402,6 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
     // Navegação entre capítulos: detecta fundo visual + swipe para avançar
     const isAtBottomRef = useRef(false)
-    const hasUserReachedSectionEndRef = useRef(false)
-    const lastScrollPositionRef = useRef(0)
     const currentSectionIdxRef = useRef(0)
     const totalSectionsRef = useRef(1)
     const onAtBottomRef = useSyncRef(onAtBottom)
@@ -402,6 +419,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const BLOCK = 'p, li, blockquote, h1, h2, h3, h4, h5, h6'
     const bookmarksRef = useSyncRef(bookmarks)
     const onBookmarkTapRef = useSyncRef(onBookmarkTap)
+    const onBookmarkParagraphRef = useSyncRef(onBookmarkParagraph)
 
     function getParagraphIndexFromRange(range?: Range | null): number {
       const paras = ttsParagraphsRef.current
@@ -438,6 +456,84 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
     function getFirstVisibleParagraphIndexInternal(): number {
       return getVisibleParagraphInternal().paraIndex
+    }
+
+    function getOrCreateParagraphBookmarkCfi(para: Element | null): string | null {
+      const view = viewRef.current
+      if (!view || !para) return null
+
+      const cached = para.getAttribute('data-nr-para-cfi')
+      if (cached) return cached
+
+      const doc = para.ownerDocument!
+      const range = doc.createRange()
+      range.selectNodeContents(para)
+      range.collapse(true)
+
+      const cfi = normalizeCfi(view.getCFI(currentSectionIdxRef.current, range))
+      if (!cfi) return null
+
+      para.setAttribute('data-nr-para-cfi', cfi)
+      return cfi
+    }
+
+    function getParagraphBookmarkPayload(para: Element | null): ParagraphBookmarkPayload | null {
+      const view = viewRef.current
+      if (!view || !para) return null
+
+      const cfi = getOrCreateParagraphBookmarkCfi(para)
+      if (!cfi) return null
+
+      const doc = para.ownerDocument!
+      const range = doc.createRange()
+      range.selectNodeContents(para)
+      range.collapse(true)
+
+      const progress = view.getProgressOf(currentSectionIdxRef.current, range)
+      const location = lastRelocateRef.current ?? view.lastLocation
+      const fractions = view.getSectionFractions()
+      const sectionStart = fractions[currentSectionIdxRef.current] ?? location?.fraction ?? 0
+      const sectionEnd = fractions[currentSectionIdxRef.current + 1] ?? location?.fraction ?? sectionStart
+      const paraIndex = Math.max(0, ttsParagraphsRef.current.indexOf(para))
+      const paraFraction = ttsParagraphsRef.current.length > 1
+        ? paraIndex / (ttsParagraphsRef.current.length - 1)
+        : 0
+      const percentage = Math.round((sectionStart + (sectionEnd - sectionStart) * paraFraction) * 100)
+      const snippet = (para.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 150)
+
+      return {
+        cfi,
+        label: progress.tocItem?.label ?? location?.tocItem?.label ?? `${percentage}%`,
+        percentage,
+        snippet,
+      }
+    }
+
+    function findMatchingParagraphBookmark(paragraphCfi: string | null | undefined): Bookmark | undefined {
+      if (!paragraphCfi) return undefined
+      return [...bookmarksRef.current].reverse().find((bookmark) =>
+        areCfisEquivalent(bookmark.cfi, paragraphCfi),
+      )
+    }
+
+    function getParagraphBookmarkState(para: Element | null) {
+      const payload = getParagraphBookmarkPayload(para)
+      if (!payload) return null
+
+      const matchedBookmark = findMatchingParagraphBookmark(payload.cfi)
+      return { payload, matchedBookmark }
+    }
+
+    function syncActiveTranslationBookmarkAction(doc = currentDocRef.current): void {
+      const actionBtn = doc?.getElementById('nr-translation-block')?.querySelector<HTMLButtonElement>('[data-nr-action="bookmark"]')
+      if (!actionBtn) return
+
+      const bookmarkState = getParagraphBookmarkState(activeTranslationParaRef.current)
+      const isBookmarked = !!bookmarkState?.matchedBookmark
+      actionBtn.textContent = isBookmarked ? 'Remover marcador' : 'Marcar'
+      actionBtn.setAttribute('aria-pressed', isBookmarked ? 'true' : 'false')
+      actionBtn.removeAttribute('disabled')
+      delete actionBtn.dataset.nrPending
     }
 
     function isChapterStubSection(doc: Document): boolean {
@@ -546,6 +642,20 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       return partialMatch?.label
     }
 
+    const SECTION_END_THRESHOLD = 0.92
+
+    function updateSectionEndBanner(atEnd: boolean, sectionIndex: number) {
+      if (atEnd === isAtBottomRef.current) return
+
+      isAtBottomRef.current = atEnd
+      const hasNext = sectionIndex < totalSectionsRef.current - 1
+      onAtBottomRef.current?.(
+        atEnd,
+        hasNext,
+        hasNext ? getNextSectionLabel(sectionIndex) : undefined,
+      )
+    }
+
     function getSectionEndState(fraction: number, sectionIndex: number) {
       const view = viewRef.current
       if (!view) return null
@@ -556,11 +666,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       if (sectionStart === undefined || sectionEnd <= sectionStart) return null
 
       const relativeProgress = Math.max(0, Math.min(1, (fraction - sectionStart) / (sectionEnd - sectionStart)))
-      const hasNext = sectionIndex < totalSectionsRef.current - 1
       return {
-        atEnd: relativeProgress >= 0.92,
-        hasNext,
-        nextLabel: hasNext ? getNextSectionLabel(sectionIndex) : undefined,
+        atEnd: relativeProgress >= SECTION_END_THRESHOLD,
       }
     }
 
@@ -595,38 +702,21 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       }
 
       const initialState = getScrollState()
-      const initialScrollY = initialState.position
-      // O banner deve depender da transição real causada pela rolagem do leitor.
-      // Não herdamos um "já está no fundo" da medição inicial da seção.
-      isAtBottomRef.current = false
-      lastScrollPositionRef.current = initialScrollY
+      // Ignora scrolls automáticos logo após o load/estabilização da seção.
+      scrollingProgrammaticallyUntilRef.current = Math.max(
+        scrollingProgrammaticallyUntilRef.current,
+        Date.now() + 300,
+      )
 
       const onScroll = () => {
         if (ttsActiveRef.current && Date.now() > scrollingProgrammaticallyUntilRef.current) {
           userScrolledRef.current = true
         }
 
+        if (Date.now() <= scrollingProgrammaticallyUntilRef.current) return
+
         const scrollState = getScrollState()
-        const currentScrollY = scrollState.position
-        const scrollDelta = Math.abs(currentScrollY - lastScrollPositionRef.current)
-        const userInitiatedScroll =
-          scrollDelta > 2 && Date.now() > scrollingProgrammaticallyUntilRef.current
-        if (userInitiatedScroll) {
-          hasUserReachedSectionEndRef.current = true
-        }
-        const atBottom = scrollState.atBottom
-        if (atBottom !== isAtBottomRef.current) {
-          isAtBottomRef.current = atBottom
-          const hasNext = currentSectionIdxRef.current < totalSectionsRef.current - 1
-          if (!atBottom || hasUserReachedSectionEndRef.current) {
-            onAtBottomRef.current?.(
-              atBottom,
-              hasNext,
-              hasNext ? getNextSectionLabel(currentSectionIdxRef.current) : undefined,
-            )
-          }
-        }
-        lastScrollPositionRef.current = currentScrollY
+        updateSectionEndBanner(scrollState.atBottom, currentSectionIdxRef.current)
       }
 
       for (const target of initialState.targets) {
@@ -694,18 +784,15 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     }
 
     function renderBookmarkMarkers(doc = currentDocRef.current): void {
-      const view = viewRef.current
       const activeBookmarks = bookmarksRef.current
-      if (!doc || !view) return
+      if (!doc) return
 
       clearBookmarkMarkers(doc)
       if (ttsParagraphsRef.current.length === 0 || activeBookmarks.length === 0) return
 
       for (const para of ttsParagraphsRef.current) {
-        const range = doc.createRange()
-        range.selectNodeContents(para)
-        const paraLocationCfi = view.getCFI(currentSectionIdxRef.current, range)
-        const matchedBookmark = activeBookmarks.find((bookmark) => isCfiInLocation(bookmark.cfi, paraLocationCfi))
+        const bookmarkState = getParagraphBookmarkState(para)
+        const matchedBookmark = bookmarkState?.matchedBookmark
         if (!matchedBookmark) continue
 
         const paraEl = para as HTMLElement
@@ -921,8 +1008,10 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           <p class="nr-tr-text">${escapeHtml(translatedText)}</p>
           <div class="nr-tr-actions">
             <button data-nr-action="speak">🔊 Ouvir</button>
+            <button data-nr-action="bookmark">Marcar</button>
             <button data-nr-action="save">⭐ Salvar</button>
           </div>`
+        syncActiveTranslationBookmarkAction(para.ownerDocument)
       },
 
       clearTranslation: () => {
@@ -957,6 +1046,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
     useEffect(() => {
       renderBookmarkMarkers()
+      syncActiveTranslationBookmarkAction()
     }, [bookmarks])
 
     // Setup principal: cria o elemento foliate, abre o EPUB, configura renderer.
@@ -1001,14 +1091,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           console.log(DBG, 'relocate event', { cfi, fraction, tocLabel: tocItem?.label, sIdx })
           onRelocate(cfi, Math.round(fraction * 100), tocItem?.label, sIdx)
           const sectionEndState = getSectionEndState(fraction, sIdx)
-          if (sectionEndState && sectionEndState.atEnd !== isAtBottomRef.current) {
-            isAtBottomRef.current = sectionEndState.atEnd
-            onAtBottomRef.current?.(
-              sectionEndState.atEnd,
-              sectionEndState.hasNext,
-              sectionEndState.nextLabel,
-            )
-          }
+          if (sectionEndState) updateSectionEndBanner(sectionEndState.atEnd, sIdx)
           if (pendingSectionRef.current?.index === sIdx) {
             scheduleSectionFinalization('relocate')
           }
@@ -1044,13 +1127,14 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           })
 
           // Armazena parágrafos da seção para uso pelo TTS (audiobook e karaokê)
+          currentSectionIdxRef.current = e.detail.index
           ttsParagraphsRef.current = Array.from(doc.querySelectorAll(BLOCK))
             .filter(el => (el.textContent?.trim().length ?? 0) > 2)
           ttsParagraphTextsRef.current = ttsParagraphsRef.current
             .map(el => el.textContent!.trim())
+          for (const para of ttsParagraphsRef.current) getOrCreateParagraphBookmarkCfi(para)
 
           // Rastreia seção atual e marca a nova seção como pendente até o renderer estabilizar.
-          currentSectionIdxRef.current = e.detail.index
           lastRelocateRef.current = null
           pendingSectionVersionRef.current += 1
           pendingSectionRef.current = {
@@ -1059,8 +1143,6 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             version: pendingSectionVersionRef.current,
           }
           isAtBottomRef.current = false
-          hasUserReachedSectionEndRef.current = false
-          lastScrollPositionRef.current = 0
           const hasNext = e.detail.index < totalSectionsRef.current - 1
           onAtBottomRef.current?.(false, hasNext, hasNext ? getNextSectionLabel(e.detail.index) : undefined)
           clearFinalizeSectionTimeout()
@@ -1106,9 +1188,10 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             if (para?.hasAttribute('data-nr-bookmark') && para.dataset.nrBookmarkId) {
               const rect = para.getBoundingClientRect()
               const clickedBookmarkIcon =
-                ev.clientX <= rect.left + 18 &&
+                ev.clientX >= rect.left &&
+                ev.clientX <= rect.left + BOOKMARK_ICON_GUTTER &&
                 ev.clientY >= rect.top &&
-                ev.clientY <= rect.top + 24
+                ev.clientY <= rect.top + Math.max(BOOKMARK_ICON_HEIGHT + 8, 24)
 
               if (clickedBookmarkIcon) {
                 const bookmarkId = Number(para.dataset.nrBookmarkId)
@@ -1123,6 +1206,17 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               const action = actionBtn.dataset.nrAction
               if (action === 'speak') {
                 onSpeakOneRef.current(activeSourceTextRef.current)
+              } else if (action === 'bookmark') {
+                if (actionBtn.dataset.nrPending === '1') return
+                const bookmarkState = getParagraphBookmarkState(activeTranslationParaRef.current)
+                if (bookmarkState) {
+                  actionBtn.dataset.nrPending = '1'
+                  actionBtn.setAttribute('disabled', 'true')
+                  const nextIsBookmarked = !bookmarkState.matchedBookmark
+                  actionBtn.textContent = nextIsBookmarked ? 'Remover marcador' : 'Marcar'
+                  actionBtn.setAttribute('aria-pressed', nextIsBookmarked ? 'true' : 'false')
+                  onBookmarkParagraphRef.current?.(bookmarkState.payload)
+                }
               } else if (action === 'save' && activeTranslatedTextRef.current) {
                 onSaveVocabRef.current(activeSourceTextRef.current, activeTranslatedTextRef.current)
                 // Feedback visual temporário no botão
