@@ -44,8 +44,6 @@ function defaultProps(overrides: Record<string, unknown> = {}) {
     onParagraphTapForTts: vi.fn(),
     ttsGlobalActive: false,
     onAtBottom: vi.fn(),
-    onSwipeAtBottom: vi.fn(),
-    onSwipeAtTop: vi.fn(),
     onBookmarkTap: vi.fn(),
     ...overrides,
   }
@@ -88,23 +86,6 @@ function loadSection(foliateEl: FoliateViewMock, doc: Document, index = 0) {
     foliateEl.fireFoliate('load', { doc, index })
     foliateEl.fireRenderer('stabilized')
   })
-}
-
-/** Helpers de touch sem TouchEvent nativo (compatível com jsdom). */
-function touchStart(target: EventTarget, clientY: number) {
-  const evt = Object.assign(new Event('touchstart', { bubbles: true }), {
-    touches: [{ clientY, clientX: 0 }],
-    changedTouches: [{ clientY, clientX: 0 }],
-  })
-  act(() => { target.dispatchEvent(evt) })
-}
-
-function touchEnd(target: EventTarget, clientY: number) {
-  const evt = Object.assign(new Event('touchend', { bubbles: true }), {
-    touches: [],
-    changedTouches: [{ clientY, clientX: 0 }],
-  })
-  act(() => { target.dispatchEvent(evt) })
 }
 
 /** Injeta um defaultView falso num Document para simular posição de scroll. */
@@ -321,6 +302,18 @@ describe('EpubViewer — posição visível', () => {
 
     expect(onBookmarkTap).toHaveBeenCalledWith(7)
   })
+
+  it('continua permitindo tradução após carregar uma nova seção', async () => {
+    const onTranslate = vi.fn()
+    const { foliateEl } = await renderViewer({ onTranslate })
+    const fakeDoc = makeFakeDoc(['Chapter 2 starts here.', 'Another paragraph.'])
+    const paras = fakeDoc.querySelectorAll('p')
+
+    loadSection(foliateEl, fakeDoc, 1)
+    click(paras[0]!)
+
+    expect(onTranslate).toHaveBeenCalledOnce()
+  })
 })
 
 describe('EpubViewer — lock de tradução', () => {
@@ -375,7 +368,7 @@ describe('EpubViewer — lock de tradução', () => {
   })
 })
 
-describe('EpubViewer — chapter auto-advance (scroll overflow)', () => {
+describe('EpubViewer — chapter auto-advance', () => {
   it('pula automaticamente uma seção intermediária com apenas o título ao avançar de capítulo', async () => {
     const { viewerRef, foliateEl } = await renderViewer()
 
@@ -434,125 +427,13 @@ describe('EpubViewer — chapter auto-advance (scroll overflow)', () => {
     expect(foliateEl.renderer.nextSection).toHaveBeenCalledTimes(2)
   })
 
-  it('avança para o próximo capítulo após 2 swipes para baixo no fundo', async () => {
-    const onSwipeAtBottom = vi.fn()
-    const { foliateEl } = await renderViewer({ onSwipeAtBottom })
-
-    // scrollY(380) + innerHeight(800) = 1180 >= scrollHeight(1200) - 20 = 1180 → atBottom
+  it('chegar ao fundo da seção não dispara navegação implícita por swipe', async () => {
+    const onAtBottom = vi.fn()
+    const { foliateEl } = await renderViewer({ onAtBottom })
     const fakeDoc = makeFakeDoc(['Long chapter content.'])
     injectFakeWindow(fakeDoc, 380, 800, 1200)
 
     loadSection(foliateEl, fakeDoc, 0)
-
-    // 1º swipe para baixo (startY=500, endY=450 → deltaY=50>30, atBottom=true) → count=1
-    touchStart(fakeDoc, 500)
-    touchEnd(fakeDoc, 450)
-    expect(onSwipeAtBottom).not.toHaveBeenCalled()
-
-    // 2º swipe → count=2 → navega
-    touchStart(fakeDoc, 500)
-    touchEnd(fakeDoc, 450)
-    expect(onSwipeAtBottom).toHaveBeenCalledOnce()
-  })
-
-  it('não avança quando não está no fundo (deltaY correto mas não atBottom)', async () => {
-    const onSwipeAtBottom = vi.fn()
-    const { foliateEl } = await renderViewer({ onSwipeAtBottom })
-
-    const fakeDoc = makeFakeDoc(['Content.'])
-    // scrollY=0 → NÃO está no fundo (0 + 800 = 800 < 1180)
-    injectFakeWindow(fakeDoc, 0, 800, 1200)
-
-    loadSection(foliateEl, fakeDoc, 0)
-
-    touchStart(fakeDoc, 500)
-    touchEnd(fakeDoc, 450)
-    touchStart(fakeDoc, 500)
-    touchEnd(fakeDoc, 450)
-
-    expect(onSwipeAtBottom).not.toHaveBeenCalled()
-  })
-
-  it('não avança quando está no último capítulo (sem hasNext)', async () => {
-    const onSwipeAtBottom = vi.fn()
-    const { foliateEl } = await renderViewer({ onSwipeAtBottom })
-
-    const fakeDoc = makeFakeDoc(['Last chapter.'])
-    injectFakeWindow(fakeDoc, 380, 800, 1200)
-
-    // index=2 = última seção (totalSections=3, então idx 2 é a última)
-    loadSection(foliateEl, fakeDoc, 2)
-
-    touchStart(fakeDoc, 500)
-    touchEnd(fakeDoc, 450)
-    touchStart(fakeDoc, 500)
-    touchEnd(fakeDoc, 450)
-
-    expect(onSwipeAtBottom).not.toHaveBeenCalled()
-  })
-
-  it('reseta o contador quando o usuário rola para cima entre os swipes', async () => {
-    const onSwipeAtBottom = vi.fn()
-    const { foliateEl } = await renderViewer({ onSwipeAtBottom })
-
-    const fakeDoc = makeFakeDoc(['Content.'])
-    injectFakeWindow(fakeDoc, 380, 800, 1200)
-
-    loadSection(foliateEl, fakeDoc, 0)
-
-    // 1º swipe para baixo → count=1
-    touchStart(fakeDoc, 500)
-    touchEnd(fakeDoc, 450)
-
-    // Scroll para cima: dispara evento scroll com scrollY menor (reset do counter via scroll event)
-    // O listener de scroll está em doc.defaultView (que é nosso fakeWin com addEventListener mock).
-    // Para simular o reset, precisamos mudar scrollY e o código do handler via scroll:
-    // scrollY fica em 380, mas o reset acontece no scroll event que não conseguimos disparar
-    // facilmente com fakeWin. Este caso é melhor coberto por teste manual (TC-06).
-    // Aqui verificamos que sem reset, 2 swipes consecutivos funcionam.
-    touchStart(fakeDoc, 500)
-    touchEnd(fakeDoc, 450)
-    expect(onSwipeAtBottom).toHaveBeenCalledOnce()
-  })
-})
-
-describe('EpubViewer — voltar ao capítulo anterior (swipe topo)', () => {
-  it('emite onSwipeAtTop após 2 swipes para cima no topo do capítulo', async () => {
-    const onSwipeAtTop = vi.fn()
-    const { foliateEl } = await renderViewer({ onSwipeAtTop })
-
-    const fakeDoc = makeFakeDoc(['Chapter start.'])
-    // scrollY=0 → atTop (0 <= 20)
-    injectFakeWindow(fakeDoc, 0, 800, 1200)
-
-    // index=1 = não é o primeiro capítulo (hasPrev = 1 > 0)
-    loadSection(foliateEl, fakeDoc, 1)
-
-    // Swipe para cima: startY=300, endY=400 → deltaY=300-400=-100 < -30, atTop=true
-    touchStart(fakeDoc, 300)
-    touchEnd(fakeDoc, 400)
-    expect(onSwipeAtTop).not.toHaveBeenCalled()
-
-    touchStart(fakeDoc, 300)
-    touchEnd(fakeDoc, 400)
-    expect(onSwipeAtTop).toHaveBeenCalledOnce()
-  })
-
-  it('não volta quando está no primeiro capítulo', async () => {
-    const onSwipeAtTop = vi.fn()
-    const { foliateEl } = await renderViewer({ onSwipeAtTop })
-
-    const fakeDoc = makeFakeDoc(['First chapter.'])
-    injectFakeWindow(fakeDoc, 0, 800, 1200)
-
-    // index=0 = primeiro capítulo (hasPrev = false)
-    loadSection(foliateEl, fakeDoc, 0)
-
-    touchStart(fakeDoc, 300)
-    touchEnd(fakeDoc, 400)
-    touchStart(fakeDoc, 300)
-    touchEnd(fakeDoc, 400)
-
-    expect(onSwipeAtTop).not.toHaveBeenCalled()
+    expect(onAtBottom).toHaveBeenLastCalledWith(true, true)
   })
 })

@@ -202,22 +202,10 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     setChapterEndState(atBottom ? (hasNext ? 'atEnd' : 'noNext') : 'idle')
   }
 
-  // Avança para o próximo capítulo — acionado pelo banner clicável ou pelo 2º swipe.
+  // Avança para o próximo capítulo — acionado pelo banner clicável.
   function handleChapterNext() {
     setChapterEndState('idle')
     viewerRef.current?.next()
-  }
-
-  // 2º swipe consecutivo no fundo: navega para o próximo capítulo.
-  // hasNext já verificado no EpubViewer antes de chamar este callback.
-  function handleSwipeAtBottom() {
-    handleChapterNext()
-  }
-
-  // 2º swipe consecutivo no topo: volta ao capítulo anterior posicionando no fim.
-  // hasPrev já verificado no EpubViewer antes de chamar este callback.
-  function handleSwipeAtTop() {
-    viewerRef.current?.prevToEnd()
   }
 
   // Salva par original/tradução no vocabulário — chamado pelo EpubViewer via ⭐
@@ -349,8 +337,6 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
           }}
           ttsGlobalActive={ttsPlayerVisible}
           onAtBottom={handleAtBottom}
-          onSwipeAtBottom={handleSwipeAtBottom}
-          onSwipeAtTop={handleSwipeAtTop}
           onBookmarkTap={(id) => { void softDeleteBookmark(id) }}
         />
       </div>
@@ -411,6 +397,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
       </div>
 
       {/* Banner de fim de capítulo — aparece quando usuário chega ao fundo da seção.
+          Em scroll mode ele é o caminho principal para avançar de seção.
           Oculto durante TTS (que tem seu próprio controle de fim de capítulo). */}
       {chapterEndState !== 'idle' && !ttsPlayerVisible && (
         <ChapterEndBanner
@@ -478,7 +465,7 @@ function ReaderSkeleton() {
 }
 
 // Banner fixo no fundo da tela quando o usuário chega ao final de uma seção.
-// onNext definido → clicável para avançar o capítulo. Swipe ainda funciona como fallback.
+// onNext definido → clicável para avançar o capítulo.
 // hasNext=false → último capítulo, sem ação disponível.
 function ChapterEndBanner({ hasNext, onNext }: { hasNext: boolean; onNext?: () => void }) {
   return (

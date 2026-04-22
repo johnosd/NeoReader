@@ -325,12 +325,6 @@ interface EpubViewerProps {
   // Capítulo: emitido quando o usuário chega ao fundo (ou sai do fundo) da seção atual.
   // hasNext: false quando é a última seção do livro.
   onAtBottom?: (atBottom: boolean, hasNext: boolean) => void
-  // Capítulo: emitido quando o usuário faz swipe para baixo estando já no fundo —
-  // sinal de intenção de avançar para o próximo capítulo.
-  onSwipeAtBottom?: () => void
-  // Capítulo: emitido quando o usuário faz swipe para cima estando já no topo —
-  // sinal de intenção de voltar ao final do capítulo anterior.
-  onSwipeAtTop?: () => void
   // Bookmarks: remove o marcador ao tocar no ícone projetado no parágrafo.
   onBookmarkTap?: (bookmarkId: number) => void
 }
@@ -345,7 +339,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       onSaveVocab, onCenterTap, onTranslate,
       onSpeakOne, onParagraphTapForTts, ttsGlobalActive,
       chromeVisible,
-      onAtBottom, onSwipeAtBottom, onSwipeAtTop, onBookmarkTap,
+      onAtBottom, onBookmarkTap,
     },
     ref,
   ) => {
@@ -391,8 +385,6 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const currentSectionIdxRef = useRef(0)
     const totalSectionsRef = useRef(1)
     const onAtBottomRef = useSyncRef(onAtBottom)
-    const onSwipeAtBottomRef = useSyncRef(onSwipeAtBottom)
-    const onSwipeAtTopRef = useSyncRef(onSwipeAtTop)
     // Flag: próximo evento 'load' deve rolar a seção até o fundo (usado após prevToEnd)
     const scrollToBottomOnLoadRef = useRef(false)
     const lastRelocateRef = useRef<RelocateDetail | null>(null)
@@ -950,14 +942,13 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           }, 400)
           renderBookmarkMarkers(doc)
 
-          // Detecta swipe para baixo quando no fundo — 2 gestos consecutivos avançam o capítulo.
           // didScroll: Android WebView dispara 'click' mesmo após scroll curto.
           // Rastreamos touchmove para distinguir tap intencional de fim de scroll.
+          // Navegação de capítulo por gesto foi removida do scroll mode para reduzir estados
+          // implícitos e evitar travamentos em transições de seção.
           let touchStartY = 0
           let touchStartX = 0
           let didScroll = false
-          let scrollOverflowCount = 0
-          let scrollOverflowTopCount = 0
           doc.addEventListener('touchstart', (ev: TouchEvent) => {
             touchStartY = ev.touches[0].clientY
             touchStartX = ev.touches[0].clientX
@@ -969,40 +960,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             const dx = Math.abs(ev.touches[0].clientX - touchStartX)
             if (dy > 8 || dx > 8) didScroll = true
           }, { passive: true })
-          doc.addEventListener('touchend', (ev: TouchEvent) => {
-            const deltaY = touchStartY - ev.changedTouches[0].clientY
-            const metrics = getScrollMetrics(doc)
-
-            // deltaY positivo = dedo foi para cima = intenção de rolar para baixo
-            if (deltaY > 30) {
-              // Lê posição diretamente — não depende de isAtBottomRef ser atualizado
-              // pelo scroll event antes do touchend (timing não garantido no Android WebView)
-              const atBottom = metrics.position + metrics.viewport >= metrics.extent - 20
-              if (!atBottom) { scrollOverflowCount = 0; return }
-              const hasNext = currentSectionIdxRef.current < totalSectionsRef.current - 1
-              if (!hasNext) return
-              scrollOverflowCount++
-              if (scrollOverflowCount >= 2) {
-                scrollOverflowCount = 0
-                onSwipeAtBottomRef.current?.()
-              }
-              return
-            }
-
-            // deltaY negativo = dedo foi para baixo = intenção de rolar para cima
-            if (deltaY < -30) {
-              const atTop = metrics.position <= 20
-              if (!atTop) { scrollOverflowTopCount = 0; return }
-              const hasPrev = currentSectionIdxRef.current > 0
-              if (!hasPrev) return
-              scrollOverflowTopCount++
-              // 2ª tentativa consecutiva de scroll além do início → volta ao capítulo anterior
-              if (scrollOverflowTopCount >= 2) {
-                scrollOverflowTopCount = 0
-                onSwipeAtTopRef.current?.()
-              }
-            }
-          }, { passive: true })
+          doc.addEventListener('touchend', () => {}, { passive: true })
 
           doc.addEventListener('click', (ev: MouseEvent) => {
             // Ignora clicks que são resíduo de um gesto de scroll
