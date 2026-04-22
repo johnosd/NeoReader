@@ -49,6 +49,17 @@ class NeoReaderDB extends Dexie {
       translations:'++id, textHash, createdAt',
       settings:    '++id',
     })
+
+    // v5: adiciona índice sectionIndex em bookmarks (permite query rápida por seção)
+    // Os campos snippet, paraIndex, color não precisam de index — são apenas dados.
+    this.version(5).stores({
+      books:       '++id, title, author, addedAt, lastOpenedAt',
+      progress:    '++id, bookId, updatedAt',
+      bookmarks:   '++id, bookId, createdAt, sectionIndex',
+      vocabulary:  '++id, bookId, createdAt',
+      translations:'++id, textHash, createdAt',
+      settings:    '++id',
+    })
   }
 }
 

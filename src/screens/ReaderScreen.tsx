@@ -9,7 +9,7 @@ import { useReaderProgress } from '../hooks/useReaderProgress'
 import { useReaderStore } from '../store/readerStore'
 import { upsertProgress } from '../db/progress'
 import { updateLastOpened } from '../db/books'
-import { addBookmark, deleteBookmark } from '../db/bookmarks'
+import { addBookmark, deleteBookmark, updateBookmarkColor } from '../db/bookmarks'
 import { addVocabItem } from '../db/vocabulary'
 import { getSettings } from '../db/settings'
 import { db } from '../db/database'
@@ -45,6 +45,8 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
   const [error, setError] = useState<string | null>(null)
   // 'idle': sem banner | 'atEnd': fim do capítulo, há próximo | 'noNext': último capítulo
   const [chapterEndState, setChapterEndState] = useState<'idle' | 'atEnd' | 'noNext'>('idle')
+  // Índice da spine atual — atualizado via onRelocate; usado para fuzzy-match de bookmark
+  const [sectionIndex, setSectionIndex] = useState(0)
 
 
   // Estado global compartilhado (Zustand)
@@ -59,8 +61,15 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
     [book.id],
   ) ?? []
 
-  // true se a posição atual já tem marcador salvo
-  const isBookmarked = bookmarks.some((b) => b.cfi === cfi)
+  // true se a posição atual já tem marcador salvo.
+  // CFI exato OU mesma seção + percentual próximo (±2%) — cobre drift de CFI após pequeno scroll.
+  const isBookmarked = bookmarks.some(
+    (b) =>
+      b.cfi === cfi ||
+      (b.sectionIndex !== undefined &&
+        b.sectionIndex === sectionIndex &&
+        Math.abs(b.percentage - percentage) < 2),
+  )
 
   // Limpa o store ao desmontar para não vazar estado entre livros
   useEffect(() => { return () => reset() }, [reset])
@@ -216,8 +225,9 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
   }
 
   const handleRelocate = useCallback(
-    (newCfi: string, newPercentage: number, newTocLabel: string | undefined) => {
+    (newCfi: string, newPercentage: number, newTocLabel: string | undefined, newSectionIndex: number) => {
       setCfi(newCfi, newPercentage, newTocLabel)
+      setSectionIndex(newSectionIndex)
       saveProgress(newCfi, newPercentage)
     },
     [setCfi, saveProgress],
@@ -233,14 +243,40 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
   }
 
   // Toggle puro: adiciona se não existe, remove se já existe na posição atual.
+  // Usa fuzzy-match (CFI exato OU mesma seção ±2%) para tolerar drift de CFI após scroll.
   // A lista de marcadores é acessada pelo botão dedicado no bottom bar.
   function handleBookmarkToggle() {
     if (!cfi || book.id === undefined) return
-    const existing = bookmarks.find((b) => b.cfi === cfi)
+    const existing = bookmarks.find(
+      (b) =>
+        b.cfi === cfi ||
+        (b.sectionIndex !== undefined &&
+          b.sectionIndex === sectionIndex &&
+          Math.abs(b.percentage - percentage) < 2),
+    )
     if (existing?.id !== undefined) {
       void deleteBookmark(existing.id)
     } else {
-      void addBookmark(book.id, cfi, tocLabel || `${percentage}%`, percentage)
+      // Captura snippet do primeiro parágrafo visível para exibir contexto na lista
+      const paraIndex = viewerRef.current?.getFirstVisibleParagraphIndex() ?? 0
+      const snippet = (viewerRef.current?.getParagraphs()[paraIndex] ?? '').slice(0, 150)
+      void addBookmark(book.id, cfi, tocLabel || `${percentage}%`, percentage, {
+        sectionIndex,
+        paraIndex,
+        snippet,
+        color: 'indigo',
+      })
+    }
+  }
+
+  // Re-injeta marcadores visuais de bookmark sempre que uma nova seção carrega.
+  // clearBookmarkMarkers primeiro: garante que marcadores da seção anterior não vazem.
+  function handleSectionLoad(idx: number) {
+    viewerRef.current?.clearBookmarkMarkers()
+    for (const bm of bookmarks) {
+      if (bm.sectionIndex === idx && bm.paraIndex !== undefined) {
+        viewerRef.current?.injectBookmarkMarker(bm.paraIndex, bm.color ?? 'indigo')
+      }
     }
   }
 
@@ -279,6 +315,7 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
           onAtBottom={handleAtBottom}
           onSwipeAtBottom={handleSwipeAtBottom}
           onSwipeAtTop={handleSwipeAtTop}
+          onSectionLoad={handleSectionLoad}
         />
       </div>
 
@@ -354,6 +391,19 @@ export function ReaderScreen({ book, onBack, onOpenVocabulary }: ReaderScreenPro
           setBookmarkSheetOpen(false)
         }}
         onDelete={deleteBookmark}
+        onColorChange={(id, color) => {
+          void updateBookmarkColor(id, color)
+          // Re-injeta marcadores com a nova cor na seção atual
+          viewerRef.current?.clearBookmarkMarkers()
+          for (const bm of bookmarks) {
+            if (bm.sectionIndex === sectionIndex && bm.paraIndex !== undefined) {
+              viewerRef.current?.injectBookmarkMarker(
+                bm.paraIndex,
+                bm.id === id ? color : (bm.color ?? 'indigo'),
+              )
+            }
+          }
+        }}
         onClose={() => setBookmarkSheetOpen(false)}
       />
 
