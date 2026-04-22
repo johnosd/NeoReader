@@ -1301,6 +1301,11 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             index: e.detail.index,
             version: pendingSectionVersionRef.current,
           }
+          // Remove listeners do capítulo anterior imediatamente: sem esse cleanup eles
+          // ficam ativos ~400ms e disparam com o índice do novo capítulo já setado,
+          // causando o banner de "fim de capítulo" aparecer no início do próximo.
+          scrollListenerCleanupRef.current?.()
+          scrollListenerCleanupRef.current = null
           isAtBottomRef.current = false
           const hasNext = e.detail.index < totalSectionsRef.current - 1
           onAtBottomRef.current?.(false, hasNext, hasNext ? getNextSectionLabel(e.detail.index) : undefined)
