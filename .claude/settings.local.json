@@ -49,7 +49,9 @@
       "Bash(echo \"EXIT_CODE=$?\")",
       "Bash(echo \"TSC_EXIT=$?\")",
       "Bash(node_modules/.bin/tsc --noEmit)",
-      "Bash(node_modules/.bin/vite build *)"
+      "Bash(node_modules/.bin/vite build *)",
+      "Bash(node ./node_modules/typescript/bin/tsc --noEmit)",
+      "Bash(cmd /c \"npx tsc --noEmit && echo OK_NO_ERRORS || echo ERRORS_FOUND\")"
     ]
   }
 }

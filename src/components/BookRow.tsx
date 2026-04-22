@@ -1,4 +1,6 @@
+import { ChevronRight } from 'lucide-react'
 import { BookCard } from './BookCard'
+import { ProgressCard } from './ProgressCard'
 import type { BookWithProgress } from '../hooks/useLibraryGroups'
 import type { Book } from '../types/book'
 
@@ -7,27 +9,57 @@ interface BookRowProps {
   books: BookWithProgress[]
   onPress: (book: Book) => void
   onOpenOptions?: (book: Book) => void
+  /** 'progress' → horizontal ProgressCard; 'default' → vertical BookCard */
+  variant?: 'default' | 'progress'
 }
 
-export function BookRow({ title, books, onPress, onOpenOptions }: BookRowProps) {
-  // Row vazia não renderiza nada (ex: "Continue lendo" sem livros em progresso)
+export function BookRow({ title, books, onPress, onOpenOptions, variant = 'default' }: BookRowProps) {
   if (books.length === 0) return null
 
   return (
-    <section className="mt-6">
-      <h2 className="font-semibold text-base text-text-primary px-5 mb-3">{title}</h2>
+    <section className="mt-7">
+      {/* Row header */}
+      <div className="flex items-center justify-between px-5 mb-3">
+        <h2
+          className="text-[15px] font-bold tracking-tight"
+          style={{ color: '#f1f5f9' }}
+        >
+          {title}
+        </h2>
+        <button
+          className="flex items-center gap-[2px] text-[11px] font-semibold active:opacity-60 transition-opacity"
+          style={{ color: '#a855f7' }}
+          aria-label={`Ver tudo em ${title}`}
+        >
+          Ver tudo
+          <ChevronRight size={13} strokeWidth={2.5} />
+        </button>
+      </div>
 
-      {/* overflow-x-auto: scroll horizontal nativo com momentum no Android.
-          scrollbar-hide: esconde a barra de scroll visual (definido no index.css). */}
+      {/* Scroll horizontal */}
       <div className="overflow-x-auto scrollbar-hide">
-        <div className="flex gap-3 px-5 pb-1">
-          {books.map(book => (
-            // w-32 (128px) shrink-0: largura fixa por card, ~2.5 visíveis por tela
-            <div key={book.id} className="w-32 shrink-0">
-              <BookCard book={book} onPress={onPress} onOpenOptions={onOpenOptions} />
-            </div>
-          ))}
-        </div>
+        {variant === 'progress' ? (
+          /* Horizontal progress cards — wider, gap generoso */
+          <div className="flex gap-3 px-5 pb-2">
+            {books.map(book => (
+              <ProgressCard
+                key={book.id}
+                book={book}
+                onPress={onPress}
+                onOpenOptions={onOpenOptions}
+              />
+            ))}
+          </div>
+        ) : (
+          /* Vertical cover cards */
+          <div className="flex gap-3 px-5 pb-2">
+            {books.map(book => (
+              <div key={book.id} className="w-[100px] shrink-0">
+                <BookCard book={book} onPress={onPress} onOpenOptions={onOpenOptions} />
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </section>
   )
