@@ -324,7 +324,8 @@ interface EpubViewerProps {
   ttsGlobalActive: boolean
   // Capítulo: emitido quando o usuário chega ao fundo (ou sai do fundo) da seção atual.
   // hasNext: false quando é a última seção do livro.
-  onAtBottom?: (atBottom: boolean, hasNext: boolean) => void
+  // nextLabel: rótulo da próxima seção quando disponível no TOC.
+  onAtBottom?: (atBottom: boolean, hasNext: boolean, nextLabel?: string) => void
   // Bookmarks: remove o marcador ao tocar no ícone projetado no parágrafo.
   onBookmarkTap?: (bookmarkId: number) => void
 }
@@ -382,6 +383,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
     // Navegação entre capítulos: detecta fundo visual + swipe para avançar
     const isAtBottomRef = useRef(false)
+    const hasUserReachedSectionEndRef = useRef(false)
+    const lastScrollPositionRef = useRef(0)
     const currentSectionIdxRef = useRef(0)
     const totalSectionsRef = useRef(1)
     const onAtBottomRef = useSyncRef(onAtBottom)
@@ -463,18 +466,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       return viewRef.current.renderer.shadowRoot?.getElementById('container') as HTMLElement | null
     }
 
-    function getScrollMetrics(doc: Document) {
-      const container = getRendererScrollContainer()
-      if (container) {
-        return {
-          position: container.scrollTop,
-          viewport: container.clientHeight,
-          extent: container.scrollHeight,
-          scrollToBottom: () => { container.scrollTop = container.scrollHeight },
-          target: container as EventTarget,
-        }
-      }
-
+    function getWindowScrollMetrics(doc: Document) {
       const win = doc.defaultView
       return {
         position: win?.scrollY ?? 0,
@@ -482,6 +474,93 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         extent: doc.documentElement.scrollHeight,
         scrollToBottom: () => { win?.scrollTo(0, doc.documentElement.scrollHeight) },
         target: (win ?? doc) as EventTarget,
+      }
+    }
+
+    function getScrollMetricSources(doc: Document) {
+      const sources: Array<{
+        position: number
+        viewport: number
+        extent: number
+        scrollToBottom: () => void
+        target: EventTarget
+      }> = []
+
+      const container = getRendererScrollContainer()
+      if (container) {
+        sources.push({
+          position: container.scrollTop,
+          viewport: container.clientHeight,
+          extent: container.scrollHeight,
+          scrollToBottom: () => { container.scrollTop = container.scrollHeight },
+          target: container as EventTarget,
+        })
+      }
+
+      sources.push(getWindowScrollMetrics(doc))
+      return sources
+    }
+
+    function getScrollMetrics(doc: Document) {
+      const sources = getScrollMetricSources(doc)
+      return sources
+        .slice()
+        .sort((a, b) => {
+          const aOverflow = Math.max(0, a.extent - a.viewport)
+          const bOverflow = Math.max(0, b.extent - b.viewport)
+          return bOverflow - aOverflow
+        })[0] ?? getWindowScrollMetrics(doc)
+    }
+
+    function normalizeHref(href?: string | null): string {
+      return (href ?? '')
+        .split('#')[0]
+        .replace(/^\.\//, '')
+        .trim()
+        .toLowerCase()
+    }
+
+    function flattenToc(items: TocItem[]): TocItem[] {
+      const flat: TocItem[] = []
+      for (const item of items) {
+        flat.push(item)
+        if (item.subitems?.length) flat.push(...flattenToc(item.subitems))
+      }
+      return flat
+    }
+
+    function getNextSectionLabel(sectionIndex: number): string | undefined {
+      const view = viewRef.current
+      const nextSection = view?.book?.sections?.[sectionIndex + 1]
+      const nextHref = normalizeHref(nextSection?.href)
+      if (!nextHref) return undefined
+
+      const tocItems = flattenToc(view?.book?.toc ?? [])
+      const directMatch = tocItems.find((item) => normalizeHref(item.href) === nextHref)
+      if (directMatch?.label) return directMatch.label
+
+      const partialMatch = tocItems.find((item) => {
+        const itemHref = normalizeHref(item.href)
+        return itemHref === nextHref || itemHref.startsWith(`${nextHref}#`) || nextHref.startsWith(itemHref)
+      })
+      return partialMatch?.label
+    }
+
+    function getSectionEndState(fraction: number, sectionIndex: number) {
+      const view = viewRef.current
+      if (!view) return null
+
+      const fractions = view.getSectionFractions()
+      const sectionStart = fractions[sectionIndex]
+      const sectionEnd = fractions[sectionIndex + 1] ?? 1
+      if (sectionStart === undefined || sectionEnd <= sectionStart) return null
+
+      const relativeProgress = Math.max(0, Math.min(1, (fraction - sectionStart) / (sectionEnd - sectionStart)))
+      const hasNext = sectionIndex < totalSectionsRef.current - 1
+      return {
+        atEnd: relativeProgress >= 0.92,
+        hasNext,
+        nextLabel: hasNext ? getNextSectionLabel(sectionIndex) : undefined,
       }
     }
 
@@ -502,27 +581,62 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     function setupScrollTracking(doc: Document): void {
       scrollListenerCleanupRef.current?.()
 
+      const getScrollState = () => {
+        const sources = getScrollMetricSources(doc)
+        const activeSources = sources.filter((source) => source.extent > source.viewport + 4)
+        const relevantSources = activeSources.length > 0 ? activeSources : sources
+        return {
+          position: Math.max(0, ...relevantSources.map((source) => source.position)),
+          atBottom: relevantSources.some(
+            (source) => source.position + source.viewport >= source.extent - 20,
+          ),
+          targets: Array.from(new Set(relevantSources.map((source) => source.target))),
+        }
+      }
+
+      const initialState = getScrollState()
+      const initialScrollY = initialState.position
+      // O banner deve depender da transição real causada pela rolagem do leitor.
+      // Não herdamos um "já está no fundo" da medição inicial da seção.
+      isAtBottomRef.current = false
+      lastScrollPositionRef.current = initialScrollY
+
       const onScroll = () => {
         if (ttsActiveRef.current && Date.now() > scrollingProgrammaticallyUntilRef.current) {
           userScrolledRef.current = true
         }
 
-        const metrics = getScrollMetrics(doc)
-        const currentScrollY = metrics.position
-        const atBottom = currentScrollY + metrics.viewport >= metrics.extent - 20
+        const scrollState = getScrollState()
+        const currentScrollY = scrollState.position
+        const scrollDelta = Math.abs(currentScrollY - lastScrollPositionRef.current)
+        const userInitiatedScroll =
+          scrollDelta > 2 && Date.now() > scrollingProgrammaticallyUntilRef.current
+        if (userInitiatedScroll) {
+          hasUserReachedSectionEndRef.current = true
+        }
+        const atBottom = scrollState.atBottom
         if (atBottom !== isAtBottomRef.current) {
           isAtBottomRef.current = atBottom
           const hasNext = currentSectionIdxRef.current < totalSectionsRef.current - 1
-          onAtBottomRef.current?.(atBottom, hasNext)
+          if (!atBottom || hasUserReachedSectionEndRef.current) {
+            onAtBottomRef.current?.(
+              atBottom,
+              hasNext,
+              hasNext ? getNextSectionLabel(currentSectionIdxRef.current) : undefined,
+            )
+          }
         }
+        lastScrollPositionRef.current = currentScrollY
       }
 
-      const scrollMetrics = getScrollMetrics(doc)
-      scrollMetrics.target.addEventListener('scroll', onScroll, { passive: true })
-      scrollListenerCleanupRef.current = () => {
-        scrollMetrics.target.removeEventListener('scroll', onScroll as EventListener)
+      for (const target of initialState.targets) {
+        target.addEventListener('scroll', onScroll as EventListener, { passive: true })
       }
-      onScroll()
+      scrollListenerCleanupRef.current = () => {
+        for (const target of initialState.targets) {
+          target.removeEventListener('scroll', onScroll as EventListener)
+        }
+      }
     }
 
     function finalizePendingSection(reason: 'stabilized' | 'relocate' | 'timeout'): void {
@@ -636,6 +750,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         autoSkipChapterStubDirectionRef.current = -1
         autoSkipChapterStubCountRef.current = 0
         scrollToBottomOnLoadRef.current = true
+        scrollingProgrammaticallyUntilRef.current = Date.now() + 800
         goToAdjacentSection(-1)
       },
       goTo: (target) => {
@@ -885,6 +1000,15 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           lastRelocateRef.current = e.detail
           console.log(DBG, 'relocate event', { cfi, fraction, tocLabel: tocItem?.label, sIdx })
           onRelocate(cfi, Math.round(fraction * 100), tocItem?.label, sIdx)
+          const sectionEndState = getSectionEndState(fraction, sIdx)
+          if (sectionEndState && sectionEndState.atEnd !== isAtBottomRef.current) {
+            isAtBottomRef.current = sectionEndState.atEnd
+            onAtBottomRef.current?.(
+              sectionEndState.atEnd,
+              sectionEndState.hasNext,
+              sectionEndState.nextLabel,
+            )
+          }
           if (pendingSectionRef.current?.index === sIdx) {
             scheduleSectionFinalization('relocate')
           }
@@ -935,7 +1059,10 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             version: pendingSectionVersionRef.current,
           }
           isAtBottomRef.current = false
-          onAtBottomRef.current?.(false, e.detail.index < totalSectionsRef.current - 1)
+          hasUserReachedSectionEndRef.current = false
+          lastScrollPositionRef.current = 0
+          const hasNext = e.detail.index < totalSectionsRef.current - 1
+          onAtBottomRef.current?.(false, hasNext, hasNext ? getNextSectionLabel(e.detail.index) : undefined)
           clearFinalizeSectionTimeout()
           finalizeSectionTimeoutRef.current = setTimeout(() => {
             finalizePendingSection('timeout')

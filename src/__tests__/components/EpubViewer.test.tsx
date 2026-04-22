@@ -90,14 +90,27 @@ function loadSection(foliateEl: FoliateViewMock, doc: Document, index = 0) {
 
 /** Injeta um defaultView falso num Document para simular posição de scroll. */
 function injectFakeWindow(doc: Document, scrollY: number, innerHeight = 800, scrollHeight = 1200) {
+  const scrollTarget = new EventTarget()
+  let currentScrollY = scrollY
   const fakeWin = {
-    scrollY,
+    get scrollY() { return currentScrollY },
     innerHeight,
-    scrollTo: vi.fn(),
+    scrollTo: vi.fn((_x: number, y: number) => {
+      currentScrollY = y
+      scrollTarget.dispatchEvent(new Event('scroll'))
+    }),
     requestAnimationFrame: vi.fn((cb: FrameRequestCallback) => { cb(0); return 0 }),
     // EpubViewer registra o scroll listener aqui — mock para não lançar exceção
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
+    addEventListener: vi.fn((event: string, cb: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions) => {
+      scrollTarget.addEventListener(event, cb as EventListener, options)
+    }),
+    removeEventListener: vi.fn((event: string, cb: EventListenerOrEventListenerObject, options?: boolean | EventListenerOptions) => {
+      scrollTarget.removeEventListener(event, cb as EventListener, options)
+    }),
+    fireScroll(nextScrollY?: number) {
+      if (typeof nextScrollY === 'number') currentScrollY = nextScrollY
+      scrollTarget.dispatchEvent(new Event('scroll'))
+    },
   }
   Object.defineProperty(doc, 'defaultView', { get: () => fakeWin, configurable: true })
   Object.defineProperty(doc.documentElement, 'scrollHeight', { get: () => scrollHeight, configurable: true })
@@ -314,6 +327,26 @@ describe('EpubViewer — posição visível', () => {
 
     expect(onTranslate).toHaveBeenCalledOnce()
   })
+
+  it('usa relocate para sinalizar fim da seção quando o progresso chega ao final', async () => {
+    const onAtBottom = vi.fn()
+    const { foliateEl } = await renderViewer({ onAtBottom })
+    foliateEl.getSectionFractions.mockReturnValue([0, 0.2, 0.4, 1])
+
+    const fakeDoc = makeFakeDoc(['Chapter content.'])
+    loadSection(foliateEl, fakeDoc, 1)
+
+    act(() => {
+      foliateEl.fireFoliate('relocate', {
+        cfi: 'epubcfi(/6/8!/4/2/1:0)',
+        fraction: 0.39,
+        tocItem: { label: 'Chapter 2', href: 'chapter-2.xhtml' },
+        section: { current: 1, total: 3 },
+      })
+    })
+
+    expect(onAtBottom).toHaveBeenLastCalledWith(true, true, 'Chapter 3')
+  })
 })
 
 describe('EpubViewer — lock de tradução', () => {
@@ -431,9 +464,15 @@ describe('EpubViewer — chapter auto-advance', () => {
     const onAtBottom = vi.fn()
     const { foliateEl } = await renderViewer({ onAtBottom })
     const fakeDoc = makeFakeDoc(['Long chapter content.'])
-    injectFakeWindow(fakeDoc, 380, 800, 1200)
+    const fakeWin = injectFakeWindow(fakeDoc, 0, 800, 1200)
 
     loadSection(foliateEl, fakeDoc, 0)
-    expect(onAtBottom).toHaveBeenLastCalledWith(true, true)
+    expect(onAtBottom).toHaveBeenLastCalledWith(false, true, 'Chapter 2')
+
+    act(() => {
+      fakeWin.fireScroll(380)
+    })
+
+    expect(onAtBottom).toHaveBeenLastCalledWith(true, true, 'Chapter 2')
   })
 })

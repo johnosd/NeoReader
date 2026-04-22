@@ -49,6 +49,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   const [error, setError] = useState<string | null>(null)
   // 'idle': sem banner | 'atEnd': fim do capítulo, há próximo | 'noNext': último capítulo
   const [chapterEndState, setChapterEndState] = useState<'idle' | 'atEnd' | 'noNext'>('idle')
+  const [nextSectionLabel, setNextSectionLabel] = useState<string | null>(null)
 
   // ── Auto-hide do chrome ──────────────────────────────────────────────────────
   // useRef para o timer: persiste entre renders sem causar re-render.
@@ -198,12 +199,14 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   }
 
   // Atualiza banner de fim de capítulo conforme o usuário rola até o fundo ou sai dele
-  function handleAtBottom(atBottom: boolean, hasNext: boolean) {
+  function handleAtBottom(atBottom: boolean, hasNext: boolean, nextLabel?: string) {
+    setNextSectionLabel(hasNext ? (nextLabel?.trim() || null) : null)
     setChapterEndState(atBottom ? (hasNext ? 'atEnd' : 'noNext') : 'idle')
   }
 
   // Avança para o próximo capítulo — acionado pelo banner clicável.
   function handleChapterNext() {
+    setNextSectionLabel(null)
     setChapterEndState('idle')
     viewerRef.current?.next()
   }
@@ -402,6 +405,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
       {chapterEndState !== 'idle' && !ttsPlayerVisible && (
         <ChapterEndBanner
           hasNext={chapterEndState === 'atEnd'}
+          nextLabel={nextSectionLabel}
           onNext={chapterEndState === 'atEnd' ? handleChapterNext : undefined}
         />
       )}
@@ -467,7 +471,15 @@ function ReaderSkeleton() {
 // Banner fixo no fundo da tela quando o usuário chega ao final de uma seção.
 // onNext definido → clicável para avançar o capítulo.
 // hasNext=false → último capítulo, sem ação disponível.
-function ChapterEndBanner({ hasNext, onNext }: { hasNext: boolean; onNext?: () => void }) {
+function ChapterEndBanner({
+  hasNext,
+  nextLabel,
+  onNext,
+}: {
+  hasNext: boolean
+  nextLabel?: string | null
+  onNext?: () => void
+}) {
   return (
     <div
       className={`absolute bottom-0 left-0 right-0 z-20 flex flex-col items-center py-5
@@ -480,9 +492,16 @@ function ChapterEndBanner({ hasNext, onNext }: { hasNext: boolean; onNext?: () =
         {hasNext ? 'Fim do capítulo' : 'Fim do livro'}
       </p>
       {hasNext && (
-        <p className="text-xs text-indigo-primary font-semibold">
-          Toque para o próximo capítulo
-        </p>
+        <>
+          {nextLabel && (
+            <p className="text-[11px] uppercase tracking-[0.18em] text-text-muted/80 mb-1">
+              Próxima seção
+            </p>
+          )}
+          <p className="text-xs text-indigo-primary font-semibold">
+            {nextLabel ? `Toque para continuar em ${nextLabel}` : 'Toque para o próximo capítulo'}
+          </p>
+        </>
       )}
     </div>
   )

@@ -6,6 +6,11 @@ interface TocItem {
   subitems?: TocItem[]
 }
 
+interface FoliateSection {
+  href?: string
+  cfi?: string
+}
+
 interface RelocateDetail {
   cfi: string
   fraction: number // 0-1, progresso geral do livro
@@ -20,7 +25,7 @@ declare module 'foliate-js/view.js' {
     book: {
       toc: TocItem[]
       metadata: Record<string, unknown>
-      sections?: { length: number }
+      sections?: FoliateSection[]
     }
     renderer: HTMLElement & {
       setAttribute(name: string, value: string): void
