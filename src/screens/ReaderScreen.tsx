@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { App as CapApp } from '@capacitor/app'
+import { Bookmark, BookmarkCheck } from 'lucide-react'
+
 import { EpubViewer, type EpubViewerHandle } from '../components/reader/EpubViewer'
 import { ReaderChrome } from '../components/reader/ReaderChrome'
 import { TocDrawer } from '../components/reader/TocDrawer'
@@ -337,6 +339,26 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
         <div className="absolute inset-0 z-[15]" onPointerUp={() => setChromeVisible(false)} />
       )}
 
+      {/* Overlay de bookmark no canto superior direito — sempre intercepta o toque e aciona
+          o toggle diretamente, sem abrir o chrome. Só renderizado quando o chrome está oculto
+          para não conflitar com o botão equivalente na barra superior do chrome.
+          z-[25]: acima do backdrop (z-[15]) e do chrome (z-20). */}
+      {!chromeVisible && (
+        <button
+          onPointerUp={(e) => {
+            e.stopPropagation()
+            handleBookmarkToggle()
+          }}
+          className="absolute top-0 right-0 z-[25] h-20 w-16 flex items-end justify-center pb-3 active:opacity-60"
+          aria-label={isBookmarked ? 'Remover marcador' : 'Adicionar marcador'}
+        >
+          {isBookmarked
+            ? <BookmarkCheck size={22} className="text-indigo-primary" />
+            : <Bookmark size={22} className="text-text-primary/40" />
+          }
+        </button>
+      )}
+
       <ReaderChrome
         visible={chromeVisible}
         title={book.title}
@@ -346,9 +368,9 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
         bookmarkCount={bookmarks.length}
         onBack={handleBack}
         onFontSizeChange={(size) => {
-            setFontSize(size)
-            void updateBookSettings(book.id!, { fontSize: size })
-          }}
+          setFontSize(size)
+          void updateBookSettings(book.id!, { fontSize: size })
+        }}
         onBookmark={handleBookmarkToggle}
         onBookmarkList={() => setBookmarkSheetOpen(true)}
         onTocOpen={() => setTocOpen(true)}

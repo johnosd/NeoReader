@@ -81,24 +81,25 @@ export function ReaderChrome({
             {title}
           </p>
 
-          {/* Bookmark: ícone preenchido (accent índigo) se marcado, outline se não */}
+          <button
+            onClick={onTocOpen}
+            className="p-2 text-text-primary active:opacity-60"
+            aria-label="Índice"
+          >
+            <List size={24} />
+          </button>
+
+          {/* Bookmark na extremidade direita — posição consistente com o overlay
+              de bookmark que age diretamente quando o chrome está oculto. */}
           <button
             onClick={onBookmark}
-            className="p-2 active:opacity-60"
+            className="p-2 -mr-2 active:opacity-60"
             aria-label={isBookmarked ? 'Remover marcador' : 'Adicionar marcador'}
           >
             {isBookmarked
               ? <BookmarkCheck size={22} className="text-indigo-primary" />
               : <Bookmark size={22} className="text-text-primary" />
             }
-          </button>
-
-          <button
-            onClick={onTocOpen}
-            className="p-2 -mr-2 text-text-primary active:opacity-60"
-            aria-label="Marcadores"
-          >
-            <List size={24} />
           </button>
         </div>
       </div>
