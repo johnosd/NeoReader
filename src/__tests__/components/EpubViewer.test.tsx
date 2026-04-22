@@ -30,6 +30,7 @@ const mockBook: Book = {
 function defaultProps(overrides: Record<string, unknown> = {}) {
   return {
     book: mockBook,
+    bookmarks: [],
     fontSize: 'md' as const,
     savedCfi: null,
     onRelocate: vi.fn(),
@@ -45,6 +46,7 @@ function defaultProps(overrides: Record<string, unknown> = {}) {
     onAtBottom: vi.fn(),
     onSwipeAtBottom: vi.fn(),
     onSwipeAtTop: vi.fn(),
+    onBookmarkTap: vi.fn(),
     ...overrides,
   }
 }
@@ -188,6 +190,128 @@ describe('EpubViewer — seleção de texto', () => {
 
     expect(paraA.hasAttribute('data-nr-active')).toBe(false)
     expect(onTranslate).toHaveBeenCalledOnce() // não chamou uma 2ª vez
+  })
+})
+
+describe('EpubViewer — posição visível', () => {
+  it('gera o CFI do início do parágrafo visível a partir do range atual', async () => {
+    const { viewerRef, foliateEl } = await renderViewer()
+    foliateEl.getCFI.mockReturnValue('epubcfi(/6/8!/4/2/10/2/1:0)')
+    foliateEl.getProgressOf.mockReturnValue({
+      tocItem: { label: 'What This Book Is About', href: 'preface.xhtml' },
+    })
+    foliateEl.getSectionFractions.mockReturnValue([0, 0.6, 1])
+
+    const fakeDoc = makeFakeDoc(['Preface', 'What This Book Is About'])
+    const paras = fakeDoc.querySelectorAll('p')
+    const secondPara = paras[1] as HTMLElement
+    const range = fakeDoc.createRange()
+    range.selectNodeContents(secondPara)
+    range.collapse(true)
+
+    act(() => { foliateEl.fireFoliate('load', { doc: fakeDoc, index: 0 }) })
+    act(() => {
+      foliateEl.fireFoliate('relocate', {
+        cfi: 'epubcfi(/6/8!/4/2/10/2,/1:0,/1:20)',
+        fraction: 0.42,
+        tocItem: { label: 'What This Book Is About', href: 'preface.xhtml' },
+        section: { current: 0, total: 3 },
+        range,
+      })
+    })
+
+    expect(viewerRef.current?.getVisibleLocation()).toEqual({
+      cfi: 'epubcfi(/6/8!/4/2/10/2/1:0)',
+      tocLabel: 'What This Book Is About',
+      percentage: 60,
+    })
+    expect(viewerRef.current?.getFirstVisibleParagraphIndex()).toBe(1)
+
+    const paragraphRange = foliateEl.getCFI.mock.calls[0]?.[1] as Range
+    expect(foliateEl.getCFI).toHaveBeenCalledWith(0, expect.any(Range))
+    expect(paragraphRange.collapsed).toBe(true)
+    expect(paragraphRange.startOffset).toBe(0)
+    expect(paragraphRange.startContainer.textContent).toBe('What This Book Is About')
+  })
+
+  it('projeta marcador visual no parágrafo que contém o bookmark salvo', async () => {
+    const bookmarkCfi = 'epubcfi(/6/8!/4/2/10/2,/1:0,/1:20)'
+    const { foliateEl } = await renderViewer({
+      bookmarks: [{
+        id: 1,
+        bookId: 1,
+        cfi: bookmarkCfi,
+        label: 'What This Book Is About',
+        percentage: 42,
+        color: 'rose',
+        createdAt: new Date(),
+      }],
+    })
+
+    foliateEl.getCFI.mockImplementation((_index, range?: Range | null) => {
+      const text = range?.startContainer.textContent ?? ''
+      if (text.includes('What This Book Is About')) return bookmarkCfi
+      return 'epubcfi(/6/8!/4/2/2,/1:0,/1:7)'
+    })
+
+    const fakeDoc = makeFakeDoc(['Preface', 'What This Book Is About'])
+    const paras = fakeDoc.querySelectorAll('p')
+
+    act(() => { foliateEl.fireFoliate('load', { doc: fakeDoc, index: 0 }) })
+
+    expect(paras[0].hasAttribute('data-nr-bookmark')).toBe(false)
+    expect(paras[1].getAttribute('data-nr-bookmark')).toBe('rose')
+    expect(paras[1].getAttribute('data-nr-bookmark-id')).toBe('1')
+  })
+
+  it('remove o bookmark ao tocar na bandeira do parágrafo', async () => {
+    const onBookmarkTap = vi.fn()
+    const bookmarkCfi = 'epubcfi(/6/8!/4/2/10/2,/1:0,/1:20)'
+    const { foliateEl } = await renderViewer({
+      onBookmarkTap,
+      bookmarks: [{
+        id: 7,
+        bookId: 1,
+        cfi: bookmarkCfi,
+        label: 'What This Book Is About',
+        percentage: 42,
+        color: 'indigo',
+        createdAt: new Date(),
+      }],
+    })
+
+    foliateEl.getCFI.mockImplementation((_index, range?: Range | null) => {
+      const text = range?.startContainer.textContent ?? ''
+      if (text.includes('What This Book Is About')) return bookmarkCfi
+      return 'epubcfi(/6/8!/4/2/2,/1:0,/1:7)'
+    })
+
+    const fakeDoc = makeFakeDoc(['Preface', 'What This Book Is About'])
+    const paras = fakeDoc.querySelectorAll('p')
+    const bookmarkedPara = paras[1] as HTMLElement
+    vi.spyOn(bookmarkedPara, 'getBoundingClientRect').mockReturnValue({
+      x: 100,
+      y: 200,
+      width: 300,
+      height: 40,
+      top: 200,
+      right: 400,
+      bottom: 240,
+      left: 100,
+      toJSON: () => ({}),
+    })
+
+    act(() => { foliateEl.fireFoliate('load', { doc: fakeDoc, index: 0 }) })
+    act(() => {
+      bookmarkedPara.dispatchEvent(new MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 108,
+        clientY: 210,
+      }))
+    })
+
+    expect(onBookmarkTap).toHaveBeenCalledWith(7)
   })
 })
 

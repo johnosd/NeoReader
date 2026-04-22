@@ -6,8 +6,8 @@ interface BookmarkSheetProps {
   open: boolean
   bookmarks: Bookmark[]
   onSelect: (cfi: string) => void
-  onDelete: (id: number) => void
-  onColorChange: (id: number, color: string) => void
+  onDelete: (id: number) => void | Promise<void>
+  onColorChange: (id: number, color: string) => void | Promise<void>
   onClose: () => void
 }
 

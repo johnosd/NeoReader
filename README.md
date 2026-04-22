@@ -117,7 +117,7 @@ Pré-requisitos: Android Studio instalado, device conectado com USB debugging at
 
 ```bash
 npm run build
-npx cap sync android                    # copia dist/ para o projeto Android
+c                   # copia dist/ para o projeto Android
 npx cap run android                     # builda e instala no device
 adb devices                             # lista devices conectados
 

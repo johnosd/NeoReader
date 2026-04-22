@@ -1,8 +1,9 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { useSyncRef } from '../../hooks/useSyncRef'
-import type { Book } from '../../types/book'
+import type { Book, Bookmark } from '../../types/book'
 import type { View } from 'foliate-js/view.js'
 import { getSentenceAt, escapeHtml } from '../../utils/readerUtils'
+import { isCfiInLocation } from '../../utils/cfi'
 
 export type FontSize = 'sm' | 'md' | 'lg' | 'xl'
 
@@ -191,15 +192,6 @@ function buildReaderCSS(fontSize: FontSize): string {
       text-decoration: underline !important;
     }
 
-    /* Marcador visual de bookmark inline — borda esquerda colorida no parágrafo */
-    [data-nr-bookmark] {
-      border-left: 3px solid #6366f1 !important;
-      padding-left: 8px !important;
-    }
-    [data-nr-bookmark="emerald"] { border-left-color: #22c55e !important; }
-    [data-nr-bookmark="amber"]   { border-left-color: #f59e0b !important; }
-    [data-nr-bookmark="rose"]    { border-left-color: #f43f5e !important; }
-
     /* Bloco de tradução inline — injetado após o parágrafo selecionado */
     #nr-translation-block {
       margin: 8px 0 16px 0 !important;
@@ -249,6 +241,28 @@ function buildReaderCSS(fontSize: FontSize): string {
       cursor: pointer !important;
       font-family: inherit !important;
     }
+
+    /* Marcador visual de bookmark no próprio livro.
+       A fonte de verdade continua sendo o CFI salvo; isso é apenas projeção visual. */
+    [data-nr-bookmark] {
+      position: relative !important;
+      padding-inline-start: 18px !important;
+    }
+    [data-nr-bookmark]::before {
+      content: '' !important;
+      position: absolute !important;
+      left: 0 !important;
+      top: 0.35em !important;
+      width: 10px !important;
+      height: 14px !important;
+      border-radius: 3px 3px 1px 1px !important;
+      background: #6366f1 !important;
+      clip-path: polygon(0 0, 100% 0, 100% 78%, 50% 100%, 0 78%) !important;
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) !important;
+    }
+    [data-nr-bookmark="emerald"]::before { background: #22c55e !important; }
+    [data-nr-bookmark="amber"]::before { background: #f59e0b !important; }
+    [data-nr-bookmark="rose"]::before { background: #f43f5e !important; }
   `
 }
 
@@ -258,6 +272,7 @@ export interface EpubViewerHandle {
   // Navega para o capítulo anterior e posiciona no final (último parágrafo)
   prevToEnd(): void
   goTo(target: string | number | { fraction: number }): void
+  getVisibleLocation(): { cfi: string | null; tocLabel?: string; percentage?: number }
   // TTS: retorna os textos puros de todos os parágrafos da seção atual
   getParagraphs(): string[]
   // TTS: retorna frases agrupadas com paraIdx e offsetInPara para karaokê preciso
@@ -278,23 +293,16 @@ export interface EpubViewerHandle {
   injectTranslation(translatedText: string): void
   // Tradução inline: remove bloco e highlight do parágrafo ativo
   clearTranslation(): void
-  // Bookmarks: retorna o índice da seção spine atual
-  getCurrentSectionIndex(): number
-  // Bookmarks: injeta marcador visual (borda colorida) no parágrafo pelo índice
-  injectBookmarkMarker(paraIndex: number, color: string): void
-  // Bookmarks: remove todos os marcadores visuais da seção atual
-  clearBookmarkMarkers(): void
 }
 
 interface EpubViewerProps {
   book: Book
+  bookmarks: Bookmark[]
   fontSize: FontSize
   savedCfi: string | null
   onRelocate: (cfi: string, percentage: number, tocLabel: string | undefined, sectionIndex: number) => void
   onTocReady: (toc: TocItem[]) => void
   onLoad: () => void
-  // Chamado toda vez que uma nova seção do EPUB carrega — permite re-injetar marcadores
-  onSectionLoad?: (sectionIndex: number) => void
   onError: (err: Error) => void
   // Chamado quando o usuário salva um par original/tradução via ⭐
   onSaveVocab: (sourceText: string, translatedText: string) => void
@@ -323,6 +331,8 @@ interface EpubViewerProps {
   // Capítulo: emitido quando o usuário faz swipe para cima estando já no topo —
   // sinal de intenção de voltar ao final do capítulo anterior.
   onSwipeAtTop?: () => void
+  // Bookmarks: remove o marcador ao tocar no ícone projetado no parágrafo.
+  onBookmarkTap?: (bookmarkId: number) => void
 }
 
 // forwardRef: padrão React para expor métodos imperativos ao componente pai.
@@ -330,18 +340,18 @@ interface EpubViewerProps {
 export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
   (
     {
-      book, fontSize, savedCfi,
+      book, bookmarks, fontSize, savedCfi,
       onRelocate, onTocReady, onLoad, onError,
       onSaveVocab, onCenterTap, onTranslate,
       onSpeakOne, onParagraphTapForTts, ttsGlobalActive,
       chromeVisible,
-      onAtBottom, onSwipeAtBottom, onSwipeAtTop,
-      onSectionLoad,
+      onAtBottom, onSwipeAtBottom, onSwipeAtTop, onBookmarkTap,
     },
     ref,
   ) => {
     const containerRef = useRef<HTMLDivElement>(null)
     const viewRef = useRef<View | null>(null)
+    const currentDocRef = useRef<Document | null>(null)
 
     // Elementos e textos dos parágrafos da seção atual — atualizados no evento 'load'
     const ttsParagraphsRef = useRef<Element[]>([])
@@ -376,8 +386,6 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     // chromeVisible: quando true, qualquer toque no iframe fecha o chrome imediatamente
     const chromeVisibleRef = useSyncRef(chromeVisible)
 
-    const onSectionLoadRef = useSyncRef(onSectionLoad)
-
     // Navegação entre capítulos: detecta fundo visual + swipe para avançar
     const isAtBottomRef = useRef(false)
     const currentSectionIdxRef = useRef(0)
@@ -387,6 +395,77 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const onSwipeAtTopRef = useSyncRef(onSwipeAtTop)
     // Flag: próximo evento 'load' deve rolar a seção até o fundo (usado após prevToEnd)
     const scrollToBottomOnLoadRef = useRef(false)
+    const lastRelocateRef = useRef<RelocateDetail | null>(null)
+    const BLOCK = 'p, li, blockquote, h1, h2, h3, h4, h5, h6'
+    const bookmarksRef = useSyncRef(bookmarks)
+    const onBookmarkTapRef = useSyncRef(onBookmarkTap)
+
+    function getParagraphIndexFromRange(range?: Range | null): number {
+      const paras = ttsParagraphsRef.current
+      if (!range || paras.length === 0) return 0
+
+      const startNode = range.startContainer
+      const startElement =
+        startNode.nodeType === Node.ELEMENT_NODE
+          ? (startNode as Element)
+          : startNode.parentElement
+
+      if (!startElement) return 0
+
+      const directIdx = paras.findIndex((para) => para === startElement || para.contains(startNode))
+      if (directIdx >= 0) return directIdx
+
+      const block = startElement.closest(BLOCK)
+      if (!block) return 0
+
+      const blockIdx = paras.indexOf(block)
+      return blockIdx >= 0 ? blockIdx : 0
+    }
+
+    function getVisibleParagraphInternal(): { para: Element | null; paraIndex: number } {
+      const paras = ttsParagraphsRef.current
+      if (paras.length === 0) return { para: null, paraIndex: 0 }
+
+      const paraIndex = getParagraphIndexFromRange(lastRelocateRef.current?.range)
+      return {
+        para: paras[paraIndex] ?? null,
+        paraIndex,
+      }
+    }
+
+    function getFirstVisibleParagraphIndexInternal(): number {
+      return getVisibleParagraphInternal().paraIndex
+    }
+
+    function clearBookmarkMarkers(doc?: Document | null): void {
+      doc?.querySelectorAll<HTMLElement>('[data-nr-bookmark]').forEach((el) => {
+        el.removeAttribute('data-nr-bookmark')
+        el.removeAttribute('data-nr-bookmark-id')
+      })
+    }
+
+    function renderBookmarkMarkers(doc = currentDocRef.current): void {
+      const view = viewRef.current
+      const activeBookmarks = bookmarksRef.current
+      if (!doc || !view) return
+
+      clearBookmarkMarkers(doc)
+      if (ttsParagraphsRef.current.length === 0 || activeBookmarks.length === 0) return
+
+      for (const para of ttsParagraphsRef.current) {
+        const range = doc.createRange()
+        range.selectNodeContents(para)
+        const paraLocationCfi = view.getCFI(currentSectionIdxRef.current, range)
+        const matchedBookmark = activeBookmarks.find((bookmark) => isCfiInLocation(bookmark.cfi, paraLocationCfi))
+        if (!matchedBookmark) continue
+
+        const paraEl = para as HTMLElement
+        paraEl.setAttribute('data-nr-bookmark', matchedBookmark.color ?? 'indigo')
+        if (matchedBookmark.id !== undefined) {
+          paraEl.setAttribute('data-nr-bookmark-id', String(matchedBookmark.id))
+        }
+      }
+    }
 
     // Expõe API imperativa para o ReaderScreen via ref
     useImperativeHandle(ref, () => ({
@@ -397,6 +476,40 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         viewRef.current?.prev()
       },
       goTo: (target) => { viewRef.current?.goTo(target) },
+      getVisibleLocation: () => {
+        const view = viewRef.current
+        const location = lastRelocateRef.current ?? view?.lastLocation
+        if (!view || !location?.cfi) return { cfi: null }
+
+        const { para, paraIndex } = getVisibleParagraphInternal()
+        if (!para) {
+          return {
+            cfi: location.cfi,
+            tocLabel: location.tocItem?.label,
+            percentage: Math.round(location.fraction * 100),
+          }
+        }
+
+        const doc = para.ownerDocument!
+        const range = doc.createRange()
+        range.selectNodeContents(para)
+        range.collapse(true)
+
+        const cfi = view.getCFI(currentSectionIdxRef.current, range)
+        const progress = view.getProgressOf(currentSectionIdxRef.current, range)
+        const fractions = view.getSectionFractions()
+        const sectionStart = fractions[currentSectionIdxRef.current] ?? location.fraction
+        const sectionEnd = fractions[currentSectionIdxRef.current + 1] ?? location.fraction
+        const paraFraction = ttsParagraphsRef.current.length > 1
+          ? paraIndex / (ttsParagraphsRef.current.length - 1)
+          : 0
+
+        return {
+          cfi,
+          tocLabel: progress.tocItem?.label ?? location.tocItem?.label,
+          percentage: Math.round((sectionStart + (sectionEnd - sectionStart) * paraFraction) * 100),
+        }
+      },
 
       getParagraphs: () => ttsParagraphTextsRef.current,
 
@@ -411,16 +524,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         return chunks
       },
 
-      getFirstVisibleParagraphIndex: () => {
-        const paras = ttsParagraphsRef.current
-        for (let i = 0; i < paras.length; i++) {
-          // getBoundingClientRect: coordenadas relativas ao viewport do iframe.
-          // rect.bottom > 0 = parágrafo ainda não saiu completamente pelo topo.
-          const rect = (paras[i] as HTMLElement).getBoundingClientRect()
-          if (rect.bottom > 0) return i
-        }
-        return 0
-      },
+      getFirstVisibleParagraphIndex: () => getFirstVisibleParagraphIndexInternal(),
 
       scrollToParagraph: (idx: number) => {
         // Usuário rolou manualmente durante o TTS: não override a posição dele
@@ -563,27 +667,16 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         activeTranslatedTextRef.current = ''
         activeTranslationParaRef.current = null
       },
-
-      getCurrentSectionIndex: () => currentSectionIdxRef.current,
-
-      injectBookmarkMarker: (paraIndex: number, color: string) => {
-        const para = ttsParagraphsRef.current[paraIndex] as HTMLElement | undefined
-        if (!para) return
-        // data-nr-bookmark dispara o CSS com borda colorida (ver buildReaderCSS)
-        para.setAttribute('data-nr-bookmark', color)
-      },
-
-      clearBookmarkMarkers: () => {
-        ttsParagraphsRef.current.forEach(el => {
-          el.removeAttribute('data-nr-bookmark')
-        })
-      },
     }))
 
     // Atualiza fonte sem recriar o view (efeito separado intencional)
     useEffect(() => {
       viewRef.current?.renderer.setStyles?.(buildReaderCSS(fontSize))
     }, [fontSize])
+
+    useEffect(() => {
+      renderBookmarkMarkers()
+    }, [bookmarks])
 
     // Setup principal: cria o elemento foliate, abre o EPUB, configura renderer.
     // Roda apenas quando o bookId muda (novo livro), não a cada re-render.
@@ -622,6 +715,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           const { cfi, fraction, tocItem, section } = e.detail
           // section?.current é o índice da spine atual; fallback para currentSectionIdxRef
           const sIdx = section?.current ?? currentSectionIdxRef.current
+          lastRelocateRef.current = e.detail
           console.log(DBG, 'relocate event', { cfi, fraction, tocLabel: tocItem?.label, sIdx })
           onRelocate(cfi, Math.round(fraction * 100), tocItem?.label, sIdx)
         })
@@ -630,6 +724,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         // o Document do iframe — toda a lógica de tradução inline acontece aqui.
         view.addEventListener('load', (e: CustomEvent<{ doc: Document; index: number }>) => {
           const { doc } = e.detail
+          currentDocRef.current = doc
           // [nr-debug] Inspeção do Document do iframe — fonte principal da "tela preta"
           const htmlLen = doc.documentElement?.outerHTML?.length ?? 0
           const bodyText = doc.body?.textContent?.trim() ?? ''
@@ -653,7 +748,6 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               lineno: err.lineno,
             })
           })
-          const BLOCK = 'p, li, blockquote, h1, h2, h3, h4, h5, h6'
 
           // Armazena parágrafos da seção para uso pelo TTS (audiobook e karaokê)
           ttsParagraphsRef.current = Array.from(doc.querySelectorAll(BLOCK))
@@ -663,10 +757,10 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
           // Rastreia seção atual + reseta estado de fundo (nova seção sempre começa no topo)
           currentSectionIdxRef.current = e.detail.index
+          lastRelocateRef.current = null
           isAtBottomRef.current = false
           onAtBottomRef.current?.(false, false)
-          // Notifica o ReaderScreen para re-injetar marcadores visuais de bookmark nesta seção
-          onSectionLoadRef.current?.(e.detail.index)
+          renderBookmarkMarkers(doc)
 
           // prevToEnd: rola até o fundo assim que o layout da seção estiver pronto
           if (scrollToBottomOnLoadRef.current) {
@@ -770,6 +864,20 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             }
 
             const target = ev.target as Element
+            const para = target.closest(BLOCK) as HTMLElement | null
+            if (para?.hasAttribute('data-nr-bookmark') && para.dataset.nrBookmarkId) {
+              const rect = para.getBoundingClientRect()
+              const clickedBookmarkIcon =
+                ev.clientX <= rect.left + 18 &&
+                ev.clientY >= rect.top &&
+                ev.clientY <= rect.top + 24
+
+              if (clickedBookmarkIcon) {
+                const bookmarkId = Number(para.dataset.nrBookmarkId)
+                if (Number.isFinite(bookmarkId)) onBookmarkTapRef.current?.(bookmarkId)
+                return
+              }
+            }
 
             // Intercepta botões Ouvir/Salvar dentro do bloco de tradução inline
             const actionBtn = target.closest('[data-nr-action]') as HTMLElement | null
@@ -785,8 +893,6 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               }
               return
             }
-
-            const para = target.closest(BLOCK)
 
             // Tap fora de parágrafo → toggle do chrome
             if (!para || (para.textContent?.trim() ?? '').length < 3) {
@@ -920,6 +1026,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
       return () => {
         cancelled = true
+        currentDocRef.current = null
+        lastRelocateRef.current = null
         view?.close()
         view?.remove()
         viewRef.current = null

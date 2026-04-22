@@ -5,7 +5,7 @@ import { App as CapApp } from '@capacitor/app'
 import { Badge, Button, EmptyState, ListItem, Spinner } from '../components/ui'
 import { db } from '../db/database'
 import { toggleFavorite } from '../db/books'
-import { deleteBookmark } from '../db/bookmarks'
+import { softDeleteBookmark } from '../db/bookmarks'
 import { updateBookSettings } from '../db/bookSettings'
 import { getSettings } from '../db/settings'
 import { EpubService, type EpubExtras } from '../services/EpubService'
@@ -53,7 +53,10 @@ export function BookDetailsScreen({ book, onBack, onRead }: BookDetailsScreenPro
   // Dados reativos do IndexedDB
   const liveBook      = useLiveQuery(() => db.books.get(book.id!), [book.id]) ?? book
   const progress      = useLiveQuery(() => db.progress.where('bookId').equals(book.id!).first(), [book.id])
-  const bookmarks     = useLiveQuery(() => db.bookmarks.where('bookId').equals(book.id!).sortBy('createdAt'), [book.id]) ?? []
+  const bookmarks     = useLiveQuery(
+    () => db.bookmarks.where('bookId').equals(book.id!).and((bookmark) => !bookmark.deletedAt).sortBy('createdAt'),
+    [book.id],
+  ) ?? []
   const vocabCount    = useLiveQuery(() => db.vocabulary.where('bookId').equals(book.id!).count(), [book.id]) ?? 0
   const bookSettingsRow = useLiveQuery(() => db.bookSettings.where('bookId').equals(book.id!).first(), [book.id])
 
@@ -263,7 +266,7 @@ export function BookDetailsScreen({ book, onBack, onRead }: BookDetailsScreenPro
                         <button
                           onClick={e => {
                             e.stopPropagation()
-                            if (bm.id !== undefined) void deleteBookmark(bm.id)
+                            if (bm.id !== undefined) void softDeleteBookmark(bm.id)
                           }}
                           className="p-2 -m-2 text-text-muted active:text-error transition-colors"
                           aria-label="Remover marcação"

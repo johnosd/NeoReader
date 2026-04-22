@@ -49,6 +49,9 @@ class FoliateViewMock extends HTMLElement {
   })
   init = vi.fn(() => Promise.resolve())
   close = vi.fn()
+  getCFI = vi.fn(() => 'epubcfi(/6/4!/4/2/1:0)')
+  getProgressOf = vi.fn(() => ({ tocItem: { label: 'Mock Chapter', href: 'mock.xhtml' } }))
+  getSectionFractions = vi.fn(() => [0, 0.5, 1])
   renderer = {
     setAttribute: vi.fn(),
     setStyles: vi.fn(),
