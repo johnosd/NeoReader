@@ -68,7 +68,10 @@ export function ReaderChrome({
           transition-transform duration-300 ${translateTop}`}
         onPointerUp={handleBarTap}
       >
-        <div className="flex items-center justify-between px-4 pt-10 pb-3 gap-3">
+        <div
+            className="flex items-center justify-between px-4 pb-3 gap-3"
+            style={{ paddingTop: 'max(2.5rem, env(safe-area-inset-top))' }}
+          >
           <button
             onClick={onBack}
             className="p-2 -ml-2 text-text-primary active:opacity-60"
@@ -81,24 +84,25 @@ export function ReaderChrome({
             {title}
           </p>
 
-          {/* Bookmark: ícone preenchido (accent índigo) se marcado, outline se não */}
+          <button
+            onClick={onTocOpen}
+            className="p-2 text-text-primary active:opacity-60"
+            aria-label="Índice"
+          >
+            <List size={24} />
+          </button>
+
+          {/* Bookmark na extremidade direita — posição consistente com o overlay
+              de bookmark que age diretamente quando o chrome está oculto. */}
           <button
             onClick={onBookmark}
-            className="p-2 active:opacity-60"
+            className="p-2 -mr-2 active:opacity-60"
             aria-label={isBookmarked ? 'Remover marcador' : 'Adicionar marcador'}
           >
             {isBookmarked
               ? <BookmarkCheck size={22} className="text-indigo-primary" />
               : <Bookmark size={22} className="text-text-primary" />
             }
-          </button>
-
-          <button
-            onClick={onTocOpen}
-            className="p-2 -mr-2 text-text-primary active:opacity-60"
-            aria-label="Marcadores"
-          >
-            <List size={24} />
           </button>
         </div>
       </div>
@@ -109,15 +113,10 @@ export function ReaderChrome({
           transition-transform duration-300 ${translateBottom}`}
         onPointerUp={handleBarTap}
       >
-        {/* Barra de progresso fina */}
-        <div className="h-1 bg-bg-elevated">
-          <div
-            className="h-full bg-success transition-all duration-500"
-            style={{ width: `${percentage}%` }}
-          />
-        </div>
-
-        <div className="flex items-center justify-between px-6 py-4 pb-8">
+        <div
+          className="flex items-center justify-between px-6 py-4"
+          style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}
+        >
           {/* Botões de tamanho de fonte */}
           <div className="flex items-center gap-3">
             {FONT_SIZES.map((item) => (

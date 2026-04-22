@@ -6,6 +6,13 @@ export interface EpubMetadata {
   coverBlob: Blob | null
 }
 
+// Campos extras extraídos do EPUB para a tela de detalhes do livro
+export interface EpubExtras {
+  description: string | null   // dc:description do OPF (frequentemente ausente)
+  language: string | null      // dc:language do OPF (ex: "en", "pt-BR")
+  toc: TocItem[]               // capítulos do livro (EPUB3 nav ou EPUB2 ncx)
+}
+
 // EPUB é um ZIP. Esse serviço abre o ZIP e extrai os metadados do OPF.
 // Fluxo: container.xml → caminho do .opf → title/author/cover
 export class EpubService {
@@ -39,6 +46,184 @@ export class EpubService {
     const coverBlob = this.extractCover(opfXml, opfPath, files)
 
     return { title, author, coverBlob }
+  }
+
+  // Extrai campos adicionais do EPUB para a tela de detalhes (descrição, idioma, capítulos).
+  // Aceita Blob porque book.fileBlob está tipado como Blob (não File).
+  static async parseExtras(fileBlob: Blob): Promise<EpubExtras> {
+    try {
+      const buffer = await fileBlob.arrayBuffer()
+      const uint8 = new Uint8Array(buffer)
+      const files = await new Promise<Record<string, Uint8Array>>((resolve, reject) => {
+        unzip(uint8, (err, data) => err ? reject(err) : resolve(data))
+      })
+
+      const containerXml = this.readFileAsText(files, 'META-INF/container.xml')
+      if (!containerXml) return { description: null, language: null, toc: [] }
+
+      const opfPath = this.extractOpfPath(containerXml)
+      if (!opfPath) return { description: null, language: null, toc: [] }
+
+      const opfXml = this.readFileAsText(files, opfPath)
+      if (!opfXml) return { description: null, language: null, toc: [] }
+
+      const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/') + 1) : ''
+
+      const description = this.extractTag(opfXml, 'dc:description')
+      const language = this.extractTag(opfXml, 'dc:language')
+      const toc = this.parseToc(opfXml, opfDir, files)
+
+      return { description, language, toc }
+    } catch {
+      return { description: null, language: null, toc: [] }
+    }
+  }
+
+  // Localiza o arquivo de TOC e parseia os capítulos.
+  // Prefere EPUB3 nav.xhtml; fallback para EPUB2 toc.ncx.
+  private static parseToc(
+    opfXml: string,
+    opfDir: string,
+    files: Record<string, Uint8Array>,
+  ): TocItem[] {
+    // EPUB3: item com properties="nav"
+    const navHref =
+      opfXml.match(/properties="nav"[\s\S]*?href="([^"]+)"/)?.[1] ??
+      opfXml.match(/href="([^"]+)"[\s\S]*?properties="nav"/)?.[1]
+
+    if (navHref) {
+      const navPath = opfDir + navHref
+      const navXml = this.readFileAsText(files, navPath)
+      if (navXml) {
+        const navDir = navPath.includes('/') ? navPath.substring(0, navPath.lastIndexOf('/') + 1) : ''
+        const result = this.parseTocFromNav(navXml, navDir)
+        if (result.length > 0) return result
+      }
+    }
+
+    // EPUB2 fallback: toc.ncx referenciado no <spine toc="id">
+    let ncxHref: string | null = null
+    const ncxId = opfXml.match(/<spine\b[^>]+toc="([^"]+)"/)?.[1]
+    if (ncxId) {
+      const escapedId = ncxId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      ncxHref =
+        opfXml.match(new RegExp(`id="${escapedId}"[\\s\\S]*?href="([^"]+)"`))?.[1] ??
+        opfXml.match(new RegExp(`href="([^"]+)"[\\s\\S]*?id="${escapedId}"`))?.[1] ??
+        null
+    }
+    // Última tentativa: qualquer .ncx no manifest
+    if (!ncxHref) ncxHref = opfXml.match(/href="([^"]+\.ncx)"/i)?.[1] ?? null
+
+    if (ncxHref) {
+      const ncxPath = opfDir + ncxHref
+      const ncxXml = this.readFileAsText(files, ncxPath)
+      if (ncxXml) {
+        const ncxDir = ncxPath.includes('/') ? ncxPath.substring(0, ncxPath.lastIndexOf('/') + 1) : ''
+        return this.parseTocFromNcx(ncxXml, ncxDir)
+      }
+    }
+
+    return []
+  }
+
+  // Parseia nav.xhtml (EPUB3): extrai entradas do <nav epub:type="toc"> com profundidade.
+  private static parseTocFromNav(html: string, baseDir: string): TocItem[] {
+    const tocMatch =
+      html.match(/<nav\b[^>]*epub:type=["'][^"']*toc[^"']*["'][^>]*>([\s\S]*?)<\/nav>/i) ??
+      html.match(/<nav\b[^>]*type=["'][^"']*toc[^"']*["'][^>]*>([\s\S]*?)<\/nav>/i) ??
+      html.match(/<nav\b[^>]*id=["']toc["'][^>]*>([\s\S]*?)<\/nav>/i)
+
+    if (!tocMatch) return []
+
+    const content = tocMatch[1]
+    const entries: Array<{ depth: number; href: string; label: string }> = []
+    let depth = 0
+
+    // Tokeniza: rastreia abertura/fechamento de <ol> e captura <a href>
+    const tokenRe = /<(\/?)(?:ol|a)\b([^>]*)>/gi
+    let match: RegExpExecArray | null
+    while ((match = tokenRe.exec(content)) !== null) {
+      const [full, closing, attrs] = match
+      const tag = full.match(/<\/?(\w+)/)?.[1]?.toLowerCase()
+      if (tag === 'ol') {
+        depth += closing ? -1 : 1
+      } else if (tag === 'a' && !closing) {
+        const hrefMatch = attrs.match(/href="([^"]*)"/)
+        if (hrefMatch) {
+          const afterA = content.slice(match.index + full.length)
+          const label = (afterA.match(/^([\s\S]*?)<\/a>/i)?.[1] ?? '').replace(/<[^>]+>/g, '').trim()
+          if (label) {
+            const raw = hrefMatch[1]
+            const href = raw.startsWith('/') || raw.includes('://') ? raw : baseDir + raw
+            entries.push({ depth, href, label })
+          }
+        }
+      }
+    }
+
+    return this.buildTocTree(entries)
+  }
+
+  // Parseia toc.ncx (EPUB2): rastreia profundidade de <navPoint> e usa buildTocTree
+  // para produzir a mesma estrutura em árvore do parseTocFromNav.
+  private static parseTocFromNcx(ncxXml: string, baseDir: string): TocItem[] {
+    const navMap = ncxXml.match(/<navMap[^>]*>([\s\S]*)<\/navMap>/)?.[1] ?? ''
+    const entries: Array<{ depth: number; href: string; label: string }> = []
+    let depth = 0
+
+    // Tokeniza <navPoint>, </navPoint>, <text> e <content src>
+    const tokenRe = /<(\/?navPoint)\b[^>]*>|<text>([^<]+)<\/text>|<content\s+src="([^"]+)"/gi
+    let label: string | null = null
+    let match: RegExpExecArray | null
+    while ((match = tokenRe.exec(navMap)) !== null) {
+      const [, tagToken, textContent, src] = match
+      if (tagToken) {
+        if (tagToken.startsWith('/')) {
+          depth = Math.max(0, depth - 1)
+        } else {
+          depth++
+        }
+      } else if (textContent && label === null) {
+        label = textContent.trim()
+      } else if (src && label !== null) {
+        const href = src.startsWith('/') || src.includes('://') ? src : baseDir + src
+        entries.push({ depth, href, label })
+        label = null
+      }
+    }
+
+    return this.buildTocTree(entries)
+  }
+
+  // Converte lista plana com níveis de profundidade em árvore de TocItem aninhada.
+  private static buildTocTree(
+    entries: Array<{ depth: number; href: string; label: string }>,
+  ): TocItem[] {
+    if (entries.length === 0) return []
+    const root: TocItem[] = []
+    const parentStack: TocItem[][] = [root]
+    let prevDepth = entries[0].depth
+
+    for (const entry of entries) {
+      const item: TocItem = { label: entry.label, href: entry.href }
+
+      if (entry.depth > prevDepth) {
+        const currentList = parentStack[parentStack.length - 1]
+        const lastItem = currentList[currentList.length - 1]
+        if (lastItem) {
+          if (!lastItem.subitems) lastItem.subitems = []
+          parentStack.push(lastItem.subitems)
+        }
+      } else if (entry.depth < prevDepth) {
+        const steps = prevDepth - entry.depth
+        for (let i = 0; i < steps && parentStack.length > 1; i++) parentStack.pop()
+      }
+
+      parentStack[parentStack.length - 1].push(item)
+      prevDepth = entry.depth
+    }
+
+    return root
   }
 
   // Converte Uint8Array de um arquivo do ZIP para string UTF-8

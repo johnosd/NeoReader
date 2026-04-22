@@ -191,6 +191,15 @@ function buildReaderCSS(fontSize: FontSize): string {
       text-decoration: underline !important;
     }
 
+    /* Marcador visual de bookmark inline — borda esquerda colorida no parágrafo */
+    [data-nr-bookmark] {
+      border-left: 3px solid #6366f1 !important;
+      padding-left: 8px !important;
+    }
+    [data-nr-bookmark="emerald"] { border-left-color: #22c55e !important; }
+    [data-nr-bookmark="amber"]   { border-left-color: #f59e0b !important; }
+    [data-nr-bookmark="rose"]    { border-left-color: #f43f5e !important; }
+
     /* Bloco de tradução inline — injetado após o parágrafo selecionado */
     #nr-translation-block {
       margin: 8px 0 16px 0 !important;
@@ -269,21 +278,32 @@ export interface EpubViewerHandle {
   injectTranslation(translatedText: string): void
   // Tradução inline: remove bloco e highlight do parágrafo ativo
   clearTranslation(): void
+  // Bookmarks: retorna o índice da seção spine atual
+  getCurrentSectionIndex(): number
+  // Bookmarks: injeta marcador visual (borda colorida) no parágrafo pelo índice
+  injectBookmarkMarker(paraIndex: number, color: string): void
+  // Bookmarks: remove todos os marcadores visuais da seção atual
+  clearBookmarkMarkers(): void
 }
 
 interface EpubViewerProps {
   book: Book
   fontSize: FontSize
   savedCfi: string | null
-  onRelocate: (cfi: string, percentage: number, tocLabel: string | undefined) => void
+  onRelocate: (cfi: string, percentage: number, tocLabel: string | undefined, sectionIndex: number) => void
   onTocReady: (toc: TocItem[]) => void
   onLoad: () => void
+  // Chamado toda vez que uma nova seção do EPUB carrega — permite re-injetar marcadores
+  onSectionLoad?: (sectionIndex: number) => void
   onError: (err: Error) => void
   // Chamado quando o usuário salva um par original/tradução via ⭐
   onSaveVocab: (sourceText: string, translatedText: string) => void
-  // Chamado quando o tap cai fora de qualquer parágrafo (margem, imagem)
-  // Usado pelo ReaderScreen para toggle do chrome sem overlay
+  // Chamado quando o tap cai fora de qualquer parágrafo (margem, imagem),
+  // OU quando o chrome está visível e qualquer toque fecha os menus
   onCenterTap: () => void
+  // Quando true, qualquer toque no iframe fecha o chrome em vez de acionar tradução/TTS.
+  // Resolve o problema de compositing do Android WebView que ignora z-index de overlays.
+  chromeVisible: boolean
   // Tradução: emite o texto da frase tocada para o ReaderScreen traduzir e exibir
   // num painel React fora do iframe (evita problema de paginação no mobile)
   onTranslate: (sourceText: string) => void
@@ -314,7 +334,9 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       onRelocate, onTocReady, onLoad, onError,
       onSaveVocab, onCenterTap, onTranslate,
       onSpeakOne, onParagraphTapForTts, ttsGlobalActive,
+      chromeVisible,
       onAtBottom, onSwipeAtBottom, onSwipeAtTop,
+      onSectionLoad,
     },
     ref,
   ) => {
@@ -351,6 +373,10 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const onParagraphTapForTtsRef = useSyncRef(onParagraphTapForTts)
     // ttsGlobalActive: modo leitura contínua ativo (inclui pausado) — gating do clique
     const ttsGlobalActiveRef = useSyncRef(ttsGlobalActive)
+    // chromeVisible: quando true, qualquer toque no iframe fecha o chrome imediatamente
+    const chromeVisibleRef = useSyncRef(chromeVisible)
+
+    const onSectionLoadRef = useSyncRef(onSectionLoad)
 
     // Navegação entre capítulos: detecta fundo visual + swipe para avançar
     const isAtBottomRef = useRef(false)
@@ -537,6 +563,21 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         activeTranslatedTextRef.current = ''
         activeTranslationParaRef.current = null
       },
+
+      getCurrentSectionIndex: () => currentSectionIdxRef.current,
+
+      injectBookmarkMarker: (paraIndex: number, color: string) => {
+        const para = ttsParagraphsRef.current[paraIndex] as HTMLElement | undefined
+        if (!para) return
+        // data-nr-bookmark dispara o CSS com borda colorida (ver buildReaderCSS)
+        para.setAttribute('data-nr-bookmark', color)
+      },
+
+      clearBookmarkMarkers: () => {
+        ttsParagraphsRef.current.forEach(el => {
+          el.removeAttribute('data-nr-bookmark')
+        })
+      },
     }))
 
     // Atualiza fonte sem recriar o view (efeito separado intencional)
@@ -578,9 +619,11 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         console.log(DBG, 'foliate-view element created and appended')
 
         view.addEventListener('relocate', (e: CustomEvent<RelocateDetail>) => {
-          const { cfi, fraction, tocItem } = e.detail
-          console.log(DBG, 'relocate event', { cfi, fraction, tocLabel: tocItem?.label })
-          onRelocate(cfi, Math.round(fraction * 100), tocItem?.label)
+          const { cfi, fraction, tocItem, section } = e.detail
+          // section?.current é o índice da spine atual; fallback para currentSectionIdxRef
+          const sIdx = section?.current ?? currentSectionIdxRef.current
+          console.log(DBG, 'relocate event', { cfi, fraction, tocLabel: tocItem?.label, sIdx })
+          onRelocate(cfi, Math.round(fraction * 100), tocItem?.label, sIdx)
         })
 
         // Cada seção do EPUB carrega num iframe separado. O evento 'load' expõe
@@ -622,6 +665,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           currentSectionIdxRef.current = e.detail.index
           isAtBottomRef.current = false
           onAtBottomRef.current?.(false, false)
+          // Notifica o ReaderScreen para re-injetar marcadores visuais de bookmark nesta seção
+          onSectionLoadRef.current?.(e.detail.index)
 
           // prevToEnd: rola até o fundo assim que o layout da seção estiver pronto
           if (scrollToBottomOnLoadRef.current) {
@@ -715,6 +760,15 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           doc.addEventListener('click', (ev: MouseEvent) => {
             // Ignora clicks que são resíduo de um gesto de scroll
             if (didScroll) return
+
+            // Chrome visível: qualquer toque fecha os menus sem acionar tradução/TTS.
+            // Solução para o Android WebView que ignora z-index de overlays React
+            // e entrega o toque diretamente ao iframe (camada de composição separada).
+            if (chromeVisibleRef.current) {
+              onCenterTapRef.current()
+              return
+            }
+
             const target = ev.target as Element
 
             // Intercepta botões Ouvir/Salvar dentro do bloco de tradução inline

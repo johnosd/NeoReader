@@ -29,3 +29,8 @@ export async function updateLastOpened(id: number): Promise<void> {
 export async function updateBookCover(id: number, coverBlob: Blob | null): Promise<void> {
   await db.books.update(id, { coverBlob })
 }
+
+export async function toggleFavorite(id: number): Promise<void> {
+  const book = await db.books.get(id)
+  await db.books.update(id, { isFavorite: !book?.isFavorite })
+}

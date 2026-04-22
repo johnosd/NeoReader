@@ -7,6 +7,14 @@ export interface Book {
   fileBlob: Blob          // arquivo .epub completo
   addedAt: Date
   lastOpenedAt: Date | null
+  isFavorite?: boolean    // marcado pelo usuário na tela de detalhes
+}
+
+// Configurações específicas de leitura por livro
+export interface BookSettings {
+  id?: number
+  bookId: number
+  fontSize: import('./settings').FontSize
 }
 
 // Progresso de leitura — CFI é o "endereço" de um ponto no EPUB
@@ -23,7 +31,12 @@ export interface Bookmark {
   id?: number
   bookId: number
   cfi: string
-  label: string      // nome do capítulo atual ou "X%" como fallback
-  percentage: number // para exibição na lista
+  label: string       // nome do capítulo atual ou "X%" como fallback
+  percentage: number  // para exibição na lista
+  // Campos opcionais (ausentes em registros antigos — backward compat)
+  sectionIndex?: number  // índice da spine; permite filtrar bookmarks por seção
+  paraIndex?: number     // índice do parágrafo na seção; usado para injetar marcador visual
+  snippet?: string       // trecho inicial do parágrafo (max 150 chars) para contexto na lista
+  color?: string         // 'indigo' | 'emerald' | 'amber' | 'rose'
   createdAt: Date
 }
