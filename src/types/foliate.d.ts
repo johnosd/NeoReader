@@ -6,12 +6,18 @@ interface TocItem {
   subitems?: TocItem[]
 }
 
+interface FoliateSection {
+  href?: string
+  cfi?: string
+}
+
 interface RelocateDetail {
   cfi: string
   fraction: number // 0-1, progresso geral do livro
   tocItem?: { label: string; href: string }
   // Índice e total de seções — vem de SectionProgress.getProgress() em progress.js
   section?: { current: number; total: number }
+  range?: Range
 }
 
 declare module 'foliate-js/view.js' {
@@ -19,11 +25,13 @@ declare module 'foliate-js/view.js' {
     book: {
       toc: TocItem[]
       metadata: Record<string, unknown>
-      sections?: { length: number }
+      sections?: FoliateSection[]
     }
     renderer: HTMLElement & {
       setAttribute(name: string, value: string): void
       setStyles?(css: string): void
+      nextSection?(): Promise<unknown> | void
+      prevSection?(): Promise<unknown> | void
     }
     lastLocation: RelocateDetail | null
 
@@ -32,6 +40,12 @@ declare module 'foliate-js/view.js' {
     next(distance?: number): Promise<void>
     prev(distance?: number): Promise<void>
     goTo(target: string | number | { fraction: number }): Promise<unknown>
+    getCFI(index: number, range?: Range | null): string
+    getProgressOf(index: number, range: Range): {
+      tocItem?: { label: string; href?: string }
+      pageItem?: unknown
+    }
+    getSectionFractions(): number[]
     close(): void
 
     // Override para tipar os eventos customizados corretamente
@@ -51,4 +65,9 @@ declare module 'foliate-js/view.js' {
       options?: boolean | AddEventListenerOptions,
     ): void
   }
+}
+
+declare module 'foliate-js/epubcfi.js' {
+  export function compare(a: string, b: string): number
+  export function collapse(cfi: string, toEnd?: boolean): string
 }

@@ -8,6 +8,14 @@ interface TocDrawerProps {
   onClose: () => void
 }
 
+function getDirectNavigationHref(item: TocItem): string {
+  for (const child of item.subitems ?? []) {
+    const target = getDirectNavigationHref(child)
+    if (target) return target
+  }
+  return item.href
+}
+
 export function TocDrawer({ open, toc, onSelect, onClose }: TocDrawerProps) {
   // Inicializador lazy: expande itens raiz com subseções na montagem.
   // toc vem do Zustand e é definido uma única vez ao carregar o livro — sem necessidade de sincronizar.
@@ -112,7 +120,7 @@ function TocList({
               )}
 
               <button
-                onClick={() => onSelect(item.href)}
+                onClick={() => onSelect(getDirectNavigationHref(item))}
                 className={`flex-1 text-left py-3 pr-5 text-sm active:bg-bg-hover
                   ${depth === 0 ? 'text-text-primary' : 'text-text-secondary'}`}
               >

@@ -1,10 +1,16 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { useSyncRef } from '../../hooks/useSyncRef'
-import type { Book } from '../../types/book'
+import type { Book, Bookmark } from '../../types/book'
 import type { View } from 'foliate-js/view.js'
 import { getSentenceAt, escapeHtml } from '../../utils/readerUtils'
+import { areCfisEquivalent, normalizeCfi } from '../../utils/cfi'
 
 export type FontSize = 'sm' | 'md' | 'lg' | 'xl'
+
+const BOOKMARK_ICON_GUTTER = 20
+const BOOKMARK_ICON_LEFT = 4
+const BOOKMARK_ICON_WIDTH = 10
+const BOOKMARK_ICON_HEIGHT = 14
 
 // Unidade mínima de leitura para o TTS.
 // Texto é partido em frases (não parágrafos inteiros) para reduzir latência de API.
@@ -191,15 +197,6 @@ function buildReaderCSS(fontSize: FontSize): string {
       text-decoration: underline !important;
     }
 
-    /* Marcador visual de bookmark inline — borda esquerda colorida no parágrafo */
-    [data-nr-bookmark] {
-      border-left: 3px solid #6366f1 !important;
-      padding-left: 8px !important;
-    }
-    [data-nr-bookmark="emerald"] { border-left-color: #22c55e !important; }
-    [data-nr-bookmark="amber"]   { border-left-color: #f59e0b !important; }
-    [data-nr-bookmark="rose"]    { border-left-color: #f43f5e !important; }
-
     /* Bloco de tradução inline — injetado após o parágrafo selecionado */
     #nr-translation-block {
       margin: 8px 0 16px 0 !important;
@@ -249,6 +246,33 @@ function buildReaderCSS(fontSize: FontSize): string {
       cursor: pointer !important;
       font-family: inherit !important;
     }
+    .nr-tr-actions button[disabled] {
+      opacity: 0.65 !important;
+      cursor: default !important;
+    }
+
+    /* Marcador visual de bookmark no próprio livro.
+       A fonte de verdade continua sendo o CFI salvo; isso é apenas projeção visual. */
+    [data-nr-bookmark] {
+      position: relative !important;
+      padding-inline-start: ${BOOKMARK_ICON_GUTTER}px !important;
+      overflow: visible !important;
+    }
+    [data-nr-bookmark]::before {
+      content: '' !important;
+      position: absolute !important;
+      left: ${BOOKMARK_ICON_LEFT}px !important;
+      top: calc(0.85em - ${Math.round(BOOKMARK_ICON_HEIGHT / 2)}px) !important;
+      width: ${BOOKMARK_ICON_WIDTH}px !important;
+      height: ${BOOKMARK_ICON_HEIGHT}px !important;
+      border-radius: 3px 3px 1px 1px !important;
+      background: #6366f1 !important;
+      clip-path: polygon(0 0, 100% 0, 100% 78%, 50% 100%, 0 78%) !important;
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) !important;
+    }
+    [data-nr-bookmark="emerald"]::before { background: #22c55e !important; }
+    [data-nr-bookmark="amber"]::before { background: #f59e0b !important; }
+    [data-nr-bookmark="rose"]::before { background: #f43f5e !important; }
   `
 }
 
@@ -258,6 +282,7 @@ export interface EpubViewerHandle {
   // Navega para o capítulo anterior e posiciona no final (último parágrafo)
   prevToEnd(): void
   goTo(target: string | number | { fraction: number }): void
+  getVisibleLocation(): { cfi: string | null; tocLabel?: string; percentage?: number }
   // TTS: retorna os textos puros de todos os parágrafos da seção atual
   getParagraphs(): string[]
   // TTS: retorna frases agrupadas com paraIdx e offsetInPara para karaokê preciso
@@ -278,23 +303,23 @@ export interface EpubViewerHandle {
   injectTranslation(translatedText: string): void
   // Tradução inline: remove bloco e highlight do parágrafo ativo
   clearTranslation(): void
-  // Bookmarks: retorna o índice da seção spine atual
-  getCurrentSectionIndex(): number
-  // Bookmarks: injeta marcador visual (borda colorida) no parágrafo pelo índice
-  injectBookmarkMarker(paraIndex: number, color: string): void
-  // Bookmarks: remove todos os marcadores visuais da seção atual
-  clearBookmarkMarkers(): void
+}
+
+export interface ParagraphBookmarkPayload {
+  cfi: string
+  label: string
+  percentage: number
+  snippet: string
 }
 
 interface EpubViewerProps {
   book: Book
+  bookmarks: Bookmark[]
   fontSize: FontSize
   savedCfi: string | null
   onRelocate: (cfi: string, percentage: number, tocLabel: string | undefined, sectionIndex: number) => void
   onTocReady: (toc: TocItem[]) => void
   onLoad: () => void
-  // Chamado toda vez que uma nova seção do EPUB carrega — permite re-injetar marcadores
-  onSectionLoad?: (sectionIndex: number) => void
   onError: (err: Error) => void
   // Chamado quando o usuário salva um par original/tradução via ⭐
   onSaveVocab: (sourceText: string, translatedText: string) => void
@@ -316,13 +341,12 @@ interface EpubViewerProps {
   ttsGlobalActive: boolean
   // Capítulo: emitido quando o usuário chega ao fundo (ou sai do fundo) da seção atual.
   // hasNext: false quando é a última seção do livro.
-  onAtBottom?: (atBottom: boolean, hasNext: boolean) => void
-  // Capítulo: emitido quando o usuário faz swipe para baixo estando já no fundo —
-  // sinal de intenção de avançar para o próximo capítulo.
-  onSwipeAtBottom?: () => void
-  // Capítulo: emitido quando o usuário faz swipe para cima estando já no topo —
-  // sinal de intenção de voltar ao final do capítulo anterior.
-  onSwipeAtTop?: () => void
+  // nextLabel: rótulo da próxima seção quando disponível no TOC.
+  onAtBottom?: (atBottom: boolean, hasNext: boolean, nextLabel?: string) => void
+  // Bookmarks: remove o marcador ao tocar no ícone projetado no parágrafo.
+  onBookmarkTap?: (bookmarkId: number) => void
+  // Bookmarks: toggle no parágrafo atualmente selecionado no bloco de tradução inline.
+  onBookmarkParagraph?: (payload: ParagraphBookmarkPayload) => void
 }
 
 // forwardRef: padrão React para expor métodos imperativos ao componente pai.
@@ -330,18 +354,18 @@ interface EpubViewerProps {
 export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
   (
     {
-      book, fontSize, savedCfi,
+      book, bookmarks, fontSize, savedCfi,
       onRelocate, onTocReady, onLoad, onError,
       onSaveVocab, onCenterTap, onTranslate,
       onSpeakOne, onParagraphTapForTts, ttsGlobalActive,
       chromeVisible,
-      onAtBottom, onSwipeAtBottom, onSwipeAtTop,
-      onSectionLoad,
+      onAtBottom, onBookmarkTap, onBookmarkParagraph,
     },
     ref,
   ) => {
     const containerRef = useRef<HTMLDivElement>(null)
     const viewRef = useRef<View | null>(null)
+    const currentDocRef = useRef<Document | null>(null)
 
     // Elementos e textos dos parágrafos da seção atual — atualizados no evento 'load'
     const ttsParagraphsRef = useRef<Element[]>([])
@@ -376,27 +400,490 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     // chromeVisible: quando true, qualquer toque no iframe fecha o chrome imediatamente
     const chromeVisibleRef = useSyncRef(chromeVisible)
 
-    const onSectionLoadRef = useSyncRef(onSectionLoad)
-
     // Navegação entre capítulos: detecta fundo visual + swipe para avançar
     const isAtBottomRef = useRef(false)
     const currentSectionIdxRef = useRef(0)
     const totalSectionsRef = useRef(1)
     const onAtBottomRef = useSyncRef(onAtBottom)
-    const onSwipeAtBottomRef = useSyncRef(onSwipeAtBottom)
-    const onSwipeAtTopRef = useSyncRef(onSwipeAtTop)
     // Flag: próximo evento 'load' deve rolar a seção até o fundo (usado após prevToEnd)
     const scrollToBottomOnLoadRef = useRef(false)
+    const lastRelocateRef = useRef<RelocateDetail | null>(null)
+    const autoSkipChapterStubDirectionRef = useRef<-1 | 0 | 1>(0)
+    const autoSkipChapterStubCountRef = useRef(0)
+    const scrollListenerCleanupRef = useRef<(() => void) | null>(null)
+    const pendingSectionRef = useRef<{ doc: Document; index: number; version: number } | null>(null)
+    const pendingSectionVersionRef = useRef(0)
+    const finalizedSectionVersionRef = useRef(0)
+    const finalizeSectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const initialInteractiveReadyRef = useRef(false)
+    const BLOCK = 'p, li, blockquote, h1, h2, h3, h4, h5, h6'
+    const bookmarksRef = useSyncRef(bookmarks)
+    const onBookmarkTapRef = useSyncRef(onBookmarkTap)
+    const onBookmarkParagraphRef = useSyncRef(onBookmarkParagraph)
+
+    function getParagraphIndexFromRange(range?: Range | null): number {
+      const paras = ttsParagraphsRef.current
+      if (!range || paras.length === 0) return 0
+
+      const startNode = range.startContainer
+      const startElement =
+        startNode.nodeType === Node.ELEMENT_NODE
+          ? (startNode as Element)
+          : startNode.parentElement
+
+      if (!startElement) return 0
+
+      const directIdx = paras.findIndex((para) => para === startElement || para.contains(startNode))
+      if (directIdx >= 0) return directIdx
+
+      const block = startElement.closest(BLOCK)
+      if (!block) return 0
+
+      const blockIdx = paras.indexOf(block)
+      return blockIdx >= 0 ? blockIdx : 0
+    }
+
+    function getVisibleParagraphInternal(): { para: Element | null; paraIndex: number } {
+      const paras = ttsParagraphsRef.current
+      if (paras.length === 0) return { para: null, paraIndex: 0 }
+
+      const paraIndex = getParagraphIndexFromRange(lastRelocateRef.current?.range)
+      return {
+        para: paras[paraIndex] ?? null,
+        paraIndex,
+      }
+    }
+
+    function getFirstVisibleParagraphIndexInternal(): number {
+      return getVisibleParagraphInternal().paraIndex
+    }
+
+    function getOrCreateParagraphBookmarkCfi(para: Element | null): string | null {
+      const view = viewRef.current
+      if (!view || !para) return null
+
+      const cached = para.getAttribute('data-nr-para-cfi')
+      if (cached) return cached
+
+      const doc = para.ownerDocument!
+      const range = doc.createRange()
+      range.selectNodeContents(para)
+      range.collapse(true)
+
+      const cfi = normalizeCfi(view.getCFI(currentSectionIdxRef.current, range))
+      if (!cfi) return null
+
+      para.setAttribute('data-nr-para-cfi', cfi)
+      return cfi
+    }
+
+    function getParagraphBookmarkPayload(para: Element | null): ParagraphBookmarkPayload | null {
+      const view = viewRef.current
+      if (!view || !para) return null
+
+      const cfi = getOrCreateParagraphBookmarkCfi(para)
+      if (!cfi) return null
+
+      const doc = para.ownerDocument!
+      const range = doc.createRange()
+      range.selectNodeContents(para)
+      range.collapse(true)
+
+      const progress = view.getProgressOf(currentSectionIdxRef.current, range)
+      const location = lastRelocateRef.current ?? view.lastLocation
+      const fractions = view.getSectionFractions()
+      const sectionStart = fractions[currentSectionIdxRef.current] ?? location?.fraction ?? 0
+      const sectionEnd = fractions[currentSectionIdxRef.current + 1] ?? location?.fraction ?? sectionStart
+      const paraIndex = Math.max(0, ttsParagraphsRef.current.indexOf(para))
+      const paraFraction = ttsParagraphsRef.current.length > 1
+        ? paraIndex / (ttsParagraphsRef.current.length - 1)
+        : 0
+      const percentage = Math.round((sectionStart + (sectionEnd - sectionStart) * paraFraction) * 100)
+      const snippet = (para.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 150)
+
+      return {
+        cfi,
+        label: progress.tocItem?.label ?? location?.tocItem?.label ?? `${percentage}%`,
+        percentage,
+        snippet,
+      }
+    }
+
+    function findMatchingParagraphBookmark(paragraphCfi: string | null | undefined): Bookmark | undefined {
+      if (!paragraphCfi) return undefined
+      return [...bookmarksRef.current].reverse().find((bookmark) =>
+        areCfisEquivalent(bookmark.cfi, paragraphCfi),
+      )
+    }
+
+    function getParagraphBookmarkState(para: Element | null) {
+      const payload = getParagraphBookmarkPayload(para)
+      if (!payload) return null
+
+      const matchedBookmark = findMatchingParagraphBookmark(payload.cfi)
+      return { payload, matchedBookmark }
+    }
+
+    function syncActiveTranslationBookmarkAction(doc = currentDocRef.current): void {
+      const actionBtn = doc?.getElementById('nr-translation-block')?.querySelector<HTMLButtonElement>('[data-nr-action="bookmark"]')
+      if (!actionBtn) return
+
+      const bookmarkState = getParagraphBookmarkState(activeTranslationParaRef.current)
+      const isBookmarked = !!bookmarkState?.matchedBookmark
+      actionBtn.textContent = isBookmarked ? 'Remover marcador' : 'Marcar'
+      actionBtn.setAttribute('aria-pressed', isBookmarked ? 'true' : 'false')
+      actionBtn.removeAttribute('disabled')
+      delete actionBtn.dataset.nrPending
+    }
+
+    function isChapterStubSection(doc: Document): boolean {
+      const blockTexts = Array.from(doc.querySelectorAll('p, li, blockquote'))
+        .map((el) => el.textContent?.replace(/\s+/g, ' ').trim() ?? '')
+        .filter(Boolean)
+      const headingCount = doc.querySelectorAll('h1, h2, h3, h4, h5, h6').length
+      const bodyBlockCount = blockTexts.length
+      const longestBlockLength = blockTexts.reduce((max, text) => Math.max(max, text.length), 0)
+      const textLength = doc.body?.textContent?.replace(/\s+/g, ' ').trim().length ?? 0
+      const hasChapterMarker =
+        !!doc.querySelector('[data-type="chapter"]') ||
+        !!doc.querySelector('[epub\\:type~="chapter"]')
+      const hasPartMarker =
+        !!doc.querySelector('[data-type="part"]') ||
+        !!doc.querySelector('[epub\\:type~="part"]') ||
+        !!doc.querySelector('[data-pdf-bookmark^="Part "]')
+
+      if (hasPartMarker) return true
+      if (hasChapterMarker) return false
+      return headingCount > 0 && bodyBlockCount <= 1 && longestBlockLength <= 40 && textLength > 0 && textLength <= 220
+    }
+
+    function getRendererScrollContainer(): HTMLElement | null {
+      if (!(viewRef.current?.renderer instanceof HTMLElement)) return null
+      return viewRef.current.renderer.shadowRoot?.getElementById('container') as HTMLElement | null
+    }
+
+    function getWindowScrollMetrics(doc: Document) {
+      const win = doc.defaultView
+      return {
+        position: win?.scrollY ?? 0,
+        viewport: win?.innerHeight ?? doc.documentElement.clientHeight,
+        extent: doc.documentElement.scrollHeight,
+        scrollToBottom: () => { win?.scrollTo(0, doc.documentElement.scrollHeight) },
+        target: (win ?? doc) as EventTarget,
+      }
+    }
+
+    function getScrollMetricSources(doc: Document) {
+      const sources: Array<{
+        position: number
+        viewport: number
+        extent: number
+        scrollToBottom: () => void
+        target: EventTarget
+      }> = []
+
+      const container = getRendererScrollContainer()
+      if (container) {
+        sources.push({
+          position: container.scrollTop,
+          viewport: container.clientHeight,
+          extent: container.scrollHeight,
+          scrollToBottom: () => { container.scrollTop = container.scrollHeight },
+          target: container as EventTarget,
+        })
+      }
+
+      sources.push(getWindowScrollMetrics(doc))
+      return sources
+    }
+
+    function getScrollMetrics(doc: Document) {
+      const sources = getScrollMetricSources(doc)
+      return sources
+        .slice()
+        .sort((a, b) => {
+          const aOverflow = Math.max(0, a.extent - a.viewport)
+          const bOverflow = Math.max(0, b.extent - b.viewport)
+          return bOverflow - aOverflow
+        })[0] ?? getWindowScrollMetrics(doc)
+    }
+
+    function normalizeHref(href?: string | null): string {
+      return (href ?? '')
+        .split('#')[0]
+        .replace(/^\.\//, '')
+        .trim()
+        .toLowerCase()
+    }
+
+    function isCfiTarget(target: string): boolean {
+      return /^epubcfi\(/i.test(target.trim())
+    }
+
+    function flattenToc(items: TocItem[]): TocItem[] {
+      const flat: TocItem[] = []
+      for (const item of items) {
+        flat.push(item)
+        if (item.subitems?.length) flat.push(...flattenToc(item.subitems))
+      }
+      return flat
+    }
+
+    function getNextSectionLabel(sectionIndex: number): string | undefined {
+      const view = viewRef.current
+      const nextSection = view?.book?.sections?.[sectionIndex + 1]
+      const nextHref = normalizeHref(nextSection?.href)
+      if (!nextHref) return undefined
+
+      const tocItems = flattenToc(view?.book?.toc ?? [])
+      const directMatch = tocItems.find((item) => normalizeHref(item.href) === nextHref)
+      if (directMatch?.label) return directMatch.label
+
+      const partialMatch = tocItems.find((item) => {
+        const itemHref = normalizeHref(item.href)
+        return itemHref === nextHref || itemHref.startsWith(`${nextHref}#`) || nextHref.startsWith(itemHref)
+      })
+      return partialMatch?.label
+    }
+
+    const SECTION_END_THRESHOLD = 0.92
+
+    function updateSectionEndBanner(atEnd: boolean, sectionIndex: number) {
+      if (atEnd === isAtBottomRef.current) return
+
+      isAtBottomRef.current = atEnd
+      const hasNext = sectionIndex < totalSectionsRef.current - 1
+      onAtBottomRef.current?.(
+        atEnd,
+        hasNext,
+        hasNext ? getNextSectionLabel(sectionIndex) : undefined,
+      )
+    }
+
+    function getSectionEndState(fraction: number, sectionIndex: number) {
+      const view = viewRef.current
+      if (!view) return null
+
+      const fractions = view.getSectionFractions()
+      const sectionStart = fractions[sectionIndex]
+      const sectionEnd = fractions[sectionIndex + 1] ?? 1
+      if (sectionStart === undefined || sectionEnd <= sectionStart) return null
+
+      const relativeProgress = Math.max(0, Math.min(1, (fraction - sectionStart) / (sectionEnd - sectionStart)))
+      return {
+        atEnd: relativeProgress >= SECTION_END_THRESHOLD,
+      }
+    }
+
+    function clearFinalizeSectionTimeout(): void {
+      if (finalizeSectionTimeoutRef.current) {
+        clearTimeout(finalizeSectionTimeoutRef.current)
+        finalizeSectionTimeoutRef.current = null
+      }
+    }
+
+    function scheduleSectionFinalization(reason: 'stabilized' | 'relocate'): void {
+      const schedule =
+        currentDocRef.current?.defaultView?.requestAnimationFrame?.bind(currentDocRef.current.defaultView) ??
+        requestAnimationFrame
+      schedule(() => finalizePendingSection(reason))
+    }
+
+    function setupScrollTracking(doc: Document): void {
+      scrollListenerCleanupRef.current?.()
+
+      const getScrollState = () => {
+        const sources = getScrollMetricSources(doc)
+        const activeSources = sources.filter((source) => source.extent > source.viewport + 4)
+        const relevantSources = activeSources.length > 0 ? activeSources : sources
+        return {
+          position: Math.max(0, ...relevantSources.map((source) => source.position)),
+          atBottom: relevantSources.some(
+            (source) => source.position + source.viewport >= source.extent - 20,
+          ),
+          targets: Array.from(new Set(relevantSources.map((source) => source.target))),
+        }
+      }
+
+      const initialState = getScrollState()
+      // Ignora scrolls automáticos logo após o load/estabilização da seção.
+      scrollingProgrammaticallyUntilRef.current = Math.max(
+        scrollingProgrammaticallyUntilRef.current,
+        Date.now() + 300,
+      )
+
+      const onScroll = () => {
+        if (ttsActiveRef.current && Date.now() > scrollingProgrammaticallyUntilRef.current) {
+          userScrolledRef.current = true
+        }
+
+        if (Date.now() <= scrollingProgrammaticallyUntilRef.current) return
+
+        const scrollState = getScrollState()
+        updateSectionEndBanner(scrollState.atBottom, currentSectionIdxRef.current)
+      }
+
+      for (const target of initialState.targets) {
+        target.addEventListener('scroll', onScroll as EventListener, { passive: true })
+      }
+      scrollListenerCleanupRef.current = () => {
+        for (const target of initialState.targets) {
+          target.removeEventListener('scroll', onScroll as EventListener)
+        }
+      }
+    }
+
+    function finalizePendingSection(reason: 'stabilized' | 'relocate' | 'timeout'): void {
+      const pendingSection = pendingSectionRef.current
+      if (!pendingSection) return
+      if (finalizedSectionVersionRef.current === pendingSection.version) return
+      if (pendingSection.doc !== currentDocRef.current || pendingSection.index !== currentSectionIdxRef.current) return
+
+      clearFinalizeSectionTimeout()
+
+      const { doc, index, version } = pendingSection
+      const hasNextSection = index < totalSectionsRef.current - 1
+      const skipDirection = autoSkipChapterStubDirectionRef.current
+
+      console.log('[nr-debug]', 'finalize section', { reason, sectionIndex: index })
+
+      if (
+        skipDirection !== 0 &&
+        (skipDirection > 0 ? hasNextSection : index > 0) &&
+        isChapterStubSection(doc) &&
+        autoSkipChapterStubCountRef.current < 4
+      ) {
+        pendingSectionRef.current = null
+        autoSkipChapterStubCountRef.current += 1
+        doc.defaultView?.requestAnimationFrame(() => {
+          goToAdjacentSection(skipDirection)
+        })
+        return
+      }
+
+      autoSkipChapterStubDirectionRef.current = 0
+      autoSkipChapterStubCountRef.current = 0
+
+      if (scrollToBottomOnLoadRef.current) {
+        scrollToBottomOnLoadRef.current = false
+        doc.defaultView?.requestAnimationFrame(() => {
+          getScrollMetrics(doc).scrollToBottom()
+        })
+      }
+
+      setupScrollTracking(doc)
+      finalizedSectionVersionRef.current = version
+
+      if (!initialInteractiveReadyRef.current) {
+        initialInteractiveReadyRef.current = true
+        onLoad()
+      }
+    }
+
+    function clearBookmarkMarkers(doc?: Document | null): void {
+      doc?.querySelectorAll<HTMLElement>('[data-nr-bookmark]').forEach((el) => {
+        el.removeAttribute('data-nr-bookmark')
+        el.removeAttribute('data-nr-bookmark-id')
+      })
+    }
+
+    function renderBookmarkMarkers(doc = currentDocRef.current): void {
+      const activeBookmarks = bookmarksRef.current
+      if (!doc) return
+
+      clearBookmarkMarkers(doc)
+      if (ttsParagraphsRef.current.length === 0 || activeBookmarks.length === 0) return
+
+      for (const para of ttsParagraphsRef.current) {
+        const bookmarkState = getParagraphBookmarkState(para)
+        const matchedBookmark = bookmarkState?.matchedBookmark
+        if (!matchedBookmark) continue
+
+        const paraEl = para as HTMLElement
+        paraEl.setAttribute('data-nr-bookmark', matchedBookmark.color ?? 'indigo')
+        if (matchedBookmark.id !== undefined) {
+          paraEl.setAttribute('data-nr-bookmark-id', String(matchedBookmark.id))
+        }
+      }
+    }
+
+    function goToAdjacentSection(direction: 1 | -1): void {
+      const view = viewRef.current
+      if (!view) return
+
+      if (direction > 0 && typeof view.renderer.nextSection === 'function') {
+        void view.renderer.nextSection()
+        return
+      }
+      if (direction < 0 && typeof view.renderer.prevSection === 'function') {
+        void view.renderer.prevSection()
+        return
+      }
+
+      const targetIndex = currentSectionIdxRef.current + direction
+      if (targetIndex < 0 || targetIndex >= totalSectionsRef.current) return
+
+      void view.goTo(targetIndex)
+    }
 
     // Expõe API imperativa para o ReaderScreen via ref
     useImperativeHandle(ref, () => ({
-      next: () => { viewRef.current?.next() },
-      prev: () => { viewRef.current?.prev() },
-      prevToEnd: () => {
-        scrollToBottomOnLoadRef.current = true
+      next: () => {
+        autoSkipChapterStubDirectionRef.current = 1
+        autoSkipChapterStubCountRef.current = 0
+        goToAdjacentSection(1)
+      },
+      prev: () => {
+        autoSkipChapterStubDirectionRef.current = 0
         viewRef.current?.prev()
       },
-      goTo: (target) => { viewRef.current?.goTo(target) },
+      prevToEnd: () => {
+        autoSkipChapterStubDirectionRef.current = -1
+        autoSkipChapterStubCountRef.current = 0
+        scrollToBottomOnLoadRef.current = true
+        scrollingProgrammaticallyUntilRef.current = Date.now() + 800
+        goToAdjacentSection(-1)
+      },
+      goTo: (target) => {
+        autoSkipChapterStubDirectionRef.current =
+          typeof target === 'string' && !isCfiTarget(target) ? 1 : 0
+        autoSkipChapterStubCountRef.current = 0
+        viewRef.current?.goTo(target)
+      },
+      getVisibleLocation: () => {
+        const view = viewRef.current
+        const location = lastRelocateRef.current ?? view?.lastLocation
+        if (!view || !location?.cfi) return { cfi: null }
+
+        const { para, paraIndex } = getVisibleParagraphInternal()
+        if (!para) {
+          return {
+            cfi: location.cfi,
+            tocLabel: location.tocItem?.label,
+            percentage: Math.round(location.fraction * 100),
+          }
+        }
+
+        const doc = para.ownerDocument!
+        const range = doc.createRange()
+        range.selectNodeContents(para)
+        range.collapse(true)
+
+        const cfi = view.getCFI(currentSectionIdxRef.current, range)
+        const progress = view.getProgressOf(currentSectionIdxRef.current, range)
+        const fractions = view.getSectionFractions()
+        const sectionStart = fractions[currentSectionIdxRef.current] ?? location.fraction
+        const sectionEnd = fractions[currentSectionIdxRef.current + 1] ?? location.fraction
+        const paraFraction = ttsParagraphsRef.current.length > 1
+          ? paraIndex / (ttsParagraphsRef.current.length - 1)
+          : 0
+
+        return {
+          cfi,
+          tocLabel: progress.tocItem?.label ?? location.tocItem?.label,
+          percentage: Math.round((sectionStart + (sectionEnd - sectionStart) * paraFraction) * 100),
+        }
+      },
 
       getParagraphs: () => ttsParagraphTextsRef.current,
 
@@ -411,16 +898,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         return chunks
       },
 
-      getFirstVisibleParagraphIndex: () => {
-        const paras = ttsParagraphsRef.current
-        for (let i = 0; i < paras.length; i++) {
-          // getBoundingClientRect: coordenadas relativas ao viewport do iframe.
-          // rect.bottom > 0 = parágrafo ainda não saiu completamente pelo topo.
-          const rect = (paras[i] as HTMLElement).getBoundingClientRect()
-          if (rect.bottom > 0) return i
-        }
-        return 0
-      },
+      getFirstVisibleParagraphIndex: () => getFirstVisibleParagraphIndexInternal(),
 
       scrollToParagraph: (idx: number) => {
         // Usuário rolou manualmente durante o TTS: não override a posição dele
@@ -536,8 +1014,10 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           <p class="nr-tr-text">${escapeHtml(translatedText)}</p>
           <div class="nr-tr-actions">
             <button data-nr-action="speak">🔊 Ouvir</button>
+            <button data-nr-action="bookmark">Marcar</button>
             <button data-nr-action="save">⭐ Salvar</button>
           </div>`
+        syncActiveTranslationBookmarkAction(para.ownerDocument)
       },
 
       clearTranslation: () => {
@@ -563,27 +1043,17 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         activeTranslatedTextRef.current = ''
         activeTranslationParaRef.current = null
       },
-
-      getCurrentSectionIndex: () => currentSectionIdxRef.current,
-
-      injectBookmarkMarker: (paraIndex: number, color: string) => {
-        const para = ttsParagraphsRef.current[paraIndex] as HTMLElement | undefined
-        if (!para) return
-        // data-nr-bookmark dispara o CSS com borda colorida (ver buildReaderCSS)
-        para.setAttribute('data-nr-bookmark', color)
-      },
-
-      clearBookmarkMarkers: () => {
-        ttsParagraphsRef.current.forEach(el => {
-          el.removeAttribute('data-nr-bookmark')
-        })
-      },
     }))
 
     // Atualiza fonte sem recriar o view (efeito separado intencional)
     useEffect(() => {
       viewRef.current?.renderer.setStyles?.(buildReaderCSS(fontSize))
     }, [fontSize])
+
+    useEffect(() => {
+      renderBookmarkMarkers()
+      syncActiveTranslationBookmarkAction()
+    }, [bookmarks])
 
     // Setup principal: cria o elemento foliate, abre o EPUB, configura renderer.
     // Roda apenas quando o bookId muda (novo livro), não a cada re-render.
@@ -593,6 +1063,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
       let cancelled = false
       let view: View | null = null
+      let rendererStabilizedListener: EventListener | null = null
 
       async function setup() {
         // [nr-debug] Instrumentação para diagnosticar tela preta.
@@ -622,14 +1093,21 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           const { cfi, fraction, tocItem, section } = e.detail
           // section?.current é o índice da spine atual; fallback para currentSectionIdxRef
           const sIdx = section?.current ?? currentSectionIdxRef.current
+          lastRelocateRef.current = e.detail
           console.log(DBG, 'relocate event', { cfi, fraction, tocLabel: tocItem?.label, sIdx })
           onRelocate(cfi, Math.round(fraction * 100), tocItem?.label, sIdx)
+          const sectionEndState = getSectionEndState(fraction, sIdx)
+          if (sectionEndState) updateSectionEndBanner(sectionEndState.atEnd, sIdx)
+          if (pendingSectionRef.current?.index === sIdx) {
+            scheduleSectionFinalization('relocate')
+          }
         })
 
         // Cada seção do EPUB carrega num iframe separado. O evento 'load' expõe
         // o Document do iframe — toda a lógica de tradução inline acontece aqui.
         view.addEventListener('load', (e: CustomEvent<{ doc: Document; index: number }>) => {
           const { doc } = e.detail
+          currentDocRef.current = doc
           // [nr-debug] Inspeção do Document do iframe — fonte principal da "tela preta"
           const htmlLen = doc.documentElement?.outerHTML?.length ?? 0
           const bodyText = doc.body?.textContent?.trim() ?? ''
@@ -653,64 +1131,39 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               lineno: err.lineno,
             })
           })
-          const BLOCK = 'p, li, blockquote, h1, h2, h3, h4, h5, h6'
 
           // Armazena parágrafos da seção para uso pelo TTS (audiobook e karaokê)
+          currentSectionIdxRef.current = e.detail.index
           ttsParagraphsRef.current = Array.from(doc.querySelectorAll(BLOCK))
             .filter(el => (el.textContent?.trim().length ?? 0) > 2)
           ttsParagraphTextsRef.current = ttsParagraphsRef.current
             .map(el => el.textContent!.trim())
+          for (const para of ttsParagraphsRef.current) getOrCreateParagraphBookmarkCfi(para)
 
-          // Rastreia seção atual + reseta estado de fundo (nova seção sempre começa no topo)
-          currentSectionIdxRef.current = e.detail.index
-          isAtBottomRef.current = false
-          onAtBottomRef.current?.(false, false)
-          // Notifica o ReaderScreen para re-injetar marcadores visuais de bookmark nesta seção
-          onSectionLoadRef.current?.(e.detail.index)
-
-          // prevToEnd: rola até o fundo assim que o layout da seção estiver pronto
-          if (scrollToBottomOnLoadRef.current) {
-            scrollToBottomOnLoadRef.current = false
-            // rAF garante que o conteúdo foi renderizado antes de medir scrollHeight
-            doc.defaultView?.requestAnimationFrame(() => {
-              doc.defaultView?.scrollTo(0, doc.documentElement.scrollHeight)
-            })
+          // Rastreia seção atual e marca a nova seção como pendente até o renderer estabilizar.
+          lastRelocateRef.current = null
+          pendingSectionVersionRef.current += 1
+          pendingSectionRef.current = {
+            doc,
+            index: e.detail.index,
+            version: pendingSectionVersionRef.current,
           }
+          isAtBottomRef.current = false
+          const hasNext = e.detail.index < totalSectionsRef.current - 1
+          onAtBottomRef.current?.(false, hasNext, hasNext ? getNextSectionLabel(e.detail.index) : undefined)
+          clearFinalizeSectionTimeout()
+          finalizeSectionTimeoutRef.current = setTimeout(() => {
+            finalizePendingSection('timeout')
+          }, 400)
+          renderBookmarkMarkers(doc)
 
-          // Detecta scroll: TTS auto-scroll + fundo do capítulo.
-          // passive:true = não bloqueia o scroll nativo (performance).
-          // capture:true = captura antes de qualquer handler filho (garante que não perca eventos).
-          let lastScrollY = 0
-          // scrollOverflowCount: contador de tentativas de scroll além do fim do capítulo.
-          // Resetado ao rolar para cima ou ao carregar nova seção (re-declarado no load).
-          let scrollOverflowCount = 0
-          doc.defaultView?.addEventListener('scroll', () => {
-            // TTS: detecta scroll manual durante leitura para pausar auto-scroll
-            if (ttsActiveRef.current && Date.now() > scrollingProgrammaticallyUntilRef.current) {
-              userScrolledRef.current = true
-            }
-            // Capítulo: detecta quando o usuário chega ao fundo da seção
-            // scrollHeight - innerHeight - scrollY ≤ 20px → considerado "no fundo"
-            const dv = doc.defaultView!
-            const currentScrollY = dv.scrollY
-            // Scroll para cima cancela intenção de avançar capítulo
-            if (currentScrollY < lastScrollY - 5) scrollOverflowCount = 0
-            lastScrollY = currentScrollY
-            const atBottom = currentScrollY + dv.innerHeight >= doc.documentElement.scrollHeight - 20
-            if (atBottom !== isAtBottomRef.current) {
-              isAtBottomRef.current = atBottom
-              const hasNext = currentSectionIdxRef.current < totalSectionsRef.current - 1
-              onAtBottomRef.current?.(atBottom, hasNext)
-            }
-          }, { passive: true, capture: true })
-
-          // Detecta swipe para baixo quando no fundo — 2 gestos consecutivos avançam o capítulo.
           // didScroll: Android WebView dispara 'click' mesmo após scroll curto.
           // Rastreamos touchmove para distinguir tap intencional de fim de scroll.
+          // Navegação de capítulo por gesto foi removida do scroll mode para reduzir estados
+          // implícitos e evitar travamentos em transições de seção.
           let touchStartY = 0
           let touchStartX = 0
           let didScroll = false
-          let scrollOverflowTopCount = 0
           doc.addEventListener('touchstart', (ev: TouchEvent) => {
             touchStartY = ev.touches[0].clientY
             touchStartX = ev.touches[0].clientX
@@ -722,40 +1175,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             const dx = Math.abs(ev.touches[0].clientX - touchStartX)
             if (dy > 8 || dx > 8) didScroll = true
           }, { passive: true })
-          doc.addEventListener('touchend', (ev: TouchEvent) => {
-            const deltaY = touchStartY - ev.changedTouches[0].clientY
-            const dv = doc.defaultView!
-
-            // deltaY positivo = dedo foi para cima = intenção de rolar para baixo
-            if (deltaY > 30) {
-              // Lê posição diretamente — não depende de isAtBottomRef ser atualizado
-              // pelo scroll event antes do touchend (timing não garantido no Android WebView)
-              const atBottom = dv.scrollY + dv.innerHeight >= doc.documentElement.scrollHeight - 20
-              if (!atBottom) { scrollOverflowCount = 0; return }
-              const hasNext = currentSectionIdxRef.current < totalSectionsRef.current - 1
-              if (!hasNext) return
-              scrollOverflowCount++
-              if (scrollOverflowCount >= 2) {
-                scrollOverflowCount = 0
-                onSwipeAtBottomRef.current?.()
-              }
-              return
-            }
-
-            // deltaY negativo = dedo foi para baixo = intenção de rolar para cima
-            if (deltaY < -30) {
-              const atTop = dv.scrollY <= 20
-              if (!atTop) { scrollOverflowTopCount = 0; return }
-              const hasPrev = currentSectionIdxRef.current > 0
-              if (!hasPrev) return
-              scrollOverflowTopCount++
-              // 2ª tentativa consecutiva de scroll além do início → volta ao capítulo anterior
-              if (scrollOverflowTopCount >= 2) {
-                scrollOverflowTopCount = 0
-                onSwipeAtTopRef.current?.()
-              }
-            }
-          }, { passive: true })
+          doc.addEventListener('touchend', () => {}, { passive: true })
 
           doc.addEventListener('click', (ev: MouseEvent) => {
             // Ignora clicks que são resíduo de um gesto de scroll
@@ -770,6 +1190,21 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             }
 
             const target = ev.target as Element
+            const para = target.closest(BLOCK) as HTMLElement | null
+            if (para?.hasAttribute('data-nr-bookmark') && para.dataset.nrBookmarkId) {
+              const rect = para.getBoundingClientRect()
+              const clickedBookmarkIcon =
+                ev.clientX >= rect.left &&
+                ev.clientX <= rect.left + BOOKMARK_ICON_GUTTER &&
+                ev.clientY >= rect.top &&
+                ev.clientY <= rect.top + Math.max(BOOKMARK_ICON_HEIGHT + 8, 24)
+
+              if (clickedBookmarkIcon) {
+                const bookmarkId = Number(para.dataset.nrBookmarkId)
+                if (Number.isFinite(bookmarkId)) onBookmarkTapRef.current?.(bookmarkId)
+                return
+              }
+            }
 
             // Intercepta botões Ouvir/Salvar dentro do bloco de tradução inline
             const actionBtn = target.closest('[data-nr-action]') as HTMLElement | null
@@ -777,6 +1212,17 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               const action = actionBtn.dataset.nrAction
               if (action === 'speak') {
                 onSpeakOneRef.current(activeSourceTextRef.current)
+              } else if (action === 'bookmark') {
+                if (actionBtn.dataset.nrPending === '1') return
+                const bookmarkState = getParagraphBookmarkState(activeTranslationParaRef.current)
+                if (bookmarkState) {
+                  actionBtn.dataset.nrPending = '1'
+                  actionBtn.setAttribute('disabled', 'true')
+                  const nextIsBookmarked = !bookmarkState.matchedBookmark
+                  actionBtn.textContent = nextIsBookmarked ? 'Remover marcador' : 'Marcar'
+                  actionBtn.setAttribute('aria-pressed', nextIsBookmarked ? 'true' : 'false')
+                  onBookmarkParagraphRef.current?.(bookmarkState.payload)
+                }
               } else if (action === 'save' && activeTranslatedTextRef.current) {
                 onSaveVocabRef.current(activeSourceTextRef.current, activeTranslatedTextRef.current)
                 // Feedback visual temporário no botão
@@ -785,8 +1231,6 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               }
               return
             }
-
-            const para = target.closest(BLOCK)
 
             // Tap fora de parágrafo → toggle do chrome
             if (!para || (para.textContent?.trim() ?? '').length < 3) {
@@ -862,6 +1306,16 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           console.log('[nr-debug]', 'calling view.open()')
           await view.open(book.fileBlob)
           if (cancelled) { clearTimeout(loadTimeout!); return }
+
+          rendererStabilizedListener = () => {
+            scheduleSectionFinalization('stabilized')
+          }
+          if (view.renderer?.addEventListener) {
+            view.renderer.addEventListener('stabilized', rendererStabilizedListener)
+          } else {
+            console.warn('[nr-debug]', 'renderer not ready for stabilized listener after open')
+          }
+
           // [nr-debug] Após open(): inspeciona estrutura do book parseado.
           // Um spine vazio/ausente aqui é uma das principais causas de tela preta.
           const bk = view.book as unknown as {
@@ -920,6 +1374,17 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
       return () => {
         cancelled = true
+        clearFinalizeSectionTimeout()
+        scrollListenerCleanupRef.current?.()
+        scrollListenerCleanupRef.current = null
+        pendingSectionRef.current = null
+        currentDocRef.current = null
+        lastRelocateRef.current = null
+        autoSkipChapterStubDirectionRef.current = 0
+        autoSkipChapterStubCountRef.current = 0
+        if (rendererStabilizedListener) {
+          view?.renderer.removeEventListener?.('stabilized', rendererStabilizedListener)
+        }
         view?.close()
         view?.remove()
         viewRef.current = null

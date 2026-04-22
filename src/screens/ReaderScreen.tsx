@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { App as CapApp } from '@capacitor/app'
-import { Bookmark, BookmarkCheck } from 'lucide-react'
-
-import { EpubViewer, type EpubViewerHandle } from '../components/reader/EpubViewer'
+import { EpubViewer, type EpubViewerHandle, type ParagraphBookmarkPayload } from '../components/reader/EpubViewer'
 import { ReaderChrome } from '../components/reader/ReaderChrome'
 import { TocDrawer } from '../components/reader/TocDrawer'
 import { BookmarkSheet } from '../components/reader/BookmarkSheet'
@@ -11,7 +9,7 @@ import { useReaderProgress } from '../hooks/useReaderProgress'
 import { useReaderStore } from '../store/readerStore'
 import { upsertProgress } from '../db/progress'
 import { updateLastOpened } from '../db/books'
-import { addBookmark, deleteBookmark, updateBookmarkColor } from '../db/bookmarks'
+import { addBookmark, restoreBookmark, softDeleteBookmark, updateBookmarkColor } from '../db/bookmarks'
 import { addVocabItem } from '../db/vocabulary'
 import { getSettings } from '../db/settings'
 import { getBookSettings, updateBookSettings } from '../db/bookSettings'
@@ -22,6 +20,7 @@ import { SpeechifyService } from '../services/SpeechifyService'
 import { translate } from '../services/TranslationService'
 import type { Book } from '../types/book'
 import type { FontSize } from '../types/settings'
+import { areCfisEquivalent, normalizeCfi } from '../utils/cfi'
 
 interface ReaderScreenProps {
   book: Book
@@ -32,6 +31,7 @@ interface ReaderScreenProps {
 
 export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: ReaderScreenProps) {
   const viewerRef = useRef<EpubViewerHandle>(null)
+  const pendingBookmarkKeysRef = useRef(new Set<string>())
 
   // ── Estado local ────────────────────────────────────────────────────────────
   // Começa visível: dá orientação inicial ao usuário, depois some automaticamente (auto-hide).
@@ -48,8 +48,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   const [error, setError] = useState<string | null>(null)
   // 'idle': sem banner | 'atEnd': fim do capítulo, há próximo | 'noNext': último capítulo
   const [chapterEndState, setChapterEndState] = useState<'idle' | 'atEnd' | 'noNext'>('idle')
-  // Índice da spine atual — atualizado via onRelocate; usado para fuzzy-match de bookmark
-  const [sectionIndex, setSectionIndex] = useState(0)
+  const [nextSectionLabel, setNextSectionLabel] = useState<string | null>(null)
 
   // ── Auto-hide do chrome ──────────────────────────────────────────────────────
   // useRef para o timer: persiste entre renders sem causar re-render.
@@ -70,7 +69,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
 
 
   // Estado global compartilhado (Zustand)
-  const { cfi, percentage, tocLabel, toc, setCfi, setToc, reset } = useReaderStore()
+  const { cfi, percentage, toc, setCfi, setToc, reset } = useReaderStore()
 
   // Progresso do IndexedDB (async)
   const { savedCfi, initialLoadDone, saveProgress } = useReaderProgress(book.id!)
@@ -80,16 +79,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     () => db.bookmarks.where('bookId').equals(book.id!).sortBy('createdAt'),
     [book.id],
   ) ?? []
-
-  // true se a posição atual já tem marcador salvo.
-  // CFI exato OU mesma seção + percentual próximo (±2%) — cobre drift de CFI após pequeno scroll.
-  const isBookmarked = bookmarks.some(
-    (b) =>
-      b.cfi === cfi ||
-      (b.sectionIndex !== undefined &&
-        b.sectionIndex === sectionIndex &&
-        Math.abs(b.percentage - percentage) < 2),
-  )
+  const activeBookmarks = bookmarks.filter((bookmark) => !bookmark.deletedAt)
 
   // Limpa o store ao desmontar para não vazar estado entre livros
   useEffect(() => { return () => reset() }, [reset])
@@ -205,26 +195,16 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   }
 
   // Atualiza banner de fim de capítulo conforme o usuário rola até o fundo ou sai dele
-  function handleAtBottom(atBottom: boolean, hasNext: boolean) {
+  function handleAtBottom(atBottom: boolean, hasNext: boolean, nextLabel?: string) {
+    setNextSectionLabel(hasNext ? (nextLabel?.trim() || null) : null)
     setChapterEndState(atBottom ? (hasNext ? 'atEnd' : 'noNext') : 'idle')
   }
 
-  // Avança para o próximo capítulo — acionado pelo banner clicável ou pelo 2º swipe.
+  // Avança para o próximo capítulo — acionado pelo banner clicável.
   function handleChapterNext() {
+    setNextSectionLabel(null)
     setChapterEndState('idle')
     viewerRef.current?.next()
-  }
-
-  // 2º swipe consecutivo no fundo: navega para o próximo capítulo.
-  // hasNext já verificado no EpubViewer antes de chamar este callback.
-  function handleSwipeAtBottom() {
-    handleChapterNext()
-  }
-
-  // 2º swipe consecutivo no topo: volta ao capítulo anterior posicionando no fim.
-  // hasPrev já verificado no EpubViewer antes de chamar este callback.
-  function handleSwipeAtTop() {
-    viewerRef.current?.prevToEnd()
   }
 
   // Salva par original/tradução no vocabulário — chamado pelo EpubViewer via ⭐
@@ -249,9 +229,8 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   }
 
   const handleRelocate = useCallback(
-    (newCfi: string, newPercentage: number, newTocLabel: string | undefined, newSectionIndex: number) => {
+    (newCfi: string, newPercentage: number, newTocLabel: string | undefined, _newSectionIndex: number) => {
       setCfi(newCfi, newPercentage, newTocLabel)
-      setSectionIndex(newSectionIndex)
       saveProgress(newCfi, newPercentage)
     },
     [setCfi, saveProgress],
@@ -260,48 +239,73 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   // Flush imediato ao sair — garante que a posição não seja perdida
   // se o usuário voltar antes do debounce de 1.5s disparar
   function handleBack() {
-    if (cfi && book.id !== undefined) {
-      void upsertProgress(book.id, cfi, percentage)
+    const visibleLocation = viewerRef.current?.getVisibleLocation()
+    const progressCfi = visibleLocation?.cfi ?? cfi
+    const progressPercentage = visibleLocation?.percentage ?? percentage
+
+    if (progressCfi && book.id !== undefined) {
+      void upsertProgress(book.id, progressCfi, progressPercentage)
     }
     onBack()
   }
 
-  // Toggle puro: adiciona se não existe, remove se já existe na posição atual.
-  // Usa fuzzy-match (CFI exato OU mesma seção ±2%) para tolerar drift de CFI após scroll.
-  // A lista de marcadores é acessada pelo botão dedicado no bottom bar.
-  function handleBookmarkToggle() {
-    if (!cfi || book.id === undefined) return
-    const existing = bookmarks.find(
-      (b) =>
-        b.cfi === cfi ||
-        (b.sectionIndex !== undefined &&
-          b.sectionIndex === sectionIndex &&
-          Math.abs(b.percentage - percentage) < 2),
-    )
-    if (existing?.id !== undefined) {
-      void deleteBookmark(existing.id)
-    } else {
-      // Captura snippet do primeiro parágrafo visível para exibir contexto na lista
-      const paraIndex = viewerRef.current?.getFirstVisibleParagraphIndex() ?? 0
-      const snippet = (viewerRef.current?.getParagraphs()[paraIndex] ?? '').slice(0, 150)
-      void addBookmark(book.id, cfi, tocLabel || `${percentage}%`, percentage, {
-        sectionIndex,
-        paraIndex,
-        snippet,
-        color: 'indigo',
+  function toggleBookmarkAtLocation(target: {
+    cfi: string
+    label?: string
+    percentage?: number
+    snippet?: string
+  }) {
+    if (book.id === undefined) return
+
+    const bookmarkCfi = normalizeCfi(target.cfi) ?? target.cfi
+    const bookmarkPercentage = target.percentage ?? percentage
+    const bookmarkLabel = target.label || `${bookmarkPercentage}%`
+    const bookmarkSnippet = target.snippet?.trim() || undefined
+    const pendingKey = normalizeCfi(bookmarkCfi) ?? bookmarkCfi
+
+    if (pendingBookmarkKeysRef.current.has(pendingKey)) return
+
+    const matchesTarget = (candidateCfi: string) => areCfisEquivalent(candidateCfi, bookmarkCfi)
+
+    const runBookmarkMutation = (task: Promise<unknown>) => {
+      pendingBookmarkKeysRef.current.add(pendingKey)
+      void task.finally(() => {
+        pendingBookmarkKeysRef.current.delete(pendingKey)
       })
     }
+
+    const matchingBookmarks = activeBookmarks.filter((bookmark) => matchesTarget(bookmark.cfi))
+    if (matchingBookmarks.length > 0) {
+      runBookmarkMutation(Promise.all(
+        matchingBookmarks.map((bookmark) =>
+          bookmark.id !== undefined ? softDeleteBookmark(bookmark.id) : Promise.resolve(),
+        ),
+      ))
+      return
+    }
+
+    const exactDeletedBookmark = [...bookmarks]
+      .reverse()
+      .find((bookmark) => !!bookmark.deletedAt && areCfisEquivalent(bookmark.cfi, bookmarkCfi))
+
+    if (exactDeletedBookmark?.id !== undefined) {
+      runBookmarkMutation(restoreBookmark(exactDeletedBookmark.id, {
+        label: bookmarkLabel,
+        percentage: bookmarkPercentage,
+        snippet: bookmarkSnippet || exactDeletedBookmark.snippet,
+        color: exactDeletedBookmark.color ?? 'indigo',
+      }))
+      return
+    }
+
+    runBookmarkMutation(addBookmark(book.id, bookmarkCfi, bookmarkLabel, bookmarkPercentage, {
+      snippet: bookmarkSnippet,
+      color: 'indigo',
+    }))
   }
 
-  // Re-injeta marcadores visuais de bookmark sempre que uma nova seção carrega.
-  // clearBookmarkMarkers primeiro: garante que marcadores da seção anterior não vazem.
-  function handleSectionLoad(idx: number) {
-    viewerRef.current?.clearBookmarkMarkers()
-    for (const bm of bookmarks) {
-      if (bm.sectionIndex === idx && bm.paraIndex !== undefined) {
-        viewerRef.current?.injectBookmarkMarker(bm.paraIndex, bm.color ?? 'indigo')
-      }
-    }
+  function handleParagraphBookmark(payload: ParagraphBookmarkPayload) {
+    toggleBookmarkAtLocation(payload)
   }
 
   // Toggle chrome: chamado pelo EpubViewer em qualquer toque (chrome aberto fecha imediatamente)
@@ -324,6 +328,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
         <EpubViewer
           ref={viewerRef}
           book={book}
+          bookmarks={activeBookmarks}
           fontSize={fontSize}
           savedCfi={savedCfi}
           onRelocate={handleRelocate}
@@ -346,9 +351,8 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
           }}
           ttsGlobalActive={ttsPlayerVisible}
           onAtBottom={handleAtBottom}
-          onSwipeAtBottom={handleSwipeAtBottom}
-          onSwipeAtTop={handleSwipeAtTop}
-          onSectionLoad={handleSectionLoad}
+          onBookmarkTap={(id) => { void softDeleteBookmark(id) }}
+          onBookmarkParagraph={handleParagraphBookmark}
         />
       </div>
 
@@ -356,39 +360,18 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
           chromeVisible. Quando true, qualquer toque no iframe fecha o chrome. Isso é mais
           confiável que overlays/backdrop, pois evita o problema de compositing do Android WebView. */}
 
-      {/* Overlay de bookmark no canto superior direito — acesso rápido ao toggle sem abrir o chrome.
-          Só renderizado quando o chrome está oculto para não conflitar com o botão da barra superior.
-          z-[25]: acima do chrome (z-20), garante que o toque chegue aqui mesmo com itens sobrepostos. */}
-      {!chromeVisible && (
-        <button
-          onPointerUp={(e) => {
-            e.stopPropagation()
-            handleBookmarkToggle()
-          }}
-          className="absolute top-0 right-0 z-[25] h-20 w-16 flex items-end justify-center pb-3 active:opacity-60"
-          aria-label={isBookmarked ? 'Remover marcador' : 'Adicionar marcador'}
-        >
-          {isBookmarked
-            ? <BookmarkCheck size={22} className="text-indigo-primary" />
-            : <Bookmark size={22} className="text-text-primary/40" />
-          }
-        </button>
-      )}
-
       <ReaderChrome
         visible={chromeVisible}
         title={book.title}
         percentage={percentage}
         fontSize={fontSize}
-        isBookmarked={isBookmarked}
-        bookmarkCount={bookmarks.length}
+        bookmarkCount={activeBookmarks.length}
         onBack={handleBack}
         onFontSizeChange={(size) => {
           resetAutoHide()
           setFontSize(size)
           void updateBookSettings(book.id!, { fontSize: size })
         }}
-        onBookmark={handleBookmarkToggle}
         onBookmarkList={() => { resetAutoHide(); setBookmarkSheetOpen(true) }}
         onTocOpen={() => { resetAutoHide(); setTocOpen(true) }}
         onOpenVocabulary={() => { resetAutoHide(); onOpenVocabulary() }}
@@ -408,10 +391,12 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
       </div>
 
       {/* Banner de fim de capítulo — aparece quando usuário chega ao fundo da seção.
+          Em scroll mode ele é o caminho principal para avançar de seção.
           Oculto durante TTS (que tem seu próprio controle de fim de capítulo). */}
       {chapterEndState !== 'idle' && !ttsPlayerVisible && (
         <ChapterEndBanner
           hasNext={chapterEndState === 'atEnd'}
+          nextLabel={nextSectionLabel}
           onNext={chapterEndState === 'atEnd' ? handleChapterNext : undefined}
         />
       )}
@@ -444,25 +429,13 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
 
       <BookmarkSheet
         open={bookmarkSheetOpen}
-        bookmarks={bookmarks}
+        bookmarks={activeBookmarks}
         onSelect={(bookmarkCfi) => {
           viewerRef.current?.goTo(bookmarkCfi)
           setBookmarkSheetOpen(false)
         }}
-        onDelete={deleteBookmark}
-        onColorChange={(id, color) => {
-          void updateBookmarkColor(id, color)
-          // Re-injeta marcadores com a nova cor na seção atual
-          viewerRef.current?.clearBookmarkMarkers()
-          for (const bm of bookmarks) {
-            if (bm.sectionIndex === sectionIndex && bm.paraIndex !== undefined) {
-              viewerRef.current?.injectBookmarkMarker(
-                bm.paraIndex,
-                bm.id === id ? color : (bm.color ?? 'indigo'),
-              )
-            }
-          }
-        }}
+        onDelete={(id) => void softDeleteBookmark(id)}
+        onColorChange={(id, color) => { void updateBookmarkColor(id, color) }}
         onClose={() => setBookmarkSheetOpen(false)}
       />
 
@@ -487,9 +460,17 @@ function ReaderSkeleton() {
 }
 
 // Banner fixo no fundo da tela quando o usuário chega ao final de uma seção.
-// onNext definido → clicável para avançar o capítulo. Swipe ainda funciona como fallback.
+// onNext definido → clicável para avançar o capítulo.
 // hasNext=false → último capítulo, sem ação disponível.
-function ChapterEndBanner({ hasNext, onNext }: { hasNext: boolean; onNext?: () => void }) {
+function ChapterEndBanner({
+  hasNext,
+  nextLabel,
+  onNext,
+}: {
+  hasNext: boolean
+  nextLabel?: string | null
+  onNext?: () => void
+}) {
   return (
     <div
       className={`absolute bottom-0 left-0 right-0 z-20 flex flex-col items-center py-5
@@ -502,9 +483,16 @@ function ChapterEndBanner({ hasNext, onNext }: { hasNext: boolean; onNext?: () =
         {hasNext ? 'Fim do capítulo' : 'Fim do livro'}
       </p>
       {hasNext && (
-        <p className="text-xs text-indigo-primary font-semibold">
-          Toque para o próximo capítulo
-        </p>
+        <>
+          {nextLabel && (
+            <p className="text-[11px] uppercase tracking-[0.18em] text-text-muted/80 mb-1">
+              Próxima seção
+            </p>
+          )}
+          <p className="text-xs text-indigo-primary font-semibold">
+            {nextLabel ? `Toque para continuar em ${nextLabel}` : 'Toque para o próximo capítulo'}
+          </p>
+        </>
       )}
     </div>
   )
@@ -532,3 +520,5 @@ function TtsFinishedToast({ onDismiss }: { onDismiss: () => void }) {
     </div>
   )
 }
+
+

@@ -6,8 +6,8 @@ interface BookmarkSheetProps {
   open: boolean
   bookmarks: Bookmark[]
   onSelect: (cfi: string) => void
-  onDelete: (id: number) => void
-  onColorChange: (id: number, color: string) => void
+  onDelete: (id: number) => void | Promise<void>
+  onColorChange: (id: number, color: string) => void | Promise<void>
   onClose: () => void
 }
 
@@ -40,7 +40,7 @@ export function BookmarkSheet({ open, bookmarks, onSelect, onDelete, onColorChan
       {sorted.length === 0 ? (
         <EmptyState
           title="Nenhum marcador ainda"
-          description="Toque no ícone de marcador durante a leitura para adicionar."
+          description="Selecione um parágrafo durante a leitura e use Marcar para salvar esse trecho."
         />
       ) : (
         <div className="-mx-4">

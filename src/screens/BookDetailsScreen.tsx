@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { ArrowLeft, Star, ChevronRight, Globe, Calendar, HardDrive, Sparkles, BookOpen, Bookmark, X } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { App as CapApp } from '@capacitor/app'
 import { Badge, Button, EmptyState, ListItem, Spinner } from '../components/ui'
 import { db } from '../db/database'
 import { toggleFavorite } from '../db/books'
-import { deleteBookmark } from '../db/bookmarks'
+import { softDeleteBookmark } from '../db/bookmarks'
 import { updateBookSettings } from '../db/bookSettings'
 import { getSettings } from '../db/settings'
 import { EpubService, type EpubExtras } from '../services/EpubService'
@@ -53,7 +53,10 @@ export function BookDetailsScreen({ book, onBack, onRead }: BookDetailsScreenPro
   // Dados reativos do IndexedDB
   const liveBook      = useLiveQuery(() => db.books.get(book.id!), [book.id]) ?? book
   const progress      = useLiveQuery(() => db.progress.where('bookId').equals(book.id!).first(), [book.id])
-  const bookmarks     = useLiveQuery(() => db.bookmarks.where('bookId').equals(book.id!).sortBy('createdAt'), [book.id]) ?? []
+  const bookmarks     = useLiveQuery(
+    () => db.bookmarks.where('bookId').equals(book.id!).and((bookmark) => !bookmark.deletedAt).sortBy('createdAt'),
+    [book.id],
+  ) ?? []
   const vocabCount    = useLiveQuery(() => db.vocabulary.where('bookId').equals(book.id!).count(), [book.id]) ?? 0
   const bookSettingsRow = useLiveQuery(() => db.bookSettings.where('bookId').equals(book.id!).first(), [book.id])
 
@@ -76,14 +79,21 @@ export function BookDetailsScreen({ book, onBack, onRead }: BookDetailsScreenPro
     return () => { void p.then(l => l.remove()) }
   }, [onBack])
 
-  const coverUrl = useMemo(() => {
-    if (!liveBook.coverBlob) return null
-    return URL.createObjectURL(liveBook.coverBlob)
-  }, [liveBook.coverBlob])
+  const [coverUrl, setCoverUrl] = useState<string | null>(null)
 
   useEffect(() => {
-    return () => { if (coverUrl) URL.revokeObjectURL(coverUrl) }
-  }, [coverUrl])
+    if (!liveBook.coverBlob) {
+      setCoverUrl(null)
+      return
+    }
+
+    const nextCoverUrl = URL.createObjectURL(liveBook.coverBlob)
+    setCoverUrl(nextCoverUrl)
+
+    return () => {
+      URL.revokeObjectURL(nextCoverUrl)
+    }
+  }, [liveBook.coverBlob])
 
   const pct        = progress?.percentage ?? 0
   const hasProgress = pct > 0
@@ -263,7 +273,7 @@ export function BookDetailsScreen({ book, onBack, onRead }: BookDetailsScreenPro
                         <button
                           onClick={e => {
                             e.stopPropagation()
-                            if (bm.id !== undefined) void deleteBookmark(bm.id)
+                            if (bm.id !== undefined) void softDeleteBookmark(bm.id)
                           }}
                           className="p-2 -m-2 text-text-muted active:text-error transition-colors"
                           aria-label="Remover marcação"
@@ -278,7 +288,7 @@ export function BookDetailsScreen({ book, onBack, onRead }: BookDetailsScreenPro
                 <EmptyState
                   icon={<Bookmark size={32} />}
                   title="Nenhuma marcação"
-                  description="Toque no ícone de marcador durante a leitura para salvar posições."
+                  description="Selecione um parágrafo durante a leitura e use Marcar para salvar posições."
                 />
               )
             )}

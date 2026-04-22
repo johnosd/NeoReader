@@ -62,6 +62,17 @@ class NeoReaderDB extends Dexie {
       settings:    '++id',
 
     })
+
+    // v6: bookmarks passam a usar CFI como fonte de verdade; adiciona soft delete
+    this.version(6).stores({
+      books:       '++id, title, author, addedAt, lastOpenedAt',
+      progress:    '++id, bookId, updatedAt',
+      bookmarks:   '++id, bookId, createdAt, updatedAt, deletedAt',
+      vocabulary:  '++id, bookId, createdAt',
+      translations:'++id, textHash, createdAt',
+      settings:    '++id',
+      bookSettings:'++id, bookId',
+    })
   }
 }
 

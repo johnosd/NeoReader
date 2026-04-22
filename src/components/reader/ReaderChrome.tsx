@@ -1,4 +1,4 @@
-import { Bookmark, BookmarkCheck, ChevronLeft, GraduationCap, List, Volume2, VolumeX } from 'lucide-react'
+import { Bookmark, ChevronLeft, GraduationCap, List, Volume2, VolumeX } from 'lucide-react'
 import type { FontSize } from './EpubViewer'
 
 interface ReaderChromeProps {
@@ -6,13 +6,11 @@ interface ReaderChromeProps {
   title: string
   percentage: number
   fontSize: FontSize
-  isBookmarked: boolean
   bookmarkCount: number
   ttsIsPlaying: boolean
   ttsEngine: 'speechify' | 'native'
   onBack: () => void
   onFontSizeChange: (size: FontSize) => void
-  onBookmark: () => void
   onBookmarkList: () => void
   onTocOpen: () => void
   onOpenVocabulary: () => void
@@ -27,7 +25,6 @@ const FONT_SIZES: { value: FontSize; label: string }[] = [
   { value: 'xl', label: 'A' },
 ]
 
-// Tamanhos visuais dos botões de fonte (representação proporcional)
 const FONT_BUTTON_SIZES: Record<FontSize, string> = {
   sm: 'text-xs',
   md: 'text-sm',
@@ -40,38 +37,35 @@ export function ReaderChrome({
   title,
   percentage,
   fontSize,
-  isBookmarked,
   bookmarkCount,
   ttsIsPlaying,
   ttsEngine,
   onBack,
   onFontSizeChange,
-  onBookmark,
   onBookmarkList,
   onTocOpen,
   onOpenVocabulary,
   onTtsToggle,
   onDismiss,
 }: ReaderChromeProps) {
-  // Fecha o chrome ao tocar em área vazia das barras (fora de qualquer botão)
   function handleBarTap(e: React.PointerEvent) {
     if (!(e.target as Element).closest('button')) onDismiss()
   }
+
   const translateTop = visible ? 'translate-y-0' : '-translate-y-full'
   const translateBottom = visible ? 'translate-y-0' : 'translate-y-full'
 
   return (
     <>
-      {/* Top bar */}
       <div
         className={`absolute top-0 left-0 right-0 z-20 bg-bg-reader/90 backdrop-blur-sm
           transition-transform duration-300 ${translateTop}`}
         onPointerUp={handleBarTap}
       >
         <div
-            className="flex items-center justify-between px-4 pb-3 gap-3"
-            style={{ paddingTop: 'max(2.5rem, env(safe-area-inset-top))' }}
-          >
+          className="flex items-center justify-between px-4 pb-3 gap-3"
+          style={{ paddingTop: 'max(2.5rem, env(safe-area-inset-top))' }}
+        >
           <button
             onClick={onBack}
             className="p-2 -ml-2 text-text-primary active:opacity-60"
@@ -86,28 +80,14 @@ export function ReaderChrome({
 
           <button
             onClick={onTocOpen}
-            className="p-2 text-text-primary active:opacity-60"
+            className="p-2 -mr-2 text-text-primary active:opacity-60"
             aria-label="Índice"
           >
             <List size={24} />
           </button>
-
-          {/* Bookmark na extremidade direita — posição consistente com o overlay
-              de bookmark que age diretamente quando o chrome está oculto. */}
-          <button
-            onClick={onBookmark}
-            className="p-2 -mr-2 active:opacity-60"
-            aria-label={isBookmarked ? 'Remover marcador' : 'Adicionar marcador'}
-          >
-            {isBookmarked
-              ? <BookmarkCheck size={22} className="text-indigo-primary" />
-              : <Bookmark size={22} className="text-text-primary" />
-            }
-          </button>
         </div>
       </div>
 
-      {/* Bottom bar */}
       <div
         className={`absolute bottom-0 left-0 right-0 z-20 bg-bg-reader/90 backdrop-blur-sm
           transition-transform duration-300 ${translateBottom}`}
@@ -117,7 +97,6 @@ export function ReaderChrome({
           className="flex items-center justify-between px-6 py-4"
           style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}
         >
-          {/* Botões de tamanho de fonte */}
           <div className="flex items-center gap-3">
             {FONT_SIZES.map((item) => (
               <button
@@ -136,7 +115,6 @@ export function ReaderChrome({
             ))}
           </div>
 
-          {/* Botão dedicado para abrir a lista de marcadores — separado do toggle no top bar */}
           <button
             onClick={onBookmarkList}
             className="relative p-2 text-text-muted active:opacity-60"
@@ -158,7 +136,6 @@ export function ReaderChrome({
             <GraduationCap size={20} />
           </button>
 
-          {/* TTS: Volume2 (parado) / VolumeX verde (tocando) + badge AI quando Speechify */}
           <button
             onClick={onTtsToggle}
             className="relative p-2 text-text-muted active:opacity-60"
@@ -174,7 +151,6 @@ export function ReaderChrome({
             )}
           </button>
 
-          {/* Percentual de progresso */}
           <span className="text-text-muted text-sm tabular-nums">
             {percentage}%
           </span>
