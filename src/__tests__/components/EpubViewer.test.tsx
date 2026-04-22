@@ -236,7 +236,9 @@ describe('EpubViewer — posição visível', () => {
     expect(viewerRef.current?.getVisibleLocation()).toEqual({
       cfi: 'epubcfi(/6/8!/4/2/10/2/1:0)',
       tocLabel: 'What This Book Is About',
-      percentage: 60,
+      sectionHref: 'preface.xhtml',
+      fraction: 0.42,
+      percentage: 42,
     })
     expect(viewerRef.current?.getFirstVisibleParagraphIndex()).toBe(1)
     expect(secondPara.getAttribute('data-nr-para-cfi')).toBe('epubcfi(/6/8!/4/2/10/2/1:0)')

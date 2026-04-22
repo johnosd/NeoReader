@@ -4,6 +4,7 @@ import type { Book, Bookmark } from '../../types/book'
 import type { View } from 'foliate-js/view.js'
 import { getSentenceAt, escapeHtml } from '../../utils/readerUtils'
 import { areCfisEquivalent, normalizeCfi } from '../../utils/cfi'
+import { fractionToPercentage } from '../../utils/progress'
 
 export type FontSize = 'sm' | 'md' | 'lg' | 'xl'
 
@@ -282,7 +283,7 @@ export interface EpubViewerHandle {
   // Navega para o capítulo anterior e posiciona no final (último parágrafo)
   prevToEnd(): void
   goTo(target: string | number | { fraction: number }): void
-  getVisibleLocation(): { cfi: string | null; tocLabel?: string; percentage?: number }
+  getVisibleLocation(): VisibleReadingLocation
   // TTS: retorna os textos puros de todos os parágrafos da seção atual
   getParagraphs(): string[]
   // TTS: retorna frases agrupadas com paraIdx e offsetInPara para karaokê preciso
@@ -312,12 +313,27 @@ export interface ParagraphBookmarkPayload {
   snippet: string
 }
 
+export interface VisibleReadingLocation {
+  cfi: string | null
+  tocLabel?: string
+  sectionHref?: string
+  fraction?: number
+  percentage?: number
+}
+
+export interface ReaderRelocatePayload extends VisibleReadingLocation {
+  cfi: string
+  fraction: number
+  percentage: number
+  sectionIndex: number
+}
+
 interface EpubViewerProps {
   book: Book
   bookmarks: Bookmark[]
   fontSize: FontSize
   savedCfi: string | null
-  onRelocate: (cfi: string, percentage: number, tocLabel: string | undefined, sectionIndex: number) => void
+  onRelocate: (payload: ReaderRelocatePayload) => void
   onTocReady: (toc: TocItem[]) => void
   onLoad: () => void
   onError: (err: Error) => void
@@ -855,12 +871,17 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         const location = lastRelocateRef.current ?? view?.lastLocation
         if (!view || !location?.cfi) return { cfi: null }
 
-        const { para, paraIndex } = getVisibleParagraphInternal()
+        const fraction = location.fraction
+        const percentage = fractionToPercentage(fraction)
+
+        const { para } = getVisibleParagraphInternal()
         if (!para) {
           return {
             cfi: location.cfi,
             tocLabel: location.tocItem?.label,
-            percentage: Math.round(location.fraction * 100),
+            sectionHref: location.tocItem?.href,
+            fraction,
+            percentage,
           }
         }
 
@@ -871,17 +892,13 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
         const cfi = view.getCFI(currentSectionIdxRef.current, range)
         const progress = view.getProgressOf(currentSectionIdxRef.current, range)
-        const fractions = view.getSectionFractions()
-        const sectionStart = fractions[currentSectionIdxRef.current] ?? location.fraction
-        const sectionEnd = fractions[currentSectionIdxRef.current + 1] ?? location.fraction
-        const paraFraction = ttsParagraphsRef.current.length > 1
-          ? paraIndex / (ttsParagraphsRef.current.length - 1)
-          : 0
 
         return {
           cfi,
           tocLabel: progress.tocItem?.label ?? location.tocItem?.label,
-          percentage: Math.round((sectionStart + (sectionEnd - sectionStart) * paraFraction) * 100),
+          sectionHref: progress.tocItem?.href ?? location.tocItem?.href,
+          fraction,
+          percentage,
         }
       },
 
@@ -1095,7 +1112,14 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           const sIdx = section?.current ?? currentSectionIdxRef.current
           lastRelocateRef.current = e.detail
           console.log(DBG, 'relocate event', { cfi, fraction, tocLabel: tocItem?.label, sIdx })
-          onRelocate(cfi, Math.round(fraction * 100), tocItem?.label, sIdx)
+          onRelocate({
+            cfi,
+            fraction,
+            percentage: fractionToPercentage(fraction),
+            tocLabel: tocItem?.label,
+            sectionHref: tocItem?.href,
+            sectionIndex: sIdx,
+          })
           const sectionEndState = getSectionEndState(fraction, sIdx)
           if (sectionEndState) updateSectionEndBanner(sectionEndState.atEnd, sIdx)
           if (pendingSectionRef.current?.index === sIdx) {

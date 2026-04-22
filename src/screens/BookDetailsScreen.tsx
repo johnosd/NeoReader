@@ -11,6 +11,7 @@ import { getSettings } from '../db/settings'
 import { EpubService, type EpubExtras } from '../services/EpubService'
 import type { Book } from '../types/book'
 import type { FontSize } from '../types/settings'
+import { resolveReadingState } from '../utils/readingState'
 
 interface BookDetailsScreenProps {
   book: Book
@@ -95,8 +96,7 @@ export function BookDetailsScreen({ book, onBack, onRead }: BookDetailsScreenPro
     }
   }, [liveBook.coverBlob])
 
-  const pct        = progress?.percentage ?? 0
-  const hasProgress = pct > 0
+  const { percentage: pct, readingStatus } = resolveReadingState(liveBook, progress)
   const langLabel  = extras?.language ? (LANGUAGE_NAMES[extras.language] ?? extras.language) : null
 
   return (
@@ -147,7 +147,11 @@ export function BookDetailsScreen({ book, onBack, onRead }: BookDetailsScreenPro
         {/* Ações principais */}
         <div className="px-4 flex flex-col gap-3">
           <Button variant="primary" tone="purple" fullWidth onClick={() => onRead(liveBook)}>
-            {hasProgress ? `Continuar leitura · ${pct}%` : 'Começar a ler'}
+            {readingStatus === 'finished'
+              ? 'Ler novamente'
+              : readingStatus === 'reading'
+                ? `Continuar leitura · ${pct}%`
+                : 'Começar a ler'}
           </Button>
           <Button
             variant="outline" tone="purple" fullWidth disabled
@@ -181,7 +185,9 @@ export function BookDetailsScreen({ book, onBack, onRead }: BookDetailsScreenPro
                   style={{ width: `${pct}%` }}
                 />
               </div>
-              <span className="text-xs text-text-muted tabular-nums shrink-0">{pct}%</span>
+              <span className="text-xs text-text-muted tabular-nums shrink-0">
+                {readingStatus === 'finished' ? 'Concluído' : `${pct}%`}
+              </span>
             </div>
             <div className="flex gap-4 mt-3">
               <Stat value={bookmarks.length} label="marcadores" />

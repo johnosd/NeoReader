@@ -37,10 +37,16 @@ export function HeroBanner({ book, onPress }: HeroBannerProps) {
             className="flex items-center gap-2 bg-white text-black px-5 py-2 rounded-md font-semibold text-sm active:scale-[0.97] transition-transform duration-150"
           >
             <Play size={14} fill="currentColor" />
-            {book.percentage > 0 ? 'Continuar' : 'Ler'}
+            {book.readingStatus === 'finished'
+              ? 'Reler'
+              : book.readingStatus === 'reading'
+                ? 'Continuar'
+                : 'Ler'}
           </button>
-          {book.percentage > 0 && (
-            <span className="text-sm text-text-muted">{book.percentage}% lido</span>
+          {book.readingStatus !== 'unread' && (
+            <span className="text-sm text-text-muted">
+              {book.readingStatus === 'finished' ? 'Concluído' : `${book.percentage}% lido`}
+            </span>
           )}
         </div>
       </div>

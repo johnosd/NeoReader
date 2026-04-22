@@ -1,22 +1,14 @@
 import { useMemo } from 'react'
 import { MoreVertical, BookOpen } from 'lucide-react'
-import { useLiveQuery } from 'dexie-react-hooks'
-import { db } from '../db/database'
-import type { Book } from '../types/book'
+import type { BookWithProgress } from '../hooks/useLibraryGroups'
 
 interface BookCardProps {
-  book: Book
-  onPress: (book: Book) => void
-  onOpenOptions?: (book: Book) => void
+  book: BookWithProgress
+  onPress: (book: BookWithProgress) => void
+  onOpenOptions?: (book: BookWithProgress) => void
 }
 
 export function BookCard({ book, onPress, onOpenOptions }: BookCardProps) {
-  // Busca o progresso deste livro do IndexedDB
-  const progress = useLiveQuery(
-    () => db.progress.where('bookId').equals(book.id!).first(),
-    [book.id],
-  )
-
   // Converte o Blob da capa em uma URL de objeto para exibir no <img>.
   // useMemo evita recriar a URL a cada render (em prod, revogaríamos no cleanup).
   const coverUrl = useMemo(() => {
@@ -24,7 +16,7 @@ export function BookCard({ book, onPress, onOpenOptions }: BookCardProps) {
     return URL.createObjectURL(book.coverBlob)
   }, [book.coverBlob])
 
-  const percentage = progress?.percentage ?? 0
+  const percentage = book.percentage
 
   return (
     // div em vez de button: HTML não permite button aninhado (precisamos do "opções" na capa).

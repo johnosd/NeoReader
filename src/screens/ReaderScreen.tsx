@@ -1,13 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { App as CapApp } from '@capacitor/app'
-import { EpubViewer, type EpubViewerHandle, type ParagraphBookmarkPayload } from '../components/reader/EpubViewer'
+import {
+  EpubViewer,
+  type EpubViewerHandle,
+  type ParagraphBookmarkPayload,
+  type ReaderRelocatePayload,
+  type VisibleReadingLocation,
+} from '../components/reader/EpubViewer'
 import { ReaderChrome } from '../components/reader/ReaderChrome'
 import { TocDrawer } from '../components/reader/TocDrawer'
 import { BookmarkSheet } from '../components/reader/BookmarkSheet'
 import { useReaderProgress } from '../hooks/useReaderProgress'
 import { useReaderStore } from '../store/readerStore'
-import { upsertProgress } from '../db/progress'
+import type { ProgressSavePayload } from '../db/progress'
 import { updateLastOpened } from '../db/books'
 import { addBookmark, restoreBookmark, softDeleteBookmark, updateBookmarkColor } from '../db/bookmarks'
 import { addVocabItem } from '../db/vocabulary'
@@ -72,7 +78,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   const { cfi, percentage, toc, setCfi, setToc, reset } = useReaderStore()
 
   // Progresso do IndexedDB (async)
-  const { savedCfi, initialLoadDone, saveProgress } = useReaderProgress(book.id!)
+  const { savedCfi, initialLoadDone, saveProgress, flushProgress } = useReaderProgress(book.id!)
 
   // Marcadores do livro atual — useLiveQuery: reativo, atualiza automaticamente
   const bookmarks = useLiveQuery(
@@ -99,17 +105,6 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
       )
     })
   }, [book.id])
-
-  // Intercepta o botão Back físico do Android (via plugin Capacitor)
-  useEffect(() => {
-    const listenerPromise = CapApp.addListener('backButton', () => {
-      if (bookmarkSheetOpen) { setBookmarkSheetOpen(false); return }
-      if (tocOpen) { setTocOpen(false); return }
-      handleBack()
-    })
-    return () => { void listenerPromise.then((l) => l.remove()) }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tocOpen, bookmarkSheetOpen, cfi, percentage])
 
   // TTS: gerencia estado e sequenciamento de audiobook
   const tts = useTTS({
@@ -229,25 +224,84 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   }
 
   const handleRelocate = useCallback(
-    (newCfi: string, newPercentage: number, newTocLabel: string | undefined, _newSectionIndex: number) => {
-      setCfi(newCfi, newPercentage, newTocLabel)
-      saveProgress(newCfi, newPercentage)
+    ({ cfi: newCfi, percentage: newPercentage, tocLabel, sectionHref, fraction }: ReaderRelocatePayload) => {
+      setCfi(newCfi, newPercentage, tocLabel)
+      saveProgress({
+        cfi: newCfi,
+        percentage: newPercentage,
+        fraction,
+        sectionHref,
+        sectionLabel: tocLabel,
+      })
     },
     [setCfi, saveProgress],
   )
 
-  // Flush imediato ao sair — garante que a posição não seja perdida
-  // se o usuário voltar antes do debounce de 1.5s disparar
-  function handleBack() {
-    const visibleLocation = viewerRef.current?.getVisibleLocation()
-    const progressCfi = visibleLocation?.cfi ?? cfi
-    const progressPercentage = visibleLocation?.percentage ?? percentage
+  const buildProgressPayload = useCallback(
+    (location?: VisibleReadingLocation | null): ProgressSavePayload | undefined => {
+      const progressCfi = location?.cfi ?? cfi
+      if (!progressCfi) return undefined
 
-    if (progressCfi && book.id !== undefined) {
-      void upsertProgress(book.id, progressCfi, progressPercentage)
-    }
+      return {
+        cfi: progressCfi,
+        percentage: location?.percentage ?? percentage,
+        fraction: location?.fraction,
+        sectionHref: location?.sectionHref,
+        sectionLabel: location?.tocLabel,
+      }
+    },
+    [cfi, percentage],
+  )
+
+  const flushCurrentProgress = useCallback(
+    (location?: VisibleReadingLocation | null) => {
+      const resolvedLocation = location ?? viewerRef.current?.getVisibleLocation()
+      const payload = resolvedLocation?.cfi ? buildProgressPayload(resolvedLocation) : undefined
+      return flushProgress(payload)
+    },
+    [buildProgressPayload, flushProgress],
+  )
+
+  // Flush imediato ao sair — garante que a posição não seja perdida
+  // se o usuário voltar antes do debounce disparar
+  const handleBack = useCallback(() => {
+    void flushCurrentProgress()
     onBack()
-  }
+  }, [flushCurrentProgress, onBack])
+
+  // Intercepta o botão Back físico do Android (via plugin Capacitor)
+  useEffect(() => {
+    const listenerPromise = CapApp.addListener('backButton', () => {
+      if (bookmarkSheetOpen) { setBookmarkSheetOpen(false); return }
+      if (tocOpen) { setTocOpen(false); return }
+      handleBack()
+    })
+    return () => { void listenerPromise.then((l) => l.remove()) }
+  }, [tocOpen, bookmarkSheetOpen, handleBack])
+
+  useEffect(() => {
+    const appStateListenerPromise = CapApp.addListener('appStateChange', ({ isActive }) => {
+      if (!isActive) void flushCurrentProgress()
+    })
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') void flushCurrentProgress()
+    }
+
+    const handlePageHide = () => {
+      void flushCurrentProgress()
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('pagehide', handlePageHide)
+
+    return () => {
+      void appStateListenerPromise.then((listener) => listener.remove())
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('pagehide', handlePageHide)
+      void flushCurrentProgress()
+    }
+  }, [flushCurrentProgress])
 
   function toggleBookmarkAtLocation(target: {
     cfi: string

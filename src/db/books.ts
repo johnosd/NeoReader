@@ -3,7 +3,10 @@ import type { Book } from '../types/book'
 
 // Salva um livro novo no IndexedDB. Retorna o id gerado.
 export async function addBook(book: Omit<Book, 'id'>): Promise<number> {
-  return db.books.add(book)
+  return db.books.add({
+    ...book,
+    readingStatus: book.readingStatus ?? 'unread',
+  })
 }
 
 // Retorna todos os livros, do mais recente ao mais antigo
