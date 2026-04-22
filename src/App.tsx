@@ -1,26 +1,45 @@
 import { useState } from 'react'
 import { LibraryScreen } from './screens/LibraryScreen'
+import { BookDetailsScreen } from './screens/BookDetailsScreen'
 import { ReaderScreen } from './screens/ReaderScreen'
 import { VocabularyScreen } from './screens/VocabularyScreen'
 import { SettingsScreen } from './screens/SettingsScreen'
 import type { Book } from './types/book'
 
-type Screen = 'library' | 'reader' | 'vocabulary' | 'settings'
+type Screen = 'library' | 'book-details' | 'reader' | 'vocabulary' | 'settings'
 
 function App() {
   const [screen, setScreen] = useState<Screen>('library')
   const [selectedBook, setSelectedBook] = useState<Book | null>(null)
+  const [readerStartHref, setReaderStartHref] = useState<string | undefined>()
 
-  function handleOpenBook(book: Book) {
+  function handleOpenBookDetails(book: Book) {
     setSelectedBook(book)
+    setScreen('book-details')
+  }
+
+  function handleOpenReader(book: Book, startHref?: string) {
+    setSelectedBook(book)
+    setReaderStartHref(startHref)
     setScreen('reader')
+  }
+
+  if (screen === 'book-details' && selectedBook) {
+    return (
+      <BookDetailsScreen
+        book={selectedBook}
+        onBack={() => setScreen('library')}
+        onRead={handleOpenReader}
+      />
+    )
   }
 
   if (screen === 'reader' && selectedBook) {
     return (
       <ReaderScreen
         book={selectedBook}
-        onBack={() => setScreen('library')}
+        startHref={readerStartHref}
+        onBack={() => setScreen('book-details')}
         onOpenVocabulary={() => setScreen('vocabulary')}
       />
     )
@@ -36,7 +55,7 @@ function App() {
 
   return (
     <LibraryScreen
-      onOpenBook={handleOpenBook}
+      onOpenBook={handleOpenBookDetails}
       onOpenVocabulary={() => setScreen('vocabulary')}
       onOpenSettings={() => setScreen('settings')}
     />

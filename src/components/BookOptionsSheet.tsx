@@ -17,6 +17,7 @@ export function BookOptionsSheet({ book, onClose }: BookOptionsSheetProps) {
   const imageInputRef = useRef<HTMLInputElement>(null)
 
   function handleClose() {
+    setLoading(false)
     setConfirmDelete(false)
     setError(null)
     onClose()

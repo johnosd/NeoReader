@@ -7,6 +7,14 @@ export interface Book {
   fileBlob: Blob          // arquivo .epub completo
   addedAt: Date
   lastOpenedAt: Date | null
+  isFavorite?: boolean    // marcado pelo usuário na tela de detalhes
+}
+
+// Configurações específicas de leitura por livro
+export interface BookSettings {
+  id?: number
+  bookId: number
+  fontSize: import('./settings').FontSize
 }
 
 // Progresso de leitura — CFI é o "endereço" de um ponto no EPUB
