@@ -384,7 +384,7 @@ describe('EpubViewer — posição visível', () => {
     act(() => { viewerRef.current?.injectTranslation('Tradução') })
 
     const bookmarkBtn = fakeDoc.getElementById('nr-translation-block')?.querySelector('[data-nr-action="bookmark"]') as HTMLElement | null
-    expect(bookmarkBtn?.textContent).toBe('Marcar')
+    expect(bookmarkBtn?.textContent?.trim()).toBe('Marcar')
 
     click(bookmarkBtn!)
 
@@ -466,7 +466,7 @@ describe('EpubViewer — posição visível', () => {
     act(() => { viewerRef.current?.injectTranslation('Tradução') })
 
     const bookmarkBtn = fakeDoc.getElementById('nr-translation-block')?.querySelector('[data-nr-action="bookmark"]') as HTMLElement | null
-    expect(bookmarkBtn?.textContent).toBe('Remover marcador')
+    expect(bookmarkBtn?.textContent?.trim()).toBe('Remover')
   })
 
   it('usa relocate para sinalizar fim da seção quando o progresso chega ao final', async () => {
@@ -487,6 +487,30 @@ describe('EpubViewer — posição visível', () => {
     })
 
     expect(onAtBottom).toHaveBeenLastCalledWith(true, true, 'Chapter 3')
+  })
+
+  it('não sinaliza fim da seção enquanto a tradução inline estiver aberta', async () => {
+    const onAtBottom = vi.fn()
+    const { viewerRef, foliateEl } = await renderViewer({ onAtBottom })
+    foliateEl.getSectionFractions.mockReturnValue([0, 0.2, 0.4, 1])
+
+    const fakeDoc = makeFakeDoc(['Chapter opening paragraph.'])
+    const para = fakeDoc.querySelector('p') as HTMLElement
+    loadSection(foliateEl, fakeDoc, 1)
+
+    click(para)
+    act(() => { viewerRef.current?.showTranslationLoading() })
+
+    act(() => {
+      foliateEl.fireFoliate('relocate', {
+        cfi: 'epubcfi(/6/8!/4/2/1:0)',
+        fraction: 0.39,
+        tocItem: { label: 'Chapter 2', href: 'chapter-2.xhtml' },
+        section: { current: 1, total: 3 },
+      })
+    })
+
+    expect(onAtBottom).toHaveBeenLastCalledWith(false, true, 'Chapter 3')
   })
 })
 

@@ -13,6 +13,28 @@ const BOOKMARK_ICON_LEFT = 4
 const BOOKMARK_ICON_WIDTH = 10
 const BOOKMARK_ICON_HEIGHT = 14
 
+const TRANSLATION_ICON = {
+  bot: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="7" width="16" height="11" rx="4"></rect><path d="M12 3v4"></path><path d="M9 13h.01"></path><path d="M15 13h.01"></path><path d="M9 18v2"></path><path d="M15 18v2"></path></svg>',
+  speak: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"></path><path d="M15.5 8.5a5 5 0 0 1 0 7"></path><path d="M18 6a9 9 0 0 1 0 12"></path></svg>',
+  bookmark: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4z"></path></svg>',
+  save: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.75 5.57 6.15.89-4.45 4.33 1.05 6.16L12 17.77l-5.5 2.91 1.05-6.16L3.1 9.46l6.15-.89z"></path></svg>',
+} as const
+
+function renderTranslationAction(action: 'speak' | 'bookmark' | 'save', label: string, icon: string, variant: 'default' | 'primary' = 'default'): string {
+  return `
+    <button type="button" data-nr-action="${action}" class="nr-tr-action${variant === 'primary' ? ' is-primary' : ''}">
+      <span class="nr-tr-action-icon">${icon}</span>
+      <span data-nr-action-label="1">${escapeHtml(label)}</span>
+    </button>`
+}
+
+function setTranslationActionLabel(actionBtn: Element | null | undefined, label: string): void {
+  if (!(actionBtn instanceof HTMLElement)) return
+  const labelEl = actionBtn.querySelector<HTMLElement>('[data-nr-action-label]')
+  if (labelEl) labelEl.textContent = label
+  else actionBtn.textContent = label
+}
+
 // Unidade mínima de leitura para o TTS.
 // Texto é partido em frases (não parágrafos inteiros) para reduzir latência de API.
 // offsetInPara: posição de início da frase no parágrafo completo — usada para
@@ -200,32 +222,49 @@ function buildReaderCSS(fontSize: FontSize): string {
 
     /* Bloco de tradução inline — injetado após o parágrafo selecionado */
     #nr-translation-block {
-      margin: 8px 0 16px 0 !important;
-      padding: 10px 12px !important;
-      border-radius: 8px !important;
-      background: rgba(99, 102, 241, 0.10) !important;
-      border-left: 3px solid #6366f1 !important;
+      margin: 8px 0 14px 0 !important;
+      padding: 2px 0 0 14px !important;
+      border-left: 3px solid rgba(251, 146, 60, 0.96) !important;
+      border-radius: 0 14px 14px 0 !important;
+      background: linear-gradient(90deg, rgba(251, 146, 60, 0.22) 0%, rgba(248, 113, 113, 0.10) 30%, rgba(96, 165, 250, 0.05) 58%, rgba(96, 165, 250, 0.00) 84%) !important;
+      box-shadow: inset 10px 0 18px -16px rgba(254, 215, 170, 0.92) !important;
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif !important;
+      color: #f8fafc !important;
+    }
+    #nr-translation-block * {
+      box-sizing: border-box !important;
+      font-family: inherit !important;
+      background: transparent !important;
+    }
+    .nr-tr-action-icon svg {
+      width: 13px !important;
+      height: 13px !important;
+      display: block !important;
+    }
+    .nr-tr-panel {
+      padding: 0 !important;
+      border: 0 !important;
+      border-radius: 0 !important;
+      background: transparent !important;
     }
     .nr-tr-text {
-      color: #c77dff !important;
-      font-size: 14px !important;
-      font-style: italic !important;
-      line-height: 1.5 !important;
-      margin: 0 0 8px 0 !important;
-      background: transparent !important;
+      color: rgba(243, 232, 255, 0.96) !important;
+      font-size: 13px !important;
+      line-height: 1.62 !important;
+      margin: 0 !important;
+      font-style: normal !important;
+      letter-spacing: 0.01em !important;
     }
     .nr-tr-loading {
       display: flex !important;
       align-items: center !important;
-      gap: 8px !important;
-      color: #a5a5a5 !important;
-      font-size: 14px !important;
+      min-height: 18px !important;
     }
     .nr-tr-spinner {
       display: inline-block !important;
-      width: 14px !important;
-      height: 14px !important;
-      border: 2px solid #9d4edd !important;
+      width: 16px !important;
+      height: 16px !important;
+      border: 2px solid rgba(251, 146, 60, 0.95) !important;
       border-top-color: transparent !important;
       border-radius: 50% !important;
       animation: nr-spin 0.6s linear infinite !important;
@@ -234,18 +273,65 @@ function buildReaderCSS(fontSize: FontSize): string {
     @keyframes nr-spin { to { transform: rotate(360deg); } }
     .nr-tr-actions {
       display: flex !important;
-      gap: 8px !important;
+      flex-wrap: wrap !important;
+      gap: 6px !important;
+      margin-top: 8px !important;
     }
     .nr-tr-actions button {
-      flex: 1 !important;
-      padding: 6px 0 !important;
-      border-radius: 8px !important;
-      background: #2d2942 !important;
-      color: #fff !important;
-      font-size: 13px !important;
-      border: none !important;
+      min-height: 0 !important;
+      padding: 5px 8px 5px 6px !important;
+      border-radius: 9999px !important;
+      background: rgba(255,255,255,0.045) !important;
+      color: #f8fafc !important;
+      border: 1px solid rgba(255,255,255,0.07) !important;
       cursor: pointer !important;
-      font-family: inherit !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      gap: 6px !important;
+      transition: transform 150ms ease, background 150ms ease, border-color 150ms ease !important;
+    }
+    .nr-tr-action-icon {
+      width: 18px !important;
+      height: 18px !important;
+      border-radius: 9999px !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      background: rgba(255,255,255,0.06) !important;
+      color: currentColor !important;
+      flex-shrink: 0 !important;
+    }
+    .nr-tr-actions button [data-nr-action-label] {
+      font-size: 9px !important;
+      font-weight: 700 !important;
+      line-height: 1 !important;
+      letter-spacing: 0.06em !important;
+      text-transform: uppercase !important;
+      opacity: 0.92 !important;
+    }
+    .nr-tr-actions button:active {
+      transform: scale(0.97) !important;
+      background: rgba(255,255,255,0.09) !important;
+    }
+    .nr-tr-actions button.is-primary,
+    .nr-tr-actions button[data-nr-action="bookmark"][aria-pressed="true"] {
+      background: rgba(59, 130, 246, 0.12) !important;
+      border-color: rgba(96, 165, 250, 0.28) !important;
+      color: #f8fafc !important;
+      box-shadow: inset 0 0 12px rgba(59, 130, 246, 0.10) !important;
+    }
+    .nr-tr-actions button.is-primary .nr-tr-action-icon,
+    .nr-tr-actions button[data-nr-action="bookmark"][aria-pressed="true"] .nr-tr-action-icon {
+      background: rgba(96, 165, 250, 0.22) !important;
+    }
+    .nr-tr-actions button[data-nr-flash="1"] {
+      background: rgba(16,185,129,0.12) !important;
+      border-color: rgba(16,185,129,0.24) !important;
+      color: #d1fae5 !important;
+    }
+    .nr-tr-actions button[data-nr-flash="1"] .nr-tr-action-icon {
+      background: rgba(16,185,129,0.18) !important;
     }
     .nr-tr-actions button[disabled] {
       opacity: 0.65 !important;
@@ -421,6 +507,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const currentSectionIdxRef = useRef(0)
     const totalSectionsRef = useRef(1)
     const onAtBottomRef = useSyncRef(onAtBottom)
+    const suppressRelocateEndBannerRef = useRef(false)
     // Flag: próximo evento 'load' deve rolar a seção até o fundo (usado após prevToEnd)
     const scrollToBottomOnLoadRef = useRef(false)
     const lastRelocateRef = useRef<RelocateDetail | null>(null)
@@ -546,7 +633,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
       const bookmarkState = getParagraphBookmarkState(activeTranslationParaRef.current)
       const isBookmarked = !!bookmarkState?.matchedBookmark
-      actionBtn.textContent = isBookmarked ? 'Remover marcador' : 'Marcar'
+      setTranslationActionLabel(actionBtn, isBookmarked ? 'Remover' : 'Marcar')
       actionBtn.setAttribute('aria-pressed', isBookmarked ? 'true' : 'false')
       actionBtn.removeAttribute('disabled')
       delete actionBtn.dataset.nrPending
@@ -664,6 +751,14 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
     const SECTION_END_THRESHOLD = 0.92
 
+    function isTranslationOverlayActive(doc = currentDocRef.current): boolean {
+      return (
+        translationInProgressRef.current ||
+        !!activeTranslationParaRef.current ||
+        !!doc?.getElementById('nr-translation-block')
+      )
+    }
+
     function updateSectionEndBanner(atEnd: boolean, sectionIndex: number) {
       if (atEnd === isAtBottomRef.current) return
 
@@ -689,6 +784,33 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       return {
         atEnd: relativeProgress >= SECTION_END_THRESHOLD,
       }
+    }
+
+    function syncSectionEndBanner(sectionIndex: number, doc = currentDocRef.current) {
+      if (isTranslationOverlayActive(doc)) {
+        updateSectionEndBanner(false, sectionIndex)
+        return
+      }
+
+      const view = viewRef.current
+      if (!view) return
+
+      const relocateState = lastRelocateRef.current
+        ? (
+            suppressRelocateEndBannerRef.current
+              ? false
+              : getSectionEndState(lastRelocateRef.current.fraction, sectionIndex)?.atEnd ?? false
+          )
+        : false
+
+      if (!doc) {
+        updateSectionEndBanner(relocateState, sectionIndex)
+        return
+      }
+
+      const metrics = getScrollMetrics(doc)
+      const scrollAtBottom = metrics.position + metrics.viewport >= metrics.extent - 20
+      updateSectionEndBanner(scrollAtBottom || relocateState, sectionIndex)
     }
 
     function clearFinalizeSectionTimeout(): void {
@@ -735,8 +857,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
         if (Date.now() <= scrollingProgrammaticallyUntilRef.current) return
 
-        const scrollState = getScrollState()
-        updateSectionEndBanner(scrollState.atBottom, currentSectionIdxRef.current)
+        suppressRelocateEndBannerRef.current = false
+        syncSectionEndBanner(currentSectionIdxRef.current, doc)
       }
 
       for (const target of initialState.targets) {
@@ -982,17 +1104,20 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         const para = activeTranslationParaRef.current
         if (!para) return
         translationInProgressRef.current = true
+        suppressRelocateEndBannerRef.current = true
         const doc = para.ownerDocument!
         doc.getElementById('nr-translation-block')?.remove()
         const block = doc.createElement('div')
         block.id = 'nr-translation-block'
         block.className = 'nr-translation-block'
         block.innerHTML = `
-          <div class="nr-tr-loading">
-            <span class="nr-tr-spinner"></span>
-            <span>Traduzindo…</span>
+          <div class="nr-tr-panel">
+            <div class="nr-tr-loading">
+              <span class="nr-tr-spinner"></span>
+            </div>
           </div>`
         para.after(block)
+        syncSectionEndBanner(currentSectionIdxRef.current, doc)
 
         // Se há texto após a frase destacada, move-o para um <p> temporário
         // abaixo do bloco — assim o bloco aparece logo após a frase, não ao
@@ -1028,13 +1153,16 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         if (!block) return
         activeTranslatedTextRef.current = translatedText
         block.innerHTML = `
-          <p class="nr-tr-text">${escapeHtml(translatedText)}</p>
+          <div class="nr-tr-panel">
+            <p class="nr-tr-text">${escapeHtml(translatedText)}</p>
+          </div>
           <div class="nr-tr-actions">
-            <button data-nr-action="speak">🔊 Ouvir</button>
-            <button data-nr-action="bookmark">Marcar</button>
-            <button data-nr-action="save">⭐ Salvar</button>
+            ${renderTranslationAction('speak', 'Ouvir', TRANSLATION_ICON.speak)}
+            ${renderTranslationAction('bookmark', 'Marcar', TRANSLATION_ICON.bookmark, 'primary')}
+            ${renderTranslationAction('save', 'Salvar', TRANSLATION_ICON.save)}
           </div>`
         syncActiveTranslationBookmarkAction(para.ownerDocument)
+        syncSectionEndBanner(currentSectionIdxRef.current, para.ownerDocument)
       },
 
       clearTranslation: () => {
@@ -1059,6 +1187,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         activeSourceTextRef.current = ''
         activeTranslatedTextRef.current = ''
         activeTranslationParaRef.current = null
+        syncSectionEndBanner(currentSectionIdxRef.current, para.ownerDocument)
       },
     }))
 
@@ -1120,8 +1249,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             sectionHref: tocItem?.href,
             sectionIndex: sIdx,
           })
-          const sectionEndState = getSectionEndState(fraction, sIdx)
-          if (sectionEndState) updateSectionEndBanner(sectionEndState.atEnd, sIdx)
+          syncSectionEndBanner(sIdx, currentDocRef.current)
           if (pendingSectionRef.current?.index === sIdx) {
             scheduleSectionFinalization('relocate')
           }
@@ -1132,6 +1260,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         view.addEventListener('load', (e: CustomEvent<{ doc: Document; index: number }>) => {
           const { doc } = e.detail
           currentDocRef.current = doc
+          suppressRelocateEndBannerRef.current = false
           // [nr-debug] Inspeção do Document do iframe — fonte principal da "tela preta"
           const htmlLen = doc.documentElement?.outerHTML?.length ?? 0
           const bodyText = doc.body?.textContent?.trim() ?? ''
@@ -1243,15 +1372,21 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
                   actionBtn.dataset.nrPending = '1'
                   actionBtn.setAttribute('disabled', 'true')
                   const nextIsBookmarked = !bookmarkState.matchedBookmark
-                  actionBtn.textContent = nextIsBookmarked ? 'Remover marcador' : 'Marcar'
+                  setTranslationActionLabel(actionBtn, nextIsBookmarked ? 'Remover' : 'Marcar')
                   actionBtn.setAttribute('aria-pressed', nextIsBookmarked ? 'true' : 'false')
                   onBookmarkParagraphRef.current?.(bookmarkState.payload)
                 }
               } else if (action === 'save' && activeTranslatedTextRef.current) {
                 onSaveVocabRef.current(activeSourceTextRef.current, activeTranslatedTextRef.current)
                 // Feedback visual temporário no botão
-                actionBtn.textContent = '✓ Salvo!'
-                setTimeout(() => { if (actionBtn.isConnected) actionBtn.textContent = '⭐ Salvar' }, 1500)
+                setTranslationActionLabel(actionBtn, 'Salvo')
+                actionBtn.dataset.nrFlash = '1'
+                setTimeout(() => {
+                  if (actionBtn.isConnected) {
+                    setTranslationActionLabel(actionBtn, 'Salvar')
+                    delete actionBtn.dataset.nrFlash
+                  }
+                }, 1500)
               }
               return
             }
@@ -1284,6 +1419,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               activeTranslationParaRef.current = null
               activeSourceTextRef.current = ''
               activeTranslatedTextRef.current = ''
+              syncSectionEndBanner(currentSectionIdxRef.current, para.ownerDocument)
               return
             }
 
@@ -1302,6 +1438,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
                 while (prevSpan.firstChild) parent.insertBefore(prevSpan.firstChild, prevSpan)
                 prevSpan.remove()
               }
+              syncSectionEndBanner(currentSectionIdxRef.current, prevPara.ownerDocument)
             }
 
             // Toggle on: detecta a frase clicada, destaca no iframe e emite para o ReaderScreen.

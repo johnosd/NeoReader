@@ -527,27 +527,33 @@ function ChapterEndBanner({
 }) {
   return (
     <div
-      className={`absolute bottom-0 left-0 right-0 z-20 flex flex-col items-center py-5
-        ${onNext ? 'pointer-events-auto active:opacity-70' : 'pointer-events-none'}`}
-      // Gradiente com CSS var: Tailwind v4 não gera utility para gradient-stop a 55% com token arbitrário
-      style={{ background: 'linear-gradient(to top, var(--color-bg-reader) 55%, transparent)' }}
-      onClick={onNext}
+      className="absolute bottom-0 left-0 right-0 z-20 px-4 pt-6"
+      style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
     >
-      <p className="text-sm font-medium mb-1 text-text-primary">
-        {hasNext ? 'Fim do capítulo' : 'Fim do livro'}
-      </p>
-      {hasNext && (
-        <>
-          {nextLabel && (
-            <p className="text-[11px] uppercase tracking-[0.18em] text-text-muted/80 mb-1">
-              Próxima seção
+      <div className="rounded-[28px] border border-white/10 bg-[rgba(15,7,24,0.88)] px-5 py-4 shadow-nav backdrop-blur-xl">
+        <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-purple-light/80">
+          {hasNext ? 'Fim do capítulo' : 'Fim do livro'}
+        </p>
+        {hasNext ? (
+          <>
+            <p className="mt-1 text-sm leading-6 text-text-secondary">
+              {nextLabel
+                ? `A próxima seção já está pronta: ${nextLabel}.`
+                : 'Você chegou ao fim desta seção.'}
             </p>
-          )}
-          <p className="text-xs text-indigo-primary font-semibold">
-            {nextLabel ? `Toque para continuar em ${nextLabel}` : 'Toque para o próximo capítulo'}
+            <button
+              onClick={onNext}
+              className="mt-4 flex h-14 w-full items-center justify-center rounded-pill bg-indigo-primary px-5 text-base font-semibold text-white shadow-indigo-glow transition-all duration-150 active:scale-[0.97]"
+            >
+              {nextLabel ? `Continuar em ${nextLabel}` : 'Ir para o próximo capítulo'}
+            </button>
+          </>
+        ) : (
+          <p className="mt-1 text-sm leading-6 text-text-secondary">
+            Você terminou o livro. Use o índice ou a lista de marcadores para revisitar trechos.
           </p>
-        </>
-      )}
+        )}
+      </div>
     </div>
   )
 }
@@ -561,16 +567,23 @@ function TtsFinishedToast({ onDismiss }: { onDismiss: () => void }) {
   }, [onDismiss])
 
   return (
-    <div className="absolute bottom-24 left-4 right-4 z-30 flex items-center justify-between px-4 py-3 rounded-md bg-bg-elevated border border-indigo-primary/30">
-      <span className="text-sm text-text-secondary">
-        Fim do capítulo
-      </span>
-      <button
-        onPointerUp={onDismiss}
-        className="text-sm font-medium px-3 py-1 rounded-md text-indigo-primary active:opacity-60"
-      >
-        OK
-      </button>
+    <div className="absolute bottom-24 left-4 right-4 z-30 rounded-[24px] border border-white/10 bg-[rgba(15,7,24,0.88)] px-4 py-3 shadow-card backdrop-blur-xl">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-purple-light/80">
+            TTS concluído
+          </p>
+          <p className="mt-1 text-sm text-text-secondary">
+            Fim do capítulo
+          </p>
+        </div>
+        <button
+          onPointerUp={onDismiss}
+          className="inline-flex h-10 shrink-0 items-center rounded-pill border border-white/8 bg-bg-surface-2/80 px-4 text-sm font-medium text-indigo-primary transition-all duration-150 active:scale-[0.96] active:bg-white/10"
+        >
+          OK
+        </button>
+      </div>
     </div>
   )
 }
