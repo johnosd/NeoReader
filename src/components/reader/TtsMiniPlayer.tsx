@@ -16,7 +16,10 @@ interface TtsMiniPlayerProps {
 // ⏹ (canto direito) encerra TTS e esconde o player
 export function TtsMiniPlayer({ isPlaying, onPlayPause, onPrev, onNext, onStop }: TtsMiniPlayerProps) {
   return (
-    <div className="absolute bottom-0 left-0 right-0 z-30 flex flex-col items-center pt-2 pb-3 bg-bg-reader border-t border-indigo-primary/25">
+    <div
+      className="absolute bottom-0 left-0 right-0 z-30 flex flex-col items-center pt-2 bg-bg-reader border-t border-indigo-primary/25"
+      style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+    >
       {/* Indicador de modo leitura contínua */}
       <p className="text-center mb-2 text-[11px] text-text-muted tracking-wide">
         Leitura contínua · toque em parágrafo para navegar

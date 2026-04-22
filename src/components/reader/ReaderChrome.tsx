@@ -68,7 +68,10 @@ export function ReaderChrome({
           transition-transform duration-300 ${translateTop}`}
         onPointerUp={handleBarTap}
       >
-        <div className="flex items-center justify-between px-4 pt-10 pb-3 gap-3">
+        <div
+            className="flex items-center justify-between px-4 pb-3 gap-3"
+            style={{ paddingTop: 'max(2.5rem, env(safe-area-inset-top))' }}
+          >
           <button
             onClick={onBack}
             className="p-2 -ml-2 text-text-primary active:opacity-60"
@@ -110,15 +113,10 @@ export function ReaderChrome({
           transition-transform duration-300 ${translateBottom}`}
         onPointerUp={handleBarTap}
       >
-        {/* Barra de progresso fina */}
-        <div className="h-1 bg-bg-elevated">
-          <div
-            className="h-full bg-success transition-all duration-500"
-            style={{ width: `${percentage}%` }}
-          />
-        </div>
-
-        <div className="flex items-center justify-between px-6 py-4 pb-8">
+        <div
+          className="flex items-center justify-between px-6 py-4"
+          style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}
+        >
           {/* Botões de tamanho de fonte */}
           <div className="flex items-center gap-3">
             {FONT_SIZES.map((item) => (

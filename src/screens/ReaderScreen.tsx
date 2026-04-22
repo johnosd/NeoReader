@@ -33,9 +33,8 @@ interface ReaderScreenProps {
 export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: ReaderScreenProps) {
   const viewerRef = useRef<EpubViewerHandle>(null)
 
-  // Estado local — não precisa ser compartilhado entre siblings
-  // Começa visível: garante que o botão ← sempre seja acessível, mesmo se
-  // o EPUB não renderizar conteúdo (tela preta). O backdrop fecha no 1º tap.
+  // ── Estado local ────────────────────────────────────────────────────────────
+  // Começa visível: dá orientação inicial ao usuário, depois some automaticamente (auto-hide).
   const [chromeVisible, setChromeVisible] = useState(true)
   const [ttsFinished, setTtsFinished] = useState(false)
   // Controla visibilidade do mini player — true do início até o usuário apertar ⏹
@@ -51,6 +50,23 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   const [chapterEndState, setChapterEndState] = useState<'idle' | 'atEnd' | 'noNext'>('idle')
   // Índice da spine atual — atualizado via onRelocate; usado para fuzzy-match de bookmark
   const [sectionIndex, setSectionIndex] = useState(0)
+
+  // ── Auto-hide do chrome ──────────────────────────────────────────────────────
+  // useRef para o timer: persiste entre renders sem causar re-render.
+  const autoHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Reinicia o countdown. Chamado na montagem e em cada interação com o chrome.
+  // useCallback com [] → função estável, pode ser usada em deps de useEffect.
+  const resetAutoHide = useCallback(() => {
+    if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current)
+    autoHideTimerRef.current = setTimeout(() => setChromeVisible(false), 2500)
+  }, [])
+
+  // Inicia o timer assim que o leitor monta
+  useEffect(() => {
+    resetAutoHide()
+    return () => { if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current) }
+  }, [resetAutoHide])
 
 
   // Estado global compartilhado (Zustand)
@@ -193,11 +209,16 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     setChapterEndState(atBottom ? (hasNext ? 'atEnd' : 'noNext') : 'idle')
   }
 
+  // Avança para o próximo capítulo — acionado pelo banner clicável ou pelo 2º swipe.
+  function handleChapterNext() {
+    setChapterEndState('idle')
+    viewerRef.current?.next()
+  }
+
   // 2º swipe consecutivo no fundo: navega para o próximo capítulo.
   // hasNext já verificado no EpubViewer antes de chamar este callback.
   function handleSwipeAtBottom() {
-    setChapterEndState('idle')
-    viewerRef.current?.next()
+    handleChapterNext()
   }
 
   // 2º swipe consecutivo no topo: volta ao capítulo anterior posicionando no fim.
@@ -283,9 +304,13 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     }
   }
 
-  // Toggle chrome: chamado pelo EpubViewer quando o tap cai fora de um parágrafo
+  // Toggle chrome: chamado pelo EpubViewer em qualquer toque (chrome aberto fecha imediatamente)
+  // ou quando tap cai fora de parágrafo (chrome fechado abre e inicia auto-hide)
   function handleCenterTap() {
-    setChromeVisible((v) => !v)
+    setChromeVisible((v) => {
+      if (!v) resetAutoHide()  // ao abrir: inicia timer para fechar automaticamente
+      return !v
+    })
   }
 
   // Aguarda o load do IndexedDB antes de montar o EpubViewer
@@ -310,6 +335,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
           }}
           onError={(err) => { setIsLoading(false); setError(err.message) }}
           onSaveVocab={handleSaveVocab}
+          chromeVisible={chromeVisible}
           onCenterTap={handleCenterTap}
           onTranslate={handleTranslate}
           onSpeakOne={(text) => void tts.speakOne(text)}
@@ -326,23 +352,13 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
         />
       </div>
 
-      {/* Faixas superior e inferior: pointer-events none — apenas espaço visual das margens do foliate.
-          O toggle do chrome é tratado pelo handler de click do próprio iframe (tap fora de parágrafo).
-          Esses divs NÃO devem interceptar eventos: os botões do bloco de tradução ficam nessa zona
-          e precisam receber os toques diretamente no iframe. */}
-      <div className="absolute top-0 left-0 right-0 h-12 z-10 pointer-events-none" />
-      <div className="absolute bottom-0 left-0 right-0 h-12 z-10 pointer-events-none" />
+      {/* Nota: o toggle do chrome é tratado pelo handler de click do próprio iframe via a prop
+          chromeVisible. Quando true, qualquer toque no iframe fecha o chrome. Isso é mais
+          confiável que overlays/backdrop, pois evita o problema de compositing do Android WebView. */}
 
-      {/* Backdrop: quando o chrome está aberto, captura toque fora dos botões para fechá-lo.
-          z-[15] fica acima do conteúdo/overlays (z-10) mas abaixo do chrome (z-20). */}
-      {chromeVisible && (
-        <div className="absolute inset-0 z-[15]" onPointerUp={() => setChromeVisible(false)} />
-      )}
-
-      {/* Overlay de bookmark no canto superior direito — sempre intercepta o toque e aciona
-          o toggle diretamente, sem abrir o chrome. Só renderizado quando o chrome está oculto
-          para não conflitar com o botão equivalente na barra superior do chrome.
-          z-[25]: acima do backdrop (z-[15]) e do chrome (z-20). */}
+      {/* Overlay de bookmark no canto superior direito — acesso rápido ao toggle sem abrir o chrome.
+          Só renderizado quando o chrome está oculto para não conflitar com o botão da barra superior.
+          z-[25]: acima do chrome (z-20), garante que o toque chegue aqui mesmo com itens sobrepostos. */}
       {!chromeVisible && (
         <button
           onPointerUp={(e) => {
@@ -368,23 +384,36 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
         bookmarkCount={bookmarks.length}
         onBack={handleBack}
         onFontSizeChange={(size) => {
+          resetAutoHide()
           setFontSize(size)
           void updateBookSettings(book.id!, { fontSize: size })
         }}
         onBookmark={handleBookmarkToggle}
-        onBookmarkList={() => setBookmarkSheetOpen(true)}
-        onTocOpen={() => setTocOpen(true)}
-        onOpenVocabulary={onOpenVocabulary}
+        onBookmarkList={() => { resetAutoHide(); setBookmarkSheetOpen(true) }}
+        onTocOpen={() => { resetAutoHide(); setTocOpen(true) }}
+        onOpenVocabulary={() => { resetAutoHide(); onOpenVocabulary() }}
         ttsIsPlaying={tts.isPlaying}
         ttsEngine={ttsEngine}
-        onTtsToggle={handleTtsToggle}
+        onTtsToggle={() => { resetAutoHide(); handleTtsToggle() }}
         onDismiss={() => setChromeVisible(false)}
       />
+
+      {/* Faixa de progresso sempre visível — 2px na base da tela, fora do chrome.
+          pointer-events-none: não bloqueia nenhum toque. z-[12]: abaixo do chrome (z-20). */}
+      <div className="absolute bottom-0 left-0 right-0 z-[12] pointer-events-none" style={{ height: '2px' }}>
+        <div
+          className="h-full bg-indigo-primary/60 transition-all duration-500"
+          style={{ width: `${percentage}%` }}
+        />
+      </div>
 
       {/* Banner de fim de capítulo — aparece quando usuário chega ao fundo da seção.
           Oculto durante TTS (que tem seu próprio controle de fim de capítulo). */}
       {chapterEndState !== 'idle' && !ttsPlayerVisible && (
-        <ChapterEndBanner hasNext={chapterEndState === 'atEnd'} />
+        <ChapterEndBanner
+          hasNext={chapterEndState === 'atEnd'}
+          onNext={chapterEndState === 'atEnd' ? handleChapterNext : undefined}
+        />
       )}
 
       {/* Mini player TTS — visível enquanto TTS está ativo (tocando ou pausado) */}
@@ -458,21 +487,23 @@ function ReaderSkeleton() {
 }
 
 // Banner fixo no fundo da tela quando o usuário chega ao final de uma seção.
-// hasNext=false → último capítulo, sem instrução de swipe.
-// O gradiente suave evita corte abrupto do conteúdo.
-function ChapterEndBanner({ hasNext }: { hasNext: boolean }) {
+// onNext definido → clicável para avançar o capítulo. Swipe ainda funciona como fallback.
+// hasNext=false → último capítulo, sem ação disponível.
+function ChapterEndBanner({ hasNext, onNext }: { hasNext: boolean; onNext?: () => void }) {
   return (
     <div
-      className="absolute bottom-0 left-0 right-0 z-20 flex flex-col items-center py-5 pointer-events-none"
+      className={`absolute bottom-0 left-0 right-0 z-20 flex flex-col items-center py-5
+        ${onNext ? 'pointer-events-auto active:opacity-70' : 'pointer-events-none'}`}
       // Gradiente com CSS var: Tailwind v4 não gera utility para gradient-stop a 55% com token arbitrário
       style={{ background: 'linear-gradient(to top, var(--color-bg-reader) 55%, transparent)' }}
+      onClick={onNext}
     >
       <p className="text-sm font-medium mb-1 text-text-primary">
         {hasNext ? 'Fim do capítulo' : 'Fim do livro'}
       </p>
       {hasNext && (
-        <p className="text-xs text-text-muted">
-          Arraste para baixo para o próximo capítulo
+        <p className="text-xs text-indigo-primary font-semibold">
+          Toque para o próximo capítulo
         </p>
       )}
     </div>

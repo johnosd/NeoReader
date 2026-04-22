@@ -298,9 +298,12 @@ interface EpubViewerProps {
   onError: (err: Error) => void
   // Chamado quando o usuário salva um par original/tradução via ⭐
   onSaveVocab: (sourceText: string, translatedText: string) => void
-  // Chamado quando o tap cai fora de qualquer parágrafo (margem, imagem)
-  // Usado pelo ReaderScreen para toggle do chrome sem overlay
+  // Chamado quando o tap cai fora de qualquer parágrafo (margem, imagem),
+  // OU quando o chrome está visível e qualquer toque fecha os menus
   onCenterTap: () => void
+  // Quando true, qualquer toque no iframe fecha o chrome em vez de acionar tradução/TTS.
+  // Resolve o problema de compositing do Android WebView que ignora z-index de overlays.
+  chromeVisible: boolean
   // Tradução: emite o texto da frase tocada para o ReaderScreen traduzir e exibir
   // num painel React fora do iframe (evita problema de paginação no mobile)
   onTranslate: (sourceText: string) => void
@@ -331,6 +334,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       onRelocate, onTocReady, onLoad, onError,
       onSaveVocab, onCenterTap, onTranslate,
       onSpeakOne, onParagraphTapForTts, ttsGlobalActive,
+      chromeVisible,
       onAtBottom, onSwipeAtBottom, onSwipeAtTop,
       onSectionLoad,
     },
@@ -369,6 +373,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const onParagraphTapForTtsRef = useSyncRef(onParagraphTapForTts)
     // ttsGlobalActive: modo leitura contínua ativo (inclui pausado) — gating do clique
     const ttsGlobalActiveRef = useSyncRef(ttsGlobalActive)
+    // chromeVisible: quando true, qualquer toque no iframe fecha o chrome imediatamente
+    const chromeVisibleRef = useSyncRef(chromeVisible)
 
     const onSectionLoadRef = useSyncRef(onSectionLoad)
 
@@ -754,6 +760,15 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           doc.addEventListener('click', (ev: MouseEvent) => {
             // Ignora clicks que são resíduo de um gesto de scroll
             if (didScroll) return
+
+            // Chrome visível: qualquer toque fecha os menus sem acionar tradução/TTS.
+            // Solução para o Android WebView que ignora z-index de overlays React
+            // e entrega o toque diretamente ao iframe (camada de composição separada).
+            if (chromeVisibleRef.current) {
+              onCenterTapRef.current()
+              return
+            }
+
             const target = ev.target as Element
 
             // Intercepta botões Ouvir/Salvar dentro do bloco de tradução inline

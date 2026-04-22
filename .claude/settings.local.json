@@ -45,7 +45,11 @@
       "PowerShell(& cmd /c \"npx tsc --noEmit 2>&1\" | Select-Object -Last 20)",
       "PowerShell(& cmd /c \"npm run build 2>&1\" | Select-Object -Last 8)",
       "PowerShell(& cmd /c \"npx tsc --noEmit 2>&1\" | Select-Object -Last 5)",
-      "Bash(echo \"Exit: $?\")"
+      "Bash(echo \"Exit: $?\")",
+      "Bash(echo \"EXIT_CODE=$?\")",
+      "Bash(echo \"TSC_EXIT=$?\")",
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Bash(node_modules/.bin/vite build *)"
     ]
   }
 }
