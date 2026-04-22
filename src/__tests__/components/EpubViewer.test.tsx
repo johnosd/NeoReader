@@ -368,6 +368,67 @@ describe('EpubViewer — lock de tradução', () => {
 })
 
 describe('EpubViewer — chapter auto-advance (scroll overflow)', () => {
+  it('pula automaticamente uma seção intermediária com apenas o título ao avançar de capítulo', async () => {
+    const { viewerRef, foliateEl } = await renderViewer()
+
+    const titleOnlyDoc = document.implementation.createHTMLDocument('stub')
+    const heading = titleOnlyDoc.createElement('h1')
+    heading.textContent = 'Chapter 2'
+    titleOnlyDoc.body.appendChild(heading)
+    injectFakeWindow(titleOnlyDoc, 0, 800, 400)
+
+    act(() => { void viewerRef.current?.next() })
+    expect(foliateEl.goTo).toHaveBeenCalledTimes(1)
+    expect(foliateEl.goTo).toHaveBeenCalledWith(1)
+
+    act(() => { foliateEl.fireFoliate('load', { doc: titleOnlyDoc, index: 1 }) })
+    expect(foliateEl.goTo).toHaveBeenCalledTimes(2)
+    expect(foliateEl.goTo).toHaveBeenLastCalledWith(2)
+  })
+
+  it('não pula automaticamente quando a nova seção já tem conteúdo de leitura', async () => {
+    const { viewerRef, foliateEl } = await renderViewer()
+
+    const contentDoc = document.implementation.createHTMLDocument('content')
+    const chapter = contentDoc.createElement('section')
+    chapter.setAttribute('data-type', 'chapter')
+    const heading = contentDoc.createElement('h1')
+    heading.textContent = 'Chapter 2'
+    const para = contentDoc.createElement('p')
+    para.textContent = 'Real content starts here.'
+    chapter.append(heading, para)
+    contentDoc.body.append(chapter)
+    injectFakeWindow(contentDoc, 0, 800, 1200)
+
+    act(() => { void viewerRef.current?.next() })
+    expect(foliateEl.goTo).toHaveBeenCalledTimes(1)
+    expect(foliateEl.goTo).toHaveBeenCalledWith(1)
+
+    act(() => { foliateEl.fireFoliate('load', { doc: contentDoc, index: 1 }) })
+    expect(foliateEl.goTo).toHaveBeenCalledTimes(1)
+  })
+
+  it('pula páginas de parte mesmo quando elas têm um parágrafo curto extra', async () => {
+    const { viewerRef, foliateEl } = await renderViewer()
+
+    const partDoc = document.implementation.createHTMLDocument('part')
+    const part = partDoc.createElement('div')
+    part.setAttribute('data-type', 'part')
+    const heading = partDoc.createElement('h1')
+    heading.textContent = 'Part I. Foundation and Building Blocks'
+    part.appendChild(heading)
+    const watermark = partDoc.createElement('p')
+    watermark.textContent = 'OceanofPDF.com'
+    partDoc.body.append(part, watermark)
+    injectFakeWindow(partDoc, 0, 800, 400)
+
+    act(() => { void viewerRef.current?.next() })
+    expect(foliateEl.goTo).toHaveBeenCalledWith(1)
+
+    act(() => { foliateEl.fireFoliate('load', { doc: partDoc, index: 1 }) })
+    expect(foliateEl.goTo).toHaveBeenLastCalledWith(2)
+  })
+
   it('avança para o próximo capítulo após 2 swipes para baixo no fundo', async () => {
     const onSwipeAtBottom = vi.fn()
     const { foliateEl } = await renderViewer({ onSwipeAtBottom })

@@ -396,6 +396,9 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     // Flag: próximo evento 'load' deve rolar a seção até o fundo (usado após prevToEnd)
     const scrollToBottomOnLoadRef = useRef(false)
     const lastRelocateRef = useRef<RelocateDetail | null>(null)
+    const autoSkipChapterStubDirectionRef = useRef<-1 | 0 | 1>(0)
+    const autoSkipChapterStubCountRef = useRef(0)
+    const scrollListenerCleanupRef = useRef<(() => void) | null>(null)
     const BLOCK = 'p, li, blockquote, h1, h2, h3, h4, h5, h6'
     const bookmarksRef = useSyncRef(bookmarks)
     const onBookmarkTapRef = useSyncRef(onBookmarkTap)
@@ -437,6 +440,54 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       return getVisibleParagraphInternal().paraIndex
     }
 
+    function isChapterStubSection(doc: Document): boolean {
+      const blockTexts = Array.from(doc.querySelectorAll('p, li, blockquote'))
+        .map((el) => el.textContent?.replace(/\s+/g, ' ').trim() ?? '')
+        .filter(Boolean)
+      const headingCount = doc.querySelectorAll('h1, h2, h3, h4, h5, h6').length
+      const bodyBlockCount = blockTexts.length
+      const longestBlockLength = blockTexts.reduce((max, text) => Math.max(max, text.length), 0)
+      const textLength = doc.body?.textContent?.replace(/\s+/g, ' ').trim().length ?? 0
+      const hasChapterMarker =
+        !!doc.querySelector('[data-type="chapter"]') ||
+        !!doc.querySelector('[epub\\:type~="chapter"]')
+      const hasPartMarker =
+        !!doc.querySelector('[data-type="part"]') ||
+        !!doc.querySelector('[epub\\:type~="part"]') ||
+        !!doc.querySelector('[data-pdf-bookmark^="Part "]')
+
+      if (hasPartMarker) return true
+      if (hasChapterMarker) return false
+      return headingCount > 0 && bodyBlockCount <= 1 && longestBlockLength <= 40 && textLength > 0 && textLength <= 220
+    }
+
+    function getRendererScrollContainer(): HTMLElement | null {
+      if (!(viewRef.current?.renderer instanceof HTMLElement)) return null
+      return viewRef.current.renderer.shadowRoot?.getElementById('container') as HTMLElement | null
+    }
+
+    function getScrollMetrics(doc: Document) {
+      const container = getRendererScrollContainer()
+      if (container) {
+        return {
+          position: container.scrollTop,
+          viewport: container.clientHeight,
+          extent: container.scrollHeight,
+          scrollToBottom: () => { container.scrollTop = container.scrollHeight },
+          target: container as EventTarget,
+        }
+      }
+
+      const win = doc.defaultView
+      return {
+        position: win?.scrollY ?? 0,
+        viewport: win?.innerHeight ?? doc.documentElement.clientHeight,
+        extent: doc.documentElement.scrollHeight,
+        scrollToBottom: () => { win?.scrollTo(0, doc.documentElement.scrollHeight) },
+        target: (win ?? doc) as EventTarget,
+      }
+    }
+
     function clearBookmarkMarkers(doc?: Document | null): void {
       doc?.querySelectorAll<HTMLElement>('[data-nr-bookmark]').forEach((el) => {
         el.removeAttribute('data-nr-bookmark')
@@ -467,15 +518,37 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       }
     }
 
+    function goToAdjacentSection(direction: 1 | -1): void {
+      const view = viewRef.current
+      if (!view) return
+
+      const targetIndex = currentSectionIdxRef.current + direction
+      if (targetIndex < 0 || targetIndex >= totalSectionsRef.current) return
+
+      void view.goTo(targetIndex)
+    }
+
     // Expõe API imperativa para o ReaderScreen via ref
     useImperativeHandle(ref, () => ({
-      next: () => { viewRef.current?.next() },
-      prev: () => { viewRef.current?.prev() },
-      prevToEnd: () => {
-        scrollToBottomOnLoadRef.current = true
+      next: () => {
+        autoSkipChapterStubDirectionRef.current = 1
+        autoSkipChapterStubCountRef.current = 0
+        goToAdjacentSection(1)
+      },
+      prev: () => {
+        autoSkipChapterStubDirectionRef.current = 0
         viewRef.current?.prev()
       },
-      goTo: (target) => { viewRef.current?.goTo(target) },
+      prevToEnd: () => {
+        autoSkipChapterStubDirectionRef.current = -1
+        autoSkipChapterStubCountRef.current = 0
+        scrollToBottomOnLoadRef.current = true
+        goToAdjacentSection(-1)
+      },
+      goTo: (target) => {
+        autoSkipChapterStubDirectionRef.current = 0
+        viewRef.current?.goTo(target)
+      },
       getVisibleLocation: () => {
         const view = viewRef.current
         const location = lastRelocateRef.current ?? view?.lastLocation
@@ -758,45 +831,66 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           // Rastreia seção atual + reseta estado de fundo (nova seção sempre começa no topo)
           currentSectionIdxRef.current = e.detail.index
           lastRelocateRef.current = null
-          isAtBottomRef.current = false
-          onAtBottomRef.current?.(false, false)
           renderBookmarkMarkers(doc)
+
+          const hasNextSection = e.detail.index < totalSectionsRef.current - 1
+          const skipDirection = autoSkipChapterStubDirectionRef.current
+          if (
+            skipDirection !== 0 &&
+            (skipDirection > 0 ? hasNextSection : e.detail.index > 0) &&
+            isChapterStubSection(doc) &&
+            autoSkipChapterStubCountRef.current < 4
+          ) {
+            autoSkipChapterStubCountRef.current += 1
+            doc.defaultView?.requestAnimationFrame(() => {
+              goToAdjacentSection(skipDirection)
+            })
+            return
+          }
+          autoSkipChapterStubDirectionRef.current = 0
+          autoSkipChapterStubCountRef.current = 0
 
           // prevToEnd: rola até o fundo assim que o layout da seção estiver pronto
           if (scrollToBottomOnLoadRef.current) {
             scrollToBottomOnLoadRef.current = false
             // rAF garante que o conteúdo foi renderizado antes de medir scrollHeight
             doc.defaultView?.requestAnimationFrame(() => {
-              doc.defaultView?.scrollTo(0, doc.documentElement.scrollHeight)
+              getScrollMetrics(doc).scrollToBottom()
             })
           }
 
-          // Detecta scroll: TTS auto-scroll + fundo do capítulo.
-          // passive:true = não bloqueia o scroll nativo (performance).
-          // capture:true = captura antes de qualquer handler filho (garante que não perca eventos).
-          let lastScrollY = 0
+          // Detecta scroll no container real do Foliate (ou no iframe como fallback):
+          // usado para TTS auto-scroll + fundo do capítulo.
+          // O listener é único por seção para evitar acúmulo no container persistente.
+          scrollListenerCleanupRef.current?.()
+          let lastScrollY = getScrollMetrics(doc).position
           // scrollOverflowCount: contador de tentativas de scroll além do fim do capítulo.
           // Resetado ao rolar para cima ou ao carregar nova seção (re-declarado no load).
           let scrollOverflowCount = 0
-          doc.defaultView?.addEventListener('scroll', () => {
+          const onScroll = () => {
             // TTS: detecta scroll manual durante leitura para pausar auto-scroll
             if (ttsActiveRef.current && Date.now() > scrollingProgrammaticallyUntilRef.current) {
               userScrolledRef.current = true
             }
             // Capítulo: detecta quando o usuário chega ao fundo da seção
-            // scrollHeight - innerHeight - scrollY ≤ 20px → considerado "no fundo"
-            const dv = doc.defaultView!
-            const currentScrollY = dv.scrollY
+            const metrics = getScrollMetrics(doc)
+            const currentScrollY = metrics.position
             // Scroll para cima cancela intenção de avançar capítulo
             if (currentScrollY < lastScrollY - 5) scrollOverflowCount = 0
             lastScrollY = currentScrollY
-            const atBottom = currentScrollY + dv.innerHeight >= doc.documentElement.scrollHeight - 20
+            const atBottom = currentScrollY + metrics.viewport >= metrics.extent - 20
             if (atBottom !== isAtBottomRef.current) {
               isAtBottomRef.current = atBottom
               const hasNext = currentSectionIdxRef.current < totalSectionsRef.current - 1
               onAtBottomRef.current?.(atBottom, hasNext)
             }
-          }, { passive: true, capture: true })
+          }
+          const scrollMetrics = getScrollMetrics(doc)
+          scrollMetrics.target.addEventListener('scroll', onScroll, { passive: true })
+          scrollListenerCleanupRef.current = () => {
+            scrollMetrics.target.removeEventListener('scroll', onScroll as EventListener)
+          }
+          onScroll()
 
           // Detecta swipe para baixo quando no fundo — 2 gestos consecutivos avançam o capítulo.
           // didScroll: Android WebView dispara 'click' mesmo após scroll curto.
@@ -818,13 +912,13 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           }, { passive: true })
           doc.addEventListener('touchend', (ev: TouchEvent) => {
             const deltaY = touchStartY - ev.changedTouches[0].clientY
-            const dv = doc.defaultView!
+            const metrics = getScrollMetrics(doc)
 
             // deltaY positivo = dedo foi para cima = intenção de rolar para baixo
             if (deltaY > 30) {
               // Lê posição diretamente — não depende de isAtBottomRef ser atualizado
               // pelo scroll event antes do touchend (timing não garantido no Android WebView)
-              const atBottom = dv.scrollY + dv.innerHeight >= doc.documentElement.scrollHeight - 20
+              const atBottom = metrics.position + metrics.viewport >= metrics.extent - 20
               if (!atBottom) { scrollOverflowCount = 0; return }
               const hasNext = currentSectionIdxRef.current < totalSectionsRef.current - 1
               if (!hasNext) return
@@ -838,7 +932,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
             // deltaY negativo = dedo foi para baixo = intenção de rolar para cima
             if (deltaY < -30) {
-              const atTop = dv.scrollY <= 20
+              const atTop = metrics.position <= 20
               if (!atTop) { scrollOverflowTopCount = 0; return }
               const hasPrev = currentSectionIdxRef.current > 0
               if (!hasPrev) return
@@ -1026,8 +1120,12 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
       return () => {
         cancelled = true
+        scrollListenerCleanupRef.current?.()
+        scrollListenerCleanupRef.current = null
         currentDocRef.current = null
         lastRelocateRef.current = null
+        autoSkipChapterStubDirectionRef.current = 0
+        autoSkipChapterStubCountRef.current = 0
         view?.close()
         view?.remove()
         viewRef.current = null

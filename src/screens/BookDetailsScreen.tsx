@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { ArrowLeft, Star, ChevronRight, Globe, Calendar, HardDrive, Sparkles, BookOpen, Bookmark, X } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { App as CapApp } from '@capacitor/app'
@@ -79,14 +79,21 @@ export function BookDetailsScreen({ book, onBack, onRead }: BookDetailsScreenPro
     return () => { void p.then(l => l.remove()) }
   }, [onBack])
 
-  const coverUrl = useMemo(() => {
-    if (!liveBook.coverBlob) return null
-    return URL.createObjectURL(liveBook.coverBlob)
-  }, [liveBook.coverBlob])
+  const [coverUrl, setCoverUrl] = useState<string | null>(null)
 
   useEffect(() => {
-    return () => { if (coverUrl) URL.revokeObjectURL(coverUrl) }
-  }, [coverUrl])
+    if (!liveBook.coverBlob) {
+      setCoverUrl(null)
+      return
+    }
+
+    const nextCoverUrl = URL.createObjectURL(liveBook.coverBlob)
+    setCoverUrl(nextCoverUrl)
+
+    return () => {
+      URL.revokeObjectURL(nextCoverUrl)
+    }
+  }, [liveBook.coverBlob])
 
   const pct        = progress?.percentage ?? 0
   const hasProgress = pct > 0
