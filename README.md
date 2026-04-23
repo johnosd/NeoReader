@@ -1,131 +1,152 @@
 # NeoReader
 
-Leitor de EPUB para Android focado em **incentivar a leitura** e **facilitar o aprendizado de inglês**. Interface estilo "Netflix for Books" — dark mode, capas grandes, navegação imersiva.
+Leitor de EPUB para Android com foco em leitura mobile, imersao visual e aprendizado de ingles. O app combina biblioteca em estilo "Netflix for Books", leitor em scroll continuo, traducao inline, vocabulario salvo e TTS com Speechify, ElevenLabs e fallback nativo.
 
 ---
 
 ## Funcionalidades
 
 ### Biblioteca
-- [x] Importar arquivos `.epub` via FAB flutuante (canto inferior direito)
-- [x] **Hero banner full-bleed** — imagem de capa ocupa a tela toda, gradiente cinemático, header NeoReader flutuante sobre a capa
-- [x] Tags de autor e progresso estilo gênero (uppercase · separador ·)
-- [x] Título grande serif, descrição contextual e badge de status (Em leitura / Concluído / Destaque)
-- [x] Botões "Retomar" (roxo) e "Opções" (glass) no rodapé do hero
-- [x] Barra de progresso roxa de 3 px abaixo da descrição
-- [x] **"Continue lendo"** — cards horizontais com capa, barra de progresso e percentual (`ProgressCard`)
-- [x] **"Meus Livros"** — cards verticais com barra de progresso roxa e botão de opções (`BookCard`)
-- [x] Header de seção com título e botão "Ver tudo ›" em roxo
-- [x] Menu de opções por livro: recriar capa, escolher imagem externa, deletar (`BookOptionsSheet`)
+- [x] Importar arquivos `.epub` via FAB flutuante na tela principal
+- [x] Hero banner com capa, gradiente cinematografico e header flutuante
+- [x] Secoes "Continue lendo" e "Meus Livros" com cards horizontais e verticais
+- [x] Barra de progresso por livro
+- [x] Capa extraida do EPUB com suporte a recriar capa original
+- [x] Atualizar capa manualmente com imagem do dispositivo
+- [x] Deletar livro com limpeza de progresso, marcadores, vocabulario e configuracoes relacionadas
 
 ### Leitor
-- [x] Renderização via [foliate-js](https://github.com/johnfactotum/foliate-js) — modo scroll contínuo
-- [x] Tema escuro, tamanho de fonte ajustável (4 tamanhos) em tempo real
-- [x] Índice (TOC) navegável via sheet deslizante
-- [x] Marcadores: adicionar, listar e navegar
-- [x] Progresso persistente (restaura posição ao reabrir)
-- [x] Tap central abre/fecha o chrome (barras de título e controles)
-- [x] Navegação entre capítulos: banner "Fim do capítulo" ao atingir o fundo + swipe para avançar
+- [x] Renderizacao via [foliate-js](https://github.com/johnfactotum/foliate-js) em scroll continuo
+- [x] Tamanho de fonte ajustavel em 4 niveis (`sm`, `md`, `lg`, `xl`)
+- [x] Line height ajustavel por livro
+- [x] Temas de leitura `dark`, `sepia` e `paper`
+- [x] Progresso persistente com restauracao da ultima posicao
+- [x] TOC navegavel via sheet
+- [x] Marcadores com adicionar, listar, navegar, remover e recolorir
+- [x] Tap central para abrir e fechar o chrome do leitor
+- [x] Banner de troca de secao durante a leitura
+- [x] Navegacao segura entre capitulos e secoes
 
-### Aprendizado de inglês
-- [x] Tradução inline — detecta a frase exata tocada via `caretRangeFromPoint` e traduz só ela
-- [x] Highlight apenas da frase selecionada dentro do parágrafo
-- [x] Bloco de tradução injetado diretamente no iframe logo abaixo do parágrafo
-- [x] Salvar par original/tradução no vocabulário com ⭐
-- [x] Tela de vocabulário com histórico de frases salvas
-- [x] Cache offline de traduções (IndexedDB)
+### Tela de detalhes do livro
+- [x] Tabs de `Capitulos`, `Marcacoes`, `Configuracoes` e `Detalhes`
+- [x] Estatisticas do livro com progresso, marcadores e vocabulario salvo
+- [x] Favoritar livro
+- [x] Preferencias por obra para fonte, line height, tema, idioma do livro e idioma alvo da traducao
+- [x] Selecao de provedor TTS por livro (`speechify`, `elevenlabs` ou `native`)
+- [x] Selecao de voz compativel com o idioma e ajuste de velocidade do TTS
+- [x] Preview visual das preferencias de leitura antes de abrir o livro
 
-### TTS (Text-to-Speech)
-- [x] Audiobook contínuo via botão ▶ no chrome do leitor
-- [x] Mini player fixo na base da tela: ⏮ parágrafo anterior, ▶/⏸, ⏭ próximo, ⏹ encerrar
-- [x] Retomar de onde parou ao pausar e tocar novamente
-- [x] Tap em parágrafo durante leitura pula direto para ele
-- [x] Leitura de frase individual via botão 🔊 no bloco de tradução
-- [x] Karaokê de palavras: palavra atual em negrito + sublinhado durante leitura
-- [x] Motor primário: **Speechify API** (vozes neurais, requer `VITE_SPEECHIFY_API_KEY`)
-- [x] Fallback automático para TTS nativo do Android quando offline ou sem chave
+### Traducao e vocabulario
+- [x] Traducao inline da frase tocada usando `caretRangeFromPoint`
+- [x] Highlight restrito ao trecho selecionado dentro do paragrafo
+- [x] Bloco de traducao injetado diretamente no iframe do EPUB
+- [x] Barra de acoes inline refinada para mobile com tile compacto, icone no quadrado e label abaixo
+- [x] Loading minimalista no bloco de traducao
+- [x] Cache offline de traducoes com IndexedDB
+- [x] Salvar par original + traducao no vocabulario
+- [x] Tela dedicada de vocabulario com historico e exclusao manual
+- [x] Idioma original e idioma alvo configuraveis por livro
 
-### Configurações
-- [x] API key da Speechify (input seguro com show/hide, salvo no IndexedDB)
-- [x] Seleção do idioma de tradução (PT-BR, ES, FR, DE, IT, JA)
-- [x] Tamanho de fonte padrão ao abrir livros (preview ao vivo)
+### TTS
+- [x] Audiobook continuo a partir do leitor
+- [x] Mini player fixo com `prev`, `play/pause`, `next` e `stop`
+- [x] Retomar de onde parou ao pausar
+- [x] Tap em paragrafo durante a leitura para pular direto para ele
+- [x] Leitura individual da frase via acao inline
+- [x] Karaoke de palavras com destaque da palavra atual
+- [x] Speechify e ElevenLabs como provedores premium
+- [x] Provedor nativo selecionavel e usado como fallback automatico
+- [x] Fallback para TTS nativo quando o provedor premium nao estiver configurado ou falhar
+
+### Configuracoes globais
+- [x] Persistencia local das API keys da Speechify e da ElevenLabs
+- [x] Validacao das chaves diretamente na tela de configuracoes
+- [x] Idioma alvo padrao das traducoes no app
+- [x] Defaults globais de fonte, line height e tema do leitor
+- [x] Preview ao vivo dos defaults do leitor
+
+### Qualidade e testes
+- [x] Suite em `src/__tests__` para componentes, telas, hooks e services
+- [x] Cobertura recente reforcada no `EpubViewer` para loading inline, action bar e ausencia de copy de status
+- [x] Testes de importacao e parsing de EPUB cobrindo extracao de capa e metadados
 
 ---
 
-## Interface — Design System
+## Evolucoes recentes
 
-### Paleta
+- Tela de detalhes do livro expandida com tabs para capitulos, marcacoes, configuracoes e detalhes.
+- Ajustes por livro agora cobrem idioma original, idioma alvo, fonte, line height, tema, provedor TTS, voz e velocidade.
+- Pipeline de TTS consolidado com Speechify, ElevenLabs e provedor nativo.
+- UI de traducao inline refinada para mobile com action bar compacta alinhada ao design system.
+- Testes do `EpubViewer` ampliados para proteger a regressao da UX inline.
+
+---
+
+## Interface e design system
+
+Os specs visuais usados como referencia vivem em:
+
+- `docs/design-system/design-system-mobile-v2.html`
+- `docs/design-system/design-system-mobile-v1.html`
+- `docs/design-system/design_system.html`
+
+### Paleta principal
 
 | Token | Valor | Uso |
-|-------|-------|-----|
+|---|---|---|
 | `--color-bg-base` | `#07030c` | Fundo global |
-| `--color-bg-surface` | `#12091a` | Cards, sheets |
-| `--color-purple-primary` | `#7b2cbf` | Ativo, FAB, botões primários |
-| `--color-purple-light` | `#a855f7` | Labels ativos, links, badges |
-| `--color-purple-dark` | `#5a189a` | Gradiente profundo |
-| `--color-indigo` | `#6366f1` | Leitor (acento frio, menos distração) |
+| `--color-bg-surface` | `#12091a` | Cards e sheets |
+| `--color-purple-primary` | `#7b2cbf` | CTA e estados ativos |
+| `--color-purple-light` | `#a855f7` | Labels, links e badges |
+| `--color-indigo` | `#6366f1` | Acento frio do leitor |
 | `--color-text-primary` | `#f8fafc` | Texto principal |
-| `--color-text-secondary` | `#cbd5e1` | Descrições |
-| `--color-text-muted` | `#94a3b8` | Meta, placeholders |
+| `--color-text-secondary` | `#cbd5e1` | Texto secundario |
+| `--color-text-muted` | `#94a3b8` | Meta e placeholders |
 
-Tokens definidos via `@theme` em `src/index.css`; Tailwind v4 gera utilities automaticamente (`bg-bg-surface`, `text-text-muted`, `shadow-purple-glow`, `font-serif`, etc.).
+Os tokens sao definidos via `@theme` em `src/index.css`.
 
 ### Fontes
 
-Carregadas via `@fontsource` (offline-first, necessário no Capacitor):
+Carregadas via `@fontsource` para manter o app offline-first no Capacitor:
 
-| Família | Pesos | Uso |
-|---------|-------|-----|
-| **Inter** | 400/500/600/700/900 | UI geral |
-| **Playfair Display** | 600/700/800 | Títulos hero, citações (serif) |
-| **JetBrains Mono** | 400/700 | Valores técnicos |
+| Familia | Pesos | Uso |
+|---|---|---|
+| `Inter` | 400/500/600/700/900 | UI geral |
+| `Playfair Display` | 600/700/800 | Titulos hero e serif |
+| `JetBrains Mono` | 400/700 | Valores tecnicos |
 
-Specs completas em `docs/design-system/design-system-mobile-v2.html` (mobile) e `docs/design-system/design_system.html` (desktop).
+### Componentes principais
 
-### Componentes da Biblioteca
-
-| Componente | Descrição |
+| Componente | Descricao |
 |---|---|
-| `HeroBanner` | Full-bleed Netflix-style: capa como background, gradiente cinemático, header flutuante, tags de gênero, botões pill |
-| `ProgressCard` | Card horizontal para "Continue lendo": capa 72px + barra de progresso roxa + percentual |
-| `BookCard` | Card vertical para "Meus Livros": capa 2:3, barra roxa, botão de opções |
-| `BookRow` | Seção scrollável com header "Ver tudo"; variante `progress` usa `ProgressCard`, `default` usa `BookCard` |
-| `BottomNav` | 4 itens (Início · Vocab · Biblioteca · Perfil), glass `blur(20px)`, ativo em roxo `#7b2cbf` |
-| `BookOptionsSheet` | Sheet de ações: recriar capa, importar imagem, deletar |
-
-### Componentes UI Primitivos (`src/components/ui/`)
-
-| Componente | Descrição |
-|---|---|
-| `Button` | 5 variantes (primary / secondary / ghost / danger / outline) × 2 tons (purple / indigo) |
-| `Input` | Label + hint + error + leftIcon + rightSlot, acessível via `useId` |
-| `Switch` | Toggle Material 3 (48×28), `role="switch"` |
-| `Checkbox` | 20×20, Check icon, input oculto acessível |
-| `Badge` | 6 tons (success / warning / error / purple / indigo / neutral) |
-| `ListItem` | Leading / title / meta / trailing, press state, teclado acessível |
-| `BottomSheet` | Backdrop + handle + sticky header + safe-area-inset-bottom + ESC fecha |
-| `Toast` | 4 tons com ícones Lucide, auto-dismiss configurável |
-| `EmptyState` | Ícone + título + descrição + slot de ação |
-| `Skeleton` | Variantes block / card / text com `animate-pulse` |
-| `Spinner` | Tamanho e tom configuráveis, label opcional |
+| `HeroBanner` | Hero full-bleed da biblioteca |
+| `ProgressCard` | Card horizontal de "Continue lendo" |
+| `BookCard` | Card vertical de livro |
+| `BookRow` | Secao scrollavel com variantes `progress` e `default` |
+| `BottomNav` | Bottom navigation glass com 4 itens |
+| `BookOptionsSheet` | Sheet de acoes do livro |
+| `BookDetailsScreen` | Hub de capitulos, marcacoes, ajustes e metadados |
+| `EpubViewer` | Viewer do EPUB, traducao inline, TTS e highlights |
+| `ReaderChrome` | Chrome superior/inferior do leitor |
+| `BottomSheet` | Primitive base para drawers e sheets |
 
 ---
 
 ## Stack
 
 | Camada | Tecnologia |
-|--------|-----------|
-| UI | React 18 + TypeScript + Vite |
-| Mobile | Capacitor 6 (Android) |
-| Estilo | Tailwind CSS v4 + `@theme` tokens |
-| Fontes | Inter · Playfair Display · JetBrains Mono (`@fontsource`) |
+|---|---|
+| UI | React 19 + TypeScript + Vite 8 |
+| Mobile | Capacitor 8 (Android) |
+| Estilo | Tailwind CSS v4 + tokens `@theme` |
 | EPUB render | foliate-js |
-| Storage | Dexie.js (IndexedDB) |
+| Storage | Dexie.js / IndexedDB |
 | Estado global | Zustand |
-| Ícones | Lucide React |
-| Tradução | MyMemory API (gratuita) |
-| TTS premium | Speechify API |
-| TTS fallback | @capacitor-community/text-to-speech |
+| Icones | Lucide React |
+| Traducao | MyMemory API |
+| TTS premium | Speechify API + ElevenLabs API |
+| TTS fallback | `@capacitor-community/text-to-speech` |
+| Testes | Vitest + Testing Library |
 
 ---
 
@@ -133,97 +154,133 @@ Specs completas em `docs/design-system/design-system-mobile-v2.html` (mobile) e 
 
 ```bash
 npm install
-npm run dev          # dev server em http://localhost:5173
-npm run build        # build de produção (gera dist/)
-npm run lint         # lint
-npx tsc --noEmit     # checagem de tipos sem gerar arquivos
+npm run dev
+npm run build
+npm run test
+npm run lint
+npx tsc --noEmit
 ```
 
 ---
 
 ## Build Android
 
-Pré-requisitos: Android Studio instalado, device conectado com USB debugging ativo.
+Pre-requisitos:
+
+- Android Studio instalado
+- Device ou emulador Android disponivel
+- USB debugging ativo, quando usar device fisico
 
 ```bash
 npm run build
-npx cap sync android        # copia dist/ para o projeto Android
-npx cap run android         # builda e instala no device
-adb devices                 # lista devices conectados
+npx cap sync android
+npx cap open android
+```
 
-# Atualizar ícones do app (coloque icon-only.png e icon-foreground.png em assets/)
-npx @capacitor/assets generate --android
-cd android && ./gradlew clean && cd ..
+No PowerShell, para limpar o projeto Android manualmente:
+
+```powershell
+cd android
+.\gradlew.bat clean
+cd ..
+```
+
+Para rodar direto no device:
+
+```bash
 npx cap run android
+adb devices
+```
+
+Para atualizar os icones do app, coloque `icon-only.png` e `icon-foreground.png` em `assets/` e rode:
+
+```bash
+npx @capacitor/assets generate --android
 ```
 
 ---
 
-## Variáveis de ambiente
+## Variaveis de ambiente
 
-Copie `.env.example` para `.env` e preencha:
+No PowerShell:
 
-```bash
-cp .env.example .env
+```powershell
+Copy-Item .env.example .env
 ```
 
-| Variável | Descrição | Obrigatório |
-|----------|-----------|-------------|
-| `VITE_SPEECHIFY_API_KEY` | API key da [Speechify](https://console.speechify.ai/) para vozes neurais | Não — usa TTS nativo como fallback |
+Hoje o `.env.example` ja traz a chave de exemplo da Speechify. Se quiser configurar a ElevenLabs via ambiente, adicione manualmente no `.env`.
+
+| Variavel | Descricao | Obrigatorio |
+|---|---|---|
+| `VITE_SPEECHIFY_API_KEY` | API key da Speechify para vozes neurais | Nao |
+| `VITE_ELEVENLABS_API_KEY` | API key da ElevenLabs para vozes neurais | Nao |
+
+As duas chaves tambem podem ser configuradas, validadas e persistidas pela tela de configuracoes do app.
 
 ---
 
 ## Estrutura de pastas
 
-```
+```text
 src/
-├── components/
-│   ├── ui/             # Primitivos do design system (Button, Input, BottomSheet...)
-│   ├── reader/         # Componentes do leitor (EpubViewer, ReaderChrome, TocDrawer...)
-│   ├── HeroBanner.tsx  # Hero full-bleed Netflix-style
-│   ├── ProgressCard.tsx# Card horizontal "Continue lendo"
-│   ├── BookCard.tsx    # Card vertical "Meus Livros"
-│   ├── BookRow.tsx     # Seção scrollável com variante progress/default
-│   ├── BottomNav.tsx   # Nav 4 itens glass
-│   └── BookOptionsSheet.tsx
-├── screens/
-│   ├── LibraryScreen.tsx     # Biblioteca principal + FAB de import
-│   ├── ReaderScreen.tsx      # Leitor EPUB
-│   ├── VocabularyScreen.tsx  # Histórico de traduções
-│   ├── SettingsScreen.tsx    # Configurações
-│   └── BookDetailsScreen.tsx
-├── hooks/              # useLibraryGroups · useTTS · useReaderProgress...
-├── services/           # SpeechifyService · TranslationService · EpubService
-├── db/                 # Schema Dexie (books · progress · bookmarks · vocabulary · settings)
-├── store/              # Zustand (readerStore)
-├── types/              # Tipos TypeScript compartilhados
-└── utils/              # Funções puras
+|-- assets/
+|-- components/
+|   |-- reader/             # Viewer, chrome, sheets e acoes do leitor
+|   |-- ui/                 # Primitives compartilhadas
+|   |-- BottomNav.tsx
+|   |-- BookCard.tsx
+|   |-- BookOptionsSheet.tsx
+|   |-- BookRow.tsx
+|   |-- HeroBanner.tsx
+|   `-- ProgressCard.tsx
+|-- db/                     # Dexie, schema e repositorios locais
+|-- hooks/
+|-- lib/
+|-- screens/
+|   |-- BookDetailsScreen.tsx
+|   |-- LibraryScreen.tsx
+|   |-- ReaderScreen.tsx
+|   |-- SettingsScreen.tsx
+|   `-- VocabularyScreen.tsx
+|-- services/               # EPUB, traducao, TTS, importacao
+|-- store/
+|-- types/
+|-- utils/
+|-- __tests__/
+|-- App.tsx
+|-- index.css
+`-- main.tsx
+
 docs/
-├── design-system/
-│   ├── design-system-mobile-v1.html  # DS mobile v1 (seção 7: telas de referência)
-│   ├── design-system-mobile-v2.html  # DS mobile v2 (tokens, componentes, nav)
-│   ├── design_system.html            # DS desktop
-│   └── logo/                         # Assets do logo NeoReader
-└── epub-reader-plan.md
+|-- design-system/
+|-- 00-setup-environment.md
+|-- epub-reader-plan.md
+|-- learning-companion.md
+`-- qa-manual.md
 ```
 
 ---
 
-## Roadmap
+## Docs de apoio
 
-### MVP — em aberto
-- [ ] **Google Drive sync** — progresso, marcadores e vocabulário sincronizados entre devices (OAuth + Capacitor)
+- `docs/00-setup-environment.md`: bootstrap do ambiente
+- `docs/epub-reader-plan.md`: visao geral do leitor EPUB
+- `docs/learning-companion.md`: direcao de produto para aprendizado
+- `docs/qa-manual.md`: checklist de QA manual
 
-### Fase 2
+---
 
-#### Leitor
-- [ ] Configurar idioma base por livro na tela de detalhes, usado por tradução, vocabulário e fallback de TTS nativo
+## Proximos passos
 
-#### TTS
-- [ ] Seleção de voz Speechify (lista de vozes via `/v1/voices`)
+### Curto prazo
+- [ ] Passe final de pixel-perfect no Android real para a traducao inline: hit area, espacamento, densidade do tile e legibilidade no WebView
+- [ ] Reaplicar o mesmo padrao de acao compacta em outras superficies do leitor
+- [ ] Extrair tokens e constantes visuais do bloco inline para reduzir CSS hardcoded no iframe
+- [ ] Consolidar a documentacao de setup para incluir explicitamente a opcao de usar ElevenLabs tambem via `.env.example`
 
-#### Aprendizado
-- [ ] **Flashcards SRS** — revisar vocabulário com algoritmo SM-2 (estilo Anki)
-- [ ] **Integração Claude API (BYOK)** — resumo de capítulo, quiz de compreensão, tutor conversacional
-- [ ] Estatísticas de leitura — streak de dias, tempo por sessão, palavras traduzidas
-- [ ] Export CSV do vocabulário
+### Produto
+- [ ] Google Drive sync para progresso, marcadores e vocabulario entre devices
+- [ ] Flashcards SRS para revisar vocabulario com algoritmo estilo Anki
+- [ ] Integracao Claude API (BYOK) para resumo, quiz e tutor conversacional
+- [ ] Estatisticas de leitura: streak, tempo por sessao e palavras traduzidas
+- [ ] Export CSV do vocabulario
