@@ -38,6 +38,8 @@ interface ReaderScreenProps {
 export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: ReaderScreenProps) {
   const viewerRef = useRef<EpubViewerHandle>(null)
   const pendingBookmarkKeysRef = useRef(new Set<string>())
+  const activeSectionIndexRef = useRef<number | null>(null)
+  const sectionChangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // ── Estado local ────────────────────────────────────────────────────────────
   // Começa visível: dá orientação inicial ao usuário, depois some automaticamente (auto-hide).
@@ -52,9 +54,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   const [ttsEngine, setTtsEngine] = useState<'speechify' | 'native'>('native')
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  // 'idle': sem banner | 'atEnd': fim do capítulo, há próximo | 'noNext': último capítulo
-  const [chapterEndState, setChapterEndState] = useState<'idle' | 'atEnd' | 'noNext'>('idle')
-  const [nextSectionLabel, setNextSectionLabel] = useState<string | null>(null)
+  const [sectionChangeLabel, setSectionChangeLabel] = useState<string | null>(null)
 
   // ── Auto-hide do chrome ──────────────────────────────────────────────────────
   // useRef para o timer: persiste entre renders sem causar re-render.
@@ -70,7 +70,10 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   // Inicia o timer assim que o leitor monta
   useEffect(() => {
     resetAutoHide()
-    return () => { if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current) }
+    return () => {
+      if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current)
+      if (sectionChangeTimerRef.current) clearTimeout(sectionChangeTimerRef.current)
+    }
   }, [resetAutoHide])
 
 
@@ -89,6 +92,15 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
 
   // Limpa o store ao desmontar para não vazar estado entre livros
   useEffect(() => { return () => reset() }, [reset])
+
+  useEffect(() => {
+    activeSectionIndexRef.current = null
+    setSectionChangeLabel(null)
+    if (sectionChangeTimerRef.current) {
+      clearTimeout(sectionChangeTimerRef.current)
+      sectionChangeTimerRef.current = null
+    }
+  }, [book.id])
 
   // Atualiza lastOpenedAt quando o leitor abre
   useEffect(() => {
@@ -189,19 +201,6 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     setTtsPlayerVisible(false)
   }
 
-  // Atualiza banner de fim de capítulo conforme o usuário rola até o fundo ou sai dele
-  function handleAtBottom(atBottom: boolean, hasNext: boolean, nextLabel?: string) {
-    setNextSectionLabel(hasNext ? (nextLabel?.trim() || null) : null)
-    setChapterEndState(atBottom ? (hasNext ? 'atEnd' : 'noNext') : 'idle')
-  }
-
-  // Avança para o próximo capítulo — acionado pelo banner clicável.
-  function handleChapterNext() {
-    setNextSectionLabel(null)
-    setChapterEndState('idle')
-    viewerRef.current?.next()
-  }
-
   // Salva par original/tradução no vocabulário — chamado pelo EpubViewer via ⭐
   function handleSaveVocab(sourceText: string, translatedText: string) {
     void addVocabItem({
@@ -224,7 +223,21 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   }
 
   const handleRelocate = useCallback(
-    ({ cfi: newCfi, percentage: newPercentage, tocLabel, sectionHref, fraction }: ReaderRelocatePayload) => {
+    ({ cfi: newCfi, percentage: newPercentage, tocLabel, sectionHref, fraction, sectionIndex }: ReaderRelocatePayload) => {
+      const previousSectionIndex = activeSectionIndexRef.current
+      if (
+        previousSectionIndex !== null &&
+        previousSectionIndex !== sectionIndex &&
+        tocLabel?.trim()
+      ) {
+        setSectionChangeLabel(tocLabel.trim())
+        if (sectionChangeTimerRef.current) clearTimeout(sectionChangeTimerRef.current)
+        sectionChangeTimerRef.current = setTimeout(() => {
+          setSectionChangeLabel(null)
+          sectionChangeTimerRef.current = null
+        }, 1200)
+      }
+      activeSectionIndexRef.current = sectionIndex
       setCfi(newCfi, newPercentage, tocLabel)
       saveProgress({
         cfi: newCfi,
@@ -404,7 +417,6 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
             void tts.stop().then(() => startPlay(chunks, chunkIdx))
           }}
           ttsGlobalActive={ttsPlayerVisible}
-          onAtBottom={handleAtBottom}
           onBookmarkTap={(id) => { void softDeleteBookmark(id) }}
           onBookmarkParagraph={handleParagraphBookmark}
         />
@@ -444,15 +456,13 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
         />
       </div>
 
-      {/* Banner de fim de capítulo — aparece quando usuário chega ao fundo da seção.
-          Em scroll mode ele é o caminho principal para avançar de seção.
-          Oculto durante TTS (que tem seu próprio controle de fim de capítulo). */}
-      {chapterEndState !== 'idle' && !ttsPlayerVisible && (
-        <ChapterEndBanner
-          hasNext={chapterEndState === 'atEnd'}
-          nextLabel={nextSectionLabel}
-          onNext={chapterEndState === 'atEnd' ? handleChapterNext : undefined}
-        />
+      {/* Indicador discreto de troca de seção no modo corrido. */}
+      {sectionChangeLabel && !ttsPlayerVisible && (
+        <div className="pointer-events-none absolute left-1/2 top-4 z-20 -translate-x-1/2 px-4">
+          <div className="rounded-full border border-white/10 bg-[rgba(15,7,24,0.82)] px-4 py-2 text-[12px] font-medium text-text-primary shadow-nav backdrop-blur-xl">
+            {sectionChangeLabel}
+          </div>
+        </div>
       )}
 
       {/* Mini player TTS — visível enquanto TTS está ativo (tocando ou pausado) */}
@@ -513,53 +523,6 @@ function ReaderSkeleton() {
   )
 }
 
-// Banner fixo no fundo da tela quando o usuário chega ao final de uma seção.
-// onNext definido → clicável para avançar o capítulo.
-// hasNext=false → último capítulo, sem ação disponível.
-function ChapterEndBanner({
-  hasNext,
-  nextLabel,
-  onNext,
-}: {
-  hasNext: boolean
-  nextLabel?: string | null
-  onNext?: () => void
-}) {
-  return (
-    <div
-      className="absolute bottom-0 left-0 right-0 z-20 px-4 pt-6"
-      style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
-    >
-      <div className="rounded-[28px] border border-white/10 bg-[rgba(15,7,24,0.88)] px-5 py-4 shadow-nav backdrop-blur-xl">
-        <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-purple-light/80">
-          {hasNext ? 'Fim do capítulo' : 'Fim do livro'}
-        </p>
-        {hasNext ? (
-          <>
-            <p className="mt-1 text-sm leading-6 text-text-secondary">
-              {nextLabel
-                ? `A próxima seção já está pronta: ${nextLabel}.`
-                : 'Você chegou ao fim desta seção.'}
-            </p>
-            <button
-              onClick={onNext}
-              className="mt-4 flex h-14 w-full items-center justify-center rounded-pill bg-indigo-primary px-5 text-base font-semibold text-white shadow-indigo-glow transition-all duration-150 active:scale-[0.97]"
-            >
-              {nextLabel ? `Continuar em ${nextLabel}` : 'Ir para o próximo capítulo'}
-            </button>
-          </>
-        ) : (
-          <p className="mt-1 text-sm leading-6 text-text-secondary">
-            Você terminou o livro. Use o índice ou a lista de marcadores para revisitar trechos.
-          </p>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// Toast exibido quando o TTS termina de ler todos os parágrafos do capítulo atual.
-// useEffect auto-dismiss: desaparece após 5s sem ação do usuário.
 function TtsFinishedToast({ onDismiss }: { onDismiss: () => void }) {
   useEffect(() => {
     const t = setTimeout(onDismiss, 5000)

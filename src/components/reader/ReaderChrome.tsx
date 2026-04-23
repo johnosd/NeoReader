@@ -1,5 +1,4 @@
 import { Bookmark, ChevronLeft, GraduationCap, List, Type, Volume2, VolumeX } from 'lucide-react'
-import { Badge } from '../ui'
 import type { FontSize } from './EpubViewer'
 
 interface ReaderChromeProps {
@@ -24,6 +23,11 @@ const iconCardClass =
   'flex h-14 items-center justify-center rounded-md border border-white/8 bg-white/[0.03] text-text-secondary transition-all duration-150 active:scale-[0.92] active:border-purple-primary/30 active:bg-purple-primary/15 active:text-white'
 const iconCardPrimaryClass =
   'border-purple-primary/30 bg-purple-primary/8 text-purple-light shadow-[inset_0_0_15px_rgba(123,44,191,0.2)]'
+const pvBadgeBaseClass =
+  'inline-flex items-center rounded-[3px] px-2 py-[3px] text-[10px] font-extrabold uppercase tracking-[0.08em] shadow-[0_6px_18px_rgba(0,0,0,0.24)]'
+const pvBadgeReadClass = `${pvBadgeBaseClass} bg-[linear-gradient(135deg,#2563eb,#0ea5e9)] text-white`
+const pvBadgeBookmarkClass = `${pvBadgeBaseClass} bg-[linear-gradient(135deg,#f59e0b,#fbbf24)] text-[#22130a]`
+const pvBadgeNeutralClass = `${pvBadgeBaseClass} border border-white/12 bg-transparent text-text-muted`
 
 export function ReaderChrome({
   visible,
@@ -52,6 +56,7 @@ export function ReaderChrome({
     ? 'translate-y-0 opacity-100'
     : 'translate-y-full opacity-0 pointer-events-none'
   const nextFontSize = FONT_SIZES[(FONT_SIZES.indexOf(fontSize) + 1) % FONT_SIZES.length]
+  const bookmarkLabel = `${bookmarkCount} marcador${bookmarkCount === 1 ? '' : 'es'}`
 
   return (
     <>
@@ -72,21 +77,18 @@ export function ReaderChrome({
               <ChevronLeft size={22} />
             </button>
 
-            <div className="min-w-0 flex-1">
-              <div className="mb-1 flex items-center justify-center gap-2">
-                <Badge tone="indigo" className="px-2.5 py-1 text-[10px] normal-case tracking-normal">
-                  {percentage}% lido
-                </Badge>
-                {bookmarkCount > 0 && (
-                  <Badge tone="neutral" className="px-2.5 py-1 text-[10px] normal-case tracking-normal">
-                    {bookmarkCount} marcadores
-                  </Badge>
-                )}
-              </div>
-
-              <p className="truncate text-center font-serif text-lg leading-tight text-text-primary">
+            <div className="min-w-0 flex-1 px-1">
+              <p className="truncate text-center font-serif text-[18px] font-semibold leading-tight text-text-primary">
                 {title}
               </p>
+              <div className="mt-2 flex items-center justify-center gap-1.5">
+                <span className={pvBadgeReadClass}>
+                  {percentage}% lido
+                </span>
+                <span className={bookmarkCount > 0 ? pvBadgeBookmarkClass : pvBadgeNeutralClass}>
+                  {bookmarkLabel}
+                </span>
+              </div>
             </div>
 
             <button
