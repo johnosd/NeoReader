@@ -1,22 +1,44 @@
 import { db } from './database'
-import { DEFAULT_SETTINGS, type UserSettings } from '../types/settings'
+import {
+  normalizeUserSettings,
+  type AppSettings,
+  type ReaderDefaults,
+  type UserSettings,
+} from '../types/settings'
 
-// Retorna as configurações do usuário. Se não existir ainda, retorna os defaults
-// (sem salvar — lazy initialization).
+// Retorna as configurações do usuário. Se não existir ainda, devolve os defaults
+// em memória. Registros legados são normalizados no formato novo.
 export async function getSettings(): Promise<UserSettings> {
   const record = await db.settings.toCollection().first()
-  return record ?? { ...DEFAULT_SETTINGS }
+  return normalizeUserSettings(record)
 }
 
-// Upsert parcial: atualiza campos específicos sem sobrescrever o restante.
-// Se não existir registro, cria um novo com defaults + patch.
-export async function updateSettings(patch: Partial<Omit<UserSettings, 'id'>>): Promise<void> {
+async function upsertSettings(patch: {
+  appSettings?: Partial<AppSettings>
+  readerDefaults?: Partial<ReaderDefaults>
+}): Promise<void> {
   const existing = await db.settings.toCollection().first()
-  const now = new Date()
-
-  if (existing?.id !== undefined) {
-    await db.settings.update(existing.id, { ...patch, updatedAt: now })
-  } else {
-    await db.settings.add({ ...DEFAULT_SETTINGS, ...patch, updatedAt: now })
+  const normalized = normalizeUserSettings(existing)
+  const nextSettings: UserSettings = {
+    ...(existing?.id !== undefined ? { id: existing.id } : {}),
+    appSettings: {
+      ...normalized.appSettings,
+      ...patch.appSettings,
+    },
+    readerDefaults: {
+      ...normalized.readerDefaults,
+      ...patch.readerDefaults,
+    },
+    updatedAt: new Date(),
   }
+
+  await db.settings.put(nextSettings)
+}
+
+export async function updateAppSettings(patch: Partial<AppSettings>): Promise<void> {
+  await upsertSettings({ appSettings: patch })
+}
+
+export async function updateReaderDefaults(patch: Partial<ReaderDefaults>): Promise<void> {
+  await upsertSettings({ readerDefaults: patch })
 }

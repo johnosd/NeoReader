@@ -1,5 +1,6 @@
 import { Bookmark, ChevronLeft, GraduationCap, List, Type, Volume2, VolumeX } from 'lucide-react'
 import type { FontSize } from './EpubViewer'
+import type { TtsProvider } from '../../types/tts'
 
 interface ReaderChromeProps {
   visible: boolean
@@ -8,7 +9,7 @@ interface ReaderChromeProps {
   fontSize: FontSize
   bookmarkCount: number
   ttsIsPlaying: boolean
-  ttsEngine: 'speechify' | 'native'
+  ttsEngine: TtsProvider
   onBack: () => void
   onFontSizeChange: (size: FontSize) => void
   onBookmarkList: () => void
@@ -144,8 +145,8 @@ export function ReaderChrome({
                 {ttsIsPlaying
                   ? <VolumeX size={20} strokeWidth={2.1} />
                   : <Volume2 size={20} strokeWidth={2.1} />}
-                {ttsEngine === 'speechify' && (
-                  <span className="sr-only">Speechify AI ativo</span>
+                {ttsEngine !== 'native' && (
+                  <span className="sr-only">{ttsEngine === 'speechify' ? 'Speechify AI ativo' : 'ElevenLabs AI ativo'}</span>
                 )}
               </button>
             </div>

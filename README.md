@@ -216,6 +216,9 @@ docs/
 
 ### Fase 2
 
+#### Leitor
+- [ ] Configurar idioma base por livro na tela de detalhes, usado por tradução, vocabulário e fallback de TTS nativo
+
 #### TTS
 - [ ] Seleção de voz Speechify (lista de vozes via `/v1/voices`)
 

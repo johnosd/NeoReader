@@ -2,11 +2,13 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { useSyncRef } from '../../hooks/useSyncRef'
 import type { Book, Bookmark } from '../../types/book'
 import type { View } from 'foliate-js/view.js'
+import type { FontSize, ReaderLineHeight, ReaderTheme } from '../../types/settings'
+import { getReaderLineHeightValue, getReaderThemePalette } from '../../utils/readerPreferences'
 import { getSentenceAt, escapeHtml } from '../../utils/readerUtils'
 import { areCfisEquivalent, normalizeCfi } from '../../utils/cfi'
 import { fractionToPercentage } from '../../utils/progress'
 
-export type FontSize = 'sm' | 'md' | 'lg' | 'xl'
+export type { FontSize, ReaderLineHeight, ReaderTheme } from '../../types/settings'
 
 const BOOKMARK_ICON_GUTTER = 20
 const BOOKMARK_ICON_LEFT = 4
@@ -22,9 +24,11 @@ const TRANSLATION_ICON = {
 
 function renderTranslationAction(action: 'speak' | 'bookmark' | 'save', label: string, icon: string, variant: 'default' | 'primary' = 'default'): string {
   return `
-    <button type="button" data-nr-action="${action}" class="nr-tr-action${variant === 'primary' ? ' is-primary' : ''}">
-      <span class="nr-tr-action-icon">${icon}</span>
-      <span data-nr-action-label="1">${escapeHtml(label)}</span>
+    <button type="button" data-nr-action="${action}" class="nr-tr-action nr-tr-action-${action}${variant === 'primary' ? ' is-primary' : ''}">
+      <span class="nr-tr-action-tile">
+        <span class="nr-tr-action-icon">${icon}</span>
+      </span>
+      <span class="nr-tr-action-label" data-nr-action-label="1">${escapeHtml(label)}</span>
     </button>`
 }
 
@@ -162,35 +166,83 @@ function getSentenceFromClick(ev: MouseEvent, para: Element): string {
 // CSS injetado dentro do iframe do foliate para tema escuro + tamanho de fonte.
 // Precisa usar !important porque o EPUB tem seus próprios estilos inline e no <link>.
 // As classes .nr-* são usadas para highlight e tradução inline sem conflito com o EPUB.
-function buildReaderCSS(fontSize: FontSize): string {
+function buildReaderCSS(fontSize: FontSize, lineHeight: ReaderLineHeight, readerTheme: ReaderTheme): string {
   const sizes: Record<FontSize, string> = {
     sm: '16px',
     md: '18px',
     lg: '22px',
     xl: '26px',
   }
+  const palette = getReaderThemePalette(readerTheme)
+  const lineHeightValue = getReaderLineHeightValue(lineHeight)
+  const translationSurface = readerTheme === 'dark'
+    ? '#0a0f18'
+    : readerTheme === 'sepia'
+      ? 'rgba(255, 249, 237, 0.98)'
+      : 'rgba(255, 255, 255, 0.98)'
+  const translationBorder = readerTheme === 'dark'
+    ? 'rgba(168, 85, 247, 0.24)'
+    : readerTheme === 'sepia'
+      ? 'rgba(124, 58, 237, 0.18)'
+      : 'rgba(59, 130, 246, 0.16)'
+  const translationGlow = readerTheme === 'dark'
+    ? 'rgba(168, 85, 247, 0.12)'
+    : readerTheme === 'sepia'
+      ? 'rgba(124, 58, 237, 0.08)'
+      : 'rgba(59, 130, 246, 0.08)'
+  const actionTileBaseBackground = readerTheme === 'dark' ? 'rgba(255,255,255,0.03)' : 'rgba(15,23,42,0.03)'
+  const actionTileBaseBorder = readerTheme === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.08)'
+  const actionTileBaseShadow = readerTheme === 'dark' ? '0 8px 18px rgba(0,0,0,0.22)' : '0 6px 14px rgba(15,23,42,0.10)'
+  const actionPressedBackground = readerTheme === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.08)'
+  const actionDisabledTile = readerTheme === 'dark' ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.08)'
+  const actionDisabledBorder = readerTheme === 'dark' ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.14)'
+  const actionLabelColor = readerTheme === 'dark' ? '#cbd5e1' : palette.text
+  const actionSpeakColor = readerTheme === 'dark' ? '#ff8aa0' : '#dc2659'
+  const actionSpeakBackground = readerTheme === 'dark' ? 'rgba(255, 23, 68, 0.08)' : 'rgba(255, 23, 68, 0.06)'
+  const actionSpeakBorder = readerTheme === 'dark' ? 'rgba(255, 77, 109, 0.22)' : 'rgba(220, 38, 89, 0.18)'
+  const actionBookmarkColor = readerTheme === 'dark' ? '#ffbf66' : '#d97706'
+  const actionBookmarkBackground = readerTheme === 'dark' ? 'rgba(255, 106, 0, 0.08)' : 'rgba(255, 159, 28, 0.08)'
+  const actionBookmarkBorder = readerTheme === 'dark' ? 'rgba(255, 159, 28, 0.24)' : 'rgba(217, 119, 6, 0.20)'
+  const actionSaveColor = readerTheme === 'dark' ? '#68e7a1' : '#059669'
+  const actionSaveBackground = readerTheme === 'dark' ? 'rgba(0, 200, 83, 0.08)' : 'rgba(16, 185, 129, 0.08)'
+  const actionSaveBorder = readerTheme === 'dark' ? 'rgba(61, 220, 132, 0.22)' : 'rgba(5, 150, 105, 0.18)'
+  const sentenceHighlightBackground = readerTheme === 'dark'
+    ? 'linear-gradient(180deg, rgba(0, 229, 255, 0.16), rgba(168, 85, 247, 0.12))'
+    : readerTheme === 'sepia'
+      ? 'linear-gradient(180deg, rgba(124, 58, 237, 0.12), rgba(14, 165, 233, 0.08))'
+      : 'linear-gradient(180deg, rgba(37, 99, 235, 0.14), rgba(14, 165, 233, 0.08))'
+  const sentenceHighlightBorder = readerTheme === 'dark'
+    ? 'rgba(0, 229, 255, 0.14)'
+    : readerTheme === 'sepia'
+      ? 'rgba(124, 58, 237, 0.12)'
+      : 'rgba(37, 99, 235, 0.12)'
+  const sentenceHighlightHalo = readerTheme === 'dark'
+    ? 'rgba(0, 229, 255, 0.04)'
+    : readerTheme === 'sepia'
+      ? 'rgba(124, 58, 237, 0.04)'
+      : 'rgba(37, 99, 235, 0.04)'
   return `
     html, body {
-      background-color: #0a0a0a !important;
-      color: #e8e8e8 !important;
+      background-color: ${palette.background} !important;
+      color: ${palette.text} !important;
       font-family: Georgia, Charter, serif !important;
     }
 
-    /* Aplica tema escuro + tamanho de fonte SOMENTE em elementos de texto.
+    /* Aplica tema de leitura + tamanho de fonte SOMENTE em elementos de texto.
        Evitar usar * aqui: quebraria containers de imagem que usam em/% para
        dimensionamento, e removeria backgrounds necessários para capas de livro. */
     p, li, blockquote, span, td, th, pre, code,
     div, section, article, aside, main, nav, header, footer {
       font-size: ${sizes[fontSize]} !important;
-      line-height: 1.7 !important;
-      color: #e8e8e8 !important;
+      line-height: ${lineHeightValue} !important;
+      color: ${palette.text} !important;
       background-color: transparent !important;
     }
     h1, h2, h3, h4, h5, h6 {
-      color: #ffffff !important;
+      color: ${palette.heading} !important;
       background-color: transparent !important;
     }
-    a { color: #818cf8 !important; }
+    a { color: ${palette.link} !important; }
 
     /* Imagens e SVGs: renderizam com suas dimensões naturais, sem override de cor.
        max-width garante que não vazem fora do viewport em qualquer tamanho de tela. */
@@ -201,17 +253,24 @@ function buildReaderCSS(fontSize: FontSize): string {
 
     /* Parágrafo selecionado para tradução (fallback quando frase ocupa o parágrafo todo) */
     .nr-hl {
-      background-color: rgba(99, 102, 241, 0.15) !important;
+      background-color: ${palette.paragraphHighlight} !important;
       border-radius: 3px !important;
     }
     /* Frase específica destacada dentro do parágrafo */
     .nr-hl-sentence {
-      background-color: rgba(99, 102, 241, 0.25) !important;
-      border-radius: 2px !important;
+      padding: .10em .28em !important;
+      border-radius: 8px !important;
+      color: inherit !important;
+      background: ${sentenceHighlightBackground} !important;
+      box-shadow:
+        inset 0 0 0 1px ${sentenceHighlightBorder} !important,
+        0 0 0 4px ${sentenceHighlightHalo} !important;
+      -webkit-box-decoration-break: clone !important;
+      box-decoration-break: clone !important;
     }
     /* Parágrafo sendo lido pelo TTS — fundo verde suave */
     .nr-tts-hl {
-      background-color: rgba(34, 197, 94, 0.15) !important;
+      background-color: ${palette.ttsHighlight} !important;
       border-radius: 3px !important;
     }
     /* Palavra atual no karaokê de palavras */
@@ -222,35 +281,45 @@ function buildReaderCSS(fontSize: FontSize): string {
 
     /* Bloco de tradução inline — injetado após o parágrafo selecionado */
     #nr-translation-block {
-      margin: 8px 0 14px 0 !important;
-      padding: 2px 0 0 14px !important;
-      border-left: 3px solid rgba(251, 146, 60, 0.96) !important;
-      border-radius: 0 14px 14px 0 !important;
-      background: linear-gradient(90deg, rgba(251, 146, 60, 0.22) 0%, rgba(248, 113, 113, 0.10) 30%, rgba(96, 165, 250, 0.05) 58%, rgba(96, 165, 250, 0.00) 84%) !important;
-      box-shadow: inset 10px 0 18px -16px rgba(254, 215, 170, 0.92) !important;
+      margin: 14px 0 18px 0 !important;
+      padding: 12px !important;
+      border: 1px solid ${translationBorder} !important;
+      border-radius: 18px !important;
+      background:
+        linear-gradient(180deg, rgba(0, 229, 255, 0.08), transparent 26%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 80%),
+        ${translationSurface} !important;
+      box-shadow:
+        0 0 28px ${translationGlow} !important,
+        0 18px 40px rgba(0, 0, 0, 0.20) !important;
       font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif !important;
-      color: #f8fafc !important;
+      color: ${palette.heading} !important;
+      position: relative !important;
+      overflow: hidden !important;
     }
     #nr-translation-block * {
       box-sizing: border-box !important;
       font-family: inherit !important;
-      background: transparent !important;
     }
-    .nr-tr-action-icon svg {
-      width: 13px !important;
-      height: 13px !important;
-      display: block !important;
+    #nr-translation-block::after {
+      content: '' !important;
+      position: absolute !important;
+      inset: 0 !important;
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.04), transparent 42%) !important;
+      pointer-events: none !important;
     }
     .nr-tr-panel {
       padding: 0 !important;
       border: 0 !important;
       border-radius: 0 !important;
       background: transparent !important;
+      position: relative !important;
+      z-index: 1 !important;
     }
     .nr-tr-text {
-      color: rgba(243, 232, 255, 0.96) !important;
-      font-size: 13px !important;
-      line-height: 1.62 !important;
+      color: ${palette.heading} !important;
+      font-size: 14px !important;
+      line-height: 1.58 !important;
       margin: 0 !important;
       font-style: normal !important;
       letter-spacing: 0.01em !important;
@@ -258,7 +327,7 @@ function buildReaderCSS(fontSize: FontSize): string {
     .nr-tr-loading {
       display: flex !important;
       align-items: center !important;
-      min-height: 18px !important;
+      min-height: 16px !important;
     }
     .nr-tr-spinner {
       display: inline-block !important;
@@ -272,70 +341,123 @@ function buildReaderCSS(fontSize: FontSize): string {
     }
     @keyframes nr-spin { to { transform: rotate(360deg); } }
     .nr-tr-actions {
-      display: flex !important;
-      flex-wrap: wrap !important;
+      display: grid !important;
+      grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
       gap: 6px !important;
-      margin-top: 8px !important;
+      margin-top: 12px !important;
+      position: relative !important;
+      z-index: 1 !important;
     }
-    .nr-tr-actions button {
+    .nr-tr-action {
+      appearance: none !important;
       min-height: 0 !important;
-      padding: 5px 8px 5px 6px !important;
-      border-radius: 9999px !important;
-      background: rgba(255,255,255,0.045) !important;
-      color: #f8fafc !important;
-      border: 1px solid rgba(255,255,255,0.07) !important;
+      padding: 0 !important;
+      background: transparent !important;
+      border: 0 !important;
+      border-radius: 0 !important;
       cursor: pointer !important;
-      display: inline-flex !important;
+      display: flex !important;
+      flex-direction: column !important;
       align-items: center !important;
-      justify-content: center !important;
-      gap: 6px !important;
-      transition: transform 150ms ease, background 150ms ease, border-color 150ms ease !important;
+      justify-content: flex-start !important;
+      gap: 5px !important;
+      text-align: center !important;
+      transition: transform 150ms ease, color 150ms ease !important;
+      -webkit-tap-highlight-color: transparent !important;
+      width: 100% !important;
+    }
+    .nr-tr-action-tile {
+      width: 40px !important;
+      height: 40px !important;
+      max-width: 40px !important;
+      min-width: 40px !important;
+      aspect-ratio: 1 / 1 !important;
+      border-radius: 7px !important;
+      display: grid !important;
+      place-items: center !important;
+      border: 1px solid ${actionTileBaseBorder} !important;
+      background: ${actionTileBaseBackground} !important;
+      box-shadow: ${actionTileBaseShadow} !important;
+      color: currentColor !important;
+      transition: transform 150ms ease, background 150ms ease, border-color 150ms ease, box-shadow 150ms ease !important;
+      flex-shrink: 0 !important;
     }
     .nr-tr-action-icon {
-      width: 18px !important;
-      height: 18px !important;
-      border-radius: 9999px !important;
+      width: 17px !important;
+      height: 17px !important;
       display: flex !important;
       align-items: center !important;
       justify-content: center !important;
-      background: rgba(255,255,255,0.06) !important;
       color: currentColor !important;
       flex-shrink: 0 !important;
     }
-    .nr-tr-actions button [data-nr-action-label] {
-      font-size: 9px !important;
-      font-weight: 700 !important;
-      line-height: 1 !important;
-      letter-spacing: 0.06em !important;
-      text-transform: uppercase !important;
-      opacity: 0.92 !important;
+    .nr-tr-action-icon svg {
+      width: 17px !important;
+      height: 17px !important;
+      display: block !important;
     }
-    .nr-tr-actions button:active {
-      transform: scale(0.97) !important;
-      background: rgba(255,255,255,0.09) !important;
+    .nr-tr-action-label,
+    .nr-tr-action [data-nr-action-label] {
+      display: block !important;
+      color: ${actionLabelColor} !important;
+      font-size: 9.5px !important;
+      font-weight: 500 !important;
+      line-height: 1.05 !important;
+      letter-spacing: 0.01em !important;
+      opacity: 1 !important;
+      margin-top: 0 !important;
+      max-width: 100% !important;
     }
-    .nr-tr-actions button.is-primary,
-    .nr-tr-actions button[data-nr-action="bookmark"][aria-pressed="true"] {
-      background: rgba(59, 130, 246, 0.12) !important;
-      border-color: rgba(96, 165, 250, 0.28) !important;
-      color: #f8fafc !important;
-      box-shadow: inset 0 0 12px rgba(59, 130, 246, 0.10) !important;
+    .nr-tr-action:active {
+      transform: scale(0.96) !important;
     }
-    .nr-tr-actions button.is-primary .nr-tr-action-icon,
-    .nr-tr-actions button[data-nr-action="bookmark"][aria-pressed="true"] .nr-tr-action-icon {
-      background: rgba(96, 165, 250, 0.22) !important;
+    .nr-tr-action:active .nr-tr-action-tile {
+      transform: scale(0.94) !important;
+      background: ${actionPressedBackground} !important;
     }
-    .nr-tr-actions button[data-nr-flash="1"] {
-      background: rgba(16,185,129,0.12) !important;
-      border-color: rgba(16,185,129,0.24) !important;
-      color: #d1fae5 !important;
+    .nr-tr-action-speak {
+      color: ${actionSpeakColor} !important;
     }
-    .nr-tr-actions button[data-nr-flash="1"] .nr-tr-action-icon {
-      background: rgba(16,185,129,0.18) !important;
+    .nr-tr-action-bookmark {
+      color: ${actionBookmarkColor} !important;
     }
-    .nr-tr-actions button[disabled] {
+    .nr-tr-action-save {
+      color: ${actionSaveColor} !important;
+    }
+    .nr-tr-action-speak .nr-tr-action-tile {
+      background: ${actionSpeakBackground} !important;
+      border-color: ${actionSpeakBorder} !important;
+      box-shadow: inset 0 0 15px rgba(255, 23, 68, 0.10), ${actionTileBaseShadow} !important;
+    }
+    .nr-tr-action-bookmark .nr-tr-action-tile {
+      background: ${actionBookmarkBackground} !important;
+      border-color: ${actionBookmarkBorder} !important;
+      box-shadow: inset 0 0 15px rgba(255, 159, 28, 0.10), ${actionTileBaseShadow} !important;
+    }
+    .nr-tr-action-save .nr-tr-action-tile {
+      background: ${actionSaveBackground} !important;
+      border-color: ${actionSaveBorder} !important;
+      box-shadow: inset 0 0 15px rgba(16, 185, 129, 0.10), ${actionTileBaseShadow} !important;
+    }
+    .nr-tr-action.is-primary .nr-tr-action-tile,
+    .nr-tr-action[data-nr-action="bookmark"][aria-pressed="true"] .nr-tr-action-tile {
+      background: rgba(255, 159, 28, 0.16) !important;
+      border-color: rgba(255, 159, 28, 0.32) !important;
+      box-shadow: inset 0 0 25px rgba(255, 159, 28, 0.16), ${actionTileBaseShadow} !important;
+    }
+    .nr-tr-action[data-nr-flash="1"] .nr-tr-action-tile {
+      background: rgba(16, 185, 129, 0.16) !important;
+      border-color: rgba(52, 211, 153, 0.32) !important;
+      box-shadow: inset 0 0 25px rgba(16, 185, 129, 0.16), ${actionTileBaseShadow} !important;
+    }
+    .nr-tr-action[disabled] {
       opacity: 0.65 !important;
       cursor: default !important;
+    }
+    .nr-tr-action[disabled] .nr-tr-action-tile {
+      background: ${actionDisabledTile} !important;
+      border-color: ${actionDisabledBorder} !important;
+      box-shadow: none !important;
     }
 
     /* Marcador visual de bookmark no próprio livro.
@@ -425,6 +547,8 @@ interface EpubViewerProps {
   book: Book
   bookmarks: Bookmark[]
   fontSize: FontSize
+  lineHeight: ReaderLineHeight
+  readerTheme: ReaderTheme
   savedCfi: string | null
   onRelocate: (payload: ReaderRelocatePayload) => void
   onTocReady: (toc: TocItem[]) => void
@@ -462,7 +586,7 @@ interface EpubViewerProps {
 export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
   (
     {
-      book, bookmarks, fontSize, savedCfi,
+      book, bookmarks, fontSize, lineHeight, readerTheme, savedCfi,
       onRelocate, onTocReady, onLoad, onError,
       onSaveVocab, onCenterTap, onTranslate,
       onSpeakOne, onParagraphTapForTts, ttsGlobalActive,
@@ -1168,8 +1292,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
     // Atualiza fonte sem recriar o view (efeito separado intencional)
     useEffect(() => {
-      viewRef.current?.renderer.setStyles?.(buildReaderCSS(fontSize))
-    }, [fontSize])
+      viewRef.current?.renderer?.setStyles?.(buildReaderCSS(fontSize, lineHeight, readerTheme))
+    }, [fontSize, lineHeight, readerTheme])
 
     useEffect(() => {
       renderBookmarkMarkers()
@@ -1443,7 +1567,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           view.renderer.setAttribute('margin-bottom', '28px')
           view.renderer.setAttribute('margin-left', '48px')
           view.renderer.setAttribute('animated', '')
-          view.renderer.setStyles?.(buildReaderCSS(fontSize))
+          view.renderer.setStyles?.(buildReaderCSS(fontSize, lineHeight, readerTheme))
 
           onTocReady(view.book?.toc ?? [])
 

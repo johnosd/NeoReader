@@ -1,3 +1,6 @@
+import type { FontSize, ReaderLineHeight, ReaderTheme } from './settings'
+import type { TtsProvider } from './tts'
+
 export type ReadingStatus = 'unread' | 'reading' | 'finished'
 export type BookCoverSource = 'epub-extracted' | 'manual-upload' | 'legacy-inline'
 
@@ -24,7 +27,20 @@ export interface BookCover {
 export interface BookSettings {
   id?: number
   bookId: number
-  fontSize: import('./settings').FontSize
+  fontSize?: FontSize
+  lineHeight?: ReaderLineHeight
+  readerTheme?: ReaderTheme
+  bookLanguage?: string | null
+  translationTargetLang?: string | null
+  ttsProvider?: TtsProvider
+  ttsRate?: number
+  ttsSpeechifyVoiceId?: string | null
+  ttsSpeechifyVoiceLabel?: string | null
+  ttsSpeechifyVoiceAvatarUrl?: string | null
+  ttsElevenLabsVoiceId?: string | null
+  ttsElevenLabsVoiceLabel?: string | null
+  ttsNativeVoiceKey?: string | null
+  ttsNativeVoiceLabel?: string | null
 }
 
 // Progresso de leitura — CFI é o "endereço" de um ponto no EPUB

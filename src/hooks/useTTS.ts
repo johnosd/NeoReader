@@ -1,63 +1,94 @@
 import { useEffect, useRef, useState } from 'react'
 import { TextToSpeech } from '@capacitor-community/text-to-speech'
-import { SpeechifyService } from '../services/SpeechifyService'
 import type { TtsChunk } from '../components/reader/EpubViewer'
+import { ElevenLabsService } from '../services/ElevenLabsService'
+import { NativeTtsService } from '../services/NativeTtsService'
+import { SpeechifyService } from '../services/SpeechifyService'
+import type { TtsPlaybackConfig, TtsProvider } from '../types/tts'
+import { clampTtsRate, normalizeLanguageTag } from '../utils/language'
 
-interface TTSCallbacks {
+interface UseTTSOptions extends TtsPlaybackConfig {
   onWordHighlight: (paraIdx: number, start: number, end: number) => void
   onParagraphChange: (paraIdx: number) => void
   onStop: () => void
-  // Chamado somente quando o TTS termina naturalmente (não quando o usuário para)
   onFinished?: () => void
 }
 
-export function useTTS(callbacks: TTSCallbacks) {
+async function resolveConfiguredProvider(provider: TtsProvider): Promise<TtsProvider> {
+  if (provider === 'speechify') {
+    return await SpeechifyService.isConfigured() ? 'speechify' : 'native'
+  }
+  if (provider === 'elevenlabs') {
+    return await ElevenLabsService.isConfigured() ? 'elevenlabs' : 'native'
+  }
+  return 'native'
+}
+
+export function useTTS(options: UseTTSOptions) {
   const [isPlaying, setIsPlaying] = useState(false)
-
-  // shouldStopRef: sinaliza parada imediata ao loop async sem esperar re-render
   const shouldStopRef = useRef(false)
-
-  // callbacksRef: mantém referência aos callbacks mais recentes sem recriar funções
-  const callbacksRef = useRef(callbacks)
-  useEffect(() => { callbacksRef.current = callbacks }, [callbacks])
-
-  // audioRef: rastreia o elemento <Audio> Speechify atual para que stop() possa pausá-lo
+  const callbacksRef = useRef({
+    onWordHighlight: options.onWordHighlight,
+    onParagraphChange: options.onParagraphChange,
+    onStop: options.onStop,
+    onFinished: options.onFinished,
+  })
+  const configRef = useRef<TtsPlaybackConfig>({
+    provider: options.provider,
+    language: options.language,
+    rate: options.rate,
+    speechifyVoiceId: options.speechifyVoiceId,
+    elevenLabsVoiceId: options.elevenLabsVoiceId,
+    nativeVoiceKey: options.nativeVoiceKey,
+  })
   const audioRef = useRef<HTMLAudioElement | null>(null)
-  // usingSpeechifyRef: indica se a sessão atual de TTS usa Speechify (vs nativo)
-  // — necessário porque isConfigured() virou async e stop() é síncrono
-  const usingSpeechifyRef = useRef(false)
-
-  // Último chunk tocado — permite retomar de onde parou ao reiniciar
+  const activeProviderRef = useRef<TtsProvider>('native')
   const lastChunkIdxRef = useRef(0)
-
-  // Contador de sessão: incrementado a cada play(). O loop verifica se ainda é a sessão
-  // ativa antes de continuar — impede que um loop antigo (supersedido) rode em paralelo
-  // quando stop() + play() são chamados em rápida sucessão.
   const playSessionRef = useRef(0)
+  const playbackDoneRef = useRef<Promise<void>>(Promise.resolve())
 
-  // Toca um chunk de frase via Speechify e agenda karaokê pelos speech_marks.
-  // offsetInPara: offset de char da frase dentro do parágrafo completo —
-  // necessário para que o karaokê aponte para a posição correta no innerHTML do parágrafo.
-  // session: ID da sessão de play() que chamou esta função.
-  // Após o await de rede, verifica se a sessão ainda é ativa antes de tocar o áudio —
-  // evita que uma resposta de API "atrasada" inicie um áudio depois de stop() ser chamado.
-  async function speakWithSpeechify(text: string, paraIdx: number, offsetInPara: number, apiKey: string, session: number): Promise<void> {
-    const { audioBlob, speechMarks } = await SpeechifyService.synthesize(text, apiKey)
+  useEffect(() => {
+    callbacksRef.current = {
+      onWordHighlight: options.onWordHighlight,
+      onParagraphChange: options.onParagraphChange,
+      onStop: options.onStop,
+      onFinished: options.onFinished,
+    }
+  }, [options.onFinished, options.onParagraphChange, options.onStop, options.onWordHighlight])
 
-    // Verifica logo após o await: stop() pode ter sido chamado enquanto a rede respondia.
-    // audioRef.current é null durante fetch, então stop() não conseguiu pausar nada.
+  useEffect(() => {
+    configRef.current = {
+      provider: options.provider,
+      language: options.language,
+      rate: options.rate,
+      speechifyVoiceId: options.speechifyVoiceId,
+      elevenLabsVoiceId: options.elevenLabsVoiceId,
+      nativeVoiceKey: options.nativeVoiceKey,
+    }
+  }, [
+    options.provider,
+    options.language,
+    options.rate,
+    options.speechifyVoiceId,
+    options.elevenLabsVoiceId,
+    options.nativeVoiceKey,
+  ])
+
+  async function playAudioBlob(
+    audioBlob: Blob,
+    speechMarks: Array<{ start_time: number; start: number; end: number }>,
+    paraIdx: number,
+    offsetInPara: number,
+    session: number,
+  ) {
     if (shouldStopRef.current || playSessionRef.current !== session) return
 
     const url = URL.createObjectURL(audioBlob)
     const audio = new Audio(url)
     audioRef.current = audio
-
-    // Agenda cada palavra: speech_mark.start_time indica em qual ms ela começa.
-    // Os offsets do Speechify são relativos ao chunk (frase), não ao parágrafo inteiro.
-    // Somamos offsetInPara para obter a posição correta no innerHTML do parágrafo.
-    const timers = speechMarks.map(mark =>
+    const timers = speechMarks.map((mark) =>
       setTimeout(() => {
-        if (!shouldStopRef.current) {
+        if (!shouldStopRef.current && playSessionRef.current === session) {
           callbacksRef.current.onWordHighlight(paraIdx, offsetInPara + mark.start, offsetInPara + mark.end)
         }
       }, mark.start_time),
@@ -67,12 +98,10 @@ export function useTTS(callbacks: TTSCallbacks) {
       const cleanup = () => {
         timers.forEach(clearTimeout)
         URL.revokeObjectURL(url)
-        audioRef.current = null
+        if (audioRef.current === audio) audioRef.current = null
         resolve()
       }
-      // 'ended': parágrafo terminou naturalmente → avança para o próximo
-      // 'pause': stop() chamou audio.pause() → resolve para o loop checar shouldStopRef
-      // 'error': falha no playback → não trava o audiobook
+
       audio.addEventListener('ended', cleanup, { once: true })
       audio.addEventListener('pause', cleanup, { once: true })
       audio.addEventListener('error', cleanup, { once: true })
@@ -80,59 +109,94 @@ export function useTTS(callbacks: TTSCallbacks) {
     })
   }
 
-  // Inicia audiobook contínuo a partir de startIdx (índice de chunk, não de parágrafo).
-  // Cada chunk é uma frase ou grupo de frases curtas — menor latência vs parágrafo inteiro.
-  // Modo Speechify: speakWithSpeechify por chunk (voz neural + karaokê por timers)
-  // Modo fallback: TextToSpeech.speak() + onRangeStart nativo
+  async function speakWithSpeechify(text: string, paraIdx: number, offsetInPara: number, session: number) {
+    const config = configRef.current
+    const apiKey = await SpeechifyService.getApiKey()
+    if (!apiKey) throw new Error('Speechify not configured')
+    const result = await SpeechifyService.synthesize(text, {
+      apiKey,
+      language: config.language,
+      rate: config.rate,
+      voiceId: config.speechifyVoiceId,
+    })
+    await playAudioBlob(result.audioBlob, result.speechMarks, paraIdx, offsetInPara, session)
+  }
+
+  async function speakWithElevenLabs(text: string, paraIdx: number, offsetInPara: number, session: number) {
+    const config = configRef.current
+    const apiKey = await ElevenLabsService.getApiKey()
+    if (!apiKey) throw new Error('ElevenLabs not configured')
+    const voiceId = config.elevenLabsVoiceId
+    if (!voiceId) throw new Error('ElevenLabs voice missing')
+    const result = await ElevenLabsService.synthesize(text, {
+      apiKey,
+      voiceId,
+      language: config.language,
+      rate: config.rate,
+    })
+    await playAudioBlob(result.audioBlob, result.speechMarks, paraIdx, offsetInPara, session)
+  }
+
+  async function speakWithNative(text: string, session: number) {
+    const config = configRef.current
+    const language = normalizeLanguageTag(config.language)
+    const rate = clampTtsRate(config.rate)
+    const voice = await NativeTtsService.resolveVoiceIndex(config.nativeVoiceKey, language)
+    await TextToSpeech.speak({
+      text,
+      lang: language,
+      rate,
+      ...(voice !== undefined ? { voice } : {}),
+    })
+    if (shouldStopRef.current || playSessionRef.current !== session) return
+  }
+
   async function play(chunks: TtsChunk[], startIdx = 0) {
-    // Gera ID único para esta invocação. Loops anteriores que ainda estejam
-    // aguardando uma Promise async vão perceber que não são mais a sessão ativa.
     const mySession = ++playSessionRef.current
+    let resolvePlaybackDone = () => {}
+    playbackDoneRef.current = new Promise<void>((resolve) => {
+      resolvePlaybackDone = resolve
+    })
 
     shouldStopRef.current = false
     setIsPlaying(true)
 
-    // currentChunkRef: chunk sendo tocado agora — lido pelo listener nativo de onRangeStart
+    const resolvedProvider = await resolveConfiguredProvider(configRef.current.provider)
+    activeProviderRef.current = resolvedProvider
     const currentChunkRef = { current: chunks[startIdx] ?? chunks[0] }
-
-    // Resolve a key uma vez para toda a sessão — evita N chamadas ao IndexedDB
-    const apiKey = await SpeechifyService.getApiKey()
-    usingSpeechifyRef.current = Boolean(apiKey)
-
-    // Listener onRangeStart só é registrado no fallback nativo.
-    // Soma offsetInPara para que o karaokê aponte para a posição correta no parágrafo.
     let nativeHandle: Awaited<ReturnType<typeof TextToSpeech.addListener>> | null = null
-    if (!apiKey) {
+
+    if (resolvedProvider === 'native') {
       nativeHandle = await TextToSpeech.addListener('onRangeStart', ({ start, end }) => {
-        const c = currentChunkRef.current
-        callbacksRef.current.onWordHighlight(c.paraIdx, c.offsetInPara + start, c.offsetInPara + end)
+        if (shouldStopRef.current || playSessionRef.current !== mySession) return
+        const chunk = currentChunkRef.current
+        callbacksRef.current.onWordHighlight(chunk.paraIdx, chunk.offsetInPara + start, chunk.offsetInPara + end)
       })
     }
 
     try {
-      for (let i = startIdx; i < chunks.length; i++) {
-        // Para se o usuário pediu stop OU se uma nova sessão de play() foi iniciada
+      for (let index = startIdx; index < chunks.length; index += 1) {
         if (shouldStopRef.current || playSessionRef.current !== mySession) break
-        const chunk = chunks[i]
-        currentChunkRef.current = chunk
-        lastChunkIdxRef.current = i
 
-        // onParagraphChange só dispara quando troca de parágrafo (não a cada frase)
-        if (i === startIdx || chunks[i - 1].paraIdx !== chunk.paraIdx) {
+        const chunk = chunks[index]
+        currentChunkRef.current = chunk
+        lastChunkIdxRef.current = index
+
+        if (index === startIdx || chunks[index - 1].paraIdx !== chunk.paraIdx) {
           callbacksRef.current.onParagraphChange(chunk.paraIdx)
         }
 
-        if (apiKey) {
-          await speakWithSpeechify(chunk.text, chunk.paraIdx, chunk.offsetInPara, apiKey, mySession)
+        if (resolvedProvider === 'speechify') {
+          await speakWithSpeechify(chunk.text, chunk.paraIdx, chunk.offsetInPara, mySession)
+        } else if (resolvedProvider === 'elevenlabs') {
+          await speakWithElevenLabs(chunk.text, chunk.paraIdx, chunk.offsetInPara, mySession)
         } else {
-          await TextToSpeech.speak({ text: chunk.text, lang: 'en-US', rate: 1.0 })
+          await speakWithNative(chunk.text, mySession)
         }
       }
     } finally {
+      resolvePlaybackDone()
       await nativeHandle?.remove()
-      // Só atualiza estado da UI se esta sessão ainda for a ativa.
-      // Se uma nova sessão já começou, deixa ela gerenciar isPlaying e os callbacks —
-      // chamar onStop() aqui removeria os highlights da nova sessão.
       if (playSessionRef.current === mySession) {
         setIsPlaying(false)
         if (!shouldStopRef.current) {
@@ -145,39 +209,55 @@ export function useTTS(callbacks: TTSCallbacks) {
   }
 
   async function stop() {
+    const playbackDone = playbackDoneRef.current
     shouldStopRef.current = true
-    if (usingSpeechifyRef.current) {
-      // pause() dispara o evento 'pause' → resolve a Promise em speakWithSpeechify
-      // → o loop em play() verifica shouldStopRef e encerra
-      audioRef.current?.pause()
-    } else {
+
+    if (activeProviderRef.current === 'native') {
       await TextToSpeech.stop()
+    } else {
+      audioRef.current?.pause()
     }
+
+    await playbackDone
   }
 
-  // Lê um único parágrafo (botão 🔊 no bloco de tradução injetado)
   async function speakOne(text: string) {
-    // Reseta flag de stop — sem isso, se o audiobook foi parado antes, speakWithSpeechify
-    // retornaria imediatamente após o fetch sem tocar o áudio
+    await stop()
+    const mySession = ++playSessionRef.current
+    let resolvePlaybackDone = () => {}
+    playbackDoneRef.current = new Promise<void>((resolve) => {
+      resolvePlaybackDone = resolve
+    })
+
     shouldStopRef.current = false
-    const apiKey = await SpeechifyService.getApiKey()
-    if (apiKey) {
-      // speakOne usa a sessão atual — não conflita com o loop do audiobook
-      await speakWithSpeechify(text, 0, 0, apiKey, playSessionRef.current)
-    } else {
-      const handle = await TextToSpeech.addListener('onRangeStart', ({ start, end }) => {
+    const resolvedProvider = await resolveConfiguredProvider(configRef.current.provider)
+    activeProviderRef.current = resolvedProvider
+
+    let nativeHandle: Awaited<ReturnType<typeof TextToSpeech.addListener>> | null = null
+    if (resolvedProvider === 'native') {
+      nativeHandle = await TextToSpeech.addListener('onRangeStart', ({ start, end }) => {
+        if (shouldStopRef.current || playSessionRef.current !== mySession) return
         callbacksRef.current.onWordHighlight(0, start, end)
       })
-      try {
-        await TextToSpeech.speak({ text, lang: 'en-US', rate: 1.0 })
-      } finally {
-        await handle.remove()
+    }
+
+    try {
+      if (resolvedProvider === 'speechify') {
+        await speakWithSpeechify(text, 0, 0, mySession)
+      } else if (resolvedProvider === 'elevenlabs') {
+        await speakWithElevenLabs(text, 0, 0, mySession)
+      } else {
+        await speakWithNative(text, mySession)
+      }
+    } finally {
+      resolvePlaybackDone()
+      await nativeHandle?.remove()
+      if (playSessionRef.current === mySession) {
+        callbacksRef.current.onStop()
       }
     }
-    callbacksRef.current.onStop()
   }
 
-  // Reseta a posição para início — usado pelo botão ⏹ Stop do mini player
   function resetPosition() {
     lastChunkIdxRef.current = 0
   }

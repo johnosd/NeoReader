@@ -22,11 +22,21 @@ import { getBookSettings, updateBookSettings } from '../db/bookSettings'
 import { db } from '../db/database'
 import { useTTS } from '../hooks/useTTS'
 import { TtsMiniPlayer } from '../components/reader/TtsMiniPlayer'
-import { SpeechifyService } from '../services/SpeechifyService'
 import { translate } from '../services/TranslationService'
+import { EpubService } from '../services/EpubService'
 import type { Book } from '../types/book'
-import type { FontSize } from '../types/settings'
+import type { FontSize, ReaderLineHeight, ReaderTheme } from '../types/settings'
+import type { TtsPlaybackConfig, TtsProvider } from '../types/tts'
 import { areCfisEquivalent, normalizeCfi } from '../utils/cfi'
+import { getReaderThemePalette } from '../utils/readerPreferences'
+import { clampTtsRate, normalizeLanguageTag } from '../utils/language'
+
+function normalizeReaderHref(href?: string | null) {
+  if (!href) return null
+  const [withoutHash] = href.split('#')
+  const [withoutQuery] = withoutHash.split('?')
+  return withoutQuery || null
+}
 
 interface ReaderScreenProps {
   book: Book
@@ -40,6 +50,8 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   const pendingBookmarkKeysRef = useRef(new Set<string>())
   const activeSectionIndexRef = useRef<number | null>(null)
   const sectionChangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingStartHrefRef = useRef<string | null>(startHref ?? null)
+  const initialStartNavigationTriggeredRef = useRef(false)
 
   // ── Estado local ────────────────────────────────────────────────────────────
   // Começa visível: dá orientação inicial ao usuário, depois some automaticamente (auto-hide).
@@ -50,8 +62,16 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   const [tocOpen, setTocOpen] = useState(false)
   const [bookmarkSheetOpen, setBookmarkSheetOpen] = useState(false)
   const [fontSize, setFontSize] = useState<FontSize>('md')
-  const [targetLang, setTargetLang] = useState('pt-BR')
-  const [ttsEngine, setTtsEngine] = useState<'speechify' | 'native'>('native')
+  const [lineHeight, setLineHeight] = useState<ReaderLineHeight>('comfortable')
+  const [readerTheme, setReaderTheme] = useState<ReaderTheme>('dark')
+  const [bookLanguage, setBookLanguage] = useState('en')
+  const [translationTargetLang, setTranslationTargetLang] = useState('pt-BR')
+  const [ttsConfig, setTtsConfig] = useState<TtsPlaybackConfig>({
+    provider: 'native',
+    language: 'en',
+    rate: 1,
+  })
+  const [ttsEngine, setTtsEngine] = useState<TtsProvider>('native')
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [sectionChangeLabel, setSectionChangeLabel] = useState<string | null>(null)
@@ -102,24 +122,61 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     }
   }, [book.id])
 
+  useEffect(() => {
+    pendingStartHrefRef.current = startHref ?? null
+    initialStartNavigationTriggeredRef.current = false
+  }, [book.id, startHref])
+
   // Atualiza lastOpenedAt quando o leitor abre
   useEffect(() => {
     if (book.id !== undefined) updateLastOpened(book.id)
   }, [book.id])
 
+  function resolveBookLanguage(candidate?: string | null): string {
+    return normalizeLanguageTag(candidate, 'en')
+  }
+
+  function resolveTtsProvider(selectedProvider: TtsProvider, settings: Awaited<ReturnType<typeof getSettings>>['appSettings']): TtsProvider {
+    if (selectedProvider === 'speechify') {
+      return settings.speechifyApiKey ? 'speechify' : 'native'
+    }
+    if (selectedProvider === 'elevenlabs') {
+      return settings.elevenLabsApiKey ? 'elevenlabs' : 'native'
+    }
+    return 'native'
+  }
+
   // Carrega preferências: fonte por livro (override) > fonte global > padrão
   useEffect(() => {
-    void Promise.all([getSettings(), getBookSettings(book.id!)]).then(([s, bs]) => {
-      setFontSize(bs.fontSize ?? s.defaultFontSize)
-      setTargetLang(s.translationTargetLang)
-      void SpeechifyService.isConfigured().then((ok) =>
-        setTtsEngine(ok ? 'speechify' : 'native')
-      )
+    void Promise.all([getSettings(), getBookSettings(book.id!), EpubService.parseExtras(book.fileBlob)]).then(([s, bs, extras]) => {
+      const resolvedBookLanguage = resolveBookLanguage(bs.bookLanguage ?? extras.language)
+      const selectedProvider = bs.ttsProvider ?? 'speechify'
+
+      setFontSize(bs.fontSize ?? s.readerDefaults.defaultFontSize)
+      setLineHeight(bs.lineHeight ?? s.readerDefaults.lineHeight)
+      setReaderTheme(bs.readerTheme ?? s.readerDefaults.readerTheme)
+      setBookLanguage(resolvedBookLanguage)
+      setTranslationTargetLang(bs.translationTargetLang ?? s.appSettings.translationTargetLang)
+      setTtsConfig({
+        provider: selectedProvider,
+        language: resolvedBookLanguage,
+        rate: clampTtsRate(bs.ttsRate ?? 1),
+        speechifyVoiceId: bs.ttsSpeechifyVoiceId,
+        elevenLabsVoiceId: bs.ttsElevenLabsVoiceId,
+        nativeVoiceKey: bs.ttsNativeVoiceKey,
+      })
+      setTtsEngine(resolveTtsProvider(selectedProvider, s.appSettings))
     })
   }, [book.id])
 
   // TTS: gerencia estado e sequenciamento de audiobook
   const tts = useTTS({
+    provider: ttsConfig.provider,
+    language: ttsConfig.language,
+    rate: ttsConfig.rate,
+    speechifyVoiceId: ttsConfig.speechifyVoiceId,
+    elevenLabsVoiceId: ttsConfig.elevenLabsVoiceId,
+    nativeVoiceKey: ttsConfig.nativeVoiceKey,
     onWordHighlight: (paraIdx, start, end) => {
       viewerRef.current?.highlightTts(paraIdx, start, end)
     },
@@ -188,10 +245,22 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   // ⏭ Avança para o início do próximo parágrafo
   function handleTtsNext() {
     const chunks = getTtsChunks()
+    if (chunks.length === 0) return
+
     const currIdx = tts.lastChunkIdx.current
     const currParaIdx = chunks[currIdx]?.paraIdx ?? 0
     const nextIdx = chunks.findIndex((c, i) => i > currIdx && c.paraIdx > currParaIdx)
-    void tts.stop().then(() => startPlay(chunks, nextIdx >= 0 ? nextIdx : chunks.length - 1))
+
+    if (nextIdx < 0) {
+      void tts.stop().then(() => {
+        tts.resetPosition()
+        setTtsPlayerVisible(false)
+        setTtsFinished(true)
+      })
+      return
+    }
+
+    void tts.stop().then(() => startPlay(chunks, nextIdx))
   }
 
   // ⏹ Encerra TTS, esconde player e reseta posição (próximo play começa do visível)
@@ -208,8 +277,8 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
       bookTitle: book.title,
       sourceText,
       translatedText,
-      sourceLang: 'en',
-      targetLang,
+      sourceLang: bookLanguage,
+      targetLang: translationTargetLang,
       createdAt: new Date(),
     })
   }
@@ -217,13 +286,26 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   // Recebe o texto da frase tocada do EpubViewer, injeta bloco inline e dispara a tradução
   function handleTranslate(sourceText: string) {
     viewerRef.current?.showTranslationLoading()
-    translate(sourceText, 'en', targetLang)
+    translate(sourceText, bookLanguage, translationTargetLang)
       .then((result) => viewerRef.current?.injectTranslation(result))
       .catch(() => viewerRef.current?.injectTranslation('Erro ao traduzir.'))
   }
 
   const handleRelocate = useCallback(
     ({ cfi: newCfi, percentage: newPercentage, tocLabel, sectionHref, fraction, sectionIndex }: ReaderRelocatePayload) => {
+      const pendingStartHref = pendingStartHrefRef.current
+      if (pendingStartHref) {
+        if (!initialStartNavigationTriggeredRef.current) return
+
+        const normalizedExpectedHref = normalizeReaderHref(pendingStartHref)
+        const normalizedSectionHref = normalizeReaderHref(sectionHref)
+        if (!normalizedExpectedHref || !normalizedSectionHref || normalizedSectionHref !== normalizedExpectedHref) {
+          return
+        }
+
+        pendingStartHrefRef.current = null
+      }
+
       const previousSectionIndex = activeSectionIndexRef.current
       if (
         previousSectionIndex !== null &&
@@ -387,8 +469,10 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   // Aguarda o load do IndexedDB antes de montar o EpubViewer
   if (!initialLoadDone) return <ReaderSkeleton />
 
+  const readerPalette = getReaderThemePalette(readerTheme)
+
   return (
-    <div className="fixed inset-0 bg-bg-reader">
+    <div className="fixed inset-0" style={{ backgroundColor: readerPalette.background }}>
       {isLoading && <ReaderSkeleton />}
 
       <div className="absolute inset-0">
@@ -397,13 +481,20 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
           book={book}
           bookmarks={activeBookmarks}
           fontSize={fontSize}
-          savedCfi={savedCfi}
+          lineHeight={lineHeight}
+          readerTheme={readerTheme}
+          savedCfi={startHref ? null : savedCfi}
           onRelocate={handleRelocate}
           onTocReady={setToc}
           onLoad={() => {
             setIsLoading(false)
             // Navega para o capítulo selecionado na tela de detalhes (se houver)
-            if (startHref) viewerRef.current?.goTo(startHref)
+            if (startHref && !initialStartNavigationTriggeredRef.current) {
+              initialStartNavigationTriggeredRef.current = true
+              viewerRef.current?.goTo(startHref)
+            } else {
+              pendingStartHrefRef.current = null
+            }
           }}
           onError={(err) => { setIsLoading(false); setError(err.message) }}
           onSaveVocab={handleSaveVocab}

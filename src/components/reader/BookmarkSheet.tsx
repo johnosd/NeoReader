@@ -12,24 +12,34 @@ interface BookmarkSheetProps {
 }
 
 const COLORS = [
-  { key: 'indigo', hex: '#6366f1', label: 'Índigo' },
+  { key: 'indigo', hex: '#6366f1', label: 'Indigo' },
   { key: 'emerald', hex: '#22c55e', label: 'Verde' },
-  { key: 'amber', hex: '#f59e0b', label: 'Âmbar' },
+  { key: 'amber', hex: '#f59e0b', label: 'Ambar' },
   { key: 'rose', hex: '#f43f5e', label: 'Rosa' },
 ]
 
 function colorHex(color: string | undefined): string {
-  return COLORS.find(c => c.key === color)?.hex ?? '#6366f1'
+  return COLORS.find((c) => c.key === color)?.hex ?? '#6366f1'
 }
 
 function formatDate(date: Date | string): string {
   return new Intl.DateTimeFormat('pt-BR', {
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
   }).format(new Date(date))
 }
 
-export function BookmarkSheet({ open, bookmarks, onSelect, onDelete, onColorChange, onClose }: BookmarkSheetProps) {
+export function BookmarkSheet({
+  open,
+  bookmarks,
+  onSelect,
+  onDelete,
+  onColorChange,
+  onClose,
+}: BookmarkSheetProps) {
   const sorted = [...bookmarks].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   )
@@ -44,7 +54,7 @@ export function BookmarkSheet({ open, bookmarks, onSelect, onDelete, onColorChan
       {sorted.length === 0 ? (
         <EmptyState
           title="Nenhum marcador ainda"
-          description="Selecione um parágrafo durante a leitura e use Marcar para salvar esse trecho."
+          description="Selecione um paragrafo durante a leitura e use Marcar para salvar esse trecho."
         />
       ) : (
         <div className="space-y-3">
@@ -55,7 +65,7 @@ export function BookmarkSheet({ open, bookmarks, onSelect, onDelete, onColorChan
                   Trechos salvos
                 </p>
                 <p className="mt-1 text-sm leading-6 text-text-muted">
-                  Abra qualquer marcador para voltar exatamente ao parágrafo salvo.
+                  Abra qualquer marcador para voltar exatamente ao paragrafo salvo.
                 </p>
               </div>
               <Badge tone="indigo" className="shrink-0 px-2.5 py-1 text-[10px] normal-case tracking-normal">
@@ -86,7 +96,7 @@ export function BookmarkSheet({ open, bookmarks, onSelect, onDelete, onColorChan
                         {bookmark.label}
                       </p>
                       <p className="mt-1 text-sm leading-6 text-text-primary line-clamp-2">
-                        {bookmark.snippet || 'Trecho salvo deste capítulo.'}
+                        {bookmark.snippet || 'Trecho salvo deste capitulo.'}
                       </p>
                     </div>
 

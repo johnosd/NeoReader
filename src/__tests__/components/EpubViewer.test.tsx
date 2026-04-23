@@ -31,6 +31,8 @@ function defaultProps(overrides: Record<string, unknown> = {}) {
     book: mockBook,
     bookmarks: [],
     fontSize: 'md' as const,
+    lineHeight: 'comfortable' as const,
+    readerTheme: 'dark' as const,
     savedCfi: null,
     onRelocate: vi.fn(),
     onTocReady: vi.fn(),
@@ -715,5 +717,32 @@ describe('EpubViewer — chapter auto-advance', () => {
     }))
     const prevToEndTarget = foliateEl.renderer.goTo.mock.calls.at(-1)?.[0] as { anchor?: (doc: Document) => number }
     expect(prevToEndTarget.anchor?.(firstDoc)).toBe(1)
+  })
+})
+
+describe('EpubViewer - bloco inline de traducao', () => {
+  it('renderiza loading minimalista e remove copy de sucesso do bloco inline', async () => {
+    const { viewerRef, foliateEl } = await renderViewer()
+    const fakeDoc = makeFakeDoc(['Chapter paragraph for translation.'])
+    const para = fakeDoc.querySelector('p') as HTMLElement
+
+    loadSection(foliateEl, fakeDoc, 1)
+    click(para)
+
+    act(() => { viewerRef.current?.showTranslationLoading() })
+
+    let block = fakeDoc.getElementById('nr-translation-block')
+    expect(block?.querySelector('.nr-tr-spinner')).not.toBeNull()
+    expect(block?.textContent).not.toContain('Traduzindo')
+    expect(block?.textContent).not.toContain('Preparando a traducao...')
+    expect(block?.textContent?.trim()).toBe('')
+
+    act(() => { viewerRef.current?.injectTranslation('Texto traduzido') })
+
+    block = fakeDoc.getElementById('nr-translation-block')
+    expect(block?.textContent).not.toContain('Traducao pronta')
+    expect(block?.querySelector('[data-nr-action="speak"]')).not.toBeNull()
+    expect(block?.querySelector('[data-nr-action="bookmark"]')).not.toBeNull()
+    expect(block?.querySelector('[data-nr-action="save"]')).not.toBeNull()
   })
 })
