@@ -21,7 +21,6 @@ const mockBook: Book = {
   id: 1,
   title: 'Test Book',
   author: 'Author',
-  coverBlob: null,
   fileBlob: new Blob([''], { type: 'application/epub+zip' }),
   addedAt: new Date(),
   lastOpenedAt: null,
@@ -44,7 +43,6 @@ function defaultProps(overrides: Record<string, unknown> = {}) {
     onBookmarkParagraph: vi.fn(),
     onParagraphTapForTts: vi.fn(),
     ttsGlobalActive: false,
-    onAtBottom: vi.fn(),
     onBookmarkTap: vi.fn(),
     ...overrides,
   }
@@ -123,7 +121,9 @@ function injectFakeWindow(doc: Document, scrollY: number, innerHeight = 800, scr
 describe('EpubViewer — abertura do livro', () => {
   it('chama onLoad quando a primeira seção estabiliza', async () => {
     const { props, foliateEl } = await renderViewer()
-    loadSection(foliateEl, makeFakeDoc(), 0)
+    const fakeDoc = makeFakeDoc()
+    injectFakeWindow(fakeDoc, 0)
+    loadSection(foliateEl, fakeDoc, 0)
     expect(props.onLoad).toHaveBeenCalledOnce()
   })
 
@@ -236,7 +236,9 @@ describe('EpubViewer — posição visível', () => {
     expect(viewerRef.current?.getVisibleLocation()).toEqual({
       cfi: 'epubcfi(/6/8!/4/2/10/2/1:0)',
       tocLabel: 'What This Book Is About',
-      percentage: 60,
+      sectionHref: 'preface.xhtml',
+      fraction: 0.42,
+      percentage: 42,
     })
     expect(viewerRef.current?.getFirstVisibleParagraphIndex()).toBe(1)
     expect(secondPara.getAttribute('data-nr-para-cfi')).toBe('epubcfi(/6/8!/4/2/10/2/1:0)')
@@ -382,7 +384,7 @@ describe('EpubViewer — posição visível', () => {
     act(() => { viewerRef.current?.injectTranslation('Tradução') })
 
     const bookmarkBtn = fakeDoc.getElementById('nr-translation-block')?.querySelector('[data-nr-action="bookmark"]') as HTMLElement | null
-    expect(bookmarkBtn?.textContent).toBe('Marcar')
+    expect(bookmarkBtn?.textContent?.trim()).toBe('Marcar')
 
     click(bookmarkBtn!)
 
@@ -464,27 +466,75 @@ describe('EpubViewer — posição visível', () => {
     act(() => { viewerRef.current?.injectTranslation('Tradução') })
 
     const bookmarkBtn = fakeDoc.getElementById('nr-translation-block')?.querySelector('[data-nr-action="bookmark"]') as HTMLElement | null
-    expect(bookmarkBtn?.textContent).toBe('Remover marcador')
+    expect(bookmarkBtn?.textContent?.trim()).toBe('Remover')
   })
 
-  it('usa relocate para sinalizar fim da seção quando o progresso chega ao final', async () => {
-    const onAtBottom = vi.fn()
-    const { foliateEl } = await renderViewer({ onAtBottom })
+  it('atravessa a fronteira entre seções sem clique extra e usa relocate.index como seção ativa', async () => {
+    const onRelocate = vi.fn()
+    const onTranslate = vi.fn()
+    const onBookmarkParagraph = vi.fn()
+    const { viewerRef, foliateEl } = await renderViewer({ onRelocate, onTranslate, onBookmarkParagraph })
     foliateEl.getSectionFractions.mockReturnValue([0, 0.2, 0.4, 1])
+    foliateEl.getCFI.mockImplementation((index: number) => (
+      index === 1
+        ? 'epubcfi(/6/10!/4/2/1:0)'
+        : 'epubcfi(/6/8!/4/2/1:0)'
+    ))
+    foliateEl.getProgressOf.mockImplementation((index: number) => ({
+      tocItem: {
+        label: index === 1 ? 'Chapter 2' : 'Chapter 1',
+        href: index === 1 ? 'chapter-2.xhtml' : 'chapter-1.xhtml',
+      },
+    }))
 
-    const fakeDoc = makeFakeDoc(['Chapter content.'])
-    loadSection(foliateEl, fakeDoc, 1)
+    const firstDoc = makeFakeDoc(['Chapter 1 paragraph.'])
+    const secondDoc = makeFakeDoc(['Chapter 2 active paragraph.'])
+    const secondPara = secondDoc.querySelector('p') as HTMLElement
+    const secondRange = secondDoc.createRange()
+    secondRange.selectNodeContents(secondPara)
+    secondRange.collapse(true)
+
+    loadSection(foliateEl, firstDoc, 0)
+    loadSection(foliateEl, secondDoc, 1)
 
     act(() => {
       foliateEl.fireFoliate('relocate', {
-        cfi: 'epubcfi(/6/8!/4/2/1:0)',
-        fraction: 0.39,
+        cfi: 'epubcfi(/6/10!/4/2/1:0)',
+        fraction: 0.32,
         tocItem: { label: 'Chapter 2', href: 'chapter-2.xhtml' },
         section: { current: 1, total: 3 },
+        index: 1,
+        range: secondRange,
       })
     })
 
-    expect(onAtBottom).toHaveBeenLastCalledWith(true, true, 'Chapter 3')
+    expect(onRelocate).toHaveBeenLastCalledWith(expect.objectContaining({
+      cfi: 'epubcfi(/6/10!/4/2/1:0)',
+      percentage: 32,
+      sectionIndex: 1,
+      tocLabel: 'Chapter 2',
+      sectionHref: 'chapter-2.xhtml',
+    }))
+    expect(viewerRef.current?.getVisibleLocation()).toEqual({
+      cfi: 'epubcfi(/6/10!/4/2/1:0)',
+      tocLabel: 'Chapter 2',
+      sectionHref: 'chapter-2.xhtml',
+      fraction: 0.32,
+      percentage: 32,
+    })
+
+    click(secondPara)
+    expect(onTranslate).toHaveBeenCalledOnce()
+
+    act(() => { viewerRef.current?.showTranslationLoading() })
+    act(() => { viewerRef.current?.injectTranslation('Traducao') })
+    const bookmarkBtn = secondDoc.getElementById('nr-translation-block')?.querySelector('[data-nr-action="bookmark"]') as HTMLElement | null
+    click(bookmarkBtn!)
+
+    expect(onBookmarkParagraph).toHaveBeenCalledWith(expect.objectContaining({
+      cfi: 'epubcfi(/6/10!/4/2/1:0)',
+      label: 'Chapter 2',
+    }))
   })
 })
 
@@ -551,10 +601,19 @@ describe('EpubViewer — chapter auto-advance', () => {
     injectFakeWindow(titleOnlyDoc, 0, 800, 400)
 
     act(() => { void viewerRef.current?.next() })
-    expect(foliateEl.renderer.nextSection).toHaveBeenCalledTimes(1)
+    expect(foliateEl.renderer.goTo).toHaveBeenCalledTimes(1)
+    expect(foliateEl.renderer.goTo).toHaveBeenLastCalledWith(expect.objectContaining({
+      index: 1,
+      anchor: expect.any(Function),
+    }))
 
     loadSection(foliateEl, titleOnlyDoc, 1)
-    expect(foliateEl.renderer.nextSection).toHaveBeenCalledTimes(2)
+    await act(async () => { await Promise.resolve() })
+    expect(foliateEl.renderer.goTo).toHaveBeenCalledTimes(2)
+    expect(foliateEl.renderer.goTo).toHaveBeenLastCalledWith(expect.objectContaining({
+      index: 2,
+      anchor: expect.any(Function),
+    }))
   })
 
   it('não pula automaticamente quando a nova seção já tem conteúdo de leitura', async () => {
@@ -572,10 +631,11 @@ describe('EpubViewer — chapter auto-advance', () => {
     injectFakeWindow(contentDoc, 0, 800, 1200)
 
     act(() => { void viewerRef.current?.next() })
-    expect(foliateEl.renderer.nextSection).toHaveBeenCalledTimes(1)
+    expect(foliateEl.renderer.goTo).toHaveBeenCalledTimes(1)
 
     loadSection(foliateEl, contentDoc, 1)
-    expect(foliateEl.renderer.nextSection).toHaveBeenCalledTimes(1)
+    await act(async () => { await Promise.resolve() })
+    expect(foliateEl.renderer.goTo).toHaveBeenCalledTimes(1)
   })
 
   it('pula páginas de parte mesmo quando elas têm um parágrafo curto extra', async () => {
@@ -593,10 +653,15 @@ describe('EpubViewer — chapter auto-advance', () => {
     injectFakeWindow(partDoc, 0, 800, 400)
 
     act(() => { void viewerRef.current?.next() })
-    expect(foliateEl.renderer.nextSection).toHaveBeenCalledTimes(1)
+    expect(foliateEl.renderer.goTo).toHaveBeenCalledTimes(1)
 
     loadSection(foliateEl, partDoc, 1)
-    expect(foliateEl.renderer.nextSection).toHaveBeenCalledTimes(2)
+    await act(async () => { await Promise.resolve() })
+    expect(foliateEl.renderer.goTo).toHaveBeenCalledTimes(2)
+    expect(foliateEl.renderer.goTo).toHaveBeenLastCalledWith(expect.objectContaining({
+      index: 2,
+      anchor: expect.any(Function),
+    }))
   })
 
   it('pula página de parte ao navegar para ela via índice (href)', async () => {
@@ -617,23 +682,38 @@ describe('EpubViewer — chapter auto-advance', () => {
     expect(foliateEl.goTo).toHaveBeenCalledWith('part-1.xhtml')
 
     loadSection(foliateEl, partDoc, 1)
-    expect(foliateEl.renderer.nextSection).toHaveBeenCalledTimes(1)
+    await act(async () => { await Promise.resolve() })
+    expect(foliateEl.renderer.goTo).toHaveBeenCalledTimes(1)
+    expect(foliateEl.renderer.goTo).toHaveBeenLastCalledWith(expect.objectContaining({
+      index: 2,
+      anchor: expect.any(Function),
+    }))
   })
 
-  it('chegar ao fundo da seção não dispara navegação implícita por swipe', async () => {
-    const onAtBottom = vi.fn()
-    const { foliateEl } = await renderViewer({ onAtBottom })
-    const fakeDoc = makeFakeDoc(['Long chapter content.'])
-    const fakeWin = injectFakeWindow(fakeDoc, 0, 800, 1200)
+  it('prevToEnd navega para o fim da seção anterior com âncora explícita', async () => {
+    const { viewerRef, foliateEl } = await renderViewer()
+    const firstDoc = makeFakeDoc(['Chapter 1 paragraph.'])
+    const secondDoc = makeFakeDoc(['Chapter 2 paragraph.'])
 
-    loadSection(foliateEl, fakeDoc, 0)
-    expect(onAtBottom).toHaveBeenLastCalledWith(false, true, 'Chapter 2')
-
-    await act(async () => {
-      await new Promise(resolve => setTimeout(resolve, 350))
-      fakeWin.fireScroll(380)
+    loadSection(foliateEl, firstDoc, 0)
+    loadSection(foliateEl, secondDoc, 1)
+    act(() => {
+      foliateEl.fireFoliate('relocate', {
+        cfi: 'epubcfi(/6/10!/4/2/1:0)',
+        fraction: 0.42,
+        tocItem: { label: 'Chapter 2', href: 'chapter-2.xhtml' },
+        section: { current: 1, total: 3 },
+        index: 1,
+      })
     })
 
-    expect(onAtBottom).toHaveBeenLastCalledWith(true, true, 'Chapter 2')
+    act(() => { viewerRef.current?.prevToEnd() })
+
+    expect(foliateEl.renderer.goTo).toHaveBeenLastCalledWith(expect.objectContaining({
+      index: 0,
+      anchor: expect.any(Function),
+    }))
+    const prevToEndTarget = foliateEl.renderer.goTo.mock.calls.at(-1)?.[0] as { anchor?: (doc: Document) => number }
+    expect(prevToEndTarget.anchor?.(firstDoc)).toBe(1)
   })
 })

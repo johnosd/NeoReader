@@ -4,6 +4,7 @@ import type { Book, Bookmark } from '../../types/book'
 import type { View } from 'foliate-js/view.js'
 import { getSentenceAt, escapeHtml } from '../../utils/readerUtils'
 import { areCfisEquivalent, normalizeCfi } from '../../utils/cfi'
+import { fractionToPercentage } from '../../utils/progress'
 
 export type FontSize = 'sm' | 'md' | 'lg' | 'xl'
 
@@ -11,6 +12,28 @@ const BOOKMARK_ICON_GUTTER = 20
 const BOOKMARK_ICON_LEFT = 4
 const BOOKMARK_ICON_WIDTH = 10
 const BOOKMARK_ICON_HEIGHT = 14
+
+const TRANSLATION_ICON = {
+  bot: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="7" width="16" height="11" rx="4"></rect><path d="M12 3v4"></path><path d="M9 13h.01"></path><path d="M15 13h.01"></path><path d="M9 18v2"></path><path d="M15 18v2"></path></svg>',
+  speak: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"></path><path d="M15.5 8.5a5 5 0 0 1 0 7"></path><path d="M18 6a9 9 0 0 1 0 12"></path></svg>',
+  bookmark: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4z"></path></svg>',
+  save: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.75 5.57 6.15.89-4.45 4.33 1.05 6.16L12 17.77l-5.5 2.91 1.05-6.16L3.1 9.46l6.15-.89z"></path></svg>',
+} as const
+
+function renderTranslationAction(action: 'speak' | 'bookmark' | 'save', label: string, icon: string, variant: 'default' | 'primary' = 'default'): string {
+  return `
+    <button type="button" data-nr-action="${action}" class="nr-tr-action${variant === 'primary' ? ' is-primary' : ''}">
+      <span class="nr-tr-action-icon">${icon}</span>
+      <span data-nr-action-label="1">${escapeHtml(label)}</span>
+    </button>`
+}
+
+function setTranslationActionLabel(actionBtn: Element | null | undefined, label: string): void {
+  if (!(actionBtn instanceof HTMLElement)) return
+  const labelEl = actionBtn.querySelector<HTMLElement>('[data-nr-action-label]')
+  if (labelEl) labelEl.textContent = label
+  else actionBtn.textContent = label
+}
 
 // Unidade mínima de leitura para o TTS.
 // Texto é partido em frases (não parágrafos inteiros) para reduzir latência de API.
@@ -199,32 +222,49 @@ function buildReaderCSS(fontSize: FontSize): string {
 
     /* Bloco de tradução inline — injetado após o parágrafo selecionado */
     #nr-translation-block {
-      margin: 8px 0 16px 0 !important;
-      padding: 10px 12px !important;
-      border-radius: 8px !important;
-      background: rgba(99, 102, 241, 0.10) !important;
-      border-left: 3px solid #6366f1 !important;
+      margin: 8px 0 14px 0 !important;
+      padding: 2px 0 0 14px !important;
+      border-left: 3px solid rgba(251, 146, 60, 0.96) !important;
+      border-radius: 0 14px 14px 0 !important;
+      background: linear-gradient(90deg, rgba(251, 146, 60, 0.22) 0%, rgba(248, 113, 113, 0.10) 30%, rgba(96, 165, 250, 0.05) 58%, rgba(96, 165, 250, 0.00) 84%) !important;
+      box-shadow: inset 10px 0 18px -16px rgba(254, 215, 170, 0.92) !important;
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif !important;
+      color: #f8fafc !important;
+    }
+    #nr-translation-block * {
+      box-sizing: border-box !important;
+      font-family: inherit !important;
+      background: transparent !important;
+    }
+    .nr-tr-action-icon svg {
+      width: 13px !important;
+      height: 13px !important;
+      display: block !important;
+    }
+    .nr-tr-panel {
+      padding: 0 !important;
+      border: 0 !important;
+      border-radius: 0 !important;
+      background: transparent !important;
     }
     .nr-tr-text {
-      color: #c77dff !important;
-      font-size: 14px !important;
-      font-style: italic !important;
-      line-height: 1.5 !important;
-      margin: 0 0 8px 0 !important;
-      background: transparent !important;
+      color: rgba(243, 232, 255, 0.96) !important;
+      font-size: 13px !important;
+      line-height: 1.62 !important;
+      margin: 0 !important;
+      font-style: normal !important;
+      letter-spacing: 0.01em !important;
     }
     .nr-tr-loading {
       display: flex !important;
       align-items: center !important;
-      gap: 8px !important;
-      color: #a5a5a5 !important;
-      font-size: 14px !important;
+      min-height: 18px !important;
     }
     .nr-tr-spinner {
       display: inline-block !important;
-      width: 14px !important;
-      height: 14px !important;
-      border: 2px solid #9d4edd !important;
+      width: 16px !important;
+      height: 16px !important;
+      border: 2px solid rgba(251, 146, 60, 0.95) !important;
       border-top-color: transparent !important;
       border-radius: 50% !important;
       animation: nr-spin 0.6s linear infinite !important;
@@ -233,18 +273,65 @@ function buildReaderCSS(fontSize: FontSize): string {
     @keyframes nr-spin { to { transform: rotate(360deg); } }
     .nr-tr-actions {
       display: flex !important;
-      gap: 8px !important;
+      flex-wrap: wrap !important;
+      gap: 6px !important;
+      margin-top: 8px !important;
     }
     .nr-tr-actions button {
-      flex: 1 !important;
-      padding: 6px 0 !important;
-      border-radius: 8px !important;
-      background: #2d2942 !important;
-      color: #fff !important;
-      font-size: 13px !important;
-      border: none !important;
+      min-height: 0 !important;
+      padding: 5px 8px 5px 6px !important;
+      border-radius: 9999px !important;
+      background: rgba(255,255,255,0.045) !important;
+      color: #f8fafc !important;
+      border: 1px solid rgba(255,255,255,0.07) !important;
       cursor: pointer !important;
-      font-family: inherit !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      gap: 6px !important;
+      transition: transform 150ms ease, background 150ms ease, border-color 150ms ease !important;
+    }
+    .nr-tr-action-icon {
+      width: 18px !important;
+      height: 18px !important;
+      border-radius: 9999px !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      background: rgba(255,255,255,0.06) !important;
+      color: currentColor !important;
+      flex-shrink: 0 !important;
+    }
+    .nr-tr-actions button [data-nr-action-label] {
+      font-size: 9px !important;
+      font-weight: 700 !important;
+      line-height: 1 !important;
+      letter-spacing: 0.06em !important;
+      text-transform: uppercase !important;
+      opacity: 0.92 !important;
+    }
+    .nr-tr-actions button:active {
+      transform: scale(0.97) !important;
+      background: rgba(255,255,255,0.09) !important;
+    }
+    .nr-tr-actions button.is-primary,
+    .nr-tr-actions button[data-nr-action="bookmark"][aria-pressed="true"] {
+      background: rgba(59, 130, 246, 0.12) !important;
+      border-color: rgba(96, 165, 250, 0.28) !important;
+      color: #f8fafc !important;
+      box-shadow: inset 0 0 12px rgba(59, 130, 246, 0.10) !important;
+    }
+    .nr-tr-actions button.is-primary .nr-tr-action-icon,
+    .nr-tr-actions button[data-nr-action="bookmark"][aria-pressed="true"] .nr-tr-action-icon {
+      background: rgba(96, 165, 250, 0.22) !important;
+    }
+    .nr-tr-actions button[data-nr-flash="1"] {
+      background: rgba(16,185,129,0.12) !important;
+      border-color: rgba(16,185,129,0.24) !important;
+      color: #d1fae5 !important;
+    }
+    .nr-tr-actions button[data-nr-flash="1"] .nr-tr-action-icon {
+      background: rgba(16,185,129,0.18) !important;
     }
     .nr-tr-actions button[disabled] {
       opacity: 0.65 !important;
@@ -282,7 +369,7 @@ export interface EpubViewerHandle {
   // Navega para o capítulo anterior e posiciona no final (último parágrafo)
   prevToEnd(): void
   goTo(target: string | number | { fraction: number }): void
-  getVisibleLocation(): { cfi: string | null; tocLabel?: string; percentage?: number }
+  getVisibleLocation(): VisibleReadingLocation
   // TTS: retorna os textos puros de todos os parágrafos da seção atual
   getParagraphs(): string[]
   // TTS: retorna frases agrupadas com paraIdx e offsetInPara para karaokê preciso
@@ -312,12 +399,34 @@ export interface ParagraphBookmarkPayload {
   snippet: string
 }
 
+export interface VisibleReadingLocation {
+  cfi: string | null
+  tocLabel?: string
+  sectionHref?: string
+  fraction?: number
+  percentage?: number
+}
+
+export interface ReaderRelocatePayload extends VisibleReadingLocation {
+  cfi: string
+  fraction: number
+  percentage: number
+  sectionIndex: number
+}
+
+interface LoadedSectionContent {
+  index: number
+  doc: Document
+  paragraphs: Element[]
+  paragraphTexts: string[]
+}
+
 interface EpubViewerProps {
   book: Book
   bookmarks: Bookmark[]
   fontSize: FontSize
   savedCfi: string | null
-  onRelocate: (cfi: string, percentage: number, tocLabel: string | undefined, sectionIndex: number) => void
+  onRelocate: (payload: ReaderRelocatePayload) => void
   onTocReady: (toc: TocItem[]) => void
   onLoad: () => void
   onError: (err: Error) => void
@@ -342,7 +451,6 @@ interface EpubViewerProps {
   // Capítulo: emitido quando o usuário chega ao fundo (ou sai do fundo) da seção atual.
   // hasNext: false quando é a última seção do livro.
   // nextLabel: rótulo da próxima seção quando disponível no TOC.
-  onAtBottom?: (atBottom: boolean, hasNext: boolean, nextLabel?: string) => void
   // Bookmarks: remove o marcador ao tocar no ícone projetado no parágrafo.
   onBookmarkTap?: (bookmarkId: number) => void
   // Bookmarks: toggle no parágrafo atualmente selecionado no bloco de tradução inline.
@@ -359,13 +467,15 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       onSaveVocab, onCenterTap, onTranslate,
       onSpeakOne, onParagraphTapForTts, ttsGlobalActive,
       chromeVisible,
-      onAtBottom, onBookmarkTap, onBookmarkParagraph,
+      onBookmarkTap, onBookmarkParagraph,
     },
     ref,
   ) => {
     const containerRef = useRef<HTMLDivElement>(null)
     const viewRef = useRef<View | null>(null)
     const currentDocRef = useRef<Document | null>(null)
+    const loadedSectionsRef = useRef(new Map<number, LoadedSectionContent>())
+    const trackedScrollDocRef = useRef<Document | null>(null)
 
     // Elementos e textos dos parágrafos da seção atual — atualizados no evento 'load'
     const ttsParagraphsRef = useRef<Element[]>([])
@@ -401,10 +511,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const chromeVisibleRef = useSyncRef(chromeVisible)
 
     // Navegação entre capítulos: detecta fundo visual + swipe para avançar
-    const isAtBottomRef = useRef(false)
     const currentSectionIdxRef = useRef(0)
     const totalSectionsRef = useRef(1)
-    const onAtBottomRef = useSyncRef(onAtBottom)
     // Flag: próximo evento 'load' deve rolar a seção até o fundo (usado após prevToEnd)
     const scrollToBottomOnLoadRef = useRef(false)
     const lastRelocateRef = useRef<RelocateDetail | null>(null)
@@ -420,6 +528,63 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const bookmarksRef = useSyncRef(bookmarks)
     const onBookmarkTapRef = useSyncRef(onBookmarkTap)
     const onBookmarkParagraphRef = useSyncRef(onBookmarkParagraph)
+
+    function pruneLoadedSections(): void {
+      const liveIndices = new Set(
+        viewRef.current?.renderer
+          .getContents()
+          .map((content) => content.index)
+          .filter((index): index is number => typeof index === 'number') ?? [],
+      )
+
+      for (const index of Array.from(loadedSectionsRef.current.keys())) {
+        if (!liveIndices.has(index)) loadedSectionsRef.current.delete(index)
+      }
+    }
+
+    function buildLoadedSectionContent(index: number, doc: Document): LoadedSectionContent {
+      const paragraphs = Array.from(doc.querySelectorAll(BLOCK))
+        .filter((el) => (el.textContent?.trim().length ?? 0) > 2)
+      paragraphs.forEach((para) => getOrCreateParagraphBookmarkCfi(para, index))
+      return {
+        index,
+        doc,
+        paragraphs,
+        paragraphTexts: paragraphs.map((el) => el.textContent!.trim()),
+      }
+    }
+
+    function registerLoadedSection(index: number, doc: Document): LoadedSectionContent {
+      const content = buildLoadedSectionContent(index, doc)
+      loadedSectionsRef.current.set(index, content)
+      return content
+    }
+
+    function getLoadedSection(index = currentSectionIdxRef.current): LoadedSectionContent | null {
+      pruneLoadedSections()
+      return loadedSectionsRef.current.get(index) ?? null
+    }
+
+    function getSectionIndexForDocument(doc?: Document | null): number | null {
+      if (!doc) return null
+      pruneLoadedSections()
+      for (const [index, content] of loadedSectionsRef.current.entries()) {
+        if (content.doc === doc) return index
+      }
+      return null
+    }
+
+    function activateSection(index: number): LoadedSectionContent | null {
+      currentSectionIdxRef.current = index
+      const content = getLoadedSection(index)
+      if (!content) return null
+
+      currentDocRef.current = content.doc
+      ttsParagraphsRef.current = content.paragraphs
+      ttsParagraphTextsRef.current = content.paragraphTexts
+
+      return content
+    }
 
     function getParagraphIndexFromRange(range?: Range | null): number {
       const paras = ttsParagraphsRef.current
@@ -458,7 +623,10 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       return getVisibleParagraphInternal().paraIndex
     }
 
-    function getOrCreateParagraphBookmarkCfi(para: Element | null): string | null {
+    function getOrCreateParagraphBookmarkCfi(
+      para: Element | null,
+      sectionIndex = para ? (getSectionIndexForDocument(para.ownerDocument) ?? currentSectionIdxRef.current) : currentSectionIdxRef.current,
+    ): string | null {
       const view = viewRef.current
       if (!view || !para) return null
 
@@ -470,18 +638,21 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       range.selectNodeContents(para)
       range.collapse(true)
 
-      const cfi = normalizeCfi(view.getCFI(currentSectionIdxRef.current, range))
+      const cfi = normalizeCfi(view.getCFI(sectionIndex, range))
       if (!cfi) return null
 
       para.setAttribute('data-nr-para-cfi', cfi)
       return cfi
     }
 
-    function getParagraphBookmarkPayload(para: Element | null): ParagraphBookmarkPayload | null {
+    function getParagraphBookmarkPayload(
+      para: Element | null,
+      sectionIndex = para ? (getSectionIndexForDocument(para.ownerDocument) ?? currentSectionIdxRef.current) : currentSectionIdxRef.current,
+    ): ParagraphBookmarkPayload | null {
       const view = viewRef.current
       if (!view || !para) return null
 
-      const cfi = getOrCreateParagraphBookmarkCfi(para)
+      const cfi = getOrCreateParagraphBookmarkCfi(para, sectionIndex)
       if (!cfi) return null
 
       const doc = para.ownerDocument!
@@ -489,14 +660,16 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       range.selectNodeContents(para)
       range.collapse(true)
 
-      const progress = view.getProgressOf(currentSectionIdxRef.current, range)
+      const progress = view.getProgressOf(sectionIndex, range)
       const location = lastRelocateRef.current ?? view.lastLocation
       const fractions = view.getSectionFractions()
-      const sectionStart = fractions[currentSectionIdxRef.current] ?? location?.fraction ?? 0
-      const sectionEnd = fractions[currentSectionIdxRef.current + 1] ?? location?.fraction ?? sectionStart
-      const paraIndex = Math.max(0, ttsParagraphsRef.current.indexOf(para))
-      const paraFraction = ttsParagraphsRef.current.length > 1
-        ? paraIndex / (ttsParagraphsRef.current.length - 1)
+      const sectionStart = fractions[sectionIndex] ?? location?.fraction ?? 0
+      const sectionEnd = fractions[sectionIndex + 1] ?? location?.fraction ?? sectionStart
+      const sectionContent = getLoadedSection(sectionIndex)
+      const sectionParagraphs = sectionContent?.paragraphs ?? ttsParagraphsRef.current
+      const paraIndex = Math.max(0, sectionParagraphs.indexOf(para))
+      const paraFraction = sectionParagraphs.length > 1
+        ? paraIndex / (sectionParagraphs.length - 1)
         : 0
       const percentage = Math.round((sectionStart + (sectionEnd - sectionStart) * paraFraction) * 100)
       const snippet = (para.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 150)
@@ -516,8 +689,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       )
     }
 
-    function getParagraphBookmarkState(para: Element | null) {
-      const payload = getParagraphBookmarkPayload(para)
+    function getParagraphBookmarkState(para: Element | null, sectionIndex?: number) {
+      const payload = getParagraphBookmarkPayload(para, sectionIndex)
       if (!payload) return null
 
       const matchedBookmark = findMatchingParagraphBookmark(payload.cfi)
@@ -530,7 +703,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
       const bookmarkState = getParagraphBookmarkState(activeTranslationParaRef.current)
       const isBookmarked = !!bookmarkState?.matchedBookmark
-      actionBtn.textContent = isBookmarked ? 'Remover marcador' : 'Marcar'
+      setTranslationActionLabel(actionBtn, isBookmarked ? 'Remover' : 'Marcar')
       actionBtn.setAttribute('aria-pressed', isBookmarked ? 'true' : 'false')
       actionBtn.removeAttribute('disabled')
       delete actionBtn.dataset.nrPending
@@ -608,71 +781,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         })[0] ?? getWindowScrollMetrics(doc)
     }
 
-    function normalizeHref(href?: string | null): string {
-      return (href ?? '')
-        .split('#')[0]
-        .replace(/^\.\//, '')
-        .trim()
-        .toLowerCase()
-    }
-
     function isCfiTarget(target: string): boolean {
       return /^epubcfi\(/i.test(target.trim())
-    }
-
-    function flattenToc(items: TocItem[]): TocItem[] {
-      const flat: TocItem[] = []
-      for (const item of items) {
-        flat.push(item)
-        if (item.subitems?.length) flat.push(...flattenToc(item.subitems))
-      }
-      return flat
-    }
-
-    function getNextSectionLabel(sectionIndex: number): string | undefined {
-      const view = viewRef.current
-      const nextSection = view?.book?.sections?.[sectionIndex + 1]
-      const nextHref = normalizeHref(nextSection?.href)
-      if (!nextHref) return undefined
-
-      const tocItems = flattenToc(view?.book?.toc ?? [])
-      const directMatch = tocItems.find((item) => normalizeHref(item.href) === nextHref)
-      if (directMatch?.label) return directMatch.label
-
-      const partialMatch = tocItems.find((item) => {
-        const itemHref = normalizeHref(item.href)
-        return itemHref === nextHref || itemHref.startsWith(`${nextHref}#`) || nextHref.startsWith(itemHref)
-      })
-      return partialMatch?.label
-    }
-
-    const SECTION_END_THRESHOLD = 0.92
-
-    function updateSectionEndBanner(atEnd: boolean, sectionIndex: number) {
-      if (atEnd === isAtBottomRef.current) return
-
-      isAtBottomRef.current = atEnd
-      const hasNext = sectionIndex < totalSectionsRef.current - 1
-      onAtBottomRef.current?.(
-        atEnd,
-        hasNext,
-        hasNext ? getNextSectionLabel(sectionIndex) : undefined,
-      )
-    }
-
-    function getSectionEndState(fraction: number, sectionIndex: number) {
-      const view = viewRef.current
-      if (!view) return null
-
-      const fractions = view.getSectionFractions()
-      const sectionStart = fractions[sectionIndex]
-      const sectionEnd = fractions[sectionIndex + 1] ?? 1
-      if (sectionStart === undefined || sectionEnd <= sectionStart) return null
-
-      const relativeProgress = Math.max(0, Math.min(1, (fraction - sectionStart) / (sectionEnd - sectionStart)))
-      return {
-        atEnd: relativeProgress >= SECTION_END_THRESHOLD,
-      }
     }
 
     function clearFinalizeSectionTimeout(): void {
@@ -690,7 +800,10 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     }
 
     function setupScrollTracking(doc: Document): void {
+      if (trackedScrollDocRef.current === doc && scrollListenerCleanupRef.current) return
+
       scrollListenerCleanupRef.current?.()
+      trackedScrollDocRef.current = doc
 
       const getScrollState = () => {
         const sources = getScrollMetricSources(doc)
@@ -716,11 +829,6 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         if (ttsActiveRef.current && Date.now() > scrollingProgrammaticallyUntilRef.current) {
           userScrolledRef.current = true
         }
-
-        if (Date.now() <= scrollingProgrammaticallyUntilRef.current) return
-
-        const scrollState = getScrollState()
-        updateSectionEndBanner(scrollState.atBottom, currentSectionIdxRef.current)
       }
 
       for (const target of initialState.targets) {
@@ -730,10 +838,11 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         for (const target of initialState.targets) {
           target.removeEventListener('scroll', onScroll as EventListener)
         }
+        if (trackedScrollDocRef.current === doc) trackedScrollDocRef.current = null
       }
     }
 
-    function finalizePendingSection(reason: 'stabilized' | 'relocate' | 'timeout'): void {
+    function finalizePendingSection(_reason: 'stabilized' | 'relocate' | 'timeout'): void {
       const pendingSection = pendingSectionRef.current
       if (!pendingSection) return
       if (finalizedSectionVersionRef.current === pendingSection.version) return
@@ -745,8 +854,6 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       const hasNextSection = index < totalSectionsRef.current - 1
       const skipDirection = autoSkipChapterStubDirectionRef.current
 
-      console.log('[nr-debug]', 'finalize section', { reason, sectionIndex: index })
-
       if (
         skipDirection !== 0 &&
         (skipDirection > 0 ? hasNextSection : index > 0) &&
@@ -756,7 +863,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         pendingSectionRef.current = null
         autoSkipChapterStubCountRef.current += 1
         doc.defaultView?.requestAnimationFrame(() => {
-          goToAdjacentSection(skipDirection)
+          goToAdjacentSection(skipDirection, skipDirection < 0 ? () => 1 : () => 0)
         })
         return
       }
@@ -787,42 +894,53 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       })
     }
 
-    function renderBookmarkMarkers(doc = currentDocRef.current): void {
+    function renderBookmarkMarkers(doc?: Document | null): void {
       const activeBookmarks = bookmarksRef.current
-      if (!doc) return
+      const contents = doc
+        ? [getLoadedSection(getSectionIndexForDocument(doc) ?? currentSectionIdxRef.current)].filter((content): content is LoadedSectionContent => !!content)
+        : Array.from(loadedSectionsRef.current.values())
 
-      clearBookmarkMarkers(doc)
-      if (ttsParagraphsRef.current.length === 0 || activeBookmarks.length === 0) return
+      for (const content of contents) {
+        clearBookmarkMarkers(content.doc)
+        if (activeBookmarks.length === 0) continue
 
-      for (const para of ttsParagraphsRef.current) {
-        const bookmarkState = getParagraphBookmarkState(para)
-        const matchedBookmark = bookmarkState?.matchedBookmark
-        if (!matchedBookmark) continue
+        for (const para of content.paragraphs) {
+          const bookmarkState = getParagraphBookmarkState(para, content.index)
+          const matchedBookmark = bookmarkState?.matchedBookmark
+          if (!matchedBookmark) continue
 
-        const paraEl = para as HTMLElement
-        paraEl.setAttribute('data-nr-bookmark', matchedBookmark.color ?? 'indigo')
-        if (matchedBookmark.id !== undefined) {
-          paraEl.setAttribute('data-nr-bookmark-id', String(matchedBookmark.id))
+          const paraEl = para as HTMLElement
+          paraEl.setAttribute('data-nr-bookmark', matchedBookmark.color ?? 'indigo')
+          if (matchedBookmark.id !== undefined) {
+            paraEl.setAttribute('data-nr-bookmark-id', String(matchedBookmark.id))
+          }
         }
       }
     }
 
-    function goToAdjacentSection(direction: 1 | -1): void {
+    function getAdjacentSectionIndex(direction: 1 | -1, fromIndex = currentSectionIdxRef.current): number | null {
+      const sections = viewRef.current?.book?.sections as Array<FoliateSection & { linear?: string }> | undefined
+      if (!sections?.length) return null
+
+      for (let index = fromIndex + direction; index >= 0 && index < sections.length; index += direction) {
+        if (sections[index]?.linear !== 'no') return index
+      }
+      return null
+    }
+
+    function goToAdjacentSection(direction: 1 | -1, anchor?: number | ((doc: Document) => Range | Element | number | null)): void {
       const view = viewRef.current
       if (!view) return
 
-      if (direction > 0 && typeof view.renderer.nextSection === 'function') {
-        void view.renderer.nextSection()
-        return
-      }
-      if (direction < 0 && typeof view.renderer.prevSection === 'function') {
-        void view.renderer.prevSection()
+      const targetIndex = getAdjacentSectionIndex(direction)
+      if (targetIndex == null) return
+
+      if (typeof view.renderer.goTo === 'function') {
+        void view.renderer.goTo(anchor == null ? { index: targetIndex } : { index: targetIndex, anchor })
         return
       }
 
-      const targetIndex = currentSectionIdxRef.current + direction
-      if (targetIndex < 0 || targetIndex >= totalSectionsRef.current) return
-
+      scrollToBottomOnLoadRef.current = anchor === 1
       void view.goTo(targetIndex)
     }
 
@@ -831,7 +949,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       next: () => {
         autoSkipChapterStubDirectionRef.current = 1
         autoSkipChapterStubCountRef.current = 0
-        goToAdjacentSection(1)
+        goToAdjacentSection(1, () => 0)
       },
       prev: () => {
         autoSkipChapterStubDirectionRef.current = 0
@@ -840,9 +958,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       prevToEnd: () => {
         autoSkipChapterStubDirectionRef.current = -1
         autoSkipChapterStubCountRef.current = 0
-        scrollToBottomOnLoadRef.current = true
         scrollingProgrammaticallyUntilRef.current = Date.now() + 800
-        goToAdjacentSection(-1)
+        goToAdjacentSection(-1, () => 1)
       },
       goTo: (target) => {
         autoSkipChapterStubDirectionRef.current =
@@ -855,12 +972,17 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         const location = lastRelocateRef.current ?? view?.lastLocation
         if (!view || !location?.cfi) return { cfi: null }
 
-        const { para, paraIndex } = getVisibleParagraphInternal()
+        const fraction = location.fraction
+        const percentage = fractionToPercentage(fraction)
+
+        const { para } = getVisibleParagraphInternal()
         if (!para) {
           return {
             cfi: location.cfi,
             tocLabel: location.tocItem?.label,
-            percentage: Math.round(location.fraction * 100),
+            sectionHref: location.tocItem?.href,
+            fraction,
+            percentage,
           }
         }
 
@@ -871,17 +993,13 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
         const cfi = view.getCFI(currentSectionIdxRef.current, range)
         const progress = view.getProgressOf(currentSectionIdxRef.current, range)
-        const fractions = view.getSectionFractions()
-        const sectionStart = fractions[currentSectionIdxRef.current] ?? location.fraction
-        const sectionEnd = fractions[currentSectionIdxRef.current + 1] ?? location.fraction
-        const paraFraction = ttsParagraphsRef.current.length > 1
-          ? paraIndex / (ttsParagraphsRef.current.length - 1)
-          : 0
 
         return {
           cfi,
           tocLabel: progress.tocItem?.label ?? location.tocItem?.label,
-          percentage: Math.round((sectionStart + (sectionEnd - sectionStart) * paraFraction) * 100),
+          sectionHref: progress.tocItem?.href ?? location.tocItem?.href,
+          fraction,
+          percentage,
         }
       },
 
@@ -971,9 +1089,10 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         block.id = 'nr-translation-block'
         block.className = 'nr-translation-block'
         block.innerHTML = `
-          <div class="nr-tr-loading">
-            <span class="nr-tr-spinner"></span>
-            <span>Traduzindo…</span>
+          <div class="nr-tr-panel">
+            <div class="nr-tr-loading">
+              <span class="nr-tr-spinner"></span>
+            </div>
           </div>`
         para.after(block)
 
@@ -1011,11 +1130,13 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         if (!block) return
         activeTranslatedTextRef.current = translatedText
         block.innerHTML = `
-          <p class="nr-tr-text">${escapeHtml(translatedText)}</p>
+          <div class="nr-tr-panel">
+            <p class="nr-tr-text">${escapeHtml(translatedText)}</p>
+          </div>
           <div class="nr-tr-actions">
-            <button data-nr-action="speak">🔊 Ouvir</button>
-            <button data-nr-action="bookmark">Marcar</button>
-            <button data-nr-action="save">⭐ Salvar</button>
+            ${renderTranslationAction('speak', 'Ouvir', TRANSLATION_ICON.speak)}
+            ${renderTranslationAction('bookmark', 'Marcar', TRANSLATION_ICON.bookmark, 'primary')}
+            ${renderTranslationAction('save', 'Salvar', TRANSLATION_ICON.save)}
           </div>`
         syncActiveTranslationBookmarkAction(para.ownerDocument)
       },
@@ -1061,96 +1182,82 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       const container = containerRef.current
       if (!container) return
 
+      loadedSectionsRef.current.clear()
+      trackedScrollDocRef.current = null
+      currentDocRef.current = null
+      ttsParagraphsRef.current = []
+      ttsParagraphTextsRef.current = []
+      pendingSectionRef.current = null
+      lastRelocateRef.current = null
+      activeTranslationParaRef.current = null
+      activeSourceTextRef.current = ''
+      activeTranslatedTextRef.current = ''
+      translationInProgressRef.current = false
+      initialInteractiveReadyRef.current = false
+      scrollToBottomOnLoadRef.current = false
+
       let cancelled = false
       let view: View | null = null
       let rendererStabilizedListener: EventListener | null = null
 
       async function setup() {
-        // [nr-debug] Instrumentação para diagnosticar tela preta.
-        // Prefixo [nr-debug] permite filtrar: `adb logcat | grep nr-debug`
-        const DBG = '[nr-debug]'
-        console.log(DBG, 'setup start', {
-          bookId: book.id,
-          title: book.title,
-          fileBlobSize: book.fileBlob?.size,
-          fileBlobType: book.fileBlob?.type,
-          savedCfi,
-        })
 
         // Import dinâmico: registra o custom element como side-effect
         // e mantém o bundle do foliate fora do chunk inicial
         await import('foliate-js/view.js')
         if (cancelled) return
-        console.log(DBG, 'foliate-js view.js imported')
 
         view = document.createElement('foliate-view') as unknown as View
         view.style.cssText = 'width:100%;height:100%;display:block'
         container!.appendChild(view)
         viewRef.current = view
-        console.log(DBG, 'foliate-view element created and appended')
 
         view.addEventListener('relocate', (e: CustomEvent<RelocateDetail>) => {
           const { cfi, fraction, tocItem, section } = e.detail
           // section?.current é o índice da spine atual; fallback para currentSectionIdxRef
-          const sIdx = section?.current ?? currentSectionIdxRef.current
-          lastRelocateRef.current = e.detail
-          console.log(DBG, 'relocate event', { cfi, fraction, tocLabel: tocItem?.label, sIdx })
-          onRelocate(cfi, Math.round(fraction * 100), tocItem?.label, sIdx)
-          const sectionEndState = getSectionEndState(fraction, sIdx)
-          if (sectionEndState) updateSectionEndBanner(sectionEndState.atEnd, sIdx)
+          const sIdx =
+            e.detail.index ??
+            section?.current ??
+            view?.renderer.primaryIndex ??
+            currentSectionIdxRef.current
+          lastRelocateRef.current = { ...e.detail, index: sIdx }
+          const activeSection = activateSection(sIdx)
+          onRelocate({
+            cfi,
+            fraction,
+            percentage: fractionToPercentage(fraction),
+            tocLabel: tocItem?.label,
+            sectionHref: tocItem?.href,
+            sectionIndex: sIdx,
+          })
           if (pendingSectionRef.current?.index === sIdx) {
             scheduleSectionFinalization('relocate')
+          } else if (activeSection?.doc) {
+            setupScrollTracking(activeSection.doc)
           }
         })
 
         // Cada seção do EPUB carrega num iframe separado. O evento 'load' expõe
         // o Document do iframe — toda a lógica de tradução inline acontece aqui.
         view.addEventListener('load', (e: CustomEvent<{ doc: Document; index: number }>) => {
-          const { doc } = e.detail
-          currentDocRef.current = doc
-          // [nr-debug] Inspeção do Document do iframe — fonte principal da "tela preta"
-          const htmlLen = doc.documentElement?.outerHTML?.length ?? 0
-          const bodyText = doc.body?.textContent?.trim() ?? ''
-          const paraCount = doc.querySelectorAll('p, div, span, h1, h2, h3, h4, h5, h6, li').length
-          const imgCount = doc.querySelectorAll('img, svg').length
-          console.log('[nr-debug]', 'section load event', {
-            sectionIndex: e.detail.index,
-            htmlLength: htmlLen,
-            bodyTextLength: bodyText.length,
-            bodyTextPreview: bodyText.slice(0, 80),
-            elementCount: paraCount,
-            imageCount: imgCount,
-            bodyComputedDisplay: doc.defaultView?.getComputedStyle?.(doc.body)?.display,
-            bodyComputedVisibility: doc.defaultView?.getComputedStyle?.(doc.body)?.visibility,
-          })
-          // Captura erros do próprio iframe (ex: falha de CSS/script do EPUB)
-          doc.defaultView?.addEventListener('error', (err: ErrorEvent) => {
-            console.error('[nr-debug]', 'iframe error', {
-              message: err.message,
-              filename: err.filename,
-              lineno: err.lineno,
-            })
-          })
+          const { doc, index } = e.detail
+          registerLoadedSection(index, doc)
+          const primaryIndex = view?.renderer.primaryIndex ?? -1
+          const shouldActivate =
+            index === currentSectionIdxRef.current ||
+            index === primaryIndex ||
+            currentDocRef.current == null
+          if (shouldActivate) activateSection(index)
 
           // Armazena parágrafos da seção para uso pelo TTS (audiobook e karaokê)
-          currentSectionIdxRef.current = e.detail.index
-          ttsParagraphsRef.current = Array.from(doc.querySelectorAll(BLOCK))
-            .filter(el => (el.textContent?.trim().length ?? 0) > 2)
-          ttsParagraphTextsRef.current = ttsParagraphsRef.current
-            .map(el => el.textContent!.trim())
-          for (const para of ttsParagraphsRef.current) getOrCreateParagraphBookmarkCfi(para)
 
           // Rastreia seção atual e marca a nova seção como pendente até o renderer estabilizar.
-          lastRelocateRef.current = null
           pendingSectionVersionRef.current += 1
           pendingSectionRef.current = {
             doc,
-            index: e.detail.index,
+            index,
             version: pendingSectionVersionRef.current,
           }
-          isAtBottomRef.current = false
-          const hasNext = e.detail.index < totalSectionsRef.current - 1
-          onAtBottomRef.current?.(false, hasNext, hasNext ? getNextSectionLabel(e.detail.index) : undefined)
           clearFinalizeSectionTimeout()
           finalizeSectionTimeoutRef.current = setTimeout(() => {
             finalizePendingSection('timeout')
@@ -1190,6 +1297,11 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             }
 
             const target = ev.target as Element
+            const targetSectionIndex = getSectionIndexForDocument(target.ownerDocument)
+            if (targetSectionIndex != null) {
+              const activeSection = activateSection(targetSectionIndex)
+              if (activeSection?.doc) setupScrollTracking(activeSection.doc)
+            }
             const para = target.closest(BLOCK) as HTMLElement | null
             if (para?.hasAttribute('data-nr-bookmark') && para.dataset.nrBookmarkId) {
               const rect = para.getBoundingClientRect()
@@ -1219,15 +1331,21 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
                   actionBtn.dataset.nrPending = '1'
                   actionBtn.setAttribute('disabled', 'true')
                   const nextIsBookmarked = !bookmarkState.matchedBookmark
-                  actionBtn.textContent = nextIsBookmarked ? 'Remover marcador' : 'Marcar'
+                  setTranslationActionLabel(actionBtn, nextIsBookmarked ? 'Remover' : 'Marcar')
                   actionBtn.setAttribute('aria-pressed', nextIsBookmarked ? 'true' : 'false')
                   onBookmarkParagraphRef.current?.(bookmarkState.payload)
                 }
               } else if (action === 'save' && activeTranslatedTextRef.current) {
                 onSaveVocabRef.current(activeSourceTextRef.current, activeTranslatedTextRef.current)
                 // Feedback visual temporário no botão
-                actionBtn.textContent = '✓ Salvo!'
-                setTimeout(() => { if (actionBtn.isConnected) actionBtn.textContent = '⭐ Salvar' }, 1500)
+                setTranslationActionLabel(actionBtn, 'Salvo')
+                actionBtn.dataset.nrFlash = '1'
+                setTimeout(() => {
+                  if (actionBtn.isConnected) {
+                    setTranslationActionLabel(actionBtn, 'Salvar')
+                    delete actionBtn.dataset.nrFlash
+                  }
+                }, 1500)
               }
               return
             }
@@ -1303,7 +1421,6 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         }, 8_000)
 
         try {
-          console.log('[nr-debug]', 'calling view.open()')
           await view.open(book.fileBlob)
           if (cancelled) { clearTimeout(loadTimeout!); return }
 
@@ -1312,28 +1429,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           }
           if (view.renderer?.addEventListener) {
             view.renderer.addEventListener('stabilized', rendererStabilizedListener)
-          } else {
-            console.warn('[nr-debug]', 'renderer not ready for stabilized listener after open')
           }
-
-          // [nr-debug] Após open(): inspeciona estrutura do book parseado.
-          // Um spine vazio/ausente aqui é uma das principais causas de tela preta.
-          const bk = view.book as unknown as {
-            sections?: unknown[]
-            toc?: unknown[]
-            spine?: unknown[]
-            metadata?: { title?: string; language?: string }
-            resources?: unknown
-          } | undefined
-          console.log('[nr-debug]', 'view.open() resolved', {
-            hasBook: !!bk,
-            sectionsLength: bk?.sections?.length,
-            tocLength: bk?.toc?.length,
-            spineLength: bk?.spine?.length,
-            metadataTitle: bk?.metadata?.title,
-            metadataLanguage: bk?.metadata?.language,
-            firstSectionExists: !!(bk?.sections?.[0]),
-          })
 
           // Total de seções: usado para checar se há próximo capítulo ao atingir o fundo
           totalSectionsRef.current = view.book?.sections?.length ?? 1
@@ -1341,10 +1437,13 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           // Configura o renderer (elemento filho do foliate-view)
           // flow 'scrolled': leitura contínua com scroll — sem paginação lateral
           view.renderer.setAttribute('flow', 'scrolled')
-          view.renderer.setAttribute('margin', '48px')
+          view.renderer.removeAttribute('margin')
+          view.renderer.setAttribute('margin-top', '48px')
+          view.renderer.setAttribute('margin-right', '48px')
+          view.renderer.setAttribute('margin-bottom', '28px')
+          view.renderer.setAttribute('margin-left', '48px')
           view.renderer.setAttribute('animated', '')
           view.renderer.setStyles?.(buildReaderCSS(fontSize))
-          console.log('[nr-debug]', 'renderer configured')
 
           onTocReady(view.book?.toc ?? [])
 
@@ -1352,19 +1451,14 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           // Tratamos como "sem posição salva" e começamos pelo primeiro texto real.
           const isAtCover = !!savedCfi?.match(/\[Cover\]/i)
           const initCfi = savedCfi && !isAtCover ? savedCfi : null
-          console.log('[nr-debug]', 'calling view.init()', { savedCfi, isAtCover, initCfi })
           await view.init(
             initCfi
               ? { lastLocation: initCfi }
               : { showTextStart: true },
           )
-          console.log('[nr-debug]', 'view.init() resolved')
 
           if (loadTimeout) clearTimeout(loadTimeout)
-          if (!cancelled) onLoad()
         } catch (err) {
-          // [nr-debug] Loga erro ANTES de propagar — garante que nenhuma exceção silenciosa seja perdida
-          console.error('[nr-debug]', 'setup caught exception', err)
           if (loadTimeout) clearTimeout(loadTimeout)
           if (!cancelled) onError(err instanceof Error ? err : new Error(String(err)))
         }
@@ -1377,9 +1471,19 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         clearFinalizeSectionTimeout()
         scrollListenerCleanupRef.current?.()
         scrollListenerCleanupRef.current = null
+        trackedScrollDocRef.current = null
+        loadedSectionsRef.current.clear()
         pendingSectionRef.current = null
         currentDocRef.current = null
         lastRelocateRef.current = null
+        ttsParagraphsRef.current = []
+        ttsParagraphTextsRef.current = []
+        activeTranslationParaRef.current = null
+        activeSourceTextRef.current = ''
+        activeTranslatedTextRef.current = ''
+        translationInProgressRef.current = false
+        initialInteractiveReadyRef.current = false
+        scrollToBottomOnLoadRef.current = false
         autoSkipChapterStubDirectionRef.current = 0
         autoSkipChapterStubCountRef.current = 0
         if (rendererStabilizedListener) {

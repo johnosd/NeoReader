@@ -1,5 +1,5 @@
 import { X } from 'lucide-react'
-import { BottomSheet, EmptyState } from '../ui'
+import { Badge, BottomSheet, EmptyState } from '../ui'
 import type { Bookmark } from '../../types/book'
 
 interface BookmarkSheetProps {
@@ -12,10 +12,10 @@ interface BookmarkSheetProps {
 }
 
 const COLORS = [
-  { key: 'indigo',  hex: '#6366f1', label: 'Índigo'  },
-  { key: 'emerald', hex: '#22c55e', label: 'Verde'   },
-  { key: 'amber',   hex: '#f59e0b', label: 'Âmbar'   },
-  { key: 'rose',    hex: '#f43f5e', label: 'Rosa'     },
+  { key: 'indigo', hex: '#6366f1', label: 'Índigo' },
+  { key: 'emerald', hex: '#22c55e', label: 'Verde' },
+  { key: 'amber', hex: '#f59e0b', label: 'Âmbar' },
+  { key: 'rose', hex: '#f43f5e', label: 'Rosa' },
 ]
 
 function colorHex(color: string | undefined): string {
@@ -30,92 +30,112 @@ function formatDate(date: Date | string): string {
 }
 
 export function BookmarkSheet({ open, bookmarks, onSelect, onDelete, onColorChange, onClose }: BookmarkSheetProps) {
-  // Mais recentes primeiro
   const sorted = [...bookmarks].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   )
 
   return (
-    <BottomSheet open={open} onClose={onClose} title="Marcadores">
+    <BottomSheet
+      open={open}
+      onClose={onClose}
+      title="Marcadores"
+      className="border-t border-white/10 bg-[rgba(15,7,24,0.94)] backdrop-blur-2xl"
+    >
       {sorted.length === 0 ? (
         <EmptyState
           title="Nenhum marcador ainda"
           description="Selecione um parágrafo durante a leitura e use Marcar para salvar esse trecho."
         />
       ) : (
-        <div className="-mx-4">
+        <div className="space-y-3">
+          <div className="rounded-[24px] border border-white/8 bg-bg-surface-2/55 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-purple-light/80">
+                  Trechos salvos
+                </p>
+                <p className="mt-1 text-sm leading-6 text-text-muted">
+                  Abra qualquer marcador para voltar exatamente ao parágrafo salvo.
+                </p>
+              </div>
+              <Badge tone="indigo" className="shrink-0 px-2.5 py-1 text-[10px] normal-case tracking-normal">
+                {sorted.length} salvos
+              </Badge>
+            </div>
+          </div>
+
           {sorted.map((bookmark) => (
             <div
               key={bookmark.id}
-              className="flex items-stretch px-4 py-3 border-b border-bg-elevated active:bg-bg-elevated/50 cursor-pointer"
+              className="cursor-pointer rounded-[24px] border border-white/8 bg-[rgba(18,9,26,0.84)] p-4 shadow-card backdrop-blur-xl transition-all duration-150 active:scale-[0.995] active:bg-white/5"
               onClick={() => onSelect(bookmark.cfi)}
             >
-              {/* Indicador de cor */}
-              <div
-                className="w-1 rounded-full mr-3 flex-shrink-0"
-                style={{ backgroundColor: colorHex(bookmark.color) }}
-              />
-
-              {/* Conteúdo */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between gap-2 mb-0.5">
-                  <p className="text-sm font-medium text-text-primary truncate">
-                    {bookmark.label}
-                  </p>
-                  <span className="text-xs text-indigo-primary font-semibold tabular-nums flex-shrink-0">
-                    {bookmark.percentage}%
-                  </span>
+              <div className="flex items-start gap-4">
+                <div className="flex shrink-0 flex-col items-center gap-2 pt-1">
+                  <span
+                    className="h-3 w-3 rounded-full ring-4 ring-white/3"
+                    style={{ backgroundColor: colorHex(bookmark.color) }}
+                  />
+                  <span className="min-h-8 w-px flex-1 bg-white/10" />
                 </div>
 
-                {bookmark.snippet && (
-                  <p className="text-xs text-text-muted line-clamp-2 mb-1.5">
-                    {bookmark.snippet}
-                  </p>
-                )}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-text-muted">
+                        {bookmark.label}
+                      </p>
+                      <p className="mt-1 text-sm leading-6 text-text-primary line-clamp-2">
+                        {bookmark.snippet || 'Trecho salvo deste capítulo.'}
+                      </p>
+                    </div>
 
-                <div className="flex items-center justify-between gap-2">
-                  {/* Picker de cor */}
-                  <div
-                    className="flex gap-1.5"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {COLORS.map((c) => (
-                      <button
-                        key={c.key}
-                        aria-label={`Cor ${c.label}`}
-                        onClick={() => {
-                          if (bookmark.id !== undefined) onColorChange(bookmark.id, c.key)
-                        }}
-                        className="w-4 h-4 rounded-full flex-shrink-0 transition-transform active:scale-90"
-                        style={{
-                          backgroundColor: c.hex,
-                          // Anel de seleção quando é a cor atual
-                          outline: (bookmark.color ?? 'indigo') === c.key
-                            ? `2px solid ${c.hex}`
-                            : 'none',
-                          outlineOffset: '2px',
-                        }}
-                      />
-                    ))}
+                    <Badge tone="indigo" className="shrink-0 px-2.5 py-1 text-[10px] normal-case tracking-normal">
+                      {bookmark.percentage}%
+                    </Badge>
                   </div>
 
-                  <span className="text-[11px] text-text-muted tabular-nums flex-shrink-0">
-                    {formatDate(bookmark.createdAt)}
-                  </span>
-                </div>
-              </div>
+                  <div className="mt-4 flex items-center justify-between gap-3">
+                    <div
+                      className="flex items-center gap-2"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {COLORS.map((c) => (
+                        <button
+                          key={c.key}
+                          aria-label={`Cor ${c.label}`}
+                          onClick={() => {
+                            if (bookmark.id !== undefined) onColorChange(bookmark.id, c.key)
+                          }}
+                          className="h-4 w-4 rounded-full transition-transform active:scale-90"
+                          style={{
+                            backgroundColor: c.hex,
+                            outline: (bookmark.color ?? 'indigo') === c.key
+                              ? `2px solid ${c.hex}`
+                              : 'none',
+                            outlineOffset: '2px',
+                          }}
+                        />
+                      ))}
+                    </div>
 
-              {/* Botão excluir */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  if (bookmark.id !== undefined) onDelete(bookmark.id)
-                }}
-                className="ml-2 p-2 -mr-2 text-text-muted active:text-error transition-colors self-start"
-                aria-label="Remover marcador"
-              >
-                <X size={16} />
-              </button>
+                    <span className="text-[11px] tabular-nums text-text-muted">
+                      {formatDate(bookmark.createdAt)}
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (bookmark.id !== undefined) onDelete(bookmark.id)
+                  }}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/8 bg-bg-surface-2/70 text-text-muted transition-colors duration-150 active:bg-error/12 active:text-error"
+                  aria-label="Remover marcador"
+                >
+                  <X size={16} />
+                </button>
+              </div>
             </div>
           ))}
         </div>

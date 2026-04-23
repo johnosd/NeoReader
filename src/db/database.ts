@@ -1,12 +1,15 @@
 import Dexie, { type Table } from 'dexie'
-import type { Book, ReadingProgress, Bookmark, BookSettings } from '../types/book'
+import type { Book, BookCover, ReadingProgress, Bookmark, BookSettings } from '../types/book'
 import type { VocabItem, TranslationCache } from '../types/vocabulary'
 import type { UserSettings } from '../types/settings'
+
+type LegacyBookRecord = Book & { coverBlob?: Blob | null }
 
 // Dexie é um wrapper do IndexedDB — pensa nele como SQLite no browser.
 // Cada `Table<T>` é como uma tabela com schema declarado.
 class NeoReaderDB extends Dexie {
   books!: Table<Book>
+  bookCovers!: Table<BookCover, number>
   progress!: Table<ReadingProgress>
   bookmarks!: Table<Bookmark>
   vocabulary!: Table<VocabItem>
@@ -72,6 +75,39 @@ class NeoReaderDB extends Dexie {
       translations:'++id, textHash, createdAt',
       settings:    '++id',
       bookSettings:'++id, bookId',
+    })
+
+    // v7: move a capa para uma tabela dedicada e limpa o payload inline de books
+    this.version(7).stores({
+      books:       '++id, title, author, addedAt, lastOpenedAt',
+      bookCovers:  'bookId, updatedAt, source',
+      progress:    '++id, bookId, updatedAt',
+      bookmarks:   '++id, bookId, createdAt, updatedAt, deletedAt',
+      vocabulary:  '++id, bookId, createdAt',
+      translations:'++id, textHash, createdAt',
+      settings:    '++id',
+      bookSettings:'++id, bookId',
+    }).upgrade(async (tx) => {
+      const booksTable = tx.table('books') as Table<LegacyBookRecord, number>
+      const coversTable = tx.table('bookCovers') as Table<BookCover, number>
+      const migratedCovers: BookCover[] = []
+
+      await booksTable.toCollection().modify((book) => {
+        if (book.id !== undefined && book.coverBlob) {
+          migratedCovers.push({
+            bookId: book.id,
+            blob: book.coverBlob,
+            source: 'legacy-inline',
+            updatedAt: book.addedAt ?? new Date(),
+          })
+        }
+
+        delete book.coverBlob
+      })
+
+      if (migratedCovers.length > 0) {
+        await coversTable.bulkPut(migratedCovers)
+      }
     })
   }
 }

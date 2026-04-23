@@ -1,16 +1,46 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getProgress, upsertProgress } from '../db/progress'
+import { getProgress, upsertProgress, type ProgressSavePayload } from '../db/progress'
 
 interface UseReaderProgressResult {
   savedCfi: string | null      // null = primeira abertura
   initialLoadDone: boolean     // false enquanto o DB ainda não respondeu
-  saveProgress: (cfi: string, percentage: number) => void  // debounced
+  saveProgress: (payload: ProgressSavePayload) => void  // debounced
+  flushProgress: (payload?: ProgressSavePayload) => Promise<void>
 }
 
 export function useReaderProgress(bookId: number): UseReaderProgressResult {
   const [savedCfi, setSavedCfi] = useState<string | null>(null)
   const [initialLoadDone, setInitialLoadDone] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingProgressRef = useRef<ProgressSavePayload | null>(null)
+  const lastPersistedKeyRef = useRef<string | null>(null)
+
+  const persistProgress = useCallback(
+    async (payload?: ProgressSavePayload | null) => {
+      if (!payload?.cfi) return
+
+      const persistKey = [
+        payload.cfi,
+        payload.fraction?.toFixed(6) ?? '',
+        payload.percentage ?? '',
+        payload.sectionHref ?? '',
+        payload.sectionLabel ?? '',
+      ].join('::')
+
+      if (persistKey === lastPersistedKeyRef.current) return
+
+      try {
+        lastPersistedKeyRef.current = persistKey
+        await upsertProgress(bookId, payload)
+      } catch (error) {
+        if (lastPersistedKeyRef.current === persistKey) {
+          lastPersistedKeyRef.current = null
+        }
+        throw error
+      }
+    },
+    [bookId],
+  )
 
   // Carrega posição salva uma vez no mount
   useEffect(() => {
@@ -22,21 +52,39 @@ export function useReaderProgress(bookId: number): UseReaderProgressResult {
 
   // Salva com debounce de 1.5s para evitar writes excessivos a cada virada de página
   const saveProgress = useCallback(
-    (cfi: string, percentage: number) => {
+    (payload: ProgressSavePayload) => {
+      pendingProgressRef.current = payload
       if (debounceRef.current) clearTimeout(debounceRef.current)
       debounceRef.current = setTimeout(() => {
-        upsertProgress(bookId, cfi, percentage)
+        debounceRef.current = null
+        void persistProgress(pendingProgressRef.current).catch(() => {})
       }, 1500)
     },
-    [bookId],
+    [persistProgress],
   )
 
-  // Cancela qualquer debounce pendente ao desmontar
+  const flushProgress = useCallback(
+    async (payload?: ProgressSavePayload) => {
+      if (payload) pendingProgressRef.current = payload
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current)
+        debounceRef.current = null
+      }
+      await persistProgress(pendingProgressRef.current)
+    },
+    [persistProgress],
+  )
+
+  // Faz flush do último progresso conhecido ao desmontar
   useEffect(() => {
     return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current)
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current)
+        debounceRef.current = null
+      }
+      void persistProgress(pendingProgressRef.current).catch(() => {})
     }
-  }, [])
+  }, [persistProgress])
 
-  return { savedCfi, initialLoadDone, saveProgress }
+  return { savedCfi, initialLoadDone, saveProgress, flushProgress }
 }

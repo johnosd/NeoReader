@@ -1,13 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { App as CapApp } from '@capacitor/app'
-import { EpubViewer, type EpubViewerHandle, type ParagraphBookmarkPayload } from '../components/reader/EpubViewer'
+import {
+  EpubViewer,
+  type EpubViewerHandle,
+  type ParagraphBookmarkPayload,
+  type ReaderRelocatePayload,
+  type VisibleReadingLocation,
+} from '../components/reader/EpubViewer'
 import { ReaderChrome } from '../components/reader/ReaderChrome'
 import { TocDrawer } from '../components/reader/TocDrawer'
 import { BookmarkSheet } from '../components/reader/BookmarkSheet'
 import { useReaderProgress } from '../hooks/useReaderProgress'
 import { useReaderStore } from '../store/readerStore'
-import { upsertProgress } from '../db/progress'
+import type { ProgressSavePayload } from '../db/progress'
 import { updateLastOpened } from '../db/books'
 import { addBookmark, restoreBookmark, softDeleteBookmark, updateBookmarkColor } from '../db/bookmarks'
 import { addVocabItem } from '../db/vocabulary'
@@ -32,6 +38,8 @@ interface ReaderScreenProps {
 export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: ReaderScreenProps) {
   const viewerRef = useRef<EpubViewerHandle>(null)
   const pendingBookmarkKeysRef = useRef(new Set<string>())
+  const activeSectionIndexRef = useRef<number | null>(null)
+  const sectionChangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // ── Estado local ────────────────────────────────────────────────────────────
   // Começa visível: dá orientação inicial ao usuário, depois some automaticamente (auto-hide).
@@ -46,9 +54,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   const [ttsEngine, setTtsEngine] = useState<'speechify' | 'native'>('native')
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  // 'idle': sem banner | 'atEnd': fim do capítulo, há próximo | 'noNext': último capítulo
-  const [chapterEndState, setChapterEndState] = useState<'idle' | 'atEnd' | 'noNext'>('idle')
-  const [nextSectionLabel, setNextSectionLabel] = useState<string | null>(null)
+  const [sectionChangeLabel, setSectionChangeLabel] = useState<string | null>(null)
 
   // ── Auto-hide do chrome ──────────────────────────────────────────────────────
   // useRef para o timer: persiste entre renders sem causar re-render.
@@ -64,7 +70,10 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   // Inicia o timer assim que o leitor monta
   useEffect(() => {
     resetAutoHide()
-    return () => { if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current) }
+    return () => {
+      if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current)
+      if (sectionChangeTimerRef.current) clearTimeout(sectionChangeTimerRef.current)
+    }
   }, [resetAutoHide])
 
 
@@ -72,7 +81,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   const { cfi, percentage, toc, setCfi, setToc, reset } = useReaderStore()
 
   // Progresso do IndexedDB (async)
-  const { savedCfi, initialLoadDone, saveProgress } = useReaderProgress(book.id!)
+  const { savedCfi, initialLoadDone, saveProgress, flushProgress } = useReaderProgress(book.id!)
 
   // Marcadores do livro atual — useLiveQuery: reativo, atualiza automaticamente
   const bookmarks = useLiveQuery(
@@ -83,6 +92,15 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
 
   // Limpa o store ao desmontar para não vazar estado entre livros
   useEffect(() => { return () => reset() }, [reset])
+
+  useEffect(() => {
+    activeSectionIndexRef.current = null
+    setSectionChangeLabel(null)
+    if (sectionChangeTimerRef.current) {
+      clearTimeout(sectionChangeTimerRef.current)
+      sectionChangeTimerRef.current = null
+    }
+  }, [book.id])
 
   // Atualiza lastOpenedAt quando o leitor abre
   useEffect(() => {
@@ -99,17 +117,6 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
       )
     })
   }, [book.id])
-
-  // Intercepta o botão Back físico do Android (via plugin Capacitor)
-  useEffect(() => {
-    const listenerPromise = CapApp.addListener('backButton', () => {
-      if (bookmarkSheetOpen) { setBookmarkSheetOpen(false); return }
-      if (tocOpen) { setTocOpen(false); return }
-      handleBack()
-    })
-    return () => { void listenerPromise.then((l) => l.remove()) }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tocOpen, bookmarkSheetOpen, cfi, percentage])
 
   // TTS: gerencia estado e sequenciamento de audiobook
   const tts = useTTS({
@@ -194,19 +201,6 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     setTtsPlayerVisible(false)
   }
 
-  // Atualiza banner de fim de capítulo conforme o usuário rola até o fundo ou sai dele
-  function handleAtBottom(atBottom: boolean, hasNext: boolean, nextLabel?: string) {
-    setNextSectionLabel(hasNext ? (nextLabel?.trim() || null) : null)
-    setChapterEndState(atBottom ? (hasNext ? 'atEnd' : 'noNext') : 'idle')
-  }
-
-  // Avança para o próximo capítulo — acionado pelo banner clicável.
-  function handleChapterNext() {
-    setNextSectionLabel(null)
-    setChapterEndState('idle')
-    viewerRef.current?.next()
-  }
-
   // Salva par original/tradução no vocabulário — chamado pelo EpubViewer via ⭐
   function handleSaveVocab(sourceText: string, translatedText: string) {
     void addVocabItem({
@@ -229,25 +223,98 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   }
 
   const handleRelocate = useCallback(
-    (newCfi: string, newPercentage: number, newTocLabel: string | undefined, _newSectionIndex: number) => {
-      setCfi(newCfi, newPercentage, newTocLabel)
-      saveProgress(newCfi, newPercentage)
+    ({ cfi: newCfi, percentage: newPercentage, tocLabel, sectionHref, fraction, sectionIndex }: ReaderRelocatePayload) => {
+      const previousSectionIndex = activeSectionIndexRef.current
+      if (
+        previousSectionIndex !== null &&
+        previousSectionIndex !== sectionIndex &&
+        tocLabel?.trim()
+      ) {
+        setSectionChangeLabel(tocLabel.trim())
+        if (sectionChangeTimerRef.current) clearTimeout(sectionChangeTimerRef.current)
+        sectionChangeTimerRef.current = setTimeout(() => {
+          setSectionChangeLabel(null)
+          sectionChangeTimerRef.current = null
+        }, 1200)
+      }
+      activeSectionIndexRef.current = sectionIndex
+      setCfi(newCfi, newPercentage, tocLabel)
+      saveProgress({
+        cfi: newCfi,
+        percentage: newPercentage,
+        fraction,
+        sectionHref,
+        sectionLabel: tocLabel,
+      })
     },
     [setCfi, saveProgress],
   )
 
-  // Flush imediato ao sair — garante que a posição não seja perdida
-  // se o usuário voltar antes do debounce de 1.5s disparar
-  function handleBack() {
-    const visibleLocation = viewerRef.current?.getVisibleLocation()
-    const progressCfi = visibleLocation?.cfi ?? cfi
-    const progressPercentage = visibleLocation?.percentage ?? percentage
+  const buildProgressPayload = useCallback(
+    (location?: VisibleReadingLocation | null): ProgressSavePayload | undefined => {
+      const progressCfi = location?.cfi ?? cfi
+      if (!progressCfi) return undefined
 
-    if (progressCfi && book.id !== undefined) {
-      void upsertProgress(book.id, progressCfi, progressPercentage)
-    }
+      return {
+        cfi: progressCfi,
+        percentage: location?.percentage ?? percentage,
+        fraction: location?.fraction,
+        sectionHref: location?.sectionHref,
+        sectionLabel: location?.tocLabel,
+      }
+    },
+    [cfi, percentage],
+  )
+
+  const flushCurrentProgress = useCallback(
+    (location?: VisibleReadingLocation | null) => {
+      const resolvedLocation = location ?? viewerRef.current?.getVisibleLocation()
+      const payload = resolvedLocation?.cfi ? buildProgressPayload(resolvedLocation) : undefined
+      return flushProgress(payload)
+    },
+    [buildProgressPayload, flushProgress],
+  )
+
+  // Flush imediato ao sair — garante que a posição não seja perdida
+  // se o usuário voltar antes do debounce disparar
+  const handleBack = useCallback(() => {
+    void flushCurrentProgress()
     onBack()
-  }
+  }, [flushCurrentProgress, onBack])
+
+  // Intercepta o botão Back físico do Android (via plugin Capacitor)
+  useEffect(() => {
+    const listenerPromise = CapApp.addListener('backButton', () => {
+      if (bookmarkSheetOpen) { setBookmarkSheetOpen(false); return }
+      if (tocOpen) { setTocOpen(false); return }
+      handleBack()
+    })
+    return () => { void listenerPromise.then((l) => l.remove()) }
+  }, [tocOpen, bookmarkSheetOpen, handleBack])
+
+  useEffect(() => {
+    const appStateListenerPromise = CapApp.addListener('appStateChange', ({ isActive }) => {
+      if (!isActive) void flushCurrentProgress()
+    })
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') void flushCurrentProgress()
+    }
+
+    const handlePageHide = () => {
+      void flushCurrentProgress()
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('pagehide', handlePageHide)
+
+    return () => {
+      void appStateListenerPromise.then((listener) => listener.remove())
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('pagehide', handlePageHide)
+      void flushCurrentProgress()
+    }
+  }, [flushCurrentProgress])
 
   function toggleBookmarkAtLocation(target: {
     cfi: string
@@ -350,7 +417,6 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
             void tts.stop().then(() => startPlay(chunks, chunkIdx))
           }}
           ttsGlobalActive={ttsPlayerVisible}
-          onAtBottom={handleAtBottom}
           onBookmarkTap={(id) => { void softDeleteBookmark(id) }}
           onBookmarkParagraph={handleParagraphBookmark}
         />
@@ -390,15 +456,13 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
         />
       </div>
 
-      {/* Banner de fim de capítulo — aparece quando usuário chega ao fundo da seção.
-          Em scroll mode ele é o caminho principal para avançar de seção.
-          Oculto durante TTS (que tem seu próprio controle de fim de capítulo). */}
-      {chapterEndState !== 'idle' && !ttsPlayerVisible && (
-        <ChapterEndBanner
-          hasNext={chapterEndState === 'atEnd'}
-          nextLabel={nextSectionLabel}
-          onNext={chapterEndState === 'atEnd' ? handleChapterNext : undefined}
-        />
+      {/* Indicador discreto de troca de seção no modo corrido. */}
+      {sectionChangeLabel && !ttsPlayerVisible && (
+        <div className="pointer-events-none absolute left-1/2 top-4 z-20 -translate-x-1/2 px-4">
+          <div className="rounded-full border border-white/10 bg-[rgba(15,7,24,0.82)] px-4 py-2 text-[12px] font-medium text-text-primary shadow-nav backdrop-blur-xl">
+            {sectionChangeLabel}
+          </div>
+        </div>
       )}
 
       {/* Mini player TTS — visível enquanto TTS está ativo (tocando ou pausado) */}
@@ -459,43 +523,6 @@ function ReaderSkeleton() {
   )
 }
 
-// Banner fixo no fundo da tela quando o usuário chega ao final de uma seção.
-// onNext definido → clicável para avançar o capítulo.
-// hasNext=false → último capítulo, sem ação disponível.
-function ChapterEndBanner({
-  hasNext,
-  nextLabel,
-  onNext,
-}: {
-  hasNext: boolean
-  nextLabel?: string | null
-  onNext?: () => void
-}) {
-  return (
-    <div
-      className={`absolute bottom-0 left-0 right-0 z-20 flex flex-row items-center justify-center gap-2 px-4 py-2.5
-        ${onNext ? 'pointer-events-auto active:opacity-70' : 'pointer-events-none'}`}
-      // Gradiente compacto: 35% sólido + fade para cima
-      style={{ background: 'linear-gradient(to top, var(--color-bg-reader) 35%, transparent)' }}
-      onClick={onNext}
-    >
-      <p className="text-xs font-medium text-text-primary">
-        {hasNext ? 'Fim do capítulo' : 'Fim do livro'}
-      </p>
-      {hasNext && (
-        <>
-          <span className="text-text-muted/50 text-xs">·</span>
-          <p className="text-xs text-indigo-primary font-semibold">
-            {nextLabel ? `Continuar em ${nextLabel}` : 'Próximo capítulo →'}
-          </p>
-        </>
-      )}
-    </div>
-  )
-}
-
-// Toast exibido quando o TTS termina de ler todos os parágrafos do capítulo atual.
-// useEffect auto-dismiss: desaparece após 5s sem ação do usuário.
 function TtsFinishedToast({ onDismiss }: { onDismiss: () => void }) {
   useEffect(() => {
     const t = setTimeout(onDismiss, 5000)
@@ -503,16 +530,23 @@ function TtsFinishedToast({ onDismiss }: { onDismiss: () => void }) {
   }, [onDismiss])
 
   return (
-    <div className="absolute bottom-24 left-4 right-4 z-30 flex items-center justify-between px-4 py-3 rounded-md bg-bg-elevated border border-indigo-primary/30">
-      <span className="text-sm text-text-secondary">
-        Fim do capítulo
-      </span>
-      <button
-        onPointerUp={onDismiss}
-        className="text-sm font-medium px-3 py-1 rounded-md text-indigo-primary active:opacity-60"
-      >
-        OK
-      </button>
+    <div className="absolute bottom-24 left-4 right-4 z-30 rounded-[24px] border border-white/10 bg-[rgba(15,7,24,0.88)] px-4 py-3 shadow-card backdrop-blur-xl">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-purple-light/80">
+            TTS concluído
+          </p>
+          <p className="mt-1 text-sm text-text-secondary">
+            Fim do capítulo
+          </p>
+        </div>
+        <button
+          onPointerUp={onDismiss}
+          className="inline-flex h-10 shrink-0 items-center rounded-pill border border-white/8 bg-bg-surface-2/80 px-4 text-sm font-medium text-indigo-primary transition-all duration-150 active:scale-[0.96] active:bg-white/10"
+        >
+          OK
+        </button>
+      </div>
     </div>
   )
 }

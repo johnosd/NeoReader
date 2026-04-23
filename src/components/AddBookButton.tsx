@@ -1,8 +1,7 @@
 import { useRef, useState } from 'react'
 import { Plus } from 'lucide-react'
 import { Toast } from './ui'
-import { EpubService } from '../services/EpubService'
-import { addBook } from '../db/books'
+import { BookImportService } from '../services/BookImportService'
 
 // NOTA: atualmente o FAB fica dentro do BottomNav; este componente é mantido
 // como alternativa autônoma (FAB solto no canto) caso seja reutilizado.
@@ -17,15 +16,7 @@ export function AddBookButton() {
     setImporting(true)
     setError(null)
     try {
-      const metadata = await EpubService.parseMetadata(file)
-      await addBook({
-        title: metadata.title,
-        author: metadata.author,
-        coverBlob: metadata.coverBlob,
-        fileBlob: file,
-        addedAt: new Date(),
-        lastOpenedAt: null,
-      })
+      await BookImportService.importEpub(file)
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Erro ao importar o arquivo'
       setError(message)

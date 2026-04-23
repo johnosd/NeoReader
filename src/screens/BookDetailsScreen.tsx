@@ -8,9 +8,11 @@ import { toggleFavorite } from '../db/books'
 import { softDeleteBookmark } from '../db/bookmarks'
 import { updateBookSettings } from '../db/bookSettings'
 import { getSettings } from '../db/settings'
+import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
 import { EpubService, type EpubExtras } from '../services/EpubService'
 import type { Book } from '../types/book'
 import type { FontSize } from '../types/settings'
+import { resolveReadingState } from '../utils/readingState'
 
 interface BookDetailsScreenProps {
   book: Book
@@ -68,35 +70,19 @@ export function BookDetailsScreen({ book, onBack, onRead }: BookDetailsScreenPro
 
   useEffect(() => {
     setExtrasLoading(true)
-    EpubService.parseExtras(book.fileBlob).then(result => {
+    EpubService.parseExtras(liveBook.fileBlob).then(result => {
       setExtras(result)
       setExtrasLoading(false)
     })
-  }, [book.fileBlob])
+  }, [liveBook.fileBlob])
 
   useEffect(() => {
     const p = CapApp.addListener('backButton', onBack)
     return () => { void p.then(l => l.remove()) }
   }, [onBack])
 
-  const [coverUrl, setCoverUrl] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!liveBook.coverBlob) {
-      setCoverUrl(null)
-      return
-    }
-
-    const nextCoverUrl = URL.createObjectURL(liveBook.coverBlob)
-    setCoverUrl(nextCoverUrl)
-
-    return () => {
-      URL.revokeObjectURL(nextCoverUrl)
-    }
-  }, [liveBook.coverBlob])
-
-  const pct        = progress?.percentage ?? 0
-  const hasProgress = pct > 0
+  const coverUrl = useBookCoverUrl(liveBook.id)
+  const { percentage: pct, readingStatus } = resolveReadingState(liveBook, progress)
   const langLabel  = extras?.language ? (LANGUAGE_NAMES[extras.language] ?? extras.language) : null
 
   return (
@@ -147,7 +133,11 @@ export function BookDetailsScreen({ book, onBack, onRead }: BookDetailsScreenPro
         {/* Ações principais */}
         <div className="px-4 flex flex-col gap-3">
           <Button variant="primary" tone="purple" fullWidth onClick={() => onRead(liveBook)}>
-            {hasProgress ? `Continuar leitura · ${pct}%` : 'Começar a ler'}
+            {readingStatus === 'finished'
+              ? 'Ler novamente'
+              : readingStatus === 'reading'
+                ? `Continuar leitura · ${pct}%`
+                : 'Começar a ler'}
           </Button>
           <Button
             variant="outline" tone="purple" fullWidth disabled
@@ -181,7 +171,9 @@ export function BookDetailsScreen({ book, onBack, onRead }: BookDetailsScreenPro
                   style={{ width: `${pct}%` }}
                 />
               </div>
-              <span className="text-xs text-text-muted tabular-nums shrink-0">{pct}%</span>
+              <span className="text-xs text-text-muted tabular-nums shrink-0">
+                {readingStatus === 'finished' ? 'Concluído' : `${pct}%`}
+              </span>
             </div>
             <div className="flex gap-4 mt-3">
               <Stat value={bookmarks.length} label="marcadores" />

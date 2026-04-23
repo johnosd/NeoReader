@@ -1,4 +1,4 @@
-// Declarações TypeScript para foliate-js (pacote sem tipos nativos)
+// Declaracoes TypeScript para foliate-js (pacote sem tipos nativos)
 
 interface TocItem {
   label: string
@@ -9,14 +9,23 @@ interface TocItem {
 interface FoliateSection {
   href?: string
   cfi?: string
+  linear?: string
+}
+
+interface FoliateRendererContent {
+  doc: Document
+  index?: number
+  overlayer?: unknown
 }
 
 interface RelocateDetail {
   cfi: string
   fraction: number // 0-1, progresso geral do livro
   tocItem?: { label: string; href: string }
-  // Índice e total de seções — vem de SectionProgress.getProgress() em progress.js
+  // Indice e total de secoes - vem de SectionProgress.getProgress() em progress.js
   section?: { current: number; total: number }
+  index?: number
+  size?: number
   range?: Range
 }
 
@@ -28,10 +37,19 @@ declare module 'foliate-js/view.js' {
       sections?: FoliateSection[]
     }
     renderer: HTMLElement & {
-      setAttribute(name: string, value: string): void
+      primaryIndex: number
+      setAttribute(name: string, value: string | number): void
+      removeAttribute(name: string): void
       setStyles?(css: string): void
+      goTo?(params: {
+        index: number
+        anchor?: number | ((doc: Document) => Range | Element | number | null)
+        select?: boolean
+      }): Promise<unknown> | void
       nextSection?(): Promise<unknown> | void
       prevSection?(): Promise<unknown> | void
+      getContents(): FoliateRendererContent[]
+      scrollToAnchor?(anchor: number | Range, reason?: string, smooth?: boolean): void
     }
     lastLocation: RelocateDetail | null
 
@@ -48,7 +66,6 @@ declare module 'foliate-js/view.js' {
     getSectionFractions(): number[]
     close(): void
 
-    // Override para tipar os eventos customizados corretamente
     addEventListener(
       type: 'relocate',
       listener: (e: CustomEvent<RelocateDetail>) => void,
