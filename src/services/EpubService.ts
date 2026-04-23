@@ -6,6 +6,18 @@ export interface EpubMetadata {
   coverBlob: Blob | null
 }
 
+interface ManifestItem {
+  id: string | null
+  href: string
+  mediaType: string | null
+  properties: string[]
+}
+
+interface GuideReference {
+  type: string | null
+  href: string
+}
+
 // Campos extras extraídos do EPUB para a tela de detalhes do livro
 export interface EpubExtras {
   description: string | null   // dc:description do OPF (frequentemente ausente)
@@ -231,10 +243,97 @@ export class EpubService {
     files: Record<string, Uint8Array>,
     path: string,
   ): string | null {
-    // Alguns EPUBs usam caminhos com ou sem barra inicial
-    const data = files[path] ?? files[path.replace(/^\//, '')]
+    const data = this.readFileBytes(files, path)
     if (!data) return null
     return new TextDecoder('utf-8').decode(data)
+  }
+
+  // Lê um arquivo do ZIP aceitando caminhos relativos, com barra inicial
+  // e variações como ../ e caracteres percent-encoded.
+  private static readFileBytes(
+    files: Record<string, Uint8Array>,
+    path: string,
+  ): Uint8Array | null {
+    for (const candidate of this.buildPathCandidates(path)) {
+      const data = files[candidate]
+      if (data) return data
+    }
+    return null
+  }
+
+  private static buildPathCandidates(path: string): string[] {
+    const trimmed = path.trim()
+    const normalized = this.normalizeZipPath(trimmed)
+
+    return [...new Set([
+      trimmed,
+      trimmed.replace(/^\//, ''),
+      normalized,
+      normalized.replace(/^\//, ''),
+    ].filter(Boolean))]
+  }
+
+  // Normaliza caminhos internos do EPUB:
+  // - remove query/hash
+  // - resolve ./ e ../
+  // - decodifica segmentos percent-encoded
+  private static normalizeZipPath(path: string): string {
+    if (!path) return ''
+
+    const cleaned = path
+      .replace(/\\/g, '/')
+      .replace(/[?#].*$/, '')
+      .replace(/%2c/gi, ',')
+      .replace(/%3a/gi, ':')
+
+    const isExternal = /^(?!blob:)[a-z][a-z0-9+.-]*:/i.test(cleaned)
+    if (isExternal) return cleaned
+
+    const absolute = cleaned.startsWith('/')
+    const resolved: string[] = []
+
+    for (const rawPart of cleaned.split('/')) {
+      if (!rawPart || rawPart === '.') continue
+      if (rawPart === '..') {
+        if (resolved.length > 0) resolved.pop()
+        continue
+      }
+
+      try {
+        resolved.push(decodeURIComponent(rawPart))
+      } catch {
+        resolved.push(rawPart)
+      }
+    }
+
+    const joined = resolved.join('/')
+    return absolute ? `/${joined}` : joined
+  }
+
+  // Resolve um href interno do EPUB em relação ao arquivo base (OPF/XHTML).
+  // Isso evita erros comuns com ../, ./ e caminhos exportados pelo Calibre.
+  private static resolveZipPath(basePath: string, href: string): string {
+    const target = href.trim()
+    if (!target) return ''
+
+    const isExternal = /^(?!blob:)[a-z][a-z0-9+.-]*:/i.test(target)
+    if (isExternal) return target
+
+    try {
+      const root = 'https://invalid.invalid/'
+      const url = new URL(
+        target.replace(/%2c/gi, ',').replace(/%3a/gi, ':'),
+        `${root}${basePath.replace(/^\//, '')}`,
+      )
+      url.search = ''
+      url.hash = ''
+      return decodeURI(url.href.replace(root, '')).replace(/^\//, '')
+    } catch {
+      const baseDir = basePath.includes('/')
+        ? basePath.substring(0, basePath.lastIndexOf('/') + 1)
+        : ''
+      return this.normalizeZipPath(`${baseDir}${target}`).replace(/^\//, '')
+    }
   }
 
   // Pega o caminho do OPF de dentro do container.xml
@@ -266,49 +365,135 @@ export class EpubService {
     return map[ext] ?? 'image/jpeg'
   }
 
+  private static parseXmlAttributes(raw: string): Record<string, string> {
+    const attrs: Record<string, string> = {}
+    const attrRe = /([\w:-]+)\s*=\s*(["'])(.*?)\2/gs
+
+    let match: RegExpExecArray | null
+    while ((match = attrRe.exec(raw)) !== null) {
+      attrs[match[1].toLowerCase()] = match[3]
+    }
+
+    return attrs
+  }
+
+  private static extractManifestItems(opfXml: string): ManifestItem[] {
+    return Array.from(opfXml.matchAll(/<item\b([\s\S]*?)\/?>/gi))
+      .map(([, rawAttrs]) => {
+        const attrs = this.parseXmlAttributes(rawAttrs)
+        return {
+          id: attrs.id ?? null,
+          href: attrs.href ?? '',
+          mediaType: attrs['media-type'] ?? null,
+          properties: (attrs.properties ?? '')
+            .split(/\s+/)
+            .map((prop) => prop.trim().toLowerCase())
+            .filter(Boolean),
+        }
+      })
+      .filter((item) => Boolean(item.href))
+  }
+
+  private static extractGuideReferences(opfXml: string): GuideReference[] {
+    return Array.from(opfXml.matchAll(/<reference\b([\s\S]*?)\/?>/gi))
+      .map(([, rawAttrs]) => {
+        const attrs = this.parseXmlAttributes(rawAttrs)
+        return {
+          type: attrs.type ?? null,
+          href: attrs.href ?? '',
+        }
+      })
+      .filter((ref) => Boolean(ref.href))
+  }
+
+  private static findManifestItemByHref(
+    manifestItems: ManifestItem[],
+    opfPath: string,
+    href: string,
+  ): ManifestItem | null {
+    const resolvedTarget = this.resolveZipPath(opfPath, href)
+    return manifestItems.find((item) => (
+      this.resolveZipPath(opfPath, item.href) === resolvedTarget
+    )) ?? null
+  }
+
+  private static isHtmlResource(href: string, mediaType: string | null): boolean {
+    const normalizedType = mediaType?.toLowerCase() ?? ''
+    return normalizedType === 'application/xhtml+xml'
+      || normalizedType === 'text/html'
+      || /\.(x?html?|xhtm)$/i.test(href)
+  }
+
+  private static isCoverCandidate(item: ManifestItem): boolean {
+    if (this.isHtmlResource(item.href, item.mediaType)) return true
+
+    const normalizedType = item.mediaType?.toLowerCase() ?? ''
+    return normalizedType.startsWith('image/')
+      || /\.(png|gif|webp|jpe?g|svg)$/i.test(item.href)
+  }
+
+  private static looksLikeCoverPath(href: string): boolean {
+    return /(^|[\/._-])cover([\/._-]|$)/i.test(href)
+  }
+
   // Extrai a capa como Blob. EPUBs variam muito — estratégia em cascata:
   //   1. properties="cover-image" no manifest
-  //   2. <meta name="cover"> → item por id
-  //   3. Se o href encontrado for HTML → extrai o primeiro <img> de dentro
+  //   2. <meta name="cover"> → item por id/path
+  //   3. item com id="cover"
+  //   4. href com padrão de nome que pareça capa
+  //   5. <guide><reference type="cover">
+  //   6. primeira imagem do manifest
+  //   7. se o href escolhido for XHTML/HTML → extrai a imagem interna
   private static extractCover(
     opfXml: string,
     opfPath: string,
     files: Record<string, Uint8Array>,
   ): Blob | null {
+    const manifestItems = this.extractManifestItems(opfXml)
+    const guideReferences = this.extractGuideReferences(opfXml)
     const coverHref =
-      this.extractCoverFromProperties(opfXml) ??
-      this.extractCoverFromMeta(opfXml)
+      this.extractCoverFromProperties(opfXml, manifestItems) ??
+      this.extractCoverFromMeta(opfXml, manifestItems) ??
+      manifestItems.find((item) => (
+        item.id?.toLowerCase() === 'cover' && this.isCoverCandidate(item)
+      ))?.href ??
+      manifestItems.find((item) => (
+        this.looksLikeCoverPath(item.href) && this.isCoverCandidate(item)
+      ))?.href ??
+      guideReferences.find((ref) => ref.type?.toLowerCase().includes('cover'))?.href ??
+      manifestItems.find((item) => item.mediaType?.toLowerCase().startsWith('image/'))?.href
 
     if (!coverHref) return null
 
-    // O path do OPF dá o diretório base para resolver caminhos relativos
-    const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/') + 1) : ''
-    const coverPath = opfDir + coverHref
+    const coverItem = this.findManifestItemByHref(manifestItems, opfPath, coverHref)
+    const coverPath = this.resolveZipPath(opfPath, coverHref)
 
     // Alguns EPUBs (ex: O'Reilly) declaram o item de capa como um arquivo HTML
     // (.xhtml/.html) que contém um <img> apontando para a imagem real.
     // Nesses casos precisamos abrir o HTML e extrair o src do primeiro <img>.
-    const isHtml = /\.(x?html?|xhtm)$/i.test(coverHref)
+    const isHtml = this.isHtmlResource(coverHref, coverItem?.mediaType ?? null)
     if (isHtml) {
       const html = this.readFileAsText(files, coverPath)
-                ?? this.readFileAsText(files, coverPath.replace(/^\//, ''))
       return html ? this.extractImageFromHtml(html, coverPath, files) : null
     }
 
-    const coverData = files[coverPath] ?? files[coverPath.replace(/^\//, '')]
+    const coverData = this.readFileBytes(files, coverPath)
     if (!coverData) return null
 
-    return new Blob([coverData.slice(0)], { type: this.mimeFromPath(coverHref) })
+    return new Blob([coverData.slice(0)], {
+      type: coverItem?.mediaType ?? this.mimeFromPath(coverPath),
+    })
   }
 
   // Estratégia 1: <item properties="cover-image" href="..."/>
   // Nota: [\s\S]*? em vez de [^>]* para suportar atributos em múltiplas linhas.
   // Muitos editores de EPUB (ex: calibre, ferramentas O'Reilly) geram o OPF
   // com cada atributo numa linha separada, e [^>] não casa com \n.
-  private static extractCoverFromProperties(opfXml: string): string | null {
-    const match = opfXml.match(/properties="cover-image"[\s\S]*?href="([^"]+)"/)
-              ?? opfXml.match(/href="([^"]+)"[\s\S]*?properties="cover-image"/)
-    return match?.[1] ?? null
+  private static extractCoverFromProperties(
+    opfXml: string,
+    manifestItems: ManifestItem[] = this.extractManifestItems(opfXml),
+  ): string | null {
+    return manifestItems.find((item) => item.properties.includes('cover-image'))?.href ?? null
   }
 
   // Estratégia 2: <meta name="cover" content="..."/>
@@ -316,21 +501,24 @@ export class EpubService {
   //   a) um ID de manifest: content="cover-image" → busca <item id="cover-image" href="..."/>
   //   b) um path direto:    content="Images/cover.png" → usa como href diretamente
   //   (O'Reilly usa a variante (b), a maioria dos EPUBs usa (a))
-  private static extractCoverFromMeta(opfXml: string): string | null {
-    const metaMatch = opfXml.match(/<meta[\s\S]*?name="cover"[\s\S]*?content="([^"]+)"/)
-                  ?? opfXml.match(/<meta[\s\S]*?content="([^"]+)"[\s\S]*?name="cover"/)
-    if (!metaMatch) return null
+  private static extractCoverFromMeta(
+    opfXml: string,
+    manifestItems: ManifestItem[] = this.extractManifestItems(opfXml),
+  ): string | null {
+    const content = Array.from(opfXml.matchAll(/<meta\b([\s\S]*?)\/?>/gi))
+      .map(([, rawAttrs]) => this.parseXmlAttributes(rawAttrs))
+      .find((attrs) => attrs.name?.toLowerCase() === 'cover')
+      ?.content
 
-    const content = metaMatch[1]
+    if (!content) return null
 
     // Se o content parece um path de arquivo (tem extensão), usa diretamente
-    if (/\.[a-z]{2,5}$/i.test(content)) return content
+    if (/\.[a-z0-9]{2,5}(?:[#?].*)?$/i.test(content)) return content
 
     // Caso contrário, trata como ID de manifest e busca o href correspondente
-    const escapedId = content.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const itemMatch = opfXml.match(new RegExp(`id="${escapedId}"[\\s\\S]*?href="([^"]+)"`))
-                  ?? opfXml.match(new RegExp(`href="([^"]+)"[\\s\\S]*?id="${escapedId}"`))
-    return itemMatch?.[1] ?? null
+    return manifestItems.find((item) => item.id === content)?.href
+      ?? manifestItems.find((item) => item.id?.toLowerCase() === content.toLowerCase())?.href
+      ?? null
   }
 
   // Abre um arquivo HTML de capa e extrai o src do primeiro <img> (ou href do
@@ -341,16 +529,17 @@ export class EpubService {
     htmlPath: string,
     files: Record<string, Uint8Array>,
   ): Blob | null {
-    const match = html.match(/<img[\s\S]*?src="([^"]+)"/)
-              ?? html.match(/<image[\s\S]*?href="([^"]+)"/)
-              ?? html.match(/<image[\s\S]*?xlink:href="([^"]+)"/)  // SVG antigo usa xlink:href
-    if (!match) return null
+    const match = html.match(/<img[\s\S]*?src=["']([^"']+)["']/i)
+              ?? html.match(/<image[\s\S]*?href=["']([^"']+)["']/i)
+              ?? html.match(/<image[\s\S]*?xlink:href=["']([^"']+)["']/i)  // SVG antigo usa xlink:href
 
-    const imgDir = htmlPath.includes('/')
-      ? htmlPath.substring(0, htmlPath.lastIndexOf('/') + 1)
-      : ''
-    const imgPath = imgDir + match[1]
-    const data = files[imgPath] ?? files[imgPath.replace(/^\//, '')]
+    if (!match) {
+      const inlineSvg = html.match(/<svg\b[\s\S]*?<\/svg>/i)?.[0]
+      return inlineSvg ? new Blob([inlineSvg], { type: 'image/svg+xml' }) : null
+    }
+
+    const imgPath = this.resolveZipPath(htmlPath, match[1])
+    const data = this.readFileBytes(files, imgPath)
     if (!data) return null
 
     return new Blob([data.slice(0)], { type: this.mimeFromPath(imgPath) })

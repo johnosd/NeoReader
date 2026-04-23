@@ -1,16 +1,23 @@
 export type ReadingStatus = 'unread' | 'reading' | 'finished'
+export type BookCoverSource = 'epub-extracted' | 'manual-upload' | 'legacy-inline'
 
 // Representa um livro armazenado no IndexedDB
 export interface Book {
   id?: number          // auto-increment pelo Dexie
   title: string
   author: string
-  coverBlob: Blob | null  // imagem da capa extraída do EPUB
   fileBlob: Blob          // arquivo .epub completo
   addedAt: Date
   lastOpenedAt: Date | null
   readingStatus?: ReadingStatus
-  isFavorite?: boolean    // marcado pelo usuário na tela de detalhes
+  isFavorite?: boolean    // marcado pelo usuÃ¡rio na tela de detalhes
+}
+
+export interface BookCover {
+  bookId: number
+  blob: Blob
+  source: BookCoverSource
+  updatedAt: Date
 }
 
 // Configurações específicas de leitura por livro

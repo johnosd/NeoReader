@@ -1,6 +1,6 @@
-import { useMemo } from 'react'
 import { MoreVertical, BookOpen } from 'lucide-react'
 import type { BookWithProgress } from '../hooks/useLibraryGroups'
+import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
 
 interface BookCardProps {
   book: BookWithProgress
@@ -9,10 +9,7 @@ interface BookCardProps {
 }
 
 export function BookCard({ book, onPress, onOpenOptions }: BookCardProps) {
-  const coverUrl = useMemo(() => {
-    if (!book.coverBlob) return null
-    return URL.createObjectURL(book.coverBlob)
-  }, [book.coverBlob])
+  const coverUrl = useBookCoverUrl(book.id)
 
   const pct = book.percentage
 

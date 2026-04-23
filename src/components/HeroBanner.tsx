@@ -1,6 +1,6 @@
-import { useMemo } from 'react'
 import { BookOpen, Play, Plus } from 'lucide-react'
 import type { BookWithProgress } from '../hooks/useLibraryGroups'
+import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
 import type { Book } from '../types/book'
 
 interface HeroBannerProps {
@@ -10,9 +10,7 @@ interface HeroBannerProps {
 }
 
 export function HeroBanner({ book, onPress, onOpenOptions }: HeroBannerProps) {
-  const coverUrl = useMemo(() => (
-    book.coverBlob ? URL.createObjectURL(book.coverBlob) : null
-  ), [book.coverBlob])
+  const coverUrl = useBookCoverUrl(book.id)
 
   const actionLabel =
     book.readingStatus === 'finished' ? 'Reler'

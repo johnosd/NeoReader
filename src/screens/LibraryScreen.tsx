@@ -8,8 +8,7 @@ import { BookOptionsSheet } from '../components/BookOptionsSheet'
 import { BottomNav } from '../components/BottomNav'
 import { EmptyState, Skeleton, Toast } from '../components/ui'
 import { useLibraryGroups } from '../hooks/useLibraryGroups'
-import { EpubService } from '../services/EpubService'
-import { addBook } from '../db/books'
+import { BookImportService } from '../services/BookImportService'
 import type { Book } from '../types/book'
 
 interface LibraryScreenProps {
@@ -39,15 +38,7 @@ export function LibraryScreen({ onOpenBook, onOpenVocabulary, onOpenSettings }: 
     setImporting(true)
     setImportError(null)
     try {
-      const metadata = await EpubService.parseMetadata(file)
-      await addBook({
-        title: metadata.title,
-        author: metadata.author,
-        coverBlob: metadata.coverBlob,
-        fileBlob: file,
-        addedAt: new Date(),
-        lastOpenedAt: null,
-      })
+      await BookImportService.importEpub(file)
     } catch (err) {
       setImportError(err instanceof Error ? err.message : 'Erro ao importar o arquivo')
     } finally {

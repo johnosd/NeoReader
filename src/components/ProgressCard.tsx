@@ -1,6 +1,6 @@
-import { useMemo } from 'react'
 import { BookOpen, MoreVertical } from 'lucide-react'
 import type { BookWithProgress } from '../hooks/useLibraryGroups'
+import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
 import type { Book } from '../types/book'
 
 interface ProgressCardProps {
@@ -10,9 +10,7 @@ interface ProgressCardProps {
 }
 
 export function ProgressCard({ book, onPress, onOpenOptions }: ProgressCardProps) {
-  const coverUrl = useMemo(() => (
-    book.coverBlob ? URL.createObjectURL(book.coverBlob) : null
-  ), [book.coverBlob])
+  const coverUrl = useBookCoverUrl(book.id)
 
   return (
     <div

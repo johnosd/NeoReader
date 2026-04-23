@@ -1,8 +1,8 @@
 import { useRef, useState, type ReactNode } from 'react'
 import { ImagePlus, RefreshCw, Trash2 } from 'lucide-react'
 import { BottomSheet, Button, Spinner } from './ui'
-import { EpubService } from '../services/EpubService'
-import { updateBookCover, deleteBook } from '../db/books'
+import { deleteBook } from '../db/books'
+import { BookImportService } from '../services/BookImportService'
 import type { Book } from '../types/book'
 
 interface BookOptionsSheetProps {
@@ -41,16 +41,11 @@ export function BookOptionsSheet({ book, onClose }: BookOptionsSheetProps) {
     setLoading(true)
     setError(null)
     try {
-      // Converte o Blob salvo para File — EpubService.parseMetadata espera File
-      const file = new File([book.fileBlob], `${book.title}.epub`, {
-        type: 'application/epub+zip',
-      })
-      const metadata = await EpubService.parseMetadata(file)
-      if (!metadata.coverBlob) {
+      const hasCover = await BookImportService.reextractCover(book)
+      if (!hasCover) {
         setError('Nenhuma capa encontrada neste EPUB.')
         return
       }
-      await updateBookCover(book.id, metadata.coverBlob)
       onClose()
     } catch {
       setError('Erro ao recriar capa. Tente novamente.')
@@ -65,7 +60,7 @@ export function BookOptionsSheet({ book, onClose }: BookOptionsSheetProps) {
     setLoading(true)
     setError(null)
     try {
-      await updateBookCover(book.id, file)
+      await BookImportService.updateManualCover(book.id, file)
       onClose()
     } catch {
       setError('Erro ao salvar imagem.')

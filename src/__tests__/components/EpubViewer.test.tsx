@@ -21,7 +21,6 @@ const mockBook: Book = {
   id: 1,
   title: 'Test Book',
   author: 'Author',
-  coverBlob: null,
   fileBlob: new Blob([''], { type: 'application/epub+zip' }),
   addedAt: new Date(),
   lastOpenedAt: null,

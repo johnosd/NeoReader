@@ -8,6 +8,7 @@ import { toggleFavorite } from '../db/books'
 import { softDeleteBookmark } from '../db/bookmarks'
 import { updateBookSettings } from '../db/bookSettings'
 import { getSettings } from '../db/settings'
+import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
 import { EpubService, type EpubExtras } from '../services/EpubService'
 import type { Book } from '../types/book'
 import type { FontSize } from '../types/settings'
@@ -69,33 +70,18 @@ export function BookDetailsScreen({ book, onBack, onRead }: BookDetailsScreenPro
 
   useEffect(() => {
     setExtrasLoading(true)
-    EpubService.parseExtras(book.fileBlob).then(result => {
+    EpubService.parseExtras(liveBook.fileBlob).then(result => {
       setExtras(result)
       setExtrasLoading(false)
     })
-  }, [book.fileBlob])
+  }, [liveBook.fileBlob])
 
   useEffect(() => {
     const p = CapApp.addListener('backButton', onBack)
     return () => { void p.then(l => l.remove()) }
   }, [onBack])
 
-  const [coverUrl, setCoverUrl] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!liveBook.coverBlob) {
-      setCoverUrl(null)
-      return
-    }
-
-    const nextCoverUrl = URL.createObjectURL(liveBook.coverBlob)
-    setCoverUrl(nextCoverUrl)
-
-    return () => {
-      URL.revokeObjectURL(nextCoverUrl)
-    }
-  }, [liveBook.coverBlob])
-
+  const coverUrl = useBookCoverUrl(liveBook.id)
   const { percentage: pct, readingStatus } = resolveReadingState(liveBook, progress)
   const langLabel  = extras?.language ? (LANGUAGE_NAMES[extras.language] ?? extras.language) : null
 
