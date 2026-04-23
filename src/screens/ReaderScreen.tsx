@@ -527,30 +527,20 @@ function ChapterEndBanner({
 }) {
   return (
     <div
-      className="absolute bottom-0 left-0 right-0 z-20 px-4 pt-6"
-      style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+      className={`absolute bottom-0 left-0 right-0 z-20 flex flex-row items-center justify-center gap-2 px-4 py-2.5
+        ${onNext ? 'pointer-events-auto active:opacity-70' : 'pointer-events-none'}`}
+      // Gradiente compacto: 35% sólido + fade para cima
+      style={{ background: 'linear-gradient(to top, var(--color-bg-reader) 35%, transparent)' }}
+      onClick={onNext}
     >
-      <div className="rounded-[28px] border border-white/10 bg-[rgba(15,7,24,0.88)] px-5 py-4 shadow-nav backdrop-blur-xl">
-        <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-purple-light/80">
-          {hasNext ? 'Fim do capítulo' : 'Fim do livro'}
-        </p>
-        {hasNext ? (
-          <>
-            <p className="mt-1 text-sm leading-6 text-text-secondary">
-              {nextLabel
-                ? `A próxima seção já está pronta: ${nextLabel}.`
-                : 'Você chegou ao fim desta seção.'}
-            </p>
-            <button
-              onClick={onNext}
-              className="mt-4 flex h-14 w-full items-center justify-center rounded-pill bg-indigo-primary px-5 text-base font-semibold text-white shadow-indigo-glow transition-all duration-150 active:scale-[0.97]"
-            >
-              {nextLabel ? `Continuar em ${nextLabel}` : 'Ir para o próximo capítulo'}
-            </button>
-          </>
-        ) : (
-          <p className="mt-1 text-sm leading-6 text-text-secondary">
-            Você terminou o livro. Use o índice ou a lista de marcadores para revisitar trechos.
+      <p className="text-xs font-medium text-text-primary">
+        {hasNext ? 'Fim do capítulo' : 'Fim do livro'}
+      </p>
+      {hasNext && (
+        <>
+          <span className="text-text-muted/50 text-xs">·</span>
+          <p className="text-xs text-indigo-primary font-semibold">
+            {nextLabel ? `Continuar em ${nextLabel}` : 'Próximo capítulo →'}
           </p>
         )}
       </div>
