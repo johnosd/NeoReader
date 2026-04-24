@@ -161,4 +161,22 @@ describe('provider API key validation', () => {
     ])
     expect(mockSetCachedTtsVoiceOptions).toHaveBeenCalledOnce()
   })
+
+  it('normaliza o texto antes de sintetizar com Speechify', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      audio_data: 'YQ==',
+      speech_marks: [],
+    }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await SpeechifyService.synthesize('  Hello\n\nworld\t ', {
+      apiKey: 'valid-key',
+      language: 'en-US',
+      rate: 1,
+    })
+
+    const init = fetchMock.mock.calls[0][1] as RequestInit
+    const body = JSON.parse(String(init.body))
+    expect(body.input).toBe('Hello world')
+  })
 })

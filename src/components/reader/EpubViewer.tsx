@@ -7,6 +7,7 @@ import { getReaderLineHeightValue, getReaderThemePalette } from '../../utils/rea
 import { getSentenceAt, escapeHtml } from '../../utils/readerUtils'
 import { areCfisEquivalent, normalizeCfi } from '../../utils/cfi'
 import { fractionToPercentage } from '../../utils/progress'
+import { splitParagraphIntoTtsChunks } from '../../utils/ttsChunking'
 
 export type { FontSize, ReaderLineHeight, ReaderTheme } from '../../types/settings'
 
@@ -51,44 +52,11 @@ export interface TtsChunk {
 
 // Divide um parágrafo em frases e agrupa as muito curtas (<minLen chars) com a próxima.
 // Retorna array de { sentence, offset } onde offset é o índice de char no texto original.
-function splitParagraphIntoChunks(text: string, minLen = 40): Array<{ sentence: string; offset: number }> {
-  // matchAll retorna todos os matches com índice — mais preciso que match()
-  const matches = [...text.matchAll(/[^.!?]*[.!?]+\s*/g)]
-  const parts: Array<{ sentence: string; offset: number }> = matches.map(m => ({
-    sentence: m[0],
-    offset: m.index ?? 0,
-  }))
-
-  // Captura cauda sem pontuação final (ex: último parágrafo sem ponto)
-  const lastEnd = matches.length > 0
-    ? (matches[matches.length - 1].index ?? 0) + matches[matches.length - 1][0].length
-    : 0
-  const tail = text.slice(lastEnd).trim()
-  if (tail) parts.push({ sentence: tail, offset: lastEnd })
-
-  // Se não achou nenhuma frase delimitada, devolve o parágrafo inteiro
-  if (parts.length === 0) return [{ sentence: text.trim(), offset: 0 }]
-
-  // Agrupa frases curtas com a próxima até atingir minLen
-  const merged: Array<{ sentence: string; offset: number }> = []
-  let acc = ''
-  let accOffset = 0
-
-  for (const { sentence, offset } of parts) {
-    if (!acc) { acc = sentence; accOffset = offset }
-    else acc += sentence
-
-    if (acc.trim().length >= minLen) {
-      merged.push({ sentence: acc.trim(), offset: accOffset })
-      acc = ''
-    }
-  }
-  if (acc.trim()) merged.push({ sentence: acc.trim(), offset: accOffset })
-
-  return merged
+function splitParagraphIntoChunks(text: string, minLen = 40, locale?: string): Array<{ sentence: string; offset: number }> {
+  return splitParagraphIntoTtsChunks(text, minLen, locale)
 }
 
-// Escapa caracteres HTML para inserção segura via innerHTML (karaokê de palavras)
+// O TTS usa wrappers em nós de texto; innerHTML fica restrito aos blocos de ação controlados.
 
 // Envolve apenas a frase `sentence` num <span class="nr-hl-sentence"> dentro do parágrafo.
 // Usa Range + surroundContents: funciona quando a frase está dentro de um único nó de texto.
@@ -275,8 +243,15 @@ function buildReaderCSS(fontSize: FontSize, lineHeight: ReaderLineHeight, reader
     }
     /* Palavra atual no karaokê de palavras */
     .nr-tts-word {
+      padding: .02em .12em !important;
+      border-radius: 5px !important;
+      background: rgba(250, 204, 21, 0.32) !important;
+      box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.10) !important;
+      color: inherit !important;
       font-weight: bold !important;
       text-decoration: underline !important;
+      -webkit-box-decoration-break: clone !important;
+      box-decoration-break: clone !important;
     }
 
     /* Bloco de tradução inline — injetado após o parágrafo selecionado */
@@ -490,6 +465,7 @@ export interface EpubViewerHandle {
   prev(): void
   // Navega para o capítulo anterior e posiciona no final (último parágrafo)
   prevToEnd(): void
+  goToNextTtsSection(): boolean
   goTo(target: string | number | { fraction: number }): void
   getVisibleLocation(): VisibleReadingLocation
   // TTS: retorna os textos puros de todos os parágrafos da seção atual
@@ -505,7 +481,7 @@ export interface EpubViewerHandle {
   // TTS: rola suavemente para centralizar o parágrafo na tela (respeitando scroll do usuário)
   scrollToParagraph(idx: number): void
   // TTS: prepara scroll automático — limpa flag de "usuário rolou", chama no início do play
-  resetTtsScroll(): void
+  resetTtsScroll(options?: { preservePlaybackSection?: boolean }): void
   // Tradução inline: injeta bloco com spinner logo após o parágrafo ativo
   showTranslationLoading(): void
   // Tradução inline: substitui spinner pelo texto traduzido + botões de ação
@@ -553,6 +529,7 @@ interface EpubViewerProps {
   onRelocate: (payload: ReaderRelocatePayload) => void
   onTocReady: (toc: TocItem[]) => void
   onLoad: () => void
+  onSectionReady?: (sectionIndex: number) => void
   onError: (err: Error) => void
   // Chamado quando o usuário salva um par original/tradução via ⭐
   onSaveVocab: (sourceText: string, translatedText: string) => void
@@ -569,6 +546,7 @@ interface EpubViewerProps {
   onSpeakOne: (text: string) => void
   // TTS: quando audiobook está tocando, tap em parágrafo pula para ele
   onParagraphTapForTts: (idx: number) => void
+  onTtsUserScrollAway?: () => void
   // TTS: true quando o modo leitura contínua está ativo — inclui pausado.
   // Quando true, tap em parágrafo navega o TTS em vez de abrir tradução.
   ttsGlobalActive: boolean
@@ -587,9 +565,9 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
   (
     {
       book, bookmarks, fontSize, lineHeight, readerTheme, savedCfi,
-      onRelocate, onTocReady, onLoad, onError,
+      onRelocate, onTocReady, onLoad, onSectionReady, onError,
       onSaveVocab, onCenterTap, onTranslate,
-      onSpeakOne, onParagraphTapForTts, ttsGlobalActive,
+      onSpeakOne, onParagraphTapForTts, onTtsUserScrollAway, ttsGlobalActive,
       chromeVisible,
       onBookmarkTap, onBookmarkParagraph,
     },
@@ -604,6 +582,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     // Elementos e textos dos parágrafos da seção atual — atualizados no evento 'load'
     const ttsParagraphsRef = useRef<Element[]>([])
     const ttsParagraphTextsRef = useRef<string[]>([])
+    const ttsPlaybackContentRef = useRef<LoadedSectionContent | null>(null)
 
     // Ref do parágrafo com highlight de tradução ativo — usado por clearTranslation()
     const activeTranslationParaRef = useRef<Element | null>(null)
@@ -629,6 +608,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const onTranslateRef = useSyncRef(onTranslate)
     const onSpeakOneRef = useSyncRef(onSpeakOne)
     const onParagraphTapForTtsRef = useSyncRef(onParagraphTapForTts)
+    const onSectionReadyRef = useSyncRef(onSectionReady)
+    const onTtsUserScrollAwayRef = useSyncRef(onTtsUserScrollAway)
     // ttsGlobalActive: modo leitura contínua ativo (inclui pausado) — gating do clique
     const ttsGlobalActiveRef = useSyncRef(ttsGlobalActive)
     // chromeVisible: quando true, qualquer toque no iframe fecha o chrome imediatamente
@@ -708,6 +689,115 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       ttsParagraphTextsRef.current = content.paragraphTexts
 
       return content
+    }
+
+    function getTtsPlaybackContent(): LoadedSectionContent | null {
+      return ttsPlaybackContentRef.current ?? getLoadedSection(currentSectionIdxRef.current)
+    }
+
+    function getTtsPlaybackParagraphs(): Element[] {
+      return getTtsPlaybackContent()?.paragraphs ?? ttsParagraphsRef.current
+    }
+
+    function createCollapsedRangeForElement(element: Element): Range {
+      const range = element.ownerDocument.createRange()
+      range.selectNodeContents(element)
+      range.collapse(true)
+      return range
+    }
+
+    function getParagraphsFromDocument(doc: Document): Element[] {
+      return Array.from(doc.querySelectorAll(BLOCK))
+        .filter((el) => (el.textContent?.trim().length ?? 0) > 2)
+    }
+
+    function unwrapElementPreservingChildren(el: Element): void {
+      const parent = el.parentNode
+      if (!parent) return
+
+      while (el.firstChild) parent.insertBefore(el.firstChild, el)
+      parent.removeChild(el)
+      parent.normalize()
+    }
+
+    function clearTtsWordHighlights(root: Element): void {
+      root.querySelectorAll('.nr-tts-word').forEach((el) => {
+        unwrapElementPreservingChildren(el)
+      })
+
+      const htmlRoot = root as HTMLElement
+      if (htmlRoot.dataset.originalHtml) delete htmlRoot.dataset.originalHtml
+    }
+
+    function wrapTextSegment(textNode: Text, startOffset: number, endOffset: number): boolean {
+      const textLength = textNode.data.length
+      const safeStart = Math.max(0, Math.min(startOffset, textLength))
+      const safeEnd = Math.max(safeStart, Math.min(endOffset, textLength))
+      if (safeEnd <= safeStart) return false
+
+      const selectedNode = safeStart > 0 ? textNode.splitText(safeStart) : textNode
+      const selectedLength = safeEnd - safeStart
+      if (selectedLength < selectedNode.data.length) selectedNode.splitText(selectedLength)
+
+      const parent = selectedNode.parentNode
+      if (!parent) return false
+
+      const mark = selectedNode.ownerDocument.createElement('mark')
+      mark.className = 'nr-tts-word'
+      parent.insertBefore(mark, selectedNode)
+      mark.appendChild(selectedNode)
+      return true
+    }
+
+    function highlightTextRangeByOffsets(root: Element, start: number, end: number): boolean {
+      const textLength = root.textContent?.length ?? 0
+      const safeStart = Math.max(0, Math.min(start, textLength))
+      const safeEnd = Math.max(safeStart, Math.min(end, textLength))
+      if (safeEnd <= safeStart) return false
+
+      const segments: Array<{ node: Text; startOffset: number; endOffset: number }> = []
+      const showText = root.ownerDocument.defaultView?.NodeFilter?.SHOW_TEXT ?? NodeFilter.SHOW_TEXT
+      const walker = root.ownerDocument.createTreeWalker(root, showText)
+      let textOffset = 0
+      let node: Node | null
+
+      while ((node = walker.nextNode()) !== null) {
+        const nodeTextLength = node.textContent?.length ?? 0
+        const nodeStart = textOffset
+        const nodeEnd = nodeStart + nodeTextLength
+        const overlapStart = Math.max(safeStart, nodeStart)
+        const overlapEnd = Math.min(safeEnd, nodeEnd)
+
+        if (overlapEnd > overlapStart) {
+          segments.push({
+            node: node as Text,
+            startOffset: overlapStart - nodeStart,
+            endOffset: overlapEnd - nodeStart,
+          })
+        }
+
+        textOffset = nodeEnd
+        if (textOffset >= safeEnd) break
+      }
+
+      return segments.reduce((wrapped, segment) => (
+        wrapTextSegment(segment.node, segment.startOffset, segment.endOffset) || wrapped
+      ), false)
+    }
+
+    function clearTtsHighlights(paragraphs: Element[]): void {
+      paragraphs.forEach(el => {
+        el.classList.remove('nr-tts-hl')
+        clearTtsWordHighlights(el)
+      })
+    }
+
+    function clearKnownTtsHighlights(): void {
+      const paragraphs = new Set<Element>([
+        ...ttsParagraphsRef.current,
+        ...(ttsPlaybackContentRef.current?.paragraphs ?? []),
+      ])
+      clearTtsHighlights(Array.from(paragraphs))
     }
 
     function getParagraphIndexFromRange(range?: Range | null): number {
@@ -951,7 +1041,9 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
       const onScroll = () => {
         if (ttsActiveRef.current && Date.now() > scrollingProgrammaticallyUntilRef.current) {
+          const wasFollowing = !userScrolledRef.current
           userScrolledRef.current = true
+          if (wasFollowing) onTtsUserScrollAwayRef.current?.()
         }
       }
 
@@ -1009,6 +1101,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         initialInteractiveReadyRef.current = true
         onLoad()
       }
+      onSectionReadyRef.current?.(index)
     }
 
     function clearBookmarkMarkers(doc?: Document | null): void {
@@ -1052,20 +1145,21 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       return null
     }
 
-    function goToAdjacentSection(direction: 1 | -1, anchor?: number | ((doc: Document) => Range | Element | number | null)): void {
+    function goToAdjacentSection(direction: 1 | -1, anchor?: number | ((doc: Document) => Range | Element | number | null)): boolean {
       const view = viewRef.current
-      if (!view) return
+      if (!view) return false
 
       const targetIndex = getAdjacentSectionIndex(direction)
-      if (targetIndex == null) return
+      if (targetIndex == null) return false
 
       if (typeof view.renderer.goTo === 'function') {
         void view.renderer.goTo(anchor == null ? { index: targetIndex } : { index: targetIndex, anchor })
-        return
+        return true
       }
 
       scrollToBottomOnLoadRef.current = anchor === 1
       void view.goTo(targetIndex)
+      return true
     }
 
     // Expõe API imperativa para o ReaderScreen via ref
@@ -1085,6 +1179,12 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         scrollingProgrammaticallyUntilRef.current = Date.now() + 800
         goToAdjacentSection(-1, () => 1)
       },
+      goToNextTtsSection: () => {
+        autoSkipChapterStubDirectionRef.current = 1
+        autoSkipChapterStubCountRef.current = 0
+        scrollingProgrammaticallyUntilRef.current = Date.now() + 800
+        return goToAdjacentSection(1, () => 0)
+      },
       goTo: (target) => {
         autoSkipChapterStubDirectionRef.current =
           typeof target === 'string' && !isCfiTarget(target) ? 1 : 0
@@ -1101,10 +1201,12 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
         const { para } = getVisibleParagraphInternal()
         if (!para) {
+          const sectionHref = location.tocItem?.href
+            ?? view.book?.sections?.[location.index ?? currentSectionIdxRef.current]?.href
           return {
             cfi: location.cfi,
             tocLabel: location.tocItem?.label,
-            sectionHref: location.tocItem?.href,
+            sectionHref,
             fraction,
             percentage,
           }
@@ -1117,11 +1219,14 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
         const cfi = view.getCFI(currentSectionIdxRef.current, range)
         const progress = view.getProgressOf(currentSectionIdxRef.current, range)
+        const sectionHref = progress.tocItem?.href
+          ?? location.tocItem?.href
+          ?? view.book?.sections?.[currentSectionIdxRef.current]?.href
 
         return {
           cfi,
           tocLabel: progress.tocItem?.label ?? location.tocItem?.label,
-          sectionHref: progress.tocItem?.href ?? location.tocItem?.href,
+          sectionHref,
           fraction,
           percentage,
         }
@@ -1131,9 +1236,12 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
       getSentenceChunks: (): TtsChunk[] => {
         const chunks: TtsChunk[] = []
-        for (let paraIdx = 0; paraIdx < ttsParagraphTextsRef.current.length; paraIdx++) {
-          const text = ttsParagraphTextsRef.current[paraIdx]
-          for (const { sentence, offset } of splitParagraphIntoChunks(text)) {
+        const content = ttsActiveRef.current ? getTtsPlaybackContent() : getLoadedSection(currentSectionIdxRef.current)
+        const paragraphTexts = content?.paragraphTexts ?? ttsParagraphTextsRef.current
+        const locale = content?.doc.documentElement.lang || currentDocRef.current?.documentElement.lang || undefined
+        for (let paraIdx = 0; paraIdx < paragraphTexts.length; paraIdx++) {
+          const text = paragraphTexts[paraIdx]
+          for (const { sentence, offset } of splitParagraphIntoChunks(text, 40, locale)) {
             chunks.push({ text: sentence, paraIdx, offsetInPara: offset })
           }
         }
@@ -1145,30 +1253,48 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       scrollToParagraph: (idx: number) => {
         // Usuário rolou manualmente durante o TTS: não override a posição dele
         if (userScrolledRef.current) return
-        const para = ttsParagraphsRef.current[idx] as HTMLElement | undefined
+        const content = getTtsPlaybackContent()
+        const paragraphs = content?.paragraphs ?? ttsParagraphsRef.current
+        const para = paragraphs[idx] as HTMLElement | undefined
         if (!para) return
         // Marca como scroll programático por 1s (cobre animação smooth)
-        scrollingProgrammaticallyUntilRef.current = Date.now() + 1000
+        scrollingProgrammaticallyUntilRef.current = Date.now() + 1200
+
+        const renderer = viewRef.current?.renderer
+        const sectionIndex = content?.index ?? currentSectionIdxRef.current
+        if (renderer?.goTo && sectionIndex !== currentSectionIdxRef.current) {
+          void renderer.goTo({
+            index: sectionIndex,
+            anchor: (doc) => {
+              const target = getParagraphsFromDocument(doc)[idx] ?? para
+              return createCollapsedRangeForElement(target)
+            },
+          })
+          return
+        }
+
+        const range = createCollapsedRangeForElement(para)
+        if (renderer?.scrollToAnchor) {
+          void renderer.scrollToAnchor(range, false, true)
+          return
+        }
+
         para.scrollIntoView({ block: 'center', behavior: 'smooth' })
       },
 
-      resetTtsScroll: () => {
+      resetTtsScroll: (options) => {
         userScrolledRef.current = false
         ttsActiveRef.current = true
+        if (!options?.preservePlaybackSection) {
+          ttsPlaybackContentRef.current = getLoadedSection(currentSectionIdxRef.current)
+        }
       },
 
       highlightTts: (paraIdx, wordStart, wordEnd) => {
         // Remove destaques do parágrafo anterior (TTS e karaokê)
-        ttsParagraphsRef.current.forEach(el => {
-          el.classList.remove('nr-tts-hl')
-          const htmlEl = el as HTMLElement
-          if (htmlEl.dataset.originalHtml) {
-            el.innerHTML = htmlEl.dataset.originalHtml
-            delete htmlEl.dataset.originalHtml
-          }
-        })
+        clearKnownTtsHighlights()
 
-        const para = ttsParagraphsRef.current[paraIdx]
+        const para = getTtsPlaybackParagraphs()[paraIdx]
         if (!para) return
 
         // Destaca o parágrafo atual
@@ -1177,30 +1303,13 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         // Karaokê: wordStart === wordEnd === 0 significa "só muda o parágrafo"
         if (wordStart === 0 && wordEnd === 0) return
 
-        // Salva o HTML original antes de modificar (na primeira palavra do parágrafo)
-        const htmlPara = para as HTMLElement
-        if (!htmlPara.dataset.originalHtml) {
-          htmlPara.dataset.originalHtml = para.innerHTML
-        }
-
-        // Reconstrói innerHTML com <mark> na palavra atual
-        const text = para.textContent ?? ''
-        para.innerHTML =
-          escapeHtml(text.slice(0, wordStart)) +
-          `<mark class="nr-tts-word">${escapeHtml(text.slice(wordStart, wordEnd))}</mark>` +
-          escapeHtml(text.slice(wordEnd))
+        highlightTextRangeByOffsets(para, wordStart, wordEnd)
       },
 
       clearTts: () => {
         ttsActiveRef.current = false
-        ttsParagraphsRef.current.forEach(el => {
-          el.classList.remove('nr-tts-hl')
-          const htmlEl = el as HTMLElement
-          if (htmlEl.dataset.originalHtml) {
-            el.innerHTML = htmlEl.dataset.originalHtml
-            delete htmlEl.dataset.originalHtml
-          }
-        })
+        clearKnownTtsHighlights()
+        ttsPlaybackContentRef.current = null
       },
 
       showTranslationLoading: () => {
@@ -1311,6 +1420,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       currentDocRef.current = null
       ttsParagraphsRef.current = []
       ttsParagraphTextsRef.current = []
+      ttsPlaybackContentRef.current = null
       pendingSectionRef.current = null
       lastRelocateRef.current = null
       activeTranslationParaRef.current = null
@@ -1328,7 +1438,12 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
         // Import dinâmico: registra o custom element como side-effect
         // e mantém o bundle do foliate fora do chunk inicial
-        await import('foliate-js/view.js')
+        try {
+          await import('foliate-js/view.js')
+        } catch (err) {
+          if (!cancelled) onError(err instanceof Error ? err : new Error(String(err)))
+          return
+        }
         if (cancelled) return
 
         view = document.createElement('foliate-view') as unknown as View
@@ -1346,12 +1461,13 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             currentSectionIdxRef.current
           lastRelocateRef.current = { ...e.detail, index: sIdx }
           const activeSection = activateSection(sIdx)
+          const sectionHref = tocItem?.href ?? view?.book?.sections?.[sIdx]?.href
           onRelocate({
             cfi,
             fraction,
             percentage: fractionToPercentage(fraction),
             tocLabel: tocItem?.label,
-            sectionHref: tocItem?.href,
+            sectionHref,
             sectionIndex: sIdx,
           })
           if (pendingSectionRef.current?.index === sIdx) {
@@ -1483,7 +1599,9 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             // Modo leitura contínua ativo (tocando OU pausado): tap navega o TTS
             // ttsGlobalActive abrange os dois estados — evita abrir tradução por engano
             if (ttsGlobalActiveRef.current) {
-              const idx = ttsParagraphsRef.current.indexOf(para)
+              const targetContent = targetSectionIndex != null ? getLoadedSection(targetSectionIndex) : null
+              if (targetContent) ttsPlaybackContentRef.current = targetContent
+              const idx = (targetContent?.paragraphs ?? ttsParagraphsRef.current).indexOf(para)
               if (idx >= 0) onParagraphTapForTtsRef.current(idx)
               return
             }

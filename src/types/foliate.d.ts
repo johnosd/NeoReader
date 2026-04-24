@@ -49,7 +49,7 @@ declare module 'foliate-js/view.js' {
       nextSection?(): Promise<unknown> | void
       prevSection?(): Promise<unknown> | void
       getContents(): FoliateRendererContent[]
-      scrollToAnchor?(anchor: number | Range, reason?: string, smooth?: boolean): void
+      scrollToAnchor?(anchor: number | Range | Element, select?: boolean, smooth?: boolean): Promise<unknown> | void
     }
     lastLocation: RelocateDetail | null
 

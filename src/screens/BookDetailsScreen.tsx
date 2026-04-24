@@ -1,5 +1,5 @@
-﻿import { useEffect, useState, type ReactNode } from 'react'
-import { ArrowLeft, Star, ChevronRight, Globe, Calendar, HardDrive, Sparkles, BookOpen, Bookmark, X, Check, Volume2, Mic2, Gauge } from 'lucide-react'
+﻿import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { ArrowLeft, Star, ChevronRight, ChevronDown, Globe, Calendar, HardDrive, Sparkles, BookOpen, Bookmark, X, Check, Volume2, Mic2, Gauge, Search, Play, Loader2 } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { App as CapApp } from '@capacitor/app'
 import { Badge, BottomSheet, Button, EmptyState, ListItem, Spinner } from '../components/ui'
@@ -19,6 +19,13 @@ import type { TtsProvider, TtsVoiceOption } from '../types/tts'
 import { clampTtsRate, normalizeLanguageTag } from '../utils/language'
 import { BOOK_LANGUAGE_OPTIONS, getLanguageLabel, TRANSLATION_LANGUAGE_OPTIONS } from '../utils/languageOptions'
 import { resolveReadingState } from '../utils/readingState'
+import {
+  findCurrentTocPath,
+  flattenVisibleTocItems,
+  getDirectNavigationHref,
+  getTocAncestorPaths,
+  hasTocChildren,
+} from '../utils/toc'
 import {
   READER_LINE_HEIGHT_OPTIONS,
   READER_THEME_OPTIONS,
@@ -59,6 +66,7 @@ const TTS_PROVIDERS: Array<{ value: TtsProvider; label: string }> = [
 
 const TTS_RATE_OPTIONS = [0.8, 0.9, 1, 1.1, 1.2]
 const INITIAL_TTS_VOICE_COUNT = 12
+const VOICE_PREVIEW_ERROR = 'Nao foi possivel tocar a amostra desta voz.'
 
 function isTtsProviderConfigured(provider: TtsProvider, settings: AppSettings) {
   if (provider === 'speechify') return Boolean(settings.speechifyApiKey)
@@ -68,6 +76,13 @@ function isTtsProviderConfigured(provider: TtsProvider, settings: AppSettings) {
 
 function resolveEffectiveTtsProvider(provider: TtsProvider, settings: AppSettings): TtsProvider {
   return isTtsProviderConfigured(provider, settings) ? provider : 'native'
+}
+
+function getTtsVoicePreviewText(language: string) {
+  const baseLanguage = normalizeLanguageTag(language).split('-')[0]
+  if (baseLanguage === 'pt') return 'Este e um teste curto da voz no NeoReader.'
+  if (baseLanguage === 'es') return 'Esta es una prueba breve de la voz en NeoReader.'
+  return 'This is a short voice preview in NeoReader.'
 }
 
 export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: BookDetailsScreenProps) {
@@ -92,6 +107,13 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
   const [showAllTtsVoices, setShowAllTtsVoices] = useState(false)
   const [ttsVoiceLoading, setTtsVoiceLoading] = useState(false)
   const [ttsVoiceError, setTtsVoiceError] = useState<string | null>(null)
+  const [ttsVoiceSearch, setTtsVoiceSearch] = useState('')
+  const [ttsVoicePreviewingId, setTtsVoicePreviewingId] = useState<string | null>(null)
+  const [ttsVoicePreviewError, setTtsVoicePreviewError] = useState<string | null>(null)
+  const [expandedChapterPaths, setExpandedChapterPaths] = useState<Set<string>>(new Set())
+  const ttsVoicePreviewAudioRef = useRef<HTMLAudioElement | null>(null)
+  const ttsVoicePreviewModeRef = useRef<'audio' | 'native' | null>(null)
+  const ttsVoicePreviewSessionRef = useRef(0)
 
   const liveBook = useLiveQuery(() => db.books.get(book.id!), [book.id]) ?? book
   const progress = useLiveQuery(() => db.progress.where('bookId').equals(book.id!).first(), [book.id])
@@ -105,6 +127,12 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
   const fontSize: FontSize = bookSettingsRow?.fontSize ?? defaultFontSize
   const lineHeight: ReaderLineHeight = bookSettingsRow?.lineHeight ?? defaultLineHeight
   const readerTheme: ReaderTheme = bookSettingsRow?.readerTheme ?? defaultReaderTheme
+  const tocItems = extras?.toc ?? []
+  const currentChapterPath = findCurrentTocPath(
+    tocItems,
+    progress?.sectionHref,
+    progress?.sectionLabel,
+  )
   const selectedTtsProvider: TtsProvider = bookSettingsRow?.ttsProvider ?? 'speechify'
   const effectiveTtsProvider = resolveEffectiveTtsProvider(selectedTtsProvider, appSettings)
   const ttsRate = clampTtsRate(bookSettingsRow?.ttsRate ?? 1)
@@ -130,6 +158,17 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
     const listener = CapApp.addListener('backButton', onBack)
     return () => { void listener.then((value) => value.remove()) }
   }, [onBack])
+
+  useEffect(() => {
+    setExpandedChapterPaths(new Set(getTocAncestorPaths(currentChapterPath)))
+  }, [currentChapterPath, liveBook.id])
+
+  useEffect(() => {
+    return () => {
+      ttsVoicePreviewSessionRef.current += 1
+      stopTtsVoicePreviewPlayback()
+    }
+  }, [])
 
   const coverUrl = useBookCoverUrl(liveBook.id)
   const { percentage: pct, readingStatus } = resolveReadingState(liveBook, progress)
@@ -165,9 +204,20 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
     ? `${selectedVoiceLabel} - ${getLanguageLabel(effectiveBookLanguage) ?? effectiveBookLanguage}`
     : 'Abra as Configuracoes gerais para configurar a API key'
 
+  const normalizedVoiceSearch = ttsVoiceSearch.trim().toLocaleLowerCase()
+  const filteredTtsVoiceOptions = normalizedVoiceSearch
+    ? ttsVoiceOptions.filter((voice) =>
+        [voice.label, voice.locale, voice.meta]
+          .filter(Boolean)
+          .some((value) => value!.toLocaleLowerCase().includes(normalizedVoiceSearch)),
+      )
+    : ttsVoiceOptions
   const visibleTtsVoiceOptions = showAllTtsVoices
-    ? ttsVoiceOptions
-    : ttsVoiceOptions.slice(0, INITIAL_TTS_VOICE_COUNT)
+    ? filteredTtsVoiceOptions
+    : normalizedVoiceSearch
+      ? filteredTtsVoiceOptions
+      : filteredTtsVoiceOptions.slice(0, INITIAL_TTS_VOICE_COUNT)
+  const hiddenTtsVoiceCount = Math.max(0, filteredTtsVoiceOptions.length - visibleTtsVoiceOptions.length)
 
   async function loadVoiceOptions(provider: TtsProvider) {
     setTtsVoiceLoading(true)
@@ -202,11 +252,150 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
     }
   }
 
+  function toggleChapterExpanded(path: string) {
+    setExpandedChapterPaths((previous) => {
+      const next = new Set(previous)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
+      return next
+    })
+  }
+
   useEffect(() => {
     if (!ttsVoiceSheetOpen) return
     setShowAllTtsVoices(false)
+    setTtsVoiceSearch('')
+    setTtsVoicePreviewError(null)
+    cancelTtsVoicePreview()
     void loadVoiceOptions(selectedTtsProvider)
   }, [ttsVoiceSheetOpen, selectedTtsProvider, effectiveBookLanguage, appSettings.speechifyApiKey, appSettings.elevenLabsApiKey])
+
+  function stopTtsVoicePreviewPlayback() {
+    const audio = ttsVoicePreviewAudioRef.current
+    if (audio) {
+      audio.pause()
+      ttsVoicePreviewAudioRef.current = null
+    }
+    if (ttsVoicePreviewModeRef.current === 'native') {
+      void NativeTtsService.stop()
+    }
+    ttsVoicePreviewModeRef.current = null
+  }
+
+  function cancelTtsVoicePreview() {
+    ttsVoicePreviewSessionRef.current += 1
+    stopTtsVoicePreviewPlayback()
+    setTtsVoicePreviewingId(null)
+  }
+
+  function closeTtsVoiceSheet() {
+    setTtsVoiceSheetOpen(false)
+    setTtsVoiceSearch('')
+    setTtsVoicePreviewError(null)
+    cancelTtsVoicePreview()
+  }
+
+  async function playAudioPreview(audio: HTMLAudioElement, session: number) {
+    await new Promise<void>((resolve, reject) => {
+      let settled = false
+
+      const cleanup = () => {
+        if (settled) return
+        settled = true
+        audio.removeEventListener('ended', finish)
+        audio.removeEventListener('pause', finish)
+        audio.removeEventListener('error', fail)
+        if (ttsVoicePreviewAudioRef.current === audio) {
+          ttsVoicePreviewAudioRef.current = null
+          ttsVoicePreviewModeRef.current = null
+        }
+      }
+
+      const finish = () => {
+        cleanup()
+        resolve()
+      }
+
+      const fail = () => {
+        cleanup()
+        reject(new Error('Voice preview audio failed'))
+      }
+
+      ttsVoicePreviewAudioRef.current = audio
+      ttsVoicePreviewModeRef.current = 'audio'
+      audio.addEventListener('ended', finish)
+      audio.addEventListener('pause', finish)
+      audio.addEventListener('error', fail)
+      void audio.play().catch(fail)
+    })
+
+    if (ttsVoicePreviewSessionRef.current !== session) throw new Error('Voice preview cancelled')
+  }
+
+  async function playGeneratedVoicePreview(audioBlob: Blob, session: number) {
+    const url = URL.createObjectURL(audioBlob)
+    try {
+      await playAudioPreview(new Audio(url), session)
+    } finally {
+      URL.revokeObjectURL(url)
+    }
+  }
+
+  async function playTtsVoicePreview(voice: TtsVoiceOption) {
+    if (ttsVoicePreviewingId === voice.id) {
+      cancelTtsVoicePreview()
+      return
+    }
+
+    const session = ttsVoicePreviewSessionRef.current + 1
+    ttsVoicePreviewSessionRef.current = session
+    stopTtsVoicePreviewPlayback()
+    setTtsVoicePreviewError(null)
+    setTtsVoicePreviewingId(voice.id)
+
+    const previewText = getTtsVoicePreviewText(effectiveBookLanguage)
+
+    try {
+      if (voice.previewUrl) {
+        await playAudioPreview(new Audio(voice.previewUrl), session)
+      } else if (selectedTtsProvider === 'speechify') {
+        if (!appSettings.speechifyApiKey) throw new Error('Speechify API key missing')
+        const result = await SpeechifyService.synthesize(previewText, {
+          apiKey: appSettings.speechifyApiKey,
+          language: effectiveBookLanguage,
+          rate: 1,
+          voiceId: voice.id,
+        })
+        await playGeneratedVoicePreview(result.audioBlob, session)
+      } else if (selectedTtsProvider === 'elevenlabs') {
+        if (!appSettings.elevenLabsApiKey) throw new Error('ElevenLabs API key missing')
+        const result = await ElevenLabsService.synthesize(previewText, {
+          apiKey: appSettings.elevenLabsApiKey,
+          language: effectiveBookLanguage,
+          rate: 1,
+          voiceId: voice.id,
+        })
+        await playGeneratedVoicePreview(result.audioBlob, session)
+      } else {
+        ttsVoicePreviewModeRef.current = 'native'
+        await NativeTtsService.speakPreview(previewText, {
+          language: effectiveBookLanguage,
+          voiceKey: voice.id,
+          rate: 1,
+        })
+      }
+    } catch (error) {
+      if (ttsVoicePreviewSessionRef.current === session) {
+        console.warn('Voice preview failed.', error)
+        setTtsVoicePreviewError(VOICE_PREVIEW_ERROR)
+      }
+    } finally {
+      if (ttsVoicePreviewSessionRef.current === session) {
+        setTtsVoicePreviewingId(null)
+        ttsVoicePreviewModeRef.current = null
+      }
+    }
+  }
 
   function updateProvider(provider: TtsProvider) {
     if (!isTtsProviderConfigured(provider, appSettings)) {
@@ -237,7 +426,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
         ttsNativeVoiceLabel: option?.label ?? null,
       })
     }
-    setTtsVoiceSheetOpen(false)
+    closeTtsVoiceSheet()
   }
 
   function openVoiceSettings() {
@@ -245,6 +434,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
       onOpenSettings()
       return
     }
+    setTtsVoiceSearch('')
     setTtsVoiceSheetOpen(true)
   }
 
@@ -372,22 +562,56 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
 
           <div className="px-4 pt-4">
             {activeTab === 'chapters' && (() => {
-              const topChapters = extras?.toc ?? []
+              const chapters = flattenVisibleTocItems(tocItems, expandedChapterPaths)
               return extrasLoading ? (
                 <div className="flex justify-center py-8">
                   <Spinner size={20} tone="purple" label="Carregando capitulos" />
                 </div>
-              ) : topChapters.length > 0 ? (
+              ) : chapters.length > 0 ? (
                 <div className="rounded-md bg-bg-surface border border-border overflow-hidden">
-                  {topChapters.map((chapter, index) => (
-                    <ListItem
-                      key={`${chapter.href}-${index}`}
-                      title={chapter.label}
-                      trailing={<ChevronRight size={16} />}
-                      onClick={() => onRead(liveBook, chapter.href)}
-                      divider={index < topChapters.length - 1}
-                    />
-                  ))}
+                  {chapters.map(({ item: chapter, depth, path }, index) => {
+                    const isCurrent = currentChapterPath === path
+                    const hasChildren = hasTocChildren(chapter)
+                    const isExpanded = expandedChapterPaths.has(path)
+                    return (
+                      <ListItem
+                        key={`${chapter.href}-${path}`}
+                        title={(
+                          <span className="block truncate" style={{ paddingLeft: depth * 14 }}>
+                            {chapter.label}
+                          </span>
+                        )}
+                        meta={isCurrent ? `${Math.round(pct)}% lido` : undefined}
+                        trailing={(
+                          <div className="flex items-center gap-2">
+                            {isCurrent && (
+                              <Badge tone="purple" className="px-2 py-0.5 text-[9px] tracking-normal">
+                                Parou aqui
+                              </Badge>
+                            )}
+                            {hasChildren ? (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  toggleChapterExpanded(path)
+                                }}
+                                className="flex h-8 w-8 items-center justify-center rounded-md border border-white/8 bg-white/5 text-text-muted transition-colors active:bg-white/10"
+                                aria-label={isExpanded ? 'Recolher capitulo' : 'Expandir capitulo'}
+                              >
+                                {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                              </button>
+                            ) : (
+                              <ChevronRight size={16} />
+                            )}
+                          </div>
+                        )}
+                        className={isCurrent ? 'bg-purple-primary/10 ring-1 ring-inset ring-purple-primary/25' : undefined}
+                        onClick={() => onRead(liveBook, getDirectNavigationHref(chapter))}
+                        divider={index < chapters.length - 1}
+                      />
+                    )
+                  })}
                 </div>
               ) : (
                 <EmptyState
@@ -758,7 +982,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
 
       <BottomSheet
         open={ttsVoiceSheetOpen}
-        onClose={() => setTtsVoiceSheetOpen(false)}
+        onClose={closeTtsVoiceSheet}
         title="Voz do livro"
       >
         {ttsVoiceLoading ? (
@@ -772,56 +996,110 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
             description={ttsVoiceError}
           />
         ) : (
-          <div className="-mx-4">
-            <ListItem
-              title="Usar voz padrao"
-              meta={selectedTtsProvider === 'native' ? 'Voz padrao do dispositivo' : 'Definida automaticamente pelo provider'}
-              trailing={
-                ((selectedTtsProvider === 'speechify' && !bookSettingsRow?.ttsSpeechifyVoiceId) ||
-                (selectedTtsProvider === 'elevenlabs' && !bookSettingsRow?.ttsElevenLabsVoiceId) ||
-                (selectedTtsProvider === 'native' && !bookSettingsRow?.ttsNativeVoiceKey))
-                  ? <Check size={18} className="text-purple-light" />
-                  : undefined
-              }
-              onClick={() => updateVoice(null)}
-              divider={visibleTtsVoiceOptions.length > 0}
-            />
-            {visibleTtsVoiceOptions.map((voice, index) => {
-              const active = selectedTtsProvider === 'speechify'
-                ? bookSettingsRow?.ttsSpeechifyVoiceId === voice.id
-                : selectedTtsProvider === 'elevenlabs'
-                  ? bookSettingsRow?.ttsElevenLabsVoiceId === voice.id
-                  : bookSettingsRow?.ttsNativeVoiceKey === voice.id
-              return (
-                <ListItem
-                  key={voice.id}
-                  leading={voice.avatarUrl ? (
-                    <img
-                      src={voice.avatarUrl}
-                      alt=""
-                      className="h-9 w-9 rounded-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/6 text-text-secondary">
-                      <Mic2 size={16} />
-                    </div>
-                  )}
-                  title={voice.label}
-                  meta={[voice.locale, voice.meta].filter(Boolean).join(' - ')}
-                  trailing={active ? <Check size={18} className="text-purple-light" /> : undefined}
-                  onClick={() => updateVoice(voice)}
-                  divider={index < visibleTtsVoiceOptions.length - 1 || ttsVoiceOptions.length > visibleTtsVoiceOptions.length}
-                />
-              )
-            })}
-            {ttsVoiceOptions.length > visibleTtsVoiceOptions.length && (
-              <button
-                onClick={() => setShowAllTtsVoices(true)}
-                className="w-full border-t border-white/5 px-4 py-3 text-sm font-semibold text-purple-light transition-colors duration-150 active:bg-white/5"
-              >
-                Mostrar mais vozes ({ttsVoiceOptions.length - visibleTtsVoiceOptions.length})
-              </button>
+          <div className="space-y-3">
+            <div className="relative">
+              <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+              <input
+                type="search"
+                value={ttsVoiceSearch}
+                onChange={(event) => setTtsVoiceSearch(event.target.value)}
+                placeholder="Pesquisar voz por nome"
+                className="h-11 w-full rounded-md border border-border bg-bg-base pl-9 pr-10 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-purple-primary/60"
+              />
+              {ttsVoiceSearch && (
+                <button
+                  type="button"
+                  onClick={() => setTtsVoiceSearch('')}
+                  className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-text-muted transition-colors active:bg-white/10"
+                  aria-label="Limpar pesquisa"
+                >
+                  <X size={15} />
+                </button>
+              )}
+            </div>
+
+            {ttsVoicePreviewError && (
+              <div className="rounded-md border border-error/30 bg-error/10 px-3 py-2 text-xs font-semibold text-error">
+                {ttsVoicePreviewError}
+              </div>
             )}
+
+            <div className="-mx-4">
+              <ListItem
+                title="Usar voz padrao"
+                meta={selectedTtsProvider === 'native' ? 'Voz padrao do dispositivo' : 'Definida automaticamente pelo provider'}
+                trailing={
+                  ((selectedTtsProvider === 'speechify' && !bookSettingsRow?.ttsSpeechifyVoiceId) ||
+                  (selectedTtsProvider === 'elevenlabs' && !bookSettingsRow?.ttsElevenLabsVoiceId) ||
+                  (selectedTtsProvider === 'native' && !bookSettingsRow?.ttsNativeVoiceKey))
+                    ? <Check size={18} className="text-purple-light" />
+                    : undefined
+                }
+                onClick={() => updateVoice(null)}
+                divider={visibleTtsVoiceOptions.length > 0}
+              />
+              {visibleTtsVoiceOptions.map((voice, index) => {
+                const active = selectedTtsProvider === 'speechify'
+                  ? bookSettingsRow?.ttsSpeechifyVoiceId === voice.id
+                  : selectedTtsProvider === 'elevenlabs'
+                    ? bookSettingsRow?.ttsElevenLabsVoiceId === voice.id
+                    : bookSettingsRow?.ttsNativeVoiceKey === voice.id
+                const previewing = ttsVoicePreviewingId === voice.id
+                return (
+                  <ListItem
+                    key={voice.id}
+                    leading={voice.avatarUrl ? (
+                      <img
+                        src={voice.avatarUrl}
+                        alt=""
+                        className="h-9 w-9 rounded-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/6 text-text-secondary">
+                        <Mic2 size={16} />
+                      </div>
+                    )}
+                    title={voice.label}
+                    meta={[voice.locale, voice.meta].filter(Boolean).join(' - ')}
+                    trailing={(
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            void playTtsVoicePreview(voice)
+                          }}
+                          className={`flex h-9 w-9 items-center justify-center rounded-md border transition-colors active:scale-95 ${
+                            previewing
+                              ? 'border-purple-primary/60 bg-purple-primary/15 text-purple-light'
+                              : 'border-white/10 bg-white/5 text-text-secondary active:bg-white/10'
+                          }`}
+                          aria-label={previewing ? `Parar amostra de ${voice.label}` : `Ouvir amostra de ${voice.label}`}
+                        >
+                          {previewing ? <Loader2 size={16} className="animate-spin" /> : <Play size={15} />}
+                        </button>
+                        {active ? <Check size={18} className="text-purple-light" /> : null}
+                      </div>
+                    )}
+                    onClick={() => updateVoice(voice)}
+                    divider={index < visibleTtsVoiceOptions.length - 1 || hiddenTtsVoiceCount > 0}
+                  />
+                )
+              })}
+              {visibleTtsVoiceOptions.length === 0 && (
+                <div className="px-4 py-6 text-center text-sm text-text-muted">
+                  Nenhuma voz encontrada.
+                </div>
+              )}
+              {hiddenTtsVoiceCount > 0 && (
+                <button
+                  onClick={() => setShowAllTtsVoices(true)}
+                  className="w-full border-t border-white/5 px-4 py-3 text-sm font-semibold text-purple-light transition-colors duration-150 active:bg-white/5"
+                >
+                  Mostrar mais vozes ({hiddenTtsVoiceCount})
+                </button>
+              )}
+            </div>
           </div>
         )}
       </BottomSheet>

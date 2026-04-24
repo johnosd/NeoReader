@@ -1,6 +1,12 @@
 import { TextToSpeech } from '@capacitor-community/text-to-speech'
 import type { TtsVoiceOption } from '../types/tts'
-import { isLanguageCompatible, normalizeLanguageTag } from '../utils/language'
+import { clampTtsRate, isLanguageCompatible, normalizeLanguageTag } from '../utils/language'
+
+interface NativePreviewOptions {
+  language: string
+  voiceKey?: string | null
+  rate?: number
+}
 
 function buildNativeVoiceKey(voice: SpeechSynthesisVoice) {
   return `${voice.voiceURI}::${voice.lang}`
@@ -46,5 +52,20 @@ export const NativeTtsService = {
     })
 
     return index >= 0 ? index : undefined
+  },
+
+  async speakPreview(text: string, options: NativePreviewOptions): Promise<void> {
+    const language = normalizeLanguageTag(options.language)
+    const voice = await this.resolveVoiceIndex(options.voiceKey, language)
+    await TextToSpeech.speak({
+      text,
+      lang: language,
+      rate: clampTtsRate(options.rate ?? 1),
+      ...(voice !== undefined ? { voice } : {}),
+    })
+  },
+
+  async stop(): Promise<void> {
+    await TextToSpeech.stop()
   },
 }

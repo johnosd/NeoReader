@@ -246,6 +246,88 @@ describe('EpubViewer — posição visível', () => {
     expect(secondPara.getAttribute('data-nr-para-cfi')).toBe('epubcfi(/6/8!/4/2/10/2/1:0)')
   })
 
+  it('mantem o retorno do TTS na secao do audio apos scroll para uma secao anterior', async () => {
+    const { viewerRef, foliateEl } = await renderViewer()
+
+    const previousDoc = makeFakeDoc(['Previous section paragraph.'])
+    const audioDoc = makeFakeDoc(['Audio section paragraph.'])
+    const previousPara = previousDoc.querySelector('p') as HTMLElement
+    const audioPara = audioDoc.querySelector('p') as HTMLElement
+
+    loadSection(foliateEl, previousDoc, 0)
+    loadSection(foliateEl, audioDoc, 1)
+
+    act(() => {
+      foliateEl.fireFoliate('relocate', {
+        cfi: 'epubcfi(/6/10!/4/2/1:0)',
+        fraction: 0.4,
+        tocItem: { label: 'Audio Chapter', href: 'chapter-2.xhtml' },
+        section: { current: 1, total: 3 },
+        index: 1,
+      })
+    })
+
+    act(() => { viewerRef.current?.resetTtsScroll() })
+
+    act(() => {
+      foliateEl.fireFoliate('relocate', {
+        cfi: 'epubcfi(/6/8!/4/2/1:0)',
+        fraction: 0.2,
+        tocItem: { label: 'Previous Chapter', href: 'chapter-1.xhtml' },
+        section: { current: 0, total: 3 },
+        index: 0,
+      })
+    })
+
+    act(() => { viewerRef.current?.highlightTts(0, 0, 0) })
+
+    expect(audioPara.classList.contains('nr-tts-hl')).toBe(true)
+    expect(previousPara.classList.contains('nr-tts-hl')).toBe(false)
+
+    foliateEl.renderer.goTo.mockClear()
+
+    act(() => { viewerRef.current?.resetTtsScroll({ preservePlaybackSection: true }) })
+    act(() => { viewerRef.current?.scrollToParagraph(0) })
+
+    expect(foliateEl.renderer.goTo).toHaveBeenCalledWith(expect.objectContaining({
+      index: 1,
+      anchor: expect.any(Function),
+    }))
+  })
+
+  it('destaca a palavra do TTS sem reescrever links e marcacoes internas', async () => {
+    const { viewerRef, foliateEl } = await renderViewer()
+    const fakeDoc = document.implementation.createHTMLDocument('test')
+    const para = fakeDoc.createElement('p')
+    para.innerHTML = 'Read <a href="#note"><em>linked</em></a> <strong>text</strong> now.'
+    fakeDoc.body.appendChild(para)
+
+    loadSection(foliateEl, fakeDoc, 0)
+
+    const linkedStart = para.textContent?.indexOf('linked') ?? -1
+    act(() => { viewerRef.current?.highlightTts(0, linkedStart, linkedStart + 'linked'.length) })
+
+    expect(para.querySelector('a')?.getAttribute('href')).toBe('#note')
+    expect(para.querySelector('a em mark.nr-tts-word')?.textContent).toBe('linked')
+    expect(para.querySelector('strong')?.textContent).toBe('text')
+
+    const textStart = para.textContent?.indexOf('text') ?? -1
+    act(() => { viewerRef.current?.highlightTts(0, textStart, textStart + 'text'.length) })
+
+    expect(para.querySelector('a')?.getAttribute('href')).toBe('#note')
+    expect(para.querySelector('a em')?.textContent).toBe('linked')
+    expect(para.querySelector('a mark.nr-tts-word')).toBeNull()
+    expect(para.querySelector('strong mark.nr-tts-word')?.textContent).toBe('text')
+
+    act(() => { viewerRef.current?.clearTts() })
+
+    expect(para.querySelector('.nr-tts-word')).toBeNull()
+    expect(para.querySelector('a')?.getAttribute('href')).toBe('#note')
+    expect(para.querySelector('a em')?.textContent).toBe('linked')
+    expect(para.querySelector('strong')?.textContent).toBe('text')
+    expect(para.textContent).toBe('Read linked text now.')
+  })
+
   it('projeta marcador visual no parágrafo que contém o bookmark salvo', async () => {
     const bookmarkCfi = 'epubcfi(/6/8!/4/2/10/2,/1:0,/1:20)'
     const { foliateEl } = await renderViewer({

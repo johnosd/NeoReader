@@ -21,13 +21,13 @@ import { getSettings } from '../db/settings'
 import { getBookSettings, updateBookSettings } from '../db/bookSettings'
 import { db } from '../db/database'
 import { useTTS } from '../hooks/useTTS'
-import { TtsMiniPlayer } from '../components/reader/TtsMiniPlayer'
+import { TtsMiniPlayer, type TtsSleepTimerOption } from '../components/reader/TtsMiniPlayer'
 import { translate } from '../services/TranslationService'
 import { EpubService } from '../services/EpubService'
 import type { Book } from '../types/book'
 import type { FontSize, ReaderLineHeight, ReaderTheme } from '../types/settings'
 import type { TtsPlaybackConfig, TtsProvider } from '../types/tts'
-import { areCfisEquivalent, normalizeCfi } from '../utils/cfi'
+import { areCfisEquivalent, isCfiInLocation, normalizeCfi } from '../utils/cfi'
 import { getReaderThemePalette } from '../utils/readerPreferences'
 import { clampTtsRate, normalizeLanguageTag } from '../utils/language'
 
@@ -38,9 +38,50 @@ function normalizeReaderHref(href?: string | null) {
   return withoutQuery || null
 }
 
+function isReaderCfiTarget(target?: string | null) {
+  return !!target && /^epubcfi\(/i.test(target.trim())
+}
+
+function isRelocateAtStartTarget(target: string, location: ReaderRelocatePayload) {
+  if (isReaderCfiTarget(target)) {
+    return (
+      areCfisEquivalent(location.cfi, target) ||
+      isCfiInLocation(target, location.cfi) ||
+      isCfiInLocation(location.cfi, target)
+    )
+  }
+
+  const normalizedExpectedHref = normalizeReaderHref(target)
+  const normalizedSectionHref = normalizeReaderHref(location.sectionHref)
+  return !!normalizedExpectedHref && !!normalizedSectionHref && normalizedSectionHref === normalizedExpectedHref
+}
+
+const TTS_SLEEP_TIMER_OPTIONS: TtsSleepTimerOption[] = [
+  { value: 'off', label: 'Sem timer' },
+  { value: '60', label: '1 min' },
+  { value: '300', label: '5 min' },
+  { value: '900', label: '15 min' },
+  { value: '1800', label: '30 min' },
+  { value: '3600', label: '1 h' },
+]
+
+function formatSleepTimerRemaining(seconds: number | null): string | null {
+  if (seconds == null) return null
+  const safeSeconds = Math.max(0, seconds)
+  const minutes = Math.floor(safeSeconds / 60)
+  const remainingSeconds = safeSeconds % 60
+  return `${minutes}:${String(remainingSeconds).padStart(2, '0')}`
+}
+
+function getTtsProviderLabel(provider: TtsProvider) {
+  if (provider === 'speechify') return 'Speechify'
+  if (provider === 'elevenlabs') return 'ElevenLabs'
+  return 'TTS nativo'
+}
+
 interface ReaderScreenProps {
   book: Book
-  startHref?: string   // capítulo inicial — se definido, ignora o progresso salvo
+  startHref?: string   // capítulo/CFI inicial — se definido, ignora o progresso salvo
   onBack: () => void
   onOpenVocabulary: () => void
 }
@@ -52,13 +93,24 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   const sectionChangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingStartHrefRef = useRef<string | null>(startHref ?? null)
   const initialStartNavigationTriggeredRef = useRef(false)
+  const ttsAdvancePendingRef = useRef(false)
+  const ttsAutoAdvanceSkipCountRef = useRef(0)
+  const ttsSleepTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const ttsSleepIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const ttsSleepDeadlineRef = useRef<number | null>(null)
+  const currentTtsParaIdxRef = useRef(0)
 
   // ── Estado local ────────────────────────────────────────────────────────────
   // Começa visível: dá orientação inicial ao usuário, depois some automaticamente (auto-hide).
   const [chromeVisible, setChromeVisible] = useState(true)
   const [ttsFinished, setTtsFinished] = useState(false)
+  const [ttsFallbackNotice, setTtsFallbackNotice] = useState<{ provider: TtsProvider } | null>(null)
+  const [ttsProviderFallback, setTtsProviderFallback] = useState<{ provider: TtsProvider } | null>(null)
   // Controla visibilidade do mini player — true do início até o usuário apertar ⏹
   const [ttsPlayerVisible, setTtsPlayerVisible] = useState(false)
+  const [ttsSleepTimerValue, setTtsSleepTimerValue] = useState('off')
+  const [ttsSleepRemainingSeconds, setTtsSleepRemainingSeconds] = useState<number | null>(null)
+  const [showBackToTtsLocation, setShowBackToTtsLocation] = useState(false)
   const [tocOpen, setTocOpen] = useState(false)
   const [bookmarkSheetOpen, setBookmarkSheetOpen] = useState(false)
   const [fontSize, setFontSize] = useState<FontSize>('md')
@@ -75,6 +127,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [sectionChangeLabel, setSectionChangeLabel] = useState<string | null>(null)
+  const [currentSectionHref, setCurrentSectionHref] = useState<string | null>(null)
 
   // ── Auto-hide do chrome ──────────────────────────────────────────────────────
   // useRef para o timer: persiste entre renders sem causar re-render.
@@ -87,21 +140,48 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     autoHideTimerRef.current = setTimeout(() => setChromeVisible(false), 2500)
   }, [])
 
+  const clearTtsSleepTimerHandles = useCallback(() => {
+    if (ttsSleepTimeoutRef.current) {
+      clearTimeout(ttsSleepTimeoutRef.current)
+      ttsSleepTimeoutRef.current = null
+    }
+    if (ttsSleepIntervalRef.current) {
+      clearInterval(ttsSleepIntervalRef.current)
+      ttsSleepIntervalRef.current = null
+    }
+    ttsSleepDeadlineRef.current = null
+  }, [])
+
+  const resetTtsSleepTimer = useCallback(() => {
+    clearTtsSleepTimerHandles()
+    setTtsSleepTimerValue('off')
+    setTtsSleepRemainingSeconds(null)
+  }, [clearTtsSleepTimerHandles])
+
   // Inicia o timer assim que o leitor monta
   useEffect(() => {
     resetAutoHide()
     return () => {
       if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current)
       if (sectionChangeTimerRef.current) clearTimeout(sectionChangeTimerRef.current)
+      clearTtsSleepTimerHandles()
     }
-  }, [resetAutoHide])
+  }, [clearTtsSleepTimerHandles, resetAutoHide])
 
 
   // Estado global compartilhado (Zustand)
-  const { cfi, percentage, toc, setCfi, setToc, reset } = useReaderStore()
+  const { cfi, percentage, toc, tocLabel, setCfi, setToc, reset } = useReaderStore()
 
   // Progresso do IndexedDB (async)
-  const { savedCfi, initialLoadDone, saveProgress, flushProgress } = useReaderProgress(book.id!)
+  const { savedCfi, savedProgress, initialLoadDone, saveProgress, flushProgress } = useReaderProgress(book.id!)
+  let currentTocHref = currentSectionHref
+  if (!currentTocHref && startHref && !isReaderCfiTarget(startHref)) {
+    currentTocHref = startHref
+  }
+  if (!currentTocHref && !startHref) {
+    currentTocHref = savedProgress?.sectionHref ?? null
+  }
+  const currentTocLabel = tocLabel || (!startHref ? savedProgress?.sectionLabel : undefined)
 
   // Marcadores do livro atual — useLiveQuery: reativo, atualiza automaticamente
   const bookmarks = useLiveQuery(
@@ -116,11 +196,13 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   useEffect(() => {
     activeSectionIndexRef.current = null
     setSectionChangeLabel(null)
+    setCurrentSectionHref(null)
     if (sectionChangeTimerRef.current) {
       clearTimeout(sectionChangeTimerRef.current)
       sectionChangeTimerRef.current = null
     }
-  }, [book.id])
+    resetTtsSleepTimer()
+  }, [book.id, resetTtsSleepTimer])
 
   useEffect(() => {
     pendingStartHrefRef.current = startHref ?? null
@@ -182,35 +264,135 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     },
     // Quando muda de parágrafo: destaca + rola para centralizar na tela
     onParagraphChange: (paraIdx) => {
+      currentTtsParaIdxRef.current = paraIdx
       viewerRef.current?.highlightTts(paraIdx, 0, 0)
       viewerRef.current?.scrollToParagraph(paraIdx)
     },
+    onProviderFallback: ({ provider }) => {
+      setTtsFallbackNotice({ provider })
+      setTtsProviderFallback({ provider })
+    },
     onStop: () => {
+      setShowBackToTtsLocation(false)
       viewerRef.current?.clearTts()
     },
     // Fim natural da seção (último parágrafo lido) — esconde player e mostra notificação
     onFinished: () => {
-      setTtsPlayerVisible(false)
-      setTtsFinished(true)
+      advanceTtsToNextSection()
     },
   })
 
   // Helpers para obter chunks e iniciar play — reutilizados por toggle, prev, next
+  function handleTtsSleepTimerChange(value: string) {
+    const option = TTS_SLEEP_TIMER_OPTIONS.find((item) => item.value === value)
+    const seconds = option && option.value !== 'off' ? Number(option.value) : null
+
+    clearTtsSleepTimerHandles()
+
+    if (!seconds || !Number.isFinite(seconds)) {
+      setTtsSleepTimerValue('off')
+      setTtsSleepRemainingSeconds(null)
+      return
+    }
+
+    setTtsSleepTimerValue(value)
+    setTtsSleepRemainingSeconds(seconds)
+    ttsSleepDeadlineRef.current = Date.now() + seconds * 1000
+
+    ttsSleepIntervalRef.current = setInterval(() => {
+      if (!ttsSleepDeadlineRef.current) return
+      const remaining = Math.max(0, Math.ceil((ttsSleepDeadlineRef.current - Date.now()) / 1000))
+      setTtsSleepRemainingSeconds(remaining)
+    }, 1000)
+
+    ttsSleepTimeoutRef.current = setTimeout(() => {
+      clearTtsSleepTimerHandles()
+      setTtsSleepTimerValue('off')
+      setTtsSleepRemainingSeconds(null)
+      ttsAdvancePendingRef.current = false
+      ttsAutoAdvanceSkipCountRef.current = 0
+      void tts.stop()
+      tts.resetPosition()
+      setTtsPlayerVisible(false)
+      setShowBackToTtsLocation(false)
+      setTtsFallbackNotice(null)
+      setTtsProviderFallback(null)
+      setTtsFinished(false)
+    }, seconds * 1000)
+  }
+
   function getTtsChunks() {
     return viewerRef.current?.getSentenceChunks() ?? []
   }
 
   function startPlay(chunks: ReturnType<typeof getTtsChunks>, idx: number) {
+    ttsAdvancePendingRef.current = false
+    ttsAutoAdvanceSkipCountRef.current = 0
     setTtsFinished(false)
+    setTtsFallbackNotice(null)
+    setTtsProviderFallback(null)
     setTtsPlayerVisible(true)
+    setShowBackToTtsLocation(false)
     viewerRef.current?.resetTtsScroll()
     void tts.play(chunks, idx)
+  }
+
+  function finishTtsAtBookEnd() {
+    ttsAdvancePendingRef.current = false
+    ttsAutoAdvanceSkipCountRef.current = 0
+    resetTtsSleepTimer()
+    tts.resetPosition()
+    setTtsPlayerVisible(false)
+    setShowBackToTtsLocation(false)
+    setTtsFallbackNotice(null)
+    setTtsProviderFallback(null)
+    setTtsFinished(true)
+  }
+
+  function advanceTtsToNextSection() {
+    const moved = viewerRef.current?.goToNextTtsSection() ?? false
+    if (!moved) {
+      finishTtsAtBookEnd()
+      return
+    }
+
+    ttsAdvancePendingRef.current = true
+    ttsAutoAdvanceSkipCountRef.current = 0
+    setTtsFinished(false)
+    setTtsPlayerVisible(true)
+  }
+
+  function handleTtsSectionReady() {
+    if (!ttsAdvancePendingRef.current) return
+
+    const chunks = getTtsChunks()
+    if (chunks.length > 0) {
+      startPlay(chunks, 0)
+      return
+    }
+
+    if (ttsAutoAdvanceSkipCountRef.current >= 6) {
+      finishTtsAtBookEnd()
+      return
+    }
+
+    ttsAutoAdvanceSkipCountRef.current += 1
+    const moved = viewerRef.current?.goToNextTtsSection() ?? false
+    if (!moved) finishTtsAtBookEnd()
   }
 
   // Botão principal: inicia do ponto parado (resume) ou do primeiro parágrafo visível
   function handleTtsToggle() {
     if (tts.isPlaying) {
-      void tts.stop()  // pausa — mini player continua visível, lastChunkIdx preservado
+      void tts.pause()
+    } else if (tts.isPaused) {
+      void tts.resume().then((resumed) => {
+        if (resumed) return
+        const chunks = getTtsChunks()
+        if (chunks.length === 0) return
+        const startIdx = Math.min(tts.lastChunkIdx.current, Math.max(0, chunks.length - 1))
+        startPlay(chunks, startIdx)
+      })
     } else {
       const chunks = getTtsChunks()
       const lastIdx = tts.lastChunkIdx.current
@@ -242,6 +424,29 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     void tts.stop().then(() => startPlay(chunks, targetIdx))
   }
 
+  function handleTtsPrevSentence() {
+    const chunks = getTtsChunks()
+    if (chunks.length === 0) return
+
+    const targetIdx = Math.max(0, tts.lastChunkIdx.current - 1)
+    void tts.stop().then(() => startPlay(chunks, targetIdx))
+  }
+
+  function handleTtsNextSentence() {
+    const chunks = getTtsChunks()
+    if (chunks.length === 0) return
+
+    const targetIdx = tts.lastChunkIdx.current + 1
+    if (targetIdx >= chunks.length) {
+      void tts.stop().then(() => {
+        advanceTtsToNextSection()
+      })
+      return
+    }
+
+    void tts.stop().then(() => startPlay(chunks, targetIdx))
+  }
+
   // ⏭ Avança para o início do próximo parágrafo
   function handleTtsNext() {
     const chunks = getTtsChunks()
@@ -253,9 +458,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
 
     if (nextIdx < 0) {
       void tts.stop().then(() => {
-        tts.resetPosition()
-        setTtsPlayerVisible(false)
-        setTtsFinished(true)
+        advanceTtsToNextSection()
       })
       return
     }
@@ -265,9 +468,21 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
 
   // ⏹ Encerra TTS, esconde player e reseta posição (próximo play começa do visível)
   function handleTtsStop() {
+    ttsAdvancePendingRef.current = false
+    ttsAutoAdvanceSkipCountRef.current = 0
+    resetTtsSleepTimer()
     void tts.stop()
     tts.resetPosition()
     setTtsPlayerVisible(false)
+    setShowBackToTtsLocation(false)
+    setTtsFallbackNotice(null)
+    setTtsProviderFallback(null)
+  }
+
+  function handleBackToTtsLocation() {
+    setShowBackToTtsLocation(false)
+    viewerRef.current?.resetTtsScroll({ preservePlaybackSection: true })
+    viewerRef.current?.scrollToParagraph(currentTtsParaIdxRef.current)
   }
 
   // Salva par original/tradução no vocabulário — chamado pelo EpubViewer via ⭐
@@ -292,16 +507,13 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   }
 
   const handleRelocate = useCallback(
-    ({ cfi: newCfi, percentage: newPercentage, tocLabel, sectionHref, fraction, sectionIndex }: ReaderRelocatePayload) => {
+    (location: ReaderRelocatePayload) => {
+      const { cfi: newCfi, percentage: newPercentage, tocLabel, sectionHref, fraction, sectionIndex } = location
       const pendingStartHref = pendingStartHrefRef.current
       if (pendingStartHref) {
         if (!initialStartNavigationTriggeredRef.current) return
 
-        const normalizedExpectedHref = normalizeReaderHref(pendingStartHref)
-        const normalizedSectionHref = normalizeReaderHref(sectionHref)
-        if (!normalizedExpectedHref || !normalizedSectionHref || normalizedSectionHref !== normalizedExpectedHref) {
-          return
-        }
+        if (!isRelocateAtStartTarget(pendingStartHref, location)) return
 
         pendingStartHrefRef.current = null
       }
@@ -320,6 +532,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
         }, 1200)
       }
       activeSectionIndexRef.current = sectionIndex
+      setCurrentSectionHref(sectionHref ?? null)
       setCfi(newCfi, newPercentage, tocLabel)
       saveProgress({
         cfi: newCfi,
@@ -486,6 +699,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
           savedCfi={startHref ? null : savedCfi}
           onRelocate={handleRelocate}
           onTocReady={setToc}
+          onSectionReady={handleTtsSectionReady}
           onLoad={() => {
             setIsLoading(false)
             // Navega para o capítulo selecionado na tela de detalhes (se houver)
@@ -507,6 +721,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
             const chunkIdx = Math.max(0, chunks.findIndex(c => c.paraIdx >= idx))
             void tts.stop().then(() => startPlay(chunks, chunkIdx))
           }}
+          onTtsUserScrollAway={() => setShowBackToTtsLocation(true)}
           ttsGlobalActive={ttsPlayerVisible}
           onBookmarkTap={(id) => { void softDeleteBookmark(id) }}
           onBookmarkParagraph={handleParagraphBookmark}
@@ -557,12 +772,29 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
       )}
 
       {/* Mini player TTS — visível enquanto TTS está ativo (tocando ou pausado) */}
+      {ttsFallbackNotice && (
+        <TtsFallbackToast
+          provider={ttsFallbackNotice.provider}
+          onDismiss={() => setTtsFallbackNotice(null)}
+        />
+      )}
+
       {ttsPlayerVisible && (
         <TtsMiniPlayer
           isPlaying={tts.isPlaying}
+          activeProvider={ttsProviderFallback ? 'native' : ttsEngine}
+          fallbackFromProvider={ttsProviderFallback?.provider ?? null}
+          sleepTimerValue={ttsSleepTimerValue}
+          sleepTimerOptions={TTS_SLEEP_TIMER_OPTIONS}
+          sleepTimerRemainingLabel={formatSleepTimerRemaining(ttsSleepRemainingSeconds)}
+          showBackToTtsLocation={showBackToTtsLocation}
           onPlayPause={handleTtsToggle}
-          onPrev={handleTtsPrev}
-          onNext={handleTtsNext}
+          onBackToTtsLocation={handleBackToTtsLocation}
+          onPrevParagraph={handleTtsPrev}
+          onPrevSentence={handleTtsPrevSentence}
+          onNextSentence={handleTtsNextSentence}
+          onNextParagraph={handleTtsNext}
+          onSleepTimerChange={handleTtsSleepTimerChange}
           onStop={handleTtsStop}
         />
       )}
@@ -575,6 +807,8 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
       <TocDrawer
         open={tocOpen}
         toc={toc}
+        currentHref={currentTocHref}
+        currentLabel={currentTocLabel}
         onSelect={(href) => {
           viewerRef.current?.goTo(href)
           setTocOpen(false)
@@ -602,6 +836,41 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
           </button>
         </div>
       )}
+    </div>
+  )
+}
+
+function TtsFallbackToast({
+  provider,
+  onDismiss,
+}: {
+  provider: TtsProvider
+  onDismiss: () => void
+}) {
+  useEffect(() => {
+    const t = setTimeout(onDismiss, 6500)
+    return () => clearTimeout(t)
+  }, [onDismiss])
+
+  return (
+    <div className="absolute left-4 right-4 top-4 z-30 rounded-[22px] border border-warning/30 bg-[rgba(15,7,24,0.9)] px-4 py-3 shadow-card backdrop-blur-xl">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-warning">
+            TTS alternado
+          </p>
+          <p className="mt-1 text-sm text-text-secondary">
+            {getTtsProviderLabel(provider)} está com problemas. Usando TTS nativo.
+          </p>
+        </div>
+        <button
+          type="button"
+          onPointerUp={onDismiss}
+          className="inline-flex h-9 shrink-0 items-center rounded-pill border border-white/8 bg-bg-surface-2/80 px-3 text-xs font-semibold text-text-primary transition-all duration-150 active:scale-[0.96] active:bg-white/10"
+        >
+          OK
+        </button>
+      </div>
     </div>
   )
 }

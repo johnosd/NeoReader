@@ -1,34 +1,52 @@
 import { useEffect, useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { Badge, BottomSheet, EmptyState } from '../ui'
+import {
+  findCurrentTocPath,
+  getDirectNavigationHref,
+  getTocSubitems,
+  hasTocChildren,
+} from '../../utils/toc'
 
 interface TocDrawerProps {
   open: boolean
   toc: TocItem[]
+  currentHref?: string | null
+  currentLabel?: string | null
   onSelect: (href: string) => void
   onClose: () => void
 }
 
-function getDirectNavigationHref(item: TocItem): string {
-  for (const child of item.subitems ?? []) {
-    const target = getDirectNavigationHref(child)
-    if (target) return target
-  }
-  return item.href
-}
-
-export function TocDrawer({ open, toc, onSelect, onClose }: TocDrawerProps) {
+export function TocDrawer({ open, toc, currentHref, currentLabel, onSelect, onClose }: TocDrawerProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const currentPath = findCurrentTocPath(toc, currentHref, currentLabel)
 
   useEffect(() => {
-    setExpanded(new Set(toc.filter(item => item.subitems?.length).map(item => item.href)))
-  }, [toc])
+    const next = new Set<string>()
 
-  function toggleExpand(href: string) {
+    function collectExpandedPaths(items: TocItem[], parentPath = '') {
+      items.forEach((item, index) => {
+        const path = parentPath ? `${parentPath}.${index}` : `${index}`
+        const children = getTocSubitems(item)
+        if (children.length === 0) return
+
+        if (!parentPath || currentPath?.startsWith(`${path}.`)) {
+          next.add(path)
+        }
+
+        collectExpandedPaths(children, path)
+      })
+    }
+
+    collectExpandedPaths(toc)
+    setExpanded(next)
+  }, [toc, currentPath])
+
+  function toggleExpand(path: string) {
     setExpanded(prev => {
       const next = new Set(prev)
-      if (next.has(href)) next.delete(href)
-      else next.add(href)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
       return next
     })
   }
@@ -68,6 +86,7 @@ export function TocDrawer({ open, toc, onSelect, onClose }: TocDrawerProps) {
               <TocList
                 items={toc}
                 depth={0}
+                currentPath={currentPath}
                 expanded={expanded}
                 onToggle={toggleExpand}
                 onSelect={onSelect}
@@ -83,37 +102,66 @@ export function TocDrawer({ open, toc, onSelect, onClose }: TocDrawerProps) {
 function TocList({
   items,
   depth,
+  currentPath,
+  parentPath = '',
   expanded,
   onToggle,
   onSelect,
 }: {
   items: TocItem[]
   depth: number
+  currentPath: string | null
+  parentPath?: string
   expanded: Set<string>
-  onToggle: (href: string) => void
+  onToggle: (path: string) => void
   onSelect: (href: string) => void
 }) {
   return (
     <div className="space-y-4">
       {items.map((item, i) => {
-        const hasChildren = !!item.subitems?.length
-        const isExpanded = expanded.has(item.href)
+        const path = parentPath ? `${parentPath}.${i}` : `${i}`
+        const children = getTocSubitems(item)
+        const hasChildren = hasTocChildren(item)
+        const isExpanded = expanded.has(path)
+        const isCurrent = currentPath === path
+        const isCurrentAncestor = Boolean(currentPath?.startsWith(`${path}.`))
 
         return (
-          <div key={`${item.href}-${i}`} className="relative">
+          <div key={`${item.href}-${path}`} className="relative">
             <span
-              className={`absolute -left-[26px] top-2.5 h-3 w-3 rounded-full border-2 border-bg-reader ${depth === 0 ? 'bg-purple-primary shadow-[0_0_0_4px_rgba(123,44,191,0.18)]' : 'bg-white/20'}`}
+              className={`absolute -left-[26px] top-3 h-3 w-3 rounded-full border-2 border-bg-reader ${
+                isCurrent
+                  ? 'bg-purple-light shadow-[0_0_0_4px_rgba(224,170,255,0.2)]'
+                  : isCurrentAncestor
+                    ? 'bg-purple-primary/70 shadow-[0_0_0_4px_rgba(123,44,191,0.14)]'
+                    : depth === 0
+                      ? 'bg-purple-primary shadow-[0_0_0_4px_rgba(123,44,191,0.18)]'
+                      : 'bg-white/20'
+              }`}
             />
 
             <div className="flex items-start gap-3">
               <button
                 onClick={() => onSelect(getDirectNavigationHref(item))}
                 aria-label={item.label}
-                className="min-w-0 flex-1 text-left"
+                className={`-mx-2 -my-1 min-w-0 flex-1 rounded-md px-2 py-1 text-left transition-colors ${
+                  isCurrent
+                    ? 'bg-purple-primary/15 ring-1 ring-inset ring-purple-primary/35'
+                    : isCurrentAncestor
+                      ? 'bg-white/[0.04]'
+                      : ''
+                }`}
               >
-                <p className={`${depth === 0 ? 'font-semibold text-text-primary' : 'font-medium text-text-secondary'} truncate text-[15px]`}>
-                  {item.label}
-                </p>
+                <div className="flex min-w-0 items-center gap-2">
+                  <p className={`${depth === 0 ? 'font-semibold text-text-primary' : 'font-medium text-text-secondary'} min-w-0 flex-1 truncate text-[15px]`}>
+                    {item.label}
+                  </p>
+                  {isCurrent && (
+                    <Badge tone="purple" className="shrink-0 px-2 py-0.5 text-[9px] tracking-normal">
+                      Agora
+                    </Badge>
+                  )}
+                </div>
                 {hasChildren && (
                   <p className="mt-1 text-xs text-text-muted">
                     Abre direto na primeira seção útil deste agrupamento.
@@ -123,7 +171,7 @@ function TocList({
 
               {hasChildren && (
                 <button
-                  onClick={() => onToggle(item.href)}
+                  onClick={() => onToggle(path)}
                   className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/8 bg-bg-surface-2/80 text-text-muted transition-all duration-150 active:scale-[0.94] active:bg-white/10"
                   aria-label={isExpanded ? 'Recolher' : 'Expandir'}
                 >
@@ -135,8 +183,10 @@ function TocList({
             {hasChildren && isExpanded && (
               <div className="mt-3 border-l border-white/8 pl-4">
                 <TocList
-                  items={item.subitems!}
+                  items={children}
                   depth={depth + 1}
+                  currentPath={currentPath}
+                  parentPath={path}
                   expanded={expanded}
                   onToggle={onToggle}
                   onSelect={onSelect}

@@ -98,6 +98,13 @@ function wrapWithRateSsml(text: string, rate: number) {
   return `<speak><prosody rate="${normalizedRate}%">${escapeXml(text)}</prosody></speak>`
 }
 
+function normalizeSpeechInput(text: string) {
+  return text
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function pickSpeechifyModel(language: string) {
   return getBaseLanguage(language) === 'en' ? 'simba-english' : 'simba-multilingual'
 }
@@ -266,7 +273,8 @@ export const SpeechifyService = {
   },
 
   async synthesize(text: string, options: SpeechifySpeechOptions): Promise<SpeechifyResult> {
-    const trimmedText = text.slice(0, MAX_CHARS)
+    const trimmedText = normalizeSpeechInput(text).slice(0, MAX_CHARS)
+    if (!trimmedText) throw new Error('Speechify error: empty input')
     const normalizedLanguage = normalizeLanguageTag(options.language)
     const voiceId = options.voiceId || DEFAULT_VOICE_ID
     const controller = new AbortController()
