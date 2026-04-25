@@ -166,6 +166,23 @@ export function useTTS(options: UseTTSOptions) {
     options.nativeVoiceKey,
   ])
 
+  useEffect(() => {
+    return () => {
+      const hasPlaybackSession = playSessionRef.current > 0 || audioRef.current || stopPremiumPlaybackRef.current
+      if (!hasPlaybackSession) return
+
+      shouldStopRef.current = true
+      pauseRequestedRef.current = false
+      playSessionRef.current += 1
+
+      audioRef.current?.pause()
+      stopPremiumPlaybackRef.current?.()
+      audioRef.current = null
+
+      void TextToSpeech.stop().catch(logTtsPlaybackError)
+    }
+  }, [])
+
   async function playAudioBlob(
     text: string,
     audioBlob: Blob,

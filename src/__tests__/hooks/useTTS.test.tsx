@@ -146,6 +146,80 @@ describe('useTTS', () => {
     })
   })
 
+  it('encerra o TTS nativo ao desmontar o hook', async () => {
+    let resolveSpeak: (() => void) | undefined
+    textToSpeechMock.speak.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      resolveSpeak = resolve
+    }))
+
+    const callbacks = createCallbacks()
+    const { result, unmount } = renderHook(() => useTTS({
+      ...callbacks,
+      provider: 'native',
+      language: 'en-US',
+      rate: 1,
+    }))
+    const chunks: TtsChunk[] = [
+      { text: 'Long native playback.', paraIdx: 0, offsetInPara: 0 },
+    ]
+
+    let playPromise: Promise<void> = Promise.resolve()
+    await act(async () => {
+      playPromise = result.current.play(chunks, 0)
+    })
+    await flushMicrotasks()
+
+    expect(textToSpeechMock.speak).toHaveBeenCalledOnce()
+
+    unmount()
+
+    expect(textToSpeechMock.stop).toHaveBeenCalledOnce()
+
+    await act(async () => {
+      resolveSpeak?.()
+      await playPromise
+    })
+
+    expect(callbacks.onStop).not.toHaveBeenCalled()
+    expect(callbacks.onFinished).not.toHaveBeenCalled()
+  })
+
+  it('encerra o audio premium ao desmontar o hook', async () => {
+    speechifyMock.getApiKey.mockResolvedValue('speechify-key')
+    speechifyMock.isConfigured.mockResolvedValue(true)
+
+    const callbacks = createCallbacks()
+    const { result, unmount } = renderHook(() => useTTS({
+      ...callbacks,
+      provider: 'speechify',
+      language: 'en-US',
+      rate: 1,
+    }))
+    const chunks: TtsChunk[] = [
+      { text: 'Long premium playback.', paraIdx: 0, offsetInPara: 0 },
+    ]
+
+    let playPromise: Promise<void> = Promise.resolve()
+    await act(async () => {
+      playPromise = result.current.play(chunks, 0)
+    })
+    await flushMicrotasks()
+
+    expect(FakeAudio.instances.length).toBe(1)
+
+    unmount()
+
+    expect(FakeAudio.instances[0]?.pause).toHaveBeenCalledOnce()
+    expect(URL.revokeObjectURL).toHaveBeenCalledOnce()
+
+    await act(async () => {
+      await playPromise
+    })
+
+    expect(callbacks.onStop).not.toHaveBeenCalled()
+    expect(callbacks.onFinished).not.toHaveBeenCalled()
+  })
+
   it('interrompe o audiobook atual antes de tocar um speakOne via Speechify', async () => {
     speechifyMock.getApiKey.mockResolvedValue('speechify-key')
     speechifyMock.isConfigured.mockResolvedValue(true)
