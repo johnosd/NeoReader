@@ -2,6 +2,7 @@ import Dexie, { type Table } from 'dexie'
 import type { Book, BookCover, ReadingProgress, Bookmark, BookSettings } from '../types/book'
 import type { VocabItem, TranslationCache } from '../types/vocabulary'
 import type { UserSettings } from '../types/settings'
+import type { TtsVoiceCacheRecord } from '../types/tts'
 
 type LegacyBookRecord = Book & { coverBlob?: Blob | null }
 
@@ -16,6 +17,7 @@ class NeoReaderDB extends Dexie {
   translations!: Table<TranslationCache>
   settings!: Table<UserSettings>
   bookSettings!: Table<BookSettings>
+  ttsVoiceCaches!: Table<TtsVoiceCacheRecord>
 
   constructor() {
     super('NeoReaderDB')
@@ -108,6 +110,18 @@ class NeoReaderDB extends Dexie {
       if (migratedCovers.length > 0) {
         await coversTable.bulkPut(migratedCovers)
       }
+    })
+
+    this.version(8).stores({
+      books:         '++id, title, author, addedAt, lastOpenedAt',
+      bookCovers:    'bookId, updatedAt, source',
+      progress:      '++id, bookId, updatedAt',
+      bookmarks:     '++id, bookId, createdAt, updatedAt, deletedAt',
+      vocabulary:    '++id, bookId, createdAt',
+      translations:  '++id, textHash, createdAt',
+      settings:      '++id',
+      bookSettings:  '++id, bookId',
+      ttsVoiceCaches:'++id, &cacheKey, provider, language, updatedAt',
     })
   }
 }

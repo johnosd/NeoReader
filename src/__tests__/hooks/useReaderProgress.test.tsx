@@ -19,6 +19,29 @@ describe('useReaderProgress', () => {
     vi.useRealTimers()
   })
 
+  it('carrega o progresso salvo completo para reutilizar o indice atual', async () => {
+    const progress = {
+      id: 1,
+      bookId: 7,
+      cfi: 'epubcfi(/6/10!/4/2/1:0)',
+      percentage: 50,
+      fraction: 0.5,
+      sectionHref: 'chapter-2.xhtml',
+      sectionLabel: 'Chapter 2',
+      updatedAt: new Date('2024-01-02T00:00:00Z'),
+    }
+    vi.mocked(getProgress).mockResolvedValue(progress)
+
+    const { result } = renderHook(() => useReaderProgress(7))
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(result.current.savedCfi).toBe(progress.cfi)
+    expect(result.current.savedProgress).toEqual(progress)
+  })
+
   it('faz flush do último progresso pendente ao desmontar', async () => {
     const { result, unmount } = renderHook(() => useReaderProgress(7))
 

@@ -79,11 +79,9 @@ export class EpubService {
       const opfXml = this.readFileAsText(files, opfPath)
       if (!opfXml) return { description: null, language: null, toc: [] }
 
-      const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/') + 1) : ''
-
       const description = this.extractTag(opfXml, 'dc:description')
       const language = this.extractTag(opfXml, 'dc:language')
-      const toc = this.parseToc(opfXml, opfDir, files)
+      const toc = this.parseToc(opfXml, opfPath, files)
 
       return { description, language, toc }
     } catch {
@@ -95,43 +93,42 @@ export class EpubService {
   // Prefere EPUB3 nav.xhtml; fallback para EPUB2 toc.ncx.
   private static parseToc(
     opfXml: string,
-    opfDir: string,
+    opfPath: string,
     files: Record<string, Uint8Array>,
   ): TocItem[] {
+    const manifestItems = this.extractManifestItems(opfXml)
+
     // EPUB3: item com properties="nav"
-    const navHref =
-      opfXml.match(/properties="nav"[\s\S]*?href="([^"]+)"/)?.[1] ??
-      opfXml.match(/href="([^"]+)"[\s\S]*?properties="nav"/)?.[1]
+    const navHref = manifestItems.find((item) => item.properties.includes('nav'))?.href
 
     if (navHref) {
-      const navPath = opfDir + navHref
+      const navPath = this.resolveZipPath(opfPath, navHref)
       const navXml = this.readFileAsText(files, navPath)
       if (navXml) {
-        const navDir = navPath.includes('/') ? navPath.substring(0, navPath.lastIndexOf('/') + 1) : ''
-        const result = this.parseTocFromNav(navXml, navDir)
+        const result = this.parseTocFromNav(navXml, navPath)
         if (result.length > 0) return result
       }
     }
 
     // EPUB2 fallback: toc.ncx referenciado no <spine toc="id">
     let ncxHref: string | null = null
-    const ncxId = opfXml.match(/<spine\b[^>]+toc="([^"]+)"/)?.[1]
+    const spineAttrs = opfXml.match(/<spine\b([\s\S]*?)(?:>|\/>)/i)?.[1]
+    const ncxId = spineAttrs ? this.parseXmlAttributes(spineAttrs).toc : undefined
     if (ncxId) {
-      const escapedId = ncxId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      ncxHref =
-        opfXml.match(new RegExp(`id="${escapedId}"[\\s\\S]*?href="([^"]+)"`))?.[1] ??
-        opfXml.match(new RegExp(`href="([^"]+)"[\\s\\S]*?id="${escapedId}"`))?.[1] ??
-        null
+      ncxHref = manifestItems.find((item) => item.id === ncxId)?.href
+        ?? manifestItems.find((item) => item.id?.toLowerCase() === ncxId.toLowerCase())?.href
+        ?? null
     }
     // Última tentativa: qualquer .ncx no manifest
-    if (!ncxHref) ncxHref = opfXml.match(/href="([^"]+\.ncx)"/i)?.[1] ?? null
+    if (!ncxHref) {
+      ncxHref = manifestItems.find((item) => /\.ncx(?:[#?].*)?$/i.test(item.href))?.href ?? null
+    }
 
     if (ncxHref) {
-      const ncxPath = opfDir + ncxHref
+      const ncxPath = this.resolveZipPath(opfPath, ncxHref)
       const ncxXml = this.readFileAsText(files, ncxPath)
       if (ncxXml) {
-        const ncxDir = ncxPath.includes('/') ? ncxPath.substring(0, ncxPath.lastIndexOf('/') + 1) : ''
-        return this.parseTocFromNcx(ncxXml, ncxDir)
+        return this.parseTocFromNcx(ncxXml, ncxPath)
       }
     }
 
@@ -139,103 +136,126 @@ export class EpubService {
   }
 
   // Parseia nav.xhtml (EPUB3): extrai entradas do <nav epub:type="toc"> com profundidade.
-  private static parseTocFromNav(html: string, baseDir: string): TocItem[] {
-    const tocMatch =
-      html.match(/<nav\b[^>]*epub:type=["'][^"']*toc[^"']*["'][^>]*>([\s\S]*?)<\/nav>/i) ??
-      html.match(/<nav\b[^>]*type=["'][^"']*toc[^"']*["'][^>]*>([\s\S]*?)<\/nav>/i) ??
-      html.match(/<nav\b[^>]*id=["']toc["'][^>]*>([\s\S]*?)<\/nav>/i)
+  private static parseTocFromNav(html: string, navPath: string): TocItem[] {
+    const doc = this.parseDocument(html, 'text/html')
+    if (!doc) return []
 
-    if (!tocMatch) return []
+    const nav = Array.from(doc.getElementsByTagName('nav')).find((node) => {
+      const type = [
+        node.getAttribute('epub:type'),
+        node.getAttribute('type'),
+        node.getAttributeNS('http://www.idpf.org/2007/ops', 'type'),
+      ].filter(Boolean).join(' ').toLowerCase()
+      return type.split(/\s+/).includes('toc') || node.id.toLowerCase() === 'toc'
+    })
+    if (!nav) return []
 
-    const content = tocMatch[1]
-    const entries: Array<{ depth: number; href: string; label: string }> = []
-    let depth = 0
-
-    // Tokeniza: rastreia abertura/fechamento de <ol> e captura <a href>
-    const tokenRe = /<(\/?)(?:ol|a)\b([^>]*)>/gi
-    let match: RegExpExecArray | null
-    while ((match = tokenRe.exec(content)) !== null) {
-      const [full, closing, attrs] = match
-      const tag = full.match(/<\/?(\w+)/)?.[1]?.toLowerCase()
-      if (tag === 'ol') {
-        depth += closing ? -1 : 1
-      } else if (tag === 'a' && !closing) {
-        const hrefMatch = attrs.match(/href="([^"]*)"/)
-        if (hrefMatch) {
-          const afterA = content.slice(match.index + full.length)
-          const label = (afterA.match(/^([\s\S]*?)<\/a>/i)?.[1] ?? '').replace(/<[^>]+>/g, '').trim()
-          if (label) {
-            const raw = hrefMatch[1]
-            const href = raw.startsWith('/') || raw.includes('://') ? raw : baseDir + raw
-            entries.push({ depth, href, label })
-          }
-        }
-      }
-    }
-
-    return this.buildTocTree(entries)
+    const rootOl = this.getDirectChildByLocalName(nav, 'ol')
+    return rootOl ? this.parseNavOl(rootOl, navPath) : []
   }
 
-  // Parseia toc.ncx (EPUB2): rastreia profundidade de <navPoint> e usa buildTocTree
-  // para produzir a mesma estrutura em árvore do parseTocFromNav.
-  private static parseTocFromNcx(ncxXml: string, baseDir: string): TocItem[] {
-    const navMap = ncxXml.match(/<navMap[^>]*>([\s\S]*)<\/navMap>/)?.[1] ?? ''
-    const entries: Array<{ depth: number; href: string; label: string }> = []
-    let depth = 0
-
-    // Tokeniza <navPoint>, </navPoint>, <text> e <content src>
-    const tokenRe = /<(\/?navPoint)\b[^>]*>|<text>([^<]+)<\/text>|<content\s+src="([^"]+)"/gi
-    let label: string | null = null
-    let match: RegExpExecArray | null
-    while ((match = tokenRe.exec(navMap)) !== null) {
-      const [, tagToken, textContent, src] = match
-      if (tagToken) {
-        if (tagToken.startsWith('/')) {
-          depth = Math.max(0, depth - 1)
-        } else {
-          depth++
-        }
-      } else if (textContent && label === null) {
-        label = textContent.trim()
-      } else if (src && label !== null) {
-        const href = src.startsWith('/') || src.includes('://') ? src : baseDir + src
-        entries.push({ depth, href, label })
-        label = null
-      }
-    }
-
-    return this.buildTocTree(entries)
+  private static parseNavOl(ol: Element, navPath: string): TocItem[] {
+    return this.getDirectChildrenByLocalName(ol, 'li')
+      .map((li) => this.parseNavLi(li, navPath))
+      .filter((item): item is TocItem => Boolean(item))
   }
 
-  // Converte lista plana com níveis de profundidade em árvore de TocItem aninhada.
-  private static buildTocTree(
-    entries: Array<{ depth: number; href: string; label: string }>,
-  ): TocItem[] {
-    if (entries.length === 0) return []
-    const root: TocItem[] = []
-    const parentStack: TocItem[][] = [root]
-    let prevDepth = entries[0].depth
+  private static parseNavLi(li: Element, navPath: string): TocItem | null {
+    const labelEl = this.getDirectChildByLocalName(li, 'a')
+      ?? this.getDirectChildByLocalName(li, 'span')
+    const childOl = this.getDirectChildByLocalName(li, 'ol')
+    const subitems = childOl ? this.parseNavOl(childOl, navPath) : []
+    const rawHref = labelEl?.localName.toLowerCase() === 'a'
+      ? labelEl.getAttribute('href')
+      : null
+    const href = rawHref
+      ? this.resolveNavigationHref(navPath, rawHref)
+      : this.getFirstTocHref(subitems)
+    const label = this.cleanText(labelEl?.textContent)
+      || subitems[0]?.label
+      || href
 
-    for (const entry of entries) {
-      const item: TocItem = { label: entry.label, href: entry.href }
+    if (!label || !href) return subitems.length > 0 ? subitems[0] : null
 
-      if (entry.depth > prevDepth) {
-        const currentList = parentStack[parentStack.length - 1]
-        const lastItem = currentList[currentList.length - 1]
-        if (lastItem) {
-          if (!lastItem.subitems) lastItem.subitems = []
-          parentStack.push(lastItem.subitems)
-        }
-      } else if (entry.depth < prevDepth) {
-        const steps = prevDepth - entry.depth
-        for (let i = 0; i < steps && parentStack.length > 1; i++) parentStack.pop()
-      }
-
-      parentStack[parentStack.length - 1].push(item)
-      prevDepth = entry.depth
+    return {
+      label,
+      href,
+      ...(subitems.length > 0 ? { subitems } : {}),
     }
+  }
 
-    return root
+  // Parseia toc.ncx (EPUB2) e produz a mesma estrutura em arvore do nav.xhtml.
+  private static parseTocFromNcx(ncxXml: string, ncxPath: string): TocItem[] {
+    const doc = this.parseDocument(ncxXml, 'application/xml')
+    if (!doc) return []
+
+    const navMap = this.getFirstElementByLocalName(doc, 'navMap')
+    if (!navMap) return []
+
+    return this.getDirectChildrenByLocalName(navMap, 'navPoint')
+      .map((navPoint) => this.parseNcxNavPoint(navPoint, ncxPath))
+      .filter((item): item is TocItem => Boolean(item))
+  }
+
+  private static parseNcxNavPoint(navPoint: Element, ncxPath: string): TocItem | null {
+    const navLabel = this.getDirectChildByLocalName(navPoint, 'navLabel')
+    const textEl = navLabel ? this.getFirstElementByLocalName(navLabel, 'text') : null
+    const content = this.getDirectChildByLocalName(navPoint, 'content')
+    const subitems = this.getDirectChildrenByLocalName(navPoint, 'navPoint')
+      .map((child) => this.parseNcxNavPoint(child, ncxPath))
+      .filter((item): item is TocItem => Boolean(item))
+    const rawHref = content?.getAttribute('src')
+    const href = rawHref
+      ? this.resolveNavigationHref(ncxPath, rawHref)
+      : this.getFirstTocHref(subitems)
+    const label = this.cleanText(textEl?.textContent)
+      || subitems[0]?.label
+      || href
+
+    if (!label || !href) return subitems.length > 0 ? subitems[0] : null
+
+    return {
+      label,
+      href,
+      ...(subitems.length > 0 ? { subitems } : {}),
+    }
+  }
+
+  private static parseDocument(source: string, type: DOMParserSupportedType): Document | null {
+    if (typeof DOMParser === 'undefined') return null
+    const doc = new DOMParser().parseFromString(source, type)
+    if (type !== 'text/html' && doc.getElementsByTagName('parsererror').length > 0) return null
+    return doc
+  }
+
+  private static cleanText(value?: string | null): string {
+    return value?.replace(/\s+/g, ' ').trim() ?? ''
+  }
+
+  private static getFirstTocHref(items: TocItem[]): string {
+    for (const item of items) {
+      const subitems = Array.isArray(item.subitems) ? item.subitems : []
+      const childHref = this.getFirstTocHref(subitems)
+      if (childHref) return childHref
+      if (item.href) return item.href
+    }
+    return ''
+  }
+
+  private static getFirstElementByLocalName(root: ParentNode, localName: string): Element | null {
+    const expected = localName.toLowerCase()
+    return Array.from(root.querySelectorAll('*'))
+      .find((el) => el.localName.toLowerCase() === expected) ?? null
+  }
+
+  private static getDirectChildByLocalName(parent: Element, localName: string): Element | null {
+    return this.getDirectChildrenByLocalName(parent, localName)[0] ?? null
+  }
+
+  private static getDirectChildrenByLocalName(parent: Element, localName: string): Element[] {
+    const expected = localName.toLowerCase()
+    return Array.from(parent.children)
+      .filter((child) => child.localName.toLowerCase() === expected)
   }
 
   // Converte Uint8Array de um arquivo do ZIP para string UTF-8
@@ -333,6 +353,32 @@ export class EpubService {
         ? basePath.substring(0, basePath.lastIndexOf('/') + 1)
         : ''
       return this.normalizeZipPath(`${baseDir}${target}`).replace(/^\//, '')
+    }
+  }
+
+  private static resolveNavigationHref(basePath: string, href: string): string {
+    const target = href.trim()
+    if (!target) return ''
+
+    const isExternal = /^(?!blob:)[a-z][a-z0-9+.-]*:/i.test(target)
+    if (isExternal) return target
+
+    try {
+      const root = 'https://invalid.invalid/'
+      const url = new URL(
+        target.replace(/%2c/gi, ',').replace(/%3a/gi, ':'),
+        `${root}${basePath.replace(/^\//, '')}`,
+      )
+      url.search = ''
+      return decodeURI(url.href.replace(root, '')).replace(/^\//, '')
+    } catch {
+      const [pathWithQuery, fragment] = target.split('#', 2)
+      const [pathOnly] = pathWithQuery.split('?')
+      const baseDir = basePath.includes('/')
+        ? basePath.substring(0, basePath.lastIndexOf('/') + 1)
+        : ''
+      const normalizedPath = this.normalizeZipPath(`${baseDir}${pathOnly}`).replace(/^\//, '')
+      return fragment ? `${normalizedPath}#${fragment}` : normalizedPath
     }
   }
 

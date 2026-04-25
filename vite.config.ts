@@ -46,6 +46,11 @@ const copyFoliatePdfjsAssets = () => {
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), copyFoliatePdfjsAssets()],
+  optimizeDeps: {
+    // foliate-js is loaded lazily by the reader. Serving it as source in dev
+    // avoids stale /node_modules/.vite/deps chunks after Vite re-optimizes deps.
+    exclude: ['foliate-js'],
+  },
   resolve: {
     // Alias @/ -> src/ para imports mais curtos e independentes de profundidade.
     alias: {

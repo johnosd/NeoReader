@@ -48,4 +48,53 @@ describe('TocDrawer', () => {
 
     expect(onSelect).toHaveBeenCalledWith('chapter-1.xhtml')
   })
+
+  it('marca o capitulo atual no indice', () => {
+    render(
+      <TocDrawer
+        open
+        toc={[
+          {
+            label: 'Part I',
+            href: 'part-1.xhtml',
+            subitems: [
+              { label: 'Chapter 1', href: 'chapter-1.xhtml' },
+              { label: 'Chapter 2', href: 'chapter-2.xhtml' },
+            ],
+          },
+        ]}
+        currentHref="chapter-2.xhtml"
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('Agora')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Chapter 2' })).toBeTruthy()
+  })
+
+  it('marca pelo rotulo quando o leitor informa apenas o arquivo da secao', () => {
+    render(
+      <TocDrawer
+        open
+        toc={[
+          {
+            label: 'Part I',
+            href: 'chapter.xhtml#part',
+            subitems: [
+              { label: 'Chapter 1', href: 'chapter.xhtml#chapter-1' },
+              { label: 'Chapter 2', href: 'chapter.xhtml#chapter-2' },
+            ],
+          },
+        ]}
+        currentHref="chapter.xhtml"
+        currentLabel="Chapter 2"
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('Agora')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Chapter 2' })).toBeTruthy()
+  })
 })

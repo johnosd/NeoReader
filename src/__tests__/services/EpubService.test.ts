@@ -58,6 +58,7 @@ function makeOpf(
   manifest: string,
   metadataExtras = '',
   guide = '',
+  spine = '<spine />',
 ): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
     <package version="2.0" xmlns="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/">
@@ -69,7 +70,7 @@ function makeOpf(
       <manifest>
         ${manifest}
       </manifest>
-      <spine />
+      ${spine}
       ${guide ? `<guide>${guide}</guide>` : ''}
     </package>`
 }
@@ -217,5 +218,128 @@ describe('EpubService.parseMetadata - cover extraction', () => {
     const metadata = await EpubService.parseMetadata(makeFile())
 
     expect(await blobText(metadata.coverBlob)).toBe('first-image')
+  })
+})
+
+describe('EpubService.parseExtras - toc extraction', () => {
+  beforeEach(() => {
+    fflateState.files = {}
+  })
+
+  it('extracts EPUB3 nav entries with flexible attributes and normalized hrefs', async () => {
+    fflateState.files = makeEpubFiles(
+      'OPS/package.opf',
+      makeOpf(`
+        <item
+          id='nav'
+          href='Navigation/nav.xhtml'
+          media-type='application/xhtml+xml'
+          properties='nav'
+        />
+      `),
+      {
+        'OPS/Navigation/nav.xhtml': `
+          <html xmlns:epub="http://www.idpf.org/2007/ops">
+            <body>
+              <nav epub:type="toc">
+                <ol>
+                  <li>
+                    <a href="../Text/part.xhtml">Part I</a>
+                    <ol>
+                      <li><a href="../Text/Chapter%201.xhtml#start">Chapter 1</a></li>
+                    </ol>
+                  </li>
+                </ol>
+              </nav>
+            </body>
+          </html>
+        `,
+      },
+    )
+
+    const extras = await EpubService.parseExtras(new Blob(['epub']))
+
+    expect(extras.toc).toEqual([
+      {
+        label: 'Part I',
+        href: 'OPS/Text/part.xhtml',
+        subitems: [
+          { label: 'Chapter 1', href: 'OPS/Text/Chapter 1.xhtml#start' },
+        ],
+      },
+    ])
+  })
+
+  it('uses the first navigable child for EPUB3 span groups', async () => {
+    fflateState.files = makeEpubFiles(
+      'OPS/package.opf',
+      makeOpf(`
+        <item id="nav" href="Navigation/nav.xhtml" media-type="application/xhtml+xml" properties="nav" />
+      `),
+      {
+        'OPS/Navigation/nav.xhtml': `
+          <html xmlns:epub="http://www.idpf.org/2007/ops">
+            <body>
+              <nav epub:type="toc">
+                <ol>
+                  <li>
+                    <span>Part I</span>
+                    <ol>
+                      <li><a href="../Text/chapter1.xhtml">Chapter 1</a></li>
+                      <li><a href="../Text/chapter2.xhtml">Chapter 2</a></li>
+                    </ol>
+                  </li>
+                </ol>
+              </nav>
+            </body>
+          </html>
+        `,
+      },
+    )
+
+    const extras = await EpubService.parseExtras(new Blob(['epub']))
+
+    expect(extras.toc).toEqual([
+      {
+        label: 'Part I',
+        href: 'OPS/Text/chapter1.xhtml',
+        subitems: [
+          { label: 'Chapter 1', href: 'OPS/Text/chapter1.xhtml' },
+          { label: 'Chapter 2', href: 'OPS/Text/chapter2.xhtml' },
+        ],
+      },
+    ])
+  })
+
+  it('extracts EPUB2 toc.ncx entries and preserves fragments', async () => {
+    fflateState.files = makeEpubFiles(
+      'OPS/package.opf',
+      makeOpf(
+        `
+          <item id="ncx" href="Navigation/toc.ncx" media-type="application/x-dtbncx+xml" />
+        `,
+        '',
+        '',
+        '<spine toc="ncx" />',
+      ),
+      {
+        'OPS/Navigation/toc.ncx': `
+          <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/">
+            <navMap>
+              <navPoint id="p1" playOrder="1">
+                <navLabel><text>Chapter 1</text></navLabel>
+                <content src="../Text/chapter1.xhtml#heading" />
+              </navPoint>
+            </navMap>
+          </ncx>
+        `,
+      },
+    )
+
+    const extras = await EpubService.parseExtras(new Blob(['epub']))
+
+    expect(extras.toc).toEqual([
+      { label: 'Chapter 1', href: 'OPS/Text/chapter1.xhtml#heading' },
+    ])
   })
 })

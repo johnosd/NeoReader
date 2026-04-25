@@ -1,22 +1,29 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowLeft, Eye, EyeOff, Check, Globe, ChevronRight } from 'lucide-react'
 import { App as CapApp } from '@capacitor/app'
 import { Badge, BottomSheet, Input, ListItem, Spinner } from '../components/ui'
-import { getSettings, updateSettings } from '../db/settings'
-import type { FontSize, UserSettings } from '../types/settings'
+import { getSettings, updateAppSettings, updateReaderDefaults } from '../db/settings'
+import { ElevenLabsService } from '../services/ElevenLabsService'
+import { SpeechifyService } from '../services/SpeechifyService'
+import type { AppSettings, FontSize, ReaderDefaults, UserSettings } from '../types/settings'
+import { getLanguageLabel, TRANSLATION_LANGUAGE_OPTIONS } from '../utils/languageOptions'
+import {
+  READER_LINE_HEIGHT_OPTIONS,
+  READER_THEME_OPTIONS,
+  getReaderLineHeightValue,
+  getReaderThemePreviewStyle,
+} from '../utils/readerPreferences'
 
 interface SettingsScreenProps {
   onBack: () => void
 }
 
-const LANGUAGES = [
-  { code: 'pt-BR', label: 'Português (BR)' },
-  { code: 'es',    label: 'Espanhol' },
-  { code: 'fr',    label: 'Francês' },
-  { code: 'de',    label: 'Alemão' },
-  { code: 'it',    label: 'Italiano' },
-  { code: 'ja',    label: 'Japonês' },
-]
+type KeyValidationStatus = 'idle' | 'validating' | 'valid' | 'invalid'
+
+interface KeyValidationState {
+  status: KeyValidationStatus
+  message?: string
+}
 
 const FONT_SIZES: { value: FontSize; label: string; className: string }[] = [
   { value: 'sm', label: 'A', className: 'text-sm' },
@@ -26,29 +33,130 @@ const FONT_SIZES: { value: FontSize; label: string; className: string }[] = [
 ]
 
 const FONT_PREVIEW_PX: Record<FontSize, number> = { sm: 14, md: 16, lg: 18, xl: 20 }
+const IDLE_KEY_STATE: KeyValidationState = { status: 'idle' }
+
+function ValidationBadge({ state, emptyLabel }: { state: KeyValidationState; emptyLabel: string }) {
+  if (state.status === 'validating') {
+    return <Badge tone="neutral">Validando key...</Badge>
+  }
+  if (state.status === 'valid') {
+    return (
+      <Badge tone="success">
+        <Check size={11} /> Key valida
+      </Badge>
+    )
+  }
+  if (state.status === 'invalid') {
+    return <Badge tone="error">Key invalida</Badge>
+  }
+  return <p className="text-xs text-text-muted">{emptyLabel}</p>
+}
 
 export function SettingsScreen({ onBack }: SettingsScreenProps) {
   const [settings, setSettings] = useState<UserSettings | null>(null)
-  const [showKey, setShowKey] = useState(false)
-  // Buffer local para o input da API key — persiste no DB ao sair do campo (onBlur)
-  const [keyInput, setKeyInput] = useState('')
+  const [showSpeechifyKey, setShowSpeechifyKey] = useState(false)
+  const [showElevenLabsKey, setShowElevenLabsKey] = useState(false)
+  const [speechifyKeyInput, setSpeechifyKeyInput] = useState('')
+  const [elevenLabsKeyInput, setElevenLabsKeyInput] = useState('')
+  const [speechifyValidation, setSpeechifyValidation] = useState<KeyValidationState>(IDLE_KEY_STATE)
+  const [elevenLabsValidation, setElevenLabsValidation] = useState<KeyValidationState>(IDLE_KEY_STATE)
   const [langSheetOpen, setLangSheetOpen] = useState(false)
+  const speechifyValidationSeqRef = useRef(0)
+  const elevenLabsValidationSeqRef = useRef(0)
 
   useEffect(() => {
-    getSettings().then((s) => {
-      setSettings(s)
-      setKeyInput(s.speechifyApiKey)
+    let cancelled = false
+
+    void getSettings().then((value) => {
+      if (cancelled) return
+      setSettings(value)
+      setSpeechifyKeyInput(value.appSettings.speechifyApiKey)
+      setElevenLabsKeyInput(value.appSettings.elevenLabsApiKey)
+
+      if (value.appSettings.speechifyApiKey) {
+        void validateSpeechifyKey(value.appSettings.speechifyApiKey, false)
+      }
+      if (value.appSettings.elevenLabsApiKey) {
+        void validateElevenLabsKey(value.appSettings.elevenLabsApiKey, false)
+      }
     })
+
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   useEffect(() => {
-    const p = CapApp.addListener('backButton', onBack)
-    return () => { void p.then((l) => l.remove()) }
+    const listener = CapApp.addListener('backButton', onBack)
+    return () => { void listener.then((value) => value.remove()) }
   }, [onBack])
 
-  async function save(patch: Partial<Omit<UserSettings, 'id'>>) {
-    await updateSettings(patch)
-    setSettings((prev) => prev ? { ...prev, ...patch } : prev)
+  async function saveAppSettings(patch: Partial<AppSettings>) {
+    await updateAppSettings(patch)
+    setSettings((previous) => previous ? {
+      ...previous,
+      appSettings: { ...previous.appSettings, ...patch },
+    } : previous)
+  }
+
+  async function saveReaderDefaults(patch: Partial<ReaderDefaults>) {
+    await updateReaderDefaults(patch)
+    setSettings((previous) => previous ? {
+      ...previous,
+      readerDefaults: { ...previous.readerDefaults, ...patch },
+    } : previous)
+  }
+
+  async function validateSpeechifyKey(rawKey: string, persistOnSuccess: boolean) {
+    const trimmedKey = rawKey.trim()
+    const validationSeq = ++speechifyValidationSeqRef.current
+
+    if (!trimmedKey) {
+      setSpeechifyValidation(IDLE_KEY_STATE)
+      if (persistOnSuccess) await saveAppSettings({ speechifyApiKey: '' })
+      return
+    }
+
+    setSpeechifyValidation({ status: 'validating', message: 'Validando a API key da Speechify...' })
+    const result = await SpeechifyService.validateApiKey(trimmedKey)
+    if (speechifyValidationSeqRef.current !== validationSeq) return
+
+    if (result.isValid) {
+      if (persistOnSuccess) {
+        await saveAppSettings({ speechifyApiKey: trimmedKey })
+      }
+      setSpeechifyKeyInput(trimmedKey)
+      setSpeechifyValidation({ status: 'valid', message: result.message })
+      return
+    }
+
+    setSpeechifyValidation({ status: 'invalid', message: result.message })
+  }
+
+  async function validateElevenLabsKey(rawKey: string, persistOnSuccess: boolean) {
+    const trimmedKey = rawKey.trim()
+    const validationSeq = ++elevenLabsValidationSeqRef.current
+
+    if (!trimmedKey) {
+      setElevenLabsValidation(IDLE_KEY_STATE)
+      if (persistOnSuccess) await saveAppSettings({ elevenLabsApiKey: '' })
+      return
+    }
+
+    setElevenLabsValidation({ status: 'validating', message: 'Validando a API key da ElevenLabs...' })
+    const result = await ElevenLabsService.validateApiKey(trimmedKey)
+    if (elevenLabsValidationSeqRef.current !== validationSeq) return
+
+    if (result.isValid) {
+      if (persistOnSuccess) {
+        await saveAppSettings({ elevenLabsApiKey: trimmedKey })
+      }
+      setElevenLabsKeyInput(trimmedKey)
+      setElevenLabsValidation({ status: 'valid', message: result.message })
+      return
+    }
+
+    setElevenLabsValidation({ status: 'invalid', message: result.message })
   }
 
   if (!settings) {
@@ -59,7 +167,18 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
     )
   }
 
-  const currentLang = LANGUAGES.find((l) => l.code === settings.translationTargetLang)?.label ?? settings.translationTargetLang
+  const currentLang = getLanguageLabel(settings.appSettings.translationTargetLang) ?? settings.appSettings.translationTargetLang
+  const previewStyle = getReaderThemePreviewStyle(settings.readerDefaults.readerTheme)
+  const speechifyHint = speechifyValidation.status === 'valid'
+    ? 'A key foi validada e salva.'
+    : speechifyValidation.status === 'validating'
+      ? speechifyValidation.message
+      : undefined
+  const elevenLabsHint = elevenLabsValidation.status === 'valid'
+    ? 'A key foi validada e salva.'
+    : elevenLabsValidation.status === 'validating'
+      ? elevenLabsValidation.message
+      : undefined
 
   return (
     <div className="min-h-screen pb-12 bg-bg-base text-text-primary">
@@ -72,74 +191,117 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
           <ArrowLeft size={20} />
         </button>
         <div>
-          <p className="text-xs text-text-muted uppercase tracking-wider">Preferências</p>
-          <h1 className="text-2xl font-serif font-bold text-purple-light">Configurações</h1>
+          <p className="text-xs text-text-muted uppercase tracking-wider">Preferencias</p>
+          <h1 className="text-2xl font-serif font-bold text-purple-light">Configuracoes</h1>
         </div>
       </header>
 
       <div className="px-4 flex flex-col gap-6">
-
         <Section title="TTS Premium (Speechify)">
           <p className="text-xs text-text-muted leading-relaxed mb-3">
-            Insira sua API key da Speechify para habilitar vozes neurais e karaokê de palavras.
-            Sem a key o app usa o TTS nativo do Android.
+            Insira sua API key da Speechify para habilitar vozes neurais e karaoke de palavras.
+            A key so e salva depois de validada.
           </p>
 
           <Input
-            type={showKey ? 'text' : 'password'}
-            value={keyInput}
-            onChange={(e) => setKeyInput(e.target.value)}
-            onBlur={() => void save({ speechifyApiKey: keyInput.trim() })}
+            type={showSpeechifyKey ? 'text' : 'password'}
+            value={speechifyKeyInput}
+            onChange={(event) => {
+              setSpeechifyKeyInput(event.target.value)
+              if (speechifyValidation.status !== 'validating') setSpeechifyValidation(IDLE_KEY_STATE)
+            }}
+            onBlur={() => void validateSpeechifyKey(speechifyKeyInput, true)}
             placeholder="sk-..."
             autoComplete="off"
             spellCheck={false}
-            rightSlot={
+            error={speechifyValidation.status === 'invalid' ? speechifyValidation.message : undefined}
+            hint={speechifyHint}
+            rightSlot={(
               <button
                 type="button"
-                onClick={() => setShowKey((v) => !v)}
+                onClick={() => setShowSpeechifyKey((value) => !value)}
                 className="p-2 text-text-muted active:opacity-60"
-                aria-label={showKey ? 'Ocultar key' : 'Mostrar key'}
+                aria-label={showSpeechifyKey ? 'Ocultar key' : 'Mostrar key'}
               >
-                {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                {showSpeechifyKey ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
-            }
+            )}
           />
 
           <div className="mt-3">
-            {settings.speechifyApiKey ? (
-              <Badge tone="success">
-                <Check size={11} /> Key configurada
-              </Badge>
-            ) : (
-              <p className="text-xs text-text-muted">Não configurado — usando TTS nativo</p>
-            )}
+            <ValidationBadge
+              state={speechifyValidation}
+              emptyLabel="Nao configurado - usando TTS nativo"
+            />
           </div>
         </Section>
 
-        <Section title="Tradução">
+        <Section title="TTS Premium (ElevenLabs)">
+          <p className="text-xs text-text-muted leading-relaxed mb-3">
+            Insira sua API key da ElevenLabs para habilitar vozes premium com alinhamento temporal.
+            A key so e salva depois de validada.
+          </p>
+
+          <Input
+            type={showElevenLabsKey ? 'text' : 'password'}
+            value={elevenLabsKeyInput}
+            onChange={(event) => {
+              setElevenLabsKeyInput(event.target.value)
+              if (elevenLabsValidation.status !== 'validating') setElevenLabsValidation(IDLE_KEY_STATE)
+            }}
+            onBlur={() => void validateElevenLabsKey(elevenLabsKeyInput, true)}
+            placeholder="sk_..."
+            autoComplete="off"
+            spellCheck={false}
+            error={elevenLabsValidation.status === 'invalid' ? elevenLabsValidation.message : undefined}
+            hint={elevenLabsHint}
+            rightSlot={(
+              <button
+                type="button"
+                onClick={() => setShowElevenLabsKey((value) => !value)}
+                className="p-2 text-text-muted active:opacity-60"
+                aria-label={showElevenLabsKey ? 'Ocultar key' : 'Mostrar key'}
+              >
+                {showElevenLabsKey ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            )}
+          />
+
+          <div className="mt-3">
+            <ValidationBadge
+              state={elevenLabsValidation}
+              emptyLabel="Nao configurado"
+            />
+          </div>
+        </Section>
+
+        <Section title="Traducao">
           <div className="-mx-4">
             <ListItem
               leading={<Globe size={20} />}
-              title="Idioma de destino"
+              title="Idioma padrao das traducoes"
               meta={currentLang}
               trailing={<ChevronRight size={18} />}
               onClick={() => setLangSheetOpen(true)}
               divider={false}
             />
           </div>
+          <p className="mt-3 text-xs text-text-muted leading-relaxed">
+            Esse e o padrao global do app. Cada livro pode sobrescrever esse idioma nas proprias configuracoes.
+          </p>
         </Section>
 
-        <Section title="Tamanho de fonte padrão">
+        <Section title="Tamanho de fonte padrao">
           <p className="text-xs text-text-muted mb-3">
             Tamanho inicial ao abrir qualquer livro.
           </p>
           <div className="flex gap-2">
             {FONT_SIZES.map(({ value, label, className }) => {
-              const active = settings.defaultFontSize === value
+              const active = settings.readerDefaults.defaultFontSize === value
               return (
                 <button
                   key={value}
-                  onClick={() => void save({ defaultFontSize: value })}
+                  onClick={() => void saveReaderDefaults({ defaultFontSize: value })}
                   className={`flex-1 py-3 rounded-md font-semibold transition-all duration-150 active:scale-95 border ${className} ${
                     active
                       ? 'bg-purple-primary/15 border-purple-primary/50 text-purple-light'
@@ -154,31 +316,97 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
           </div>
           <p
             className="mt-4 text-center leading-relaxed text-text-secondary"
-            style={{ fontSize: FONT_PREVIEW_PX[settings.defaultFontSize] }}
+            style={{ fontSize: FONT_PREVIEW_PX[settings.readerDefaults.defaultFontSize] }}
           >
             The quick brown fox jumps over the lazy dog.
           </p>
         </Section>
 
+        <Section title="Espacamento padrao">
+          <p className="text-xs text-text-muted mb-3">
+            Define a altura de linha usada como base no leitor.
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+            {READER_LINE_HEIGHT_OPTIONS.map(({ value, label }) => {
+              const active = settings.readerDefaults.lineHeight === value
+              return (
+                <button
+                  key={value}
+                  onClick={() => void saveReaderDefaults({ lineHeight: value })}
+                  className={`rounded-md px-3 py-3 text-sm font-semibold transition-all duration-150 active:scale-95 border ${
+                    active
+                      ? 'bg-purple-primary/15 border-purple-primary/50 text-purple-light'
+                      : 'bg-bg-surface border-border text-text-muted'
+                  }`}
+                  aria-pressed={active}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+        </Section>
+
+        <Section title="Tema padrao do leitor">
+          <p className="text-xs text-text-muted mb-3">
+            Aparencia inicial ao abrir qualquer livro.
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+            {READER_THEME_OPTIONS.map(({ value, label }) => {
+              const active = settings.readerDefaults.readerTheme === value
+              return (
+                <button
+                  key={value}
+                  onClick={() => void saveReaderDefaults({ readerTheme: value })}
+                  className={`rounded-md px-3 py-3 text-sm font-semibold transition-all duration-150 active:scale-95 border ${
+                    active
+                      ? 'bg-purple-primary/15 border-purple-primary/50 text-purple-light'
+                      : 'bg-bg-surface border-border text-text-muted'
+                  }`}
+                  aria-pressed={active}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+
+          <div
+            className="mt-4 rounded-xl border px-4 py-4"
+            style={previewStyle}
+          >
+            <p
+              className="font-serif"
+              style={{
+                fontSize: FONT_PREVIEW_PX[settings.readerDefaults.defaultFontSize],
+                lineHeight: getReaderLineHeightValue(settings.readerDefaults.lineHeight),
+                color: previewStyle.color,
+              }}
+            >
+              The quick brown fox jumps over the lazy dog.
+            </p>
+          </div>
+        </Section>
       </div>
 
       <BottomSheet
         open={langSheetOpen}
         onClose={() => setLangSheetOpen(false)}
-        title="Idioma de tradução"
+        title="Idioma padrao das traducoes"
       >
         <div className="-mx-4">
-          {LANGUAGES.map((lang) => {
-            const active = settings.translationTargetLang === lang.code
+          {TRANSLATION_LANGUAGE_OPTIONS.map((lang) => {
+            const active = settings.appSettings.translationTargetLang === lang.code
             return (
               <ListItem
                 key={lang.code}
                 title={lang.label}
                 trailing={active ? <Check size={18} className="text-purple-light" /> : undefined}
                 onClick={() => {
-                  void save({ translationTargetLang: lang.code })
+                  void saveAppSettings({ translationTargetLang: lang.code })
                   setLangSheetOpen(false)
                 }}
+                divider={lang.code !== TRANSLATION_LANGUAGE_OPTIONS[TRANSLATION_LANGUAGE_OPTIONS.length - 1].code}
               />
             )
           })}
@@ -190,13 +418,11 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section>
-      <h2 className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-3">
+    <section className="rounded-md p-4 bg-bg-surface border border-border">
+      <h2 className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-4">
         {title}
       </h2>
-      <div className="rounded-md p-4 bg-bg-surface border border-border">
-        {children}
-      </div>
+      {children}
     </section>
   )
 }

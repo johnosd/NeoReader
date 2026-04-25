@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getProgress, upsertProgress, type ProgressSavePayload } from '../db/progress'
+import type { ReadingProgress } from '../types/book'
 
 interface UseReaderProgressResult {
   savedCfi: string | null      // null = primeira abertura
+  savedProgress: ReadingProgress | null
   initialLoadDone: boolean     // false enquanto o DB ainda não respondeu
   saveProgress: (payload: ProgressSavePayload) => void  // debounced
   flushProgress: (payload?: ProgressSavePayload) => Promise<void>
@@ -10,6 +12,7 @@ interface UseReaderProgressResult {
 
 export function useReaderProgress(bookId: number): UseReaderProgressResult {
   const [savedCfi, setSavedCfi] = useState<string | null>(null)
+  const [savedProgress, setSavedProgress] = useState<ReadingProgress | null>(null)
   const [initialLoadDone, setInitialLoadDone] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingProgressRef = useRef<ProgressSavePayload | null>(null)
@@ -44,10 +47,21 @@ export function useReaderProgress(bookId: number): UseReaderProgressResult {
 
   // Carrega posição salva uma vez no mount
   useEffect(() => {
+    let cancelled = false
+    setSavedCfi(null)
+    setSavedProgress(null)
+    setInitialLoadDone(false)
+
     getProgress(bookId).then((p) => {
+      if (cancelled) return
+      setSavedProgress(p ?? null)
       setSavedCfi(p?.cfi ?? null)
       setInitialLoadDone(true)
     })
+
+    return () => {
+      cancelled = true
+    }
   }, [bookId])
 
   // Salva com debounce de 1.5s para evitar writes excessivos a cada virada de página
@@ -86,5 +100,5 @@ export function useReaderProgress(bookId: number): UseReaderProgressResult {
     }
   }, [persistProgress])
 
-  return { savedCfi, initialLoadDone, saveProgress, flushProgress }
+  return { savedCfi, savedProgress, initialLoadDone, saveProgress, flushProgress }
 }
