@@ -534,7 +534,12 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
               {liveBook.title}
             </h1>
             {liveBook.author && (
-              <p className="text-sm text-text-muted mt-1">{liveBook.author}</p>
+              <button
+                onClick={() => setActiveTab('autor')}
+                className="mt-1 text-sm text-purple-light active:opacity-70 transition-opacity"
+              >
+                {liveBook.author}
+              </button>
             )}
           </div>
         </div>
