@@ -82,9 +82,21 @@ export async function getAuthorData(
   authorName: string,
   youtubeApiKey?: string,
 ): Promise<AuthorData | null> {
-  // Cache hit: retorna imediatamente sem rede
   const cached = await getCachedAuthor(authorName)
-  if (cached) return cached
+
+  if (cached) {
+    // Cache existe mas sem vídeos e agora temos key → busca vídeos e atualiza cache
+    // Isso resolve o caso onde o usuário adicionou a key depois da primeira carga
+    if (cached.videos.length === 0 && youtubeApiKey) {
+      const videos = await fetchYoutubeVideos(authorName, youtubeApiKey)
+      if (videos.length > 0) {
+        const updated = { ...cached, videos }
+        void setCachedAuthor(authorName, updated)
+        return updated
+      }
+    }
+    return cached
+  }
 
   const olid = await fetchOlid(authorName)
 
@@ -108,7 +120,6 @@ export async function getAuthorData(
     ? `https://covers.openlibrary.org/a/olid/${olid}-M.jpg`
     : undefined
 
-  // Vídeos: implementados na Fase 3
   const videos: AuthorVideo[] = youtubeApiKey
     ? await fetchYoutubeVideos(authorName, youtubeApiKey)
     : []
@@ -130,7 +141,6 @@ export async function getAuthorData(
   return data
 }
 
-// Fase 3: busca vídeos no YouTube
 export async function fetchYoutubeVideos(
   authorName: string,
   apiKey: string,
