@@ -151,7 +151,6 @@ function extractSpineIds(opfXml: string): string[] {
 
   return Array.from(spineXml.matchAll(/<itemref\b([\s\S]*?)(?:\/>|>)/gi))
     .map(([, rawAttrs]) => parseXmlAttributes(rawAttrs))
-    .filter((attrs) => attrs.linear?.toLowerCase() !== 'no')
     .map((attrs) => attrs.idref)
     .filter((id): id is string => Boolean(id))
 }
