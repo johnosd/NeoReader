@@ -51,7 +51,9 @@
       "Bash(node_modules/.bin/tsc --noEmit)",
       "Bash(node_modules/.bin/vite build *)",
       "Bash(node ./node_modules/typescript/bin/tsc --noEmit)",
-      "Bash(cmd /c \"npx tsc --noEmit && echo OK_NO_ERRORS || echo ERRORS_FOUND\")"
+      "Bash(cmd /c \"npx tsc --noEmit && echo OK_NO_ERRORS || echo ERRORS_FOUND\")",
+      "Bash(node scripts/run-debug-epub-tests.mjs)",
+      "Bash(node -e ' *)"
     ]
   }
 }

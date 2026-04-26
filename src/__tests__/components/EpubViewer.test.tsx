@@ -33,6 +33,9 @@ function defaultProps(overrides: Record<string, unknown> = {}) {
     fontSize: 'md' as const,
     lineHeight: 'comfortable' as const,
     readerTheme: 'dark' as const,
+    fontFamily: 'classic' as const,
+    overrideBookFont: true,
+    overrideBookColors: true,
     savedCfi: null,
     onRelocate: vi.fn(),
     onTocReady: vi.fn(),
@@ -45,6 +48,7 @@ function defaultProps(overrides: Record<string, unknown> = {}) {
     onBookmarkParagraph: vi.fn(),
     onParagraphTapForTts: vi.fn(),
     ttsGlobalActive: false,
+    chromeVisible: false,
     onBookmarkTap: vi.fn(),
     ...overrides,
   }
@@ -78,7 +82,68 @@ function makeFakeDoc(texts: string[] = ['First sentence. Second sentence.']) {
 /** Dispara um click simples num elemento. */
 function click(el: Element) {
   act(() => {
-    el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    el.dispatchEvent(new MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 120,
+      clientY: 360,
+    }))
+  })
+}
+
+function clickAt(el: Element, clientX: number, clientY = 360) {
+  act(() => {
+    el.dispatchEvent(new MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      clientX,
+      clientY,
+    }))
+  })
+}
+
+function setElementRect(el: Element, rect: Pick<DOMRect, 'left' | 'top' | 'right' | 'bottom' | 'width' | 'height'>) {
+  Object.defineProperty(el, 'getBoundingClientRect', {
+    configurable: true,
+    value: () => ({
+      x: rect.left,
+      y: rect.top,
+      left: rect.left,
+      top: rect.top,
+      right: rect.right,
+      bottom: rect.bottom,
+      width: rect.width,
+      height: rect.height,
+      toJSON: () => ({}),
+    }),
+  })
+}
+
+function setViewportWidth(doc: Document, width: number) {
+  if (doc.defaultView) {
+    Object.defineProperty(doc.defaultView, 'innerWidth', {
+      configurable: true,
+      value: width,
+    })
+  }
+
+  Object.defineProperty(doc.documentElement, 'clientWidth', {
+    configurable: true,
+    value: width,
+  })
+}
+
+function setViewportHeight(doc: Document, height: number) {
+  if (doc.defaultView) {
+    Object.defineProperty(doc.defaultView, 'innerHeight', {
+      configurable: true,
+      value: height,
+    })
+  }
+
+  Object.defineProperty(doc.documentElement, 'clientHeight', {
+    configurable: true,
+    value: height,
   })
 }
 
@@ -129,6 +194,51 @@ describe('EpubViewer — abertura do livro', () => {
     expect(props.onLoad).toHaveBeenCalledOnce()
   })
 
+  it('informa o href da secao quando ela fica pronta', async () => {
+    const onSectionReady = vi.fn()
+    const { foliateEl } = await renderViewer({ onSectionReady })
+    const fakeDoc = makeFakeDoc()
+    injectFakeWindow(fakeDoc, 0)
+
+    act(() => { void foliateEl.renderer.goTo({ index: 1 }) })
+    loadSection(foliateEl, fakeDoc, 1)
+
+    expect(onSectionReady).toHaveBeenCalledWith(1, 'chapter-2.xhtml')
+  })
+
+  it('mantem a primeira secao ativa quando o Foliate precarrega uma secao adjacente', async () => {
+    const onLoad = vi.fn()
+    const onSectionReady = vi.fn()
+    const { foliateEl } = await renderViewer({ onLoad, onSectionReady })
+    const primaryDoc = makeFakeDoc(['Primary section.'])
+    const adjacentDoc = makeFakeDoc(['Adjacent section.'])
+    injectFakeWindow(primaryDoc, 0)
+    injectFakeWindow(adjacentDoc, 0)
+
+    act(() => {
+      foliateEl.fireFoliate('load', { doc: primaryDoc, index: 0 })
+      foliateEl.fireFoliate('load', { doc: adjacentDoc, index: 1 })
+      foliateEl.fireRenderer('stabilized')
+    })
+
+    expect(onLoad).toHaveBeenCalledOnce()
+    expect(onSectionReady).toHaveBeenCalledWith(0, 'chapter-1.xhtml')
+    expect(onSectionReady).not.toHaveBeenCalledWith(1, 'chapter-2.xhtml')
+  })
+
+  it('injeta tema e fonte configurados no renderer', async () => {
+    const { foliateEl } = await renderViewer({
+      readerTheme: 'sage',
+      fontFamily: 'readable',
+    })
+
+    const styles = foliateEl.renderer.setStyles.mock.calls[0]?.[0] as string
+
+    expect(styles).toContain('#e8eddc')
+    expect(styles).toContain('Verdana')
+    expect(styles).toContain('rgba(246, 250, 238, 0.98)')
+  })
+
   it('chama onError quando open() lança exceção', async () => {
     const onError = vi.fn()
 
@@ -152,10 +262,12 @@ describe('EpubViewer — seleção de texto', () => {
   let viewerRef: ReturnType<typeof createRef<EpubViewerHandle>>
   let foliateEl: FoliateViewMock
   let onTranslate: ReturnType<typeof vi.fn>
+  let onCenterTap: ReturnType<typeof vi.fn>
 
   beforeEach(async () => {
     onTranslate = vi.fn()
-    const setup = await renderViewer({ onTranslate })
+    onCenterTap = vi.fn()
+    const setup = await renderViewer({ onTranslate, onCenterTap })
     viewerRef = setup.viewerRef
     foliateEl = setup.foliateEl
 
@@ -170,6 +282,83 @@ describe('EpubViewer — seleção de texto', () => {
   it('tap em parágrafo chama onTranslate', () => {
     click(paraA)
     expect(onTranslate).toHaveBeenCalledOnce()
+  })
+
+  it('tap na lateral direita do texto abre o menu sem traduzir', () => {
+    setViewportWidth(fakeDoc, 360)
+
+    clickAt(paraA, 340)
+
+    expect(onCenterTap).toHaveBeenCalledOnce()
+    expect(onTranslate).not.toHaveBeenCalled()
+  })
+
+  it('tap no texto com chrome visivel fecha o chrome e ainda chama onTranslate', async () => {
+    const onTranslate = vi.fn()
+    const onCenterTap = vi.fn()
+    const { foliateEl } = await renderViewer({ chromeVisible: true, onTranslate, onCenterTap })
+    const fakeDoc = makeFakeDoc(['First sentence. Second.'])
+    const para = fakeDoc.querySelector('p') as HTMLElement
+    setViewportWidth(fakeDoc, 360)
+    setViewportHeight(fakeDoc, 720)
+    loadSection(foliateEl, fakeDoc, 0)
+
+    clickAt(para, 180, 360)
+
+    expect(onCenterTap).toHaveBeenCalledOnce()
+    expect(onTranslate).toHaveBeenCalledOnce()
+  })
+
+  it('tap entre paragrafos seleciona o paragrafo mais proximo', async () => {
+    const onTranslate = vi.fn()
+    const onCenterTap = vi.fn()
+    const { foliateEl } = await renderViewer({ onTranslate, onCenterTap })
+    const fakeDoc = makeFakeDoc(['First paragraph.', 'Second paragraph.'])
+    const [firstPara, secondPara] = Array.from(fakeDoc.querySelectorAll('p')) as HTMLElement[]
+    setViewportWidth(fakeDoc, 360)
+    setViewportHeight(fakeDoc, 720)
+    setElementRect(firstPara, { left: 24, top: 160, right: 336, bottom: 210, width: 312, height: 50 })
+    setElementRect(secondPara, { left: 24, top: 330, right: 336, bottom: 380, width: 312, height: 50 })
+    loadSection(foliateEl, fakeDoc, 0)
+
+    clickAt(fakeDoc.body, 180, 245)
+
+    expect(onCenterTap).not.toHaveBeenCalled()
+    expect(onTranslate).toHaveBeenCalledWith('First paragraph.')
+    expect(firstPara.hasAttribute('data-nr-active')).toBe(true)
+    expect(secondPara.hasAttribute('data-nr-active')).toBe(false)
+  })
+
+  it('tap na area do chrome visivel fecha o chrome sem traduzir', async () => {
+    const onTranslate = vi.fn()
+    const onCenterTap = vi.fn()
+    const { foliateEl } = await renderViewer({ chromeVisible: true, onTranslate, onCenterTap })
+    const fakeDoc = makeFakeDoc(['First sentence. Second.'])
+    const para = fakeDoc.querySelector('p') as HTMLElement
+    setViewportWidth(fakeDoc, 360)
+    setViewportHeight(fakeDoc, 720)
+    loadSection(foliateEl, fakeDoc, 0)
+
+    clickAt(para, 180, 40)
+
+    expect(onCenterTap).toHaveBeenCalledOnce()
+    expect(onTranslate).not.toHaveBeenCalled()
+  })
+
+  it('tap na area superior de menu sem chrome visivel abre o chrome sem traduzir', async () => {
+    const onTranslate = vi.fn()
+    const onCenterTap = vi.fn()
+    const { foliateEl } = await renderViewer({ onTranslate, onCenterTap })
+    const fakeDoc = makeFakeDoc(['First sentence. Second.'])
+    const para = fakeDoc.querySelector('p') as HTMLElement
+    setViewportWidth(fakeDoc, 360)
+    setViewportHeight(fakeDoc, 720)
+    loadSection(foliateEl, fakeDoc, 0)
+
+    clickAt(para, 180, 40)
+
+    expect(onCenterTap).toHaveBeenCalledOnce()
+    expect(onTranslate).not.toHaveBeenCalled()
   })
 
   it('apenas um parágrafo tem data-nr-active por vez', () => {
@@ -480,6 +669,82 @@ describe('EpubViewer — posição visível', () => {
     })
   })
 
+  it('executa os botoes do bloco inline sem reselecionar o paragrafo', async () => {
+    const onSpeakOne = vi.fn()
+    const onSaveVocab = vi.fn()
+    const onBookmarkParagraph = vi.fn()
+    const onCenterTap = vi.fn()
+    const onTranslate = vi.fn()
+    const { viewerRef, foliateEl } = await renderViewer({
+      onSpeakOne,
+      onSaveVocab,
+      onBookmarkParagraph,
+      onCenterTap,
+      onTranslate,
+    })
+    foliateEl.getCFI.mockReturnValue('epubcfi(/6/10!/4/2/1:0)')
+    foliateEl.getProgressOf.mockReturnValue({
+      tocItem: { label: 'Chapter 2', href: 'chapter-2.xhtml' },
+    })
+    foliateEl.getSectionFractions.mockReturnValue([0, 0.2, 0.4, 1])
+
+    const fakeDoc = makeFakeDoc(['Action paragraph.'])
+    const para = fakeDoc.querySelector('p') as HTMLElement
+    setViewportHeight(fakeDoc, 720)
+
+    loadSection(foliateEl, fakeDoc, 1)
+    click(para)
+    act(() => { viewerRef.current?.showTranslationLoading() })
+    act(() => { viewerRef.current?.injectTranslation('Traducao') })
+
+    const block = fakeDoc.getElementById('nr-translation-block') as HTMLElement
+    const speakBtn = block.querySelector('[data-nr-action="speak"]') as HTMLElement
+    const bookmarkBtn = block.querySelector('[data-nr-action="bookmark"]') as HTMLElement
+    const saveBtn = block.querySelector('[data-nr-action="save"]') as HTMLElement
+
+    clickAt(speakBtn, 180, 40)
+    clickAt(bookmarkBtn, 180, 360)
+    clickAt(saveBtn, 180, 680)
+
+    expect(onSpeakOne).toHaveBeenCalledWith('Action paragraph.')
+    expect(onBookmarkParagraph).toHaveBeenCalledWith(expect.objectContaining({
+      cfi: 'epubcfi(/6/10!/4/2/1:0)',
+      snippet: 'Action paragraph.',
+    }))
+    expect(onSaveVocab).toHaveBeenCalledWith('Action paragraph.', 'Traducao')
+    expect(onCenterTap).not.toHaveBeenCalled()
+    expect(onTranslate).toHaveBeenCalledOnce()
+    expect(para.hasAttribute('data-nr-active')).toBe(true)
+  })
+
+  it('executa botao inline mesmo quando o WebView retargeta o clique para o body', async () => {
+    const onSpeakOne = vi.fn()
+    const onCenterTap = vi.fn()
+    const onTranslate = vi.fn()
+    const { viewerRef, foliateEl } = await renderViewer({ onSpeakOne, onCenterTap, onTranslate })
+    const fakeDoc = makeFakeDoc(['Retarget paragraph.', 'Other paragraph.'])
+    const para = fakeDoc.querySelector('p') as HTMLElement
+    setViewportHeight(fakeDoc, 720)
+    setElementRect(para, { left: 24, top: 160, right: 336, bottom: 220, width: 312, height: 60 })
+
+    loadSection(foliateEl, fakeDoc, 1)
+    click(para)
+    act(() => { viewerRef.current?.showTranslationLoading() })
+    act(() => { viewerRef.current?.injectTranslation('Traducao') })
+
+    const block = fakeDoc.getElementById('nr-translation-block') as HTMLElement
+    const speakBtn = block.querySelector('[data-nr-action="speak"]') as HTMLElement
+    setElementRect(block, { left: 24, top: 260, right: 360, bottom: 520, width: 336, height: 260 })
+    setElementRect(speakBtn, { left: 312, top: 330, right: 356, bottom: 430, width: 44, height: 100 })
+
+    clickAt(fakeDoc.body, 340, 380)
+
+    expect(onSpeakOne).toHaveBeenCalledWith('Retarget paragraph.')
+    expect(onCenterTap).not.toHaveBeenCalled()
+    expect(onTranslate).toHaveBeenCalledOnce()
+    expect(para.hasAttribute('data-nr-active')).toBe(true)
+  })
+
   it('mantém o cfi do parágrafo estável mesmo após a tradução alterar o DOM', async () => {
     const onBookmarkParagraph = vi.fn()
     const { viewerRef, foliateEl } = await renderViewer({ onBookmarkParagraph })
@@ -538,14 +803,7 @@ describe('EpubViewer — posição visível', () => {
     const para = fakeDoc.querySelector('p') as HTMLElement
 
     loadSection(foliateEl, fakeDoc, 1)
-    act(() => {
-      para.dispatchEvent(new MouseEvent('click', {
-        bubbles: true,
-        cancelable: true,
-        clientX: 48,
-        clientY: 48,
-      }))
-    })
+    click(para)
     act(() => { viewerRef.current?.showTranslationLoading() })
     act(() => { viewerRef.current?.injectTranslation('Tradução') })
 
@@ -724,6 +982,11 @@ describe('EpubViewer — chapter auto-advance', () => {
 
   it('pula páginas de parte mesmo quando elas têm um parágrafo curto extra', async () => {
     const { viewerRef, foliateEl } = await renderViewer()
+    foliateEl.book.sections = [
+      { id: 'chapter-1.xhtml', href: 'chapter-1.xhtml', linear: 'yes' },
+      { id: 'part-1.xhtml', href: 'part-1.xhtml', linear: 'yes' },
+      { id: 'chapter-2.xhtml', href: 'chapter-2.xhtml', linear: 'yes' },
+    ]
 
     const partDoc = document.implementation.createHTMLDocument('part')
     const part = partDoc.createElement('div')
@@ -762,6 +1025,12 @@ describe('EpubViewer — chapter auto-advance', () => {
     partDoc.body.append(part, watermark)
     injectFakeWindow(partDoc, 0, 800, 400)
 
+    foliateEl.book.sections = [
+      { id: 'chapter-1.xhtml', href: 'chapter-1.xhtml', linear: 'yes' },
+      { id: 'part-1.xhtml', href: 'part-1.xhtml', linear: 'yes' },
+      { id: 'chapter-2.xhtml', href: 'chapter-2.xhtml', linear: 'yes' },
+    ]
+
     act(() => { viewerRef.current?.goTo('part-1.xhtml') })
     expect(foliateEl.goTo).toHaveBeenCalledWith('part-1.xhtml')
 
@@ -772,6 +1041,48 @@ describe('EpubViewer — chapter auto-advance', () => {
       index: 2,
       anchor: expect.any(Function),
     }))
+  })
+
+  it('resolve href do indice por sufixo quando o caminho do spine tem prefixo OPF', async () => {
+    const { viewerRef, foliateEl } = await renderViewer()
+    foliateEl.book.sections = [
+      { id: 'OPS/Text/chapter-1.xhtml', href: 'OPS/Text/chapter-1.xhtml', linear: 'yes' },
+      { id: 'OPS/Text/chapter-2.xhtml', href: 'OPS/Text/chapter-2.xhtml', linear: 'yes' },
+    ]
+    foliateEl.renderer.goTo.mockClear()
+    foliateEl.goTo.mockClear()
+
+    act(() => { viewerRef.current?.goTo('Text/chapter-2.xhtml#start') })
+
+    expect(foliateEl.goTo).not.toHaveBeenCalled()
+    expect(foliateEl.renderer.goTo).toHaveBeenCalledWith(expect.objectContaining({
+      index: 1,
+      anchor: expect.any(Function),
+    }))
+
+    const target = foliateEl.renderer.goTo.mock.calls[0]?.[0] as { anchor?: (doc: Document) => Element | number | null }
+    const doc = document.implementation.createHTMLDocument('chapter')
+    const heading = doc.createElement('h1')
+    heading.id = 'start'
+    doc.body.appendChild(heading)
+
+    expect(target.anchor?.(doc)).toBe(heading)
+  })
+
+  it('usa a navegacao nativa do Foliate quando o href do indice bate com o spine', async () => {
+    const { viewerRef, foliateEl } = await renderViewer()
+    foliateEl.book.sections = [
+      { id: 'OPS/c01.xhtml', href: 'OPS/c01.xhtml', linear: 'yes' },
+      { id: 'OPS/c02.xhtml', href: 'OPS/c02.xhtml', linear: 'yes' },
+    ]
+    foliateEl.renderer.goTo.mockClear()
+    foliateEl.goTo.mockClear()
+
+    act(() => { viewerRef.current?.goTo('OPS/c02.xhtml#h2-1') })
+    await act(async () => { await Promise.resolve() })
+
+    expect(foliateEl.goTo).toHaveBeenCalledWith('OPS/c02.xhtml#h2-1')
+    expect(foliateEl.renderer.goTo).not.toHaveBeenCalled()
   })
 
   it('prevToEnd navega para o fim da seção anterior com âncora explícita', async () => {

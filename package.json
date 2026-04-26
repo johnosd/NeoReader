@@ -9,6 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:debug-epubs": "node scripts/run-debug-epub-tests.mjs",
+    "test:debug-epubs:full": "node scripts/run-debug-epub-tests.mjs --full",
     "test:watch": "vitest"
   },
   "dependencies": {

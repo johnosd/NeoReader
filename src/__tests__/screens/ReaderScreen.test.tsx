@@ -119,6 +119,9 @@ vi.mock('@/db/settings', () => ({
       defaultFontSize: 'md',
       lineHeight: 'comfortable',
       readerTheme: 'dark',
+      fontFamily: 'classic',
+      overrideBookFont: true,
+      overrideBookColors: true,
     },
     updatedAt: new Date(),
   })),
@@ -161,7 +164,9 @@ vi.mock('@/components/reader/EpubViewer', async () => {
   const React = await import('react')
 
   const EpubViewer = React.forwardRef((props: Record<string, unknown>, ref) => {
-    mocks.epubViewerProps = props
+    React.useEffect(() => {
+      mocks.epubViewerProps = props
+    }, [props])
     React.useImperativeHandle(ref, () => mocks.viewerHandle)
     return <div data-testid="epub-viewer" />
   })
@@ -322,6 +327,7 @@ describe('ReaderScreen', () => {
 
     expect(mocks.epubViewerProps).not.toBeNull()
     expect(mocks.epubViewerProps?.savedCfi).toBeNull()
+    expect(screen.getByTestId('reader-loading')).toBeTruthy()
 
     await act(async () => {
       ;(mocks.epubViewerProps?.onRelocate as (payload: unknown) => void)({
@@ -336,12 +342,28 @@ describe('ReaderScreen', () => {
 
     expect(mocks.readerStore.setCfi).not.toHaveBeenCalled()
     expect(mocks.readerProgress.saveProgress).not.toHaveBeenCalled()
+    expect(screen.getByTestId('reader-loading')).toBeTruthy()
 
     await act(async () => {
       ;(mocks.epubViewerProps?.onLoad as () => void)()
     })
 
     expect(mocks.viewerHandle.goTo).toHaveBeenCalledWith('chapter-2.xhtml#frag')
+    expect(screen.getByTestId('reader-loading')).toBeTruthy()
+
+    await act(async () => {
+      ;(mocks.epubViewerProps?.onSectionReady as (sectionIndex: number, sectionHref?: string) => void)(0, 'chapter-1.xhtml')
+    })
+
+    expect(screen.getByTestId('reader-loading')).toBeTruthy()
+
+    await act(async () => {
+      ;(mocks.epubViewerProps?.onSectionReady as (sectionIndex: number, sectionHref?: string) => void)(1, 'chapter-2.xhtml')
+    })
+
+    expect(screen.queryByTestId('reader-loading')).toBeNull()
+    expect(mocks.readerStore.setCfi).not.toHaveBeenCalled()
+    expect(mocks.readerProgress.saveProgress).not.toHaveBeenCalled()
 
     await act(async () => {
       ;(mocks.epubViewerProps?.onRelocate as (payload: unknown) => void)({
@@ -360,6 +382,48 @@ describe('ReaderScreen', () => {
       percentage: 48,
       fraction: 0.48,
       sectionHref: 'chapter-2.xhtml',
+      sectionLabel: 'Chapter 2',
+    })
+  })
+
+  it('conclui a navegacao inicial quando o href do indice e do reader usam prefixos diferentes', async () => {
+    mocks.readerProgress.savedCfi = 'epubcfi(/6/8!/4/2/1:0)'
+
+    render(
+      <ReaderScreen
+        book={book}
+        startHref="OPS/Text/chapter-2.xhtml#frag"
+        onBack={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+
+    await flushAsyncWork()
+
+    await act(async () => {
+      ;(mocks.epubViewerProps?.onLoad as () => void)()
+    })
+
+    expect(mocks.viewerHandle.goTo).toHaveBeenCalledWith('OPS/Text/chapter-2.xhtml#frag')
+
+    await act(async () => {
+      ;(mocks.epubViewerProps?.onRelocate as (payload: unknown) => void)({
+        cfi: 'epubcfi(/6/12!/4/2/1:0)',
+        percentage: 48,
+        tocLabel: 'Chapter 2',
+        sectionHref: 'Text/chapter-2.xhtml',
+        fraction: 0.48,
+        sectionIndex: 1,
+      })
+    })
+
+    expect(screen.queryByTestId('reader-loading')).toBeNull()
+    expect(mocks.readerStore.setCfi).toHaveBeenCalledWith('epubcfi(/6/12!/4/2/1:0)', 48, 'Chapter 2')
+    expect(mocks.readerProgress.saveProgress).toHaveBeenCalledWith({
+      cfi: 'epubcfi(/6/12!/4/2/1:0)',
+      percentage: 48,
+      fraction: 0.48,
+      sectionHref: 'Text/chapter-2.xhtml',
       sectionLabel: 'Chapter 2',
     })
   })
@@ -614,6 +678,9 @@ describe('ReaderScreen', () => {
 
     expect(mocks.epubViewerProps?.lineHeight).toBe('comfortable')
     expect(mocks.epubViewerProps?.readerTheme).toBe('dark')
+    expect(mocks.epubViewerProps?.fontFamily).toBe('classic')
+    expect(mocks.epubViewerProps?.overrideBookFont).toBe(true)
+    expect(mocks.epubViewerProps?.overrideBookColors).toBe(true)
 
     await act(async () => {
       await (mocks.epubViewerProps?.onTranslate as (text: string) => Promise<void>)('Bonjour')

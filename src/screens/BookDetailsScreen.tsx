@@ -1,4 +1,5 @@
 ﻿import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback } from 'react'
 import { ArrowLeft, Star, ChevronRight, ChevronDown, Globe, Calendar, HardDrive, Sparkles, BookOpen, Bookmark, X, Check, Volume2, Mic2, Gauge, Search, Play, Loader2 } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { App as CapApp } from '@capacitor/app'
@@ -6,15 +7,24 @@ import { Badge, BottomSheet, Button, EmptyState, ListItem, Spinner } from '../co
 import { db } from '../db/database'
 import { toggleFavorite } from '../db/books'
 import { softDeleteBookmark } from '../db/bookmarks'
-import { updateBookSettings } from '../db/bookSettings'
+import { getBookSettings, updateBookSettings } from '../db/bookSettings'
 import { getSettings } from '../db/settings'
 import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
 import { EpubService, type EpubExtras } from '../services/EpubService'
 import { ElevenLabsService } from '../services/ElevenLabsService'
 import { NativeTtsService } from '../services/NativeTtsService'
 import { SpeechifyService } from '../services/SpeechifyService'
-import type { Book } from '../types/book'
-import type { AppSettings, FontSize, ReaderLineHeight, ReaderTheme } from '../types/settings'
+import {
+  ReaderFontControl,
+  ReaderFontSizeControl,
+  ReaderLineHeightControl,
+  ReaderModeControl,
+  ReaderPreviewPanel,
+  ReaderThemeControl,
+  type ReaderStyleMode,
+} from '../components/reader/ReaderAppearanceControls'
+import type { Book, BookSettings } from '../types/book'
+import type { AppSettings, FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from '../types/settings'
 import type { TtsProvider, TtsVoiceOption } from '../types/tts'
 import { clampTtsRate, normalizeLanguageTag } from '../utils/language'
 import { BOOK_LANGUAGE_OPTIONS, getLanguageLabel, TRANSLATION_LANGUAGE_OPTIONS } from '../utils/languageOptions'
@@ -26,12 +36,6 @@ import {
   getTocAncestorPaths,
   hasTocChildren,
 } from '../utils/toc'
-import {
-  READER_LINE_HEIGHT_OPTIONS,
-  READER_THEME_OPTIONS,
-  getReaderLineHeightValue,
-  getReaderThemePreviewStyle,
-} from '../utils/readerPreferences'
 
 interface BookDetailsScreenProps {
   book: Book
@@ -48,15 +52,6 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'settings', label: 'Configuracoes' },
   { id: 'details', label: 'Detalhes' },
 ]
-
-const FONT_SIZES: { value: FontSize; label: string; className: string }[] = [
-  { value: 'sm', label: 'A', className: 'text-sm' },
-  { value: 'md', label: 'A', className: 'text-base' },
-  { value: 'lg', label: 'A', className: 'text-lg' },
-  { value: 'xl', label: 'A', className: 'text-xl' },
-]
-
-const FONT_PREVIEW_PX: Record<FontSize, number> = { sm: 14, md: 16, lg: 18, xl: 20 }
 
 const TTS_PROVIDERS: Array<{ value: TtsProvider; label: string }> = [
   { value: 'speechify', label: 'Speechify' },
@@ -90,9 +85,13 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
   const [descExpanded, setDescExpanded] = useState(false)
   const [extras, setExtras] = useState<EpubExtras | null>(null)
   const [extrasLoading, setExtrasLoading] = useState(true)
+  const [optimisticBookSettings, setOptimisticBookSettings] = useState<BookSettings | null>(null)
   const [defaultFontSize, setDefaultFontSize] = useState<FontSize>('md')
   const [defaultLineHeight, setDefaultLineHeight] = useState<ReaderLineHeight>('comfortable')
   const [defaultReaderTheme, setDefaultReaderTheme] = useState<ReaderTheme>('dark')
+  const [defaultFontFamily, setDefaultFontFamily] = useState<ReaderFontFamily>('classic')
+  const [defaultOverrideBookFont, setDefaultOverrideBookFont] = useState(true)
+  const [defaultOverrideBookColors, setDefaultOverrideBookColors] = useState(true)
   const [appSettings, setAppSettings] = useState<AppSettings>({
     speechifyApiKey: '',
     elevenLabsApiKey: '',
@@ -114,6 +113,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
   const ttsVoicePreviewAudioRef = useRef<HTMLAudioElement | null>(null)
   const ttsVoicePreviewModeRef = useRef<'audio' | 'native' | null>(null)
   const ttsVoicePreviewSessionRef = useRef(0)
+  const pendingBookSettingsSaveRef = useRef<Promise<void>>(Promise.resolve())
 
   const liveBook = useLiveQuery(() => db.books.get(book.id!), [book.id]) ?? book
   const progress = useLiveQuery(() => db.progress.where('bookId').equals(book.id!).first(), [book.id])
@@ -122,11 +122,16 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
     [book.id],
   ) ?? []
   const vocabCount = useLiveQuery(() => db.vocabulary.where('bookId').equals(book.id!).count(), [book.id]) ?? 0
-  const bookSettingsRow = useLiveQuery(() => db.bookSettings.where('bookId').equals(book.id!).first(), [book.id])
+  const storedBookSettingsRow = useLiveQuery(() => getBookSettings(book.id!), [book.id])
+  const bookSettingsRow = optimisticBookSettings ?? storedBookSettingsRow
 
   const fontSize: FontSize = bookSettingsRow?.fontSize ?? defaultFontSize
   const lineHeight: ReaderLineHeight = bookSettingsRow?.lineHeight ?? defaultLineHeight
   const readerTheme: ReaderTheme = bookSettingsRow?.readerTheme ?? defaultReaderTheme
+  const fontFamily: ReaderFontFamily = bookSettingsRow?.fontFamily ?? defaultFontFamily
+  const overrideBookFont = bookSettingsRow?.overrideBookFont ?? (bookSettingsRow?.fontFamily ? fontFamily !== 'publisher' : defaultOverrideBookFont)
+  const overrideBookColors = bookSettingsRow?.overrideBookColors ?? defaultOverrideBookColors
+  const readerStyleMode = !overrideBookFont && !overrideBookColors ? 'original' : 'comfortable'
   const tocItems = extras?.toc ?? []
   const currentChapterPath = findCurrentTocPath(
     tocItems,
@@ -142,9 +147,16 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
       setDefaultFontSize(settings.readerDefaults.defaultFontSize)
       setDefaultLineHeight(settings.readerDefaults.lineHeight)
       setDefaultReaderTheme(settings.readerDefaults.readerTheme)
+      setDefaultFontFamily(settings.readerDefaults.fontFamily)
+      setDefaultOverrideBookFont(settings.readerDefaults.overrideBookFont)
+      setDefaultOverrideBookColors(settings.readerDefaults.overrideBookColors)
       setAppSettings(settings.appSettings)
     })
   }, [])
+
+  useEffect(() => {
+    setOptimisticBookSettings(null)
+  }, [book.id, storedBookSettingsRow?.updatedAt])
 
   useEffect(() => {
     setExtrasLoading(true)
@@ -163,13 +175,6 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
     setExpandedChapterPaths(new Set(getTocAncestorPaths(currentChapterPath)))
   }, [currentChapterPath, liveBook.id])
 
-  useEffect(() => {
-    return () => {
-      ttsVoicePreviewSessionRef.current += 1
-      stopTtsVoicePreviewPlayback()
-    }
-  }, [])
-
   const coverUrl = useBookCoverUrl(liveBook.id)
   const { percentage: pct, readingStatus } = resolveReadingState(liveBook, progress)
   const detectedBookLanguage = extras?.language ? normalizeLanguageTag(extras.language, 'en') : null
@@ -185,7 +190,9 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
     : `${getLanguageLabel(appSettings.translationTargetLang) ?? appSettings.translationTargetLang} - padrao do app`
   void languageSettingMeta
   void translationTargetLangMeta
-  const previewStyle = getReaderThemePreviewStyle(readerTheme)
+  const readerPreviewText = extras?.previewText ?? 'The quick brown fox jumps over the lazy dog.'
+  const styleDiagnostics = extras?.styleDiagnostics ?? []
+  const visibleStyleDiagnostics = styleDiagnostics.slice(0, 3)
   const providerConfigured = isTtsProviderConfigured(selectedTtsProvider, appSettings)
   const selectedProviderLabel = TTS_PROVIDERS.find((option) => option.value === selectedTtsProvider)?.label ?? selectedTtsProvider
   const effectiveProviderLabel = TTS_PROVIDERS.find((option) => option.value === effectiveTtsProvider)?.label ?? effectiveTtsProvider
@@ -219,7 +226,50 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
       : filteredTtsVoiceOptions.slice(0, INITIAL_TTS_VOICE_COUNT)
   const hiddenTtsVoiceCount = Math.max(0, filteredTtsVoiceOptions.length - visibleTtsVoiceOptions.length)
 
-  async function loadVoiceOptions(provider: TtsProvider) {
+  function applyBookSettingsPatch(patch: Partial<Omit<BookSettings, 'id' | 'bookId'>>) {
+    setOptimisticBookSettings((previous) => ({
+      ...(storedBookSettingsRow ?? { bookId: book.id! }),
+      ...previous,
+      ...patch,
+      bookId: book.id!,
+      updatedAt: new Date(),
+    }))
+
+    const save = pendingBookSettingsSaveRef.current
+      .catch(() => {})
+      .then(() => updateBookSettings(book.id!, patch))
+    pendingBookSettingsSaveRef.current = save
+    void save
+  }
+
+  function openReader(startHref?: string) {
+    void pendingBookSettingsSaveRef.current
+      .catch(() => {})
+      .then(() => onRead(liveBook, startHref))
+  }
+
+  function applyComfortableReadingMode() {
+    applyBookSettingsPatch({
+      fontFamily: fontFamily === 'publisher' ? 'classic' : fontFamily,
+      overrideBookFont: true,
+      overrideBookColors: true,
+    })
+  }
+
+  function handleReaderStyleModeChange(mode: ReaderStyleMode) {
+    if (mode === 'original') {
+      applyBookSettingsPatch({
+        fontFamily: 'publisher',
+        overrideBookFont: false,
+        overrideBookColors: false,
+      })
+      return
+    }
+
+    applyComfortableReadingMode()
+  }
+
+  const loadVoiceOptions = useCallback(async (provider: TtsProvider) => {
     setTtsVoiceLoading(true)
     setTtsVoiceError(null)
     try {
@@ -250,7 +300,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
     } finally {
       setTtsVoiceLoading(false)
     }
-  }
+  }, [appSettings.elevenLabsApiKey, appSettings.speechifyApiKey, effectiveBookLanguage])
 
   function toggleChapterExpanded(path: string) {
     setExpandedChapterPaths((previous) => {
@@ -261,16 +311,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
     })
   }
 
-  useEffect(() => {
-    if (!ttsVoiceSheetOpen) return
-    setShowAllTtsVoices(false)
-    setTtsVoiceSearch('')
-    setTtsVoicePreviewError(null)
-    cancelTtsVoicePreview()
-    void loadVoiceOptions(selectedTtsProvider)
-  }, [ttsVoiceSheetOpen, selectedTtsProvider, effectiveBookLanguage, appSettings.speechifyApiKey, appSettings.elevenLabsApiKey])
-
-  function stopTtsVoicePreviewPlayback() {
+  const stopTtsVoicePreviewPlayback = useCallback(() => {
     const audio = ttsVoicePreviewAudioRef.current
     if (audio) {
       audio.pause()
@@ -280,13 +321,29 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
       void NativeTtsService.stop()
     }
     ttsVoicePreviewModeRef.current = null
-  }
+  }, [])
 
-  function cancelTtsVoicePreview() {
+  const cancelTtsVoicePreview = useCallback(() => {
     ttsVoicePreviewSessionRef.current += 1
     stopTtsVoicePreviewPlayback()
     setTtsVoicePreviewingId(null)
-  }
+  }, [stopTtsVoicePreviewPlayback])
+
+  useEffect(() => {
+    return () => {
+      ttsVoicePreviewSessionRef.current += 1
+      stopTtsVoicePreviewPlayback()
+    }
+  }, [stopTtsVoicePreviewPlayback])
+
+  useEffect(() => {
+    if (!ttsVoiceSheetOpen) return
+    setShowAllTtsVoices(false)
+    setTtsVoiceSearch('')
+    setTtsVoicePreviewError(null)
+    cancelTtsVoicePreview()
+    void loadVoiceOptions(selectedTtsProvider)
+  }, [cancelTtsVoicePreview, loadVoiceOptions, selectedTtsProvider, ttsVoiceSheetOpen])
 
   function closeTtsVoiceSheet() {
     setTtsVoiceSheetOpen(false)
@@ -404,24 +461,24 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
       return
     }
 
-    void updateBookSettings(book.id!, { ttsProvider: provider })
+    applyBookSettingsPatch({ ttsProvider: provider })
     setTtsProviderSheetOpen(false)
   }
 
   function updateVoice(option: TtsVoiceOption | null) {
     if (selectedTtsProvider === 'speechify') {
-      void updateBookSettings(book.id!, {
+      applyBookSettingsPatch({
         ttsSpeechifyVoiceId: option?.id ?? null,
         ttsSpeechifyVoiceLabel: option?.label ?? null,
         ttsSpeechifyVoiceAvatarUrl: option?.avatarUrl ?? null,
       })
     } else if (selectedTtsProvider === 'elevenlabs') {
-      void updateBookSettings(book.id!, {
+      applyBookSettingsPatch({
         ttsElevenLabsVoiceId: option?.id ?? null,
         ttsElevenLabsVoiceLabel: option?.label ?? null,
       })
     } else {
-      void updateBookSettings(book.id!, {
+      applyBookSettingsPatch({
         ttsNativeVoiceKey: option?.id ?? null,
         ttsNativeVoiceLabel: option?.label ?? null,
       })
@@ -480,7 +537,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
         </div>
 
         <div className="px-4 flex flex-col gap-3">
-          <Button variant="primary" tone="purple" fullWidth onClick={() => onRead(liveBook)}>
+          <Button variant="primary" tone="purple" fullWidth onClick={() => openReader()}>
             {readingStatus === 'finished'
               ? 'Ler novamente'
               : readingStatus === 'reading'
@@ -607,7 +664,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
                           </div>
                         )}
                         className={isCurrent ? 'bg-purple-primary/10 ring-1 ring-inset ring-purple-primary/25' : undefined}
-                        onClick={() => onRead(liveBook, getDirectNavigationHref(chapter))}
+                        onClick={() => openReader(getDirectNavigationHref(chapter))}
                         divider={index < chapters.length - 1}
                       />
                     )
@@ -631,7 +688,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
                       leading={<Bookmark size={16} className="text-purple-light" />}
                       title={bookmark.label}
                       meta={`${bookmark.percentage}%`}
-                      onClick={() => onRead(liveBook, bookmark.cfi)}
+                      onClick={() => openReader(bookmark.cfi)}
                       divider={index < bookmarks.length - 1}
                       trailing={(
                         <button
@@ -663,93 +720,116 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
                   <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-3">
                     Tamanho de fonte
                   </p>
-                  <div className="flex gap-2">
-                    {FONT_SIZES.map(({ value, label, className }) => {
-                      const active = fontSize === value
-                      return (
-                        <button
-                          key={value}
-                          onClick={() => void updateBookSettings(book.id!, { fontSize: value })}
-                          className={`flex-1 py-3 rounded-md font-semibold transition-all duration-150 active:scale-95 border ${className} ${
-                            active
-                              ? 'bg-purple-primary/15 border-purple-primary/50 text-purple-light'
-                              : 'bg-bg-base border-border text-text-muted'
-                          }`}
-                          aria-pressed={active}
-                        >
-                          {label}
-                        </button>
-                      )
-                    })}
+                  <ReaderFontSizeControl
+                    value={fontSize}
+                    onChange={(value) => applyBookSettingsPatch({ fontSize: value })}
+                    surface="base"
+                  />
+                  <div className="mt-4">
+                    <ReaderPreviewPanel
+                      theme={readerTheme}
+                      fontFamily={fontFamily}
+                      fontSize={fontSize}
+                      lineHeight={lineHeight}
+                    >
+                      {readerPreviewText}
+                    </ReaderPreviewPanel>
                   </div>
-                  <p
-                    className="mt-4 text-center leading-relaxed text-text-secondary"
-                    style={{ fontSize: FONT_PREVIEW_PX[fontSize] }}
-                  >
-                    The quick brown fox jumps over the lazy dog.
+                </div>
+
+                {styleDiagnostics.length > 0 && (
+                  <div className="border-l-2 border-[#1bcc64] pl-3 py-1">
+                    <div className="flex items-start gap-2">
+                      <Sparkles size={16} className="mt-0.5 shrink-0 text-[#1bcc64]" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-text-primary">
+                          Estilos fortes detectados
+                        </p>
+                        <p className="mt-1 text-xs leading-relaxed text-text-muted">
+                          Este EPUB define estilos proprios que podem reduzir a legibilidade.
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {visibleStyleDiagnostics.map((diagnostic) => (
+                            <PrimeVideoBadge key={diagnostic.issue} tone="warning">
+                              {diagnostic.label}
+                            </PrimeVideoBadge>
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={applyComfortableReadingMode}
+                          className="mt-3 text-xs font-bold text-purple-light transition-colors hover:text-white"
+                        >
+                          Aplicar modo confortavel
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-3">
+                    Modo de leitura
                   </p>
+                  <ReaderModeControl
+                    value={readerStyleMode}
+                    onChange={handleReaderStyleModeChange}
+                    surface="base"
+                  />
+                </div>
+
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-3">
+                    Fonte do livro
+                  </p>
+                  <ReaderFontControl
+                    value={fontFamily}
+                    onChange={(value) => applyBookSettingsPatch({
+                      fontFamily: value,
+                      overrideBookFont: value !== 'publisher',
+                    })}
+                    surface="base"
+                  />
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    <PrimeVideoBadge tone={overrideBookFont ? 'prime' : 'neutral'}>
+                      {overrideBookFont ? 'Fonte NeoReader' : 'Fonte original'}
+                    </PrimeVideoBadge>
+                    <PrimeVideoBadge tone={overrideBookColors ? 'prime' : 'neutral'}>
+                      {overrideBookColors ? 'Cores do tema' : 'Cores do livro'}
+                    </PrimeVideoBadge>
+                  </div>
                 </div>
 
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-3">
                     Espacamento
                   </p>
-                  <div className="grid grid-cols-3 gap-2">
-                    {READER_LINE_HEIGHT_OPTIONS.map(({ value, label }) => {
-                      const active = lineHeight === value
-                      return (
-                        <button
-                          key={value}
-                          onClick={() => void updateBookSettings(book.id!, { lineHeight: value })}
-                          className={`rounded-md px-3 py-3 text-sm font-semibold transition-all duration-150 active:scale-95 border ${
-                            active
-                              ? 'bg-purple-primary/15 border-purple-primary/50 text-purple-light'
-                              : 'bg-bg-base border-border text-text-muted'
-                          }`}
-                          aria-pressed={active}
-                        >
-                          {label}
-                        </button>
-                      )
-                    })}
-                  </div>
+                  <ReaderLineHeightControl
+                    value={lineHeight}
+                    onChange={(value) => applyBookSettingsPatch({ lineHeight: value })}
+                    surface="base"
+                  />
                 </div>
 
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-3">
                     Tema do leitor
                   </p>
-                  <div className="grid grid-cols-3 gap-2">
-                    {READER_THEME_OPTIONS.map(({ value, label }) => {
-                      const active = readerTheme === value
-                      return (
-                        <button
-                          key={value}
-                          onClick={() => void updateBookSettings(book.id!, { readerTheme: value })}
-                          className={`rounded-md px-3 py-3 text-sm font-semibold transition-all duration-150 active:scale-95 border ${
-                            active
-                              ? 'bg-purple-primary/15 border-purple-primary/50 text-purple-light'
-                              : 'bg-bg-base border-border text-text-muted'
-                          }`}
-                          aria-pressed={active}
-                        >
-                          {label}
-                        </button>
-                      )
-                    })}
-                  </div>
+                  <ReaderThemeControl
+                    value={readerTheme}
+                    onChange={(value) => applyBookSettingsPatch({ readerTheme: value, overrideBookColors: true })}
+                    surface="base"
+                  />
 
-                  <div className="mt-4 rounded-xl border px-4 py-4" style={previewStyle}>
-                    <p
-                      className="font-serif"
-                      style={{
-                        fontSize: FONT_PREVIEW_PX[fontSize],
-                        lineHeight: getReaderLineHeightValue(lineHeight),
-                        color: previewStyle.color,
-                      }}
+                  <div className="mt-4">
+                    <ReaderPreviewPanel
+                      theme={readerTheme}
+                      fontFamily={fontFamily}
+                      fontSize={fontSize}
+                      lineHeight={lineHeight}
                     >
-                      The quick brown fox jumps over the lazy dog.
-                    </p>
+                      {readerPreviewText}
+                    </ReaderPreviewPanel>
                   </div>
                 </div>
 
@@ -909,7 +989,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
                 title={option.label}
                 trailing={active ? <Check size={18} className="text-purple-light" /> : undefined}
                 onClick={() => {
-                  void updateBookSettings(book.id!, { bookLanguage: option.code })
+                  applyBookSettingsPatch({ bookLanguage: option.code })
                   setBookLanguageSheetOpen(false)
                 }}
                 divider={option.code !== BOOK_LANGUAGE_OPTIONS[BOOK_LANGUAGE_OPTIONS.length - 1].code}
@@ -930,7 +1010,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
             meta={getLanguageLabel(appSettings.translationTargetLang) ?? appSettings.translationTargetLang}
             trailing={!bookSettingsRow?.translationTargetLang ? <Check size={18} className="text-purple-light" /> : undefined}
             onClick={() => {
-              void updateBookSettings(book.id!, { translationTargetLang: null })
+              applyBookSettingsPatch({ translationTargetLang: null })
               setTranslationTargetLangSheetOpen(false)
             }}
             divider
@@ -943,7 +1023,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
                 title={option.label}
                 trailing={active ? <Check size={18} className="text-purple-light" /> : undefined}
                 onClick={() => {
-                  void updateBookSettings(book.id!, { translationTargetLang: option.code })
+                  applyBookSettingsPatch({ translationTargetLang: option.code })
                   setTranslationTargetLangSheetOpen(false)
                 }}
                 divider={option.code !== TRANSLATION_LANGUAGE_OPTIONS[TRANSLATION_LANGUAGE_OPTIONS.length - 1].code}
@@ -1119,7 +1199,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
                 meta={formatTtsWordsPerMinute(value)}
                 trailing={active ? <Check size={18} className="text-purple-light" /> : undefined}
                 onClick={() => {
-                  void updateBookSettings(book.id!, { ttsRate: value })
+                  applyBookSettingsPatch({ ttsRate: value })
                   setTtsSpeedSheetOpen(false)
                 }}
                 divider={index < TTS_RATE_OPTIONS.length - 1}

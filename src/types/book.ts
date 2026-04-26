@@ -1,4 +1,4 @@
-import type { FontSize, ReaderLineHeight, ReaderTheme } from './settings'
+import type { FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from './settings'
 import type { TtsProvider } from './tts'
 
 export type ReadingStatus = 'unread' | 'reading' | 'finished'
@@ -30,6 +30,9 @@ export interface BookSettings {
   fontSize?: FontSize
   lineHeight?: ReaderLineHeight
   readerTheme?: ReaderTheme
+  fontFamily?: ReaderFontFamily
+  overrideBookFont?: boolean
+  overrideBookColors?: boolean
   bookLanguage?: string | null
   translationTargetLang?: string | null
   ttsProvider?: TtsProvider
@@ -41,6 +44,7 @@ export interface BookSettings {
   ttsElevenLabsVoiceLabel?: string | null
   ttsNativeVoiceKey?: string | null
   ttsNativeVoiceLabel?: string | null
+  updatedAt?: Date
 }
 
 // Progresso de leitura — CFI é o "endereço" de um ponto no EPUB

@@ -18,11 +18,32 @@ interface GuideReference {
   href: string
 }
 
+export type EpubStyleIssue =
+  | 'hardcoded-text-color'
+  | 'hardcoded-background-color'
+  | 'small-font-size'
+  | 'tight-line-height'
+
+export interface EpubStyleDiagnostic {
+  issue: EpubStyleIssue
+  label: string
+}
+
 // Campos extras extraídos do EPUB para a tela de detalhes do livro
 export interface EpubExtras {
   description: string | null   // dc:description do OPF (frequentemente ausente)
   language: string | null      // dc:language do OPF (ex: "en", "pt-BR")
   toc: TocItem[]               // capítulos do livro (EPUB3 nav ou EPUB2 ncx)
+  previewText: string | null
+  styleDiagnostics: EpubStyleDiagnostic[]
+}
+
+const EMPTY_EPUB_EXTRAS: EpubExtras = {
+  description: null,
+  language: null,
+  toc: [],
+  previewText: null,
+  styleDiagnostics: [],
 }
 
 // EPUB é um ZIP. Esse serviço abre o ZIP e extrai os metadados do OPF.
@@ -71,22 +92,167 @@ export class EpubService {
       })
 
       const containerXml = this.readFileAsText(files, 'META-INF/container.xml')
-      if (!containerXml) return { description: null, language: null, toc: [] }
+      if (!containerXml) return EMPTY_EPUB_EXTRAS
 
       const opfPath = this.extractOpfPath(containerXml)
-      if (!opfPath) return { description: null, language: null, toc: [] }
+      if (!opfPath) return EMPTY_EPUB_EXTRAS
 
       const opfXml = this.readFileAsText(files, opfPath)
-      if (!opfXml) return { description: null, language: null, toc: [] }
+      if (!opfXml) return EMPTY_EPUB_EXTRAS
 
       const description = this.extractTag(opfXml, 'dc:description')
       const language = this.extractTag(opfXml, 'dc:language')
       const toc = this.parseToc(opfXml, opfPath, files)
+      const readingPreview = this.extractReadingPreview(opfXml, opfPath, files)
 
-      return { description, language, toc }
+      return {
+        description,
+        language,
+        toc,
+        previewText: readingPreview.previewText,
+        styleDiagnostics: readingPreview.styleDiagnostics,
+      }
     } catch {
-      return { description: null, language: null, toc: [] }
+      return EMPTY_EPUB_EXTRAS
     }
+  }
+
+  // Monta o preview a partir da ordem real de leitura, com fallback para HTMLs do manifest.
+  private static extractReadingPreview(
+    opfXml: string,
+    opfPath: string,
+    files: Record<string, Uint8Array>,
+  ): Pick<EpubExtras, 'previewText' | 'styleDiagnostics'> {
+    const manifestItems = this.extractManifestItems(opfXml)
+    const manifestById = new Map(
+      manifestItems
+        .filter((item) => item.id)
+        .map((item) => [item.id!.toLowerCase(), item]),
+    )
+    const spineCandidates = this.extractSpineItemIds(opfXml)
+      .map((id) => manifestById.get(id.toLowerCase()) ?? null)
+      .filter((item): item is ManifestItem => Boolean(item && this.isHtmlResource(item.href, item.mediaType)))
+    const fallbackCandidates = manifestItems.filter((item) => (
+      this.isHtmlResource(item.href, item.mediaType)
+      && !item.properties.includes('nav')
+      && !this.looksLikeCoverPath(item.href)
+    ))
+    const candidateMap = new Map<string, ManifestItem>()
+
+    for (const item of [...spineCandidates, ...fallbackCandidates]) {
+      candidateMap.set(this.resolveZipPath(opfPath, item.href), item)
+    }
+
+    const diagnostics = new Map<EpubStyleIssue, EpubStyleDiagnostic>()
+
+    for (const [path] of candidateMap) {
+      const html = this.readFileAsText(files, path)
+      if (!html) continue
+
+      for (const diagnostic of this.detectStyleDiagnostics(html)) {
+        diagnostics.set(diagnostic.issue, diagnostic)
+      }
+
+      const previewText = this.extractPreviewTextFromHtml(html)
+      if (previewText) {
+        return {
+          previewText,
+          styleDiagnostics: [...diagnostics.values()],
+        }
+      }
+    }
+
+    return {
+      previewText: null,
+      styleDiagnostics: [...diagnostics.values()],
+    }
+  }
+
+  private static extractSpineItemIds(opfXml: string): string[] {
+    const spineXml = opfXml.match(/<spine\b[\s\S]*?(?:<\/spine>|\/>)/i)?.[0] ?? ''
+
+    return Array.from(spineXml.matchAll(/<itemref\b([\s\S]*?)\/?>/gi))
+      .map(([, rawAttrs]) => this.parseXmlAttributes(rawAttrs))
+      .filter((attrs) => attrs.linear?.toLowerCase() !== 'no')
+      .map((attrs) => attrs.idref)
+      .filter((id): id is string => Boolean(id))
+  }
+
+  private static extractPreviewTextFromHtml(html: string): string | null {
+    const doc = this.parseDocument(html, 'text/html')
+
+    if (!doc) {
+      const bodyHtml = html.match(/<body\b[\s\S]*?>([\s\S]*?)<\/body>/i)?.[1] ?? html
+      const text = this.cleanText(
+        bodyHtml
+          .replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
+          .replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
+          .replace(/<nav\b[\s\S]*?<\/nav>/gi, ' ')
+          .replace(/<svg\b[\s\S]*?<\/svg>/gi, ' ')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/&nbsp;/gi, ' ')
+          .replace(/&amp;/gi, '&')
+          .replace(/&lt;/gi, '<')
+          .replace(/&gt;/gi, '>'),
+      )
+
+      return this.isPreviewTextCandidate(text) ? this.truncatePreviewText(text) : null
+    }
+
+    const root = doc.body ?? doc
+    root.querySelectorAll('script, style, nav, svg, img, figure, table, aside').forEach((node) => {
+      node.remove()
+    })
+
+    const chunks = Array.from(root.querySelectorAll('p, blockquote, li, h1, h2, h3'))
+      .map((node) => this.cleanText(node.textContent))
+      .filter((value) => this.isPreviewTextCandidate(value))
+    const combined = this.cleanText(chunks.join(' '))
+    if (combined) return this.truncatePreviewText(combined)
+
+    const fallback = this.cleanText(root.textContent)
+    return this.isPreviewTextCandidate(fallback) ? this.truncatePreviewText(fallback) : null
+  }
+
+  private static isPreviewTextCandidate(value: string): boolean {
+    return value.length >= 24
+      && !/^(chapter|capitulo)\s+[\divxlcdm]+$/i.test(value)
+      && !/^(sumario|contents|table of contents)$/i.test(value)
+  }
+
+  private static truncatePreviewText(text: string): string {
+    const normalized = this.cleanText(text)
+    if (normalized.length <= 220) return normalized
+
+    const slice = normalized.slice(0, 220)
+    const sentenceMatch = slice.match(/^(.{120,}?[.!?])\s/)
+    if (sentenceMatch) return sentenceMatch[1]
+
+    const lastSpace = slice.lastIndexOf(' ')
+    const end = lastSpace >= 120 ? lastSpace : 220
+    return `${slice.slice(0, end).trim()}...`
+  }
+
+  private static detectStyleDiagnostics(html: string): EpubStyleDiagnostic[] {
+    const checks: EpubStyleDiagnostic[] = []
+
+    if (/(^|[;{\s"'])color\s*:\s*(?:#000(?:000)?\b|black\b|rgb\(\s*0\s*,\s*0\s*,\s*0\s*\))/i.test(html)) {
+      checks.push({ issue: 'hardcoded-text-color', label: 'Cor de texto fixa' })
+    }
+
+    if (/background(?:-color)?\s*:\s*(?:#fff(?:fff)?\b|white\b|#000(?:000)?\b|black\b|rgb\()/i.test(html)) {
+      checks.push({ issue: 'hardcoded-background-color', label: 'Fundo fixo no EPUB' })
+    }
+
+    if (/font-size\s*:\s*(?:[6-9](?:\.\d+)?px|1[0-2](?:\.\d+)?px|0\.[5-9](?:\d+)?(?:em|rem)|[5-8]\d%)/i.test(html)) {
+      checks.push({ issue: 'small-font-size', label: 'Fonte pequena no EPUB' })
+    }
+
+    if (/line-height\s*:\s*(?:1(?:\.0+)?|1\.[0-2]\b|[8-9]\d%|10\d%|11\d%|12\d%)/i.test(html)) {
+      checks.push({ issue: 'tight-line-height', label: 'Espacamento apertado' })
+    }
+
+    return checks
   }
 
   // Localiza o arquivo de TOC e parseia os capítulos.
@@ -479,7 +645,7 @@ export class EpubService {
   }
 
   private static looksLikeCoverPath(href: string): boolean {
-    return /(^|[\/._-])cover([\/._-]|$)/i.test(href)
+    return /(^|[/._-])cover([/._-]|$)/i.test(href)
   }
 
   // Extrai a capa como Blob. EPUBs variam muito — estratégia em cascata:

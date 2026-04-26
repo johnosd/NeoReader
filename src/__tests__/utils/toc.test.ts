@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  areTocHrefDocumentSuffixesEqual,
   findCurrentTocPath,
   flattenVisibleTocItems,
   getTocAncestorPaths,
@@ -47,6 +48,7 @@ describe('toc utilities', () => {
     ]
 
     expect(findCurrentTocPath(toc, 'Text/chapter1.xhtml')).toBe('0')
+    expect(areTocHrefDocumentSuffixesEqual('OPS/Text/chapter1.xhtml#start', 'Text/chapter1.xhtml')).toBe(true)
   })
 
   it('returns ancestor paths and visible items consistently', () => {

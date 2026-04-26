@@ -44,8 +44,21 @@ const copyFoliatePdfjsAssets = () => {
   }
 }
 
+const hardenFoliateIframeSandbox = () => ({
+  name: 'harden-foliate-iframe-sandbox',
+  transform: {
+    filter: {
+      id: /[\\/]node_modules[\\/]foliate-js[\\/](?:paginator|fixed-layout)\.js$/,
+    },
+    handler(code: string) {
+      const nextCode = code.replaceAll('allow-same-origin allow-scripts', 'allow-same-origin')
+      return nextCode === code ? null : { code: nextCode, map: null }
+    },
+  },
+})
+
 export default defineConfig({
-  plugins: [react(), tailwindcss(), copyFoliatePdfjsAssets()],
+  plugins: [react(), tailwindcss(), hardenFoliateIframeSandbox(), copyFoliatePdfjsAssets()],
   optimizeDeps: {
     // foliate-js is loaded lazily by the reader. Serving it as source in dev
     // avoids stale /node_modules/.vite/deps chunks after Vite re-optimizes deps.

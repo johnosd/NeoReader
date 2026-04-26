@@ -1,18 +1,21 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowLeft, Eye, EyeOff, Check, Globe, ChevronRight } from 'lucide-react'
 import { App as CapApp } from '@capacitor/app'
 import { Badge, BottomSheet, Input, ListItem, Spinner } from '../components/ui'
+import {
+  ReaderFontControl,
+  ReaderFontSizeControl,
+  ReaderLineHeightControl,
+  ReaderModeControl,
+  ReaderPreviewPanel,
+  ReaderThemeControl,
+  type ReaderStyleMode,
+} from '../components/reader/ReaderAppearanceControls'
 import { getSettings, updateAppSettings, updateReaderDefaults } from '../db/settings'
 import { ElevenLabsService } from '../services/ElevenLabsService'
 import { SpeechifyService } from '../services/SpeechifyService'
-import type { AppSettings, FontSize, ReaderDefaults, UserSettings } from '../types/settings'
+import type { AppSettings, ReaderDefaults, UserSettings } from '../types/settings'
 import { getLanguageLabel, TRANSLATION_LANGUAGE_OPTIONS } from '../utils/languageOptions'
-import {
-  READER_LINE_HEIGHT_OPTIONS,
-  READER_THEME_OPTIONS,
-  getReaderLineHeightValue,
-  getReaderThemePreviewStyle,
-} from '../utils/readerPreferences'
 
 interface SettingsScreenProps {
   onBack: () => void
@@ -25,14 +28,6 @@ interface KeyValidationState {
   message?: string
 }
 
-const FONT_SIZES: { value: FontSize; label: string; className: string }[] = [
-  { value: 'sm', label: 'A', className: 'text-sm' },
-  { value: 'md', label: 'A', className: 'text-base' },
-  { value: 'lg', label: 'A', className: 'text-lg' },
-  { value: 'xl', label: 'A', className: 'text-xl' },
-]
-
-const FONT_PREVIEW_PX: Record<FontSize, number> = { sm: 14, md: 16, lg: 18, xl: 20 }
 const IDLE_KEY_STATE: KeyValidationState = { status: 'idle' }
 
 function ValidationBadge({ state, emptyLabel }: { state: KeyValidationState; emptyLabel: string }) {
@@ -65,39 +60,17 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
   const elevenLabsValidationSeqRef = useRef(0)
 
   useEffect(() => {
-    let cancelled = false
-
-    void getSettings().then((value) => {
-      if (cancelled) return
-      setSettings(value)
-      setSpeechifyKeyInput(value.appSettings.speechifyApiKey)
-      setElevenLabsKeyInput(value.appSettings.elevenLabsApiKey)
-
-      if (value.appSettings.speechifyApiKey) {
-        void validateSpeechifyKey(value.appSettings.speechifyApiKey, false)
-      }
-      if (value.appSettings.elevenLabsApiKey) {
-        void validateElevenLabsKey(value.appSettings.elevenLabsApiKey, false)
-      }
-    })
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
     const listener = CapApp.addListener('backButton', onBack)
     return () => { void listener.then((value) => value.remove()) }
   }, [onBack])
 
-  async function saveAppSettings(patch: Partial<AppSettings>) {
+  const saveAppSettings = useCallback(async (patch: Partial<AppSettings>) => {
     await updateAppSettings(patch)
     setSettings((previous) => previous ? {
       ...previous,
       appSettings: { ...previous.appSettings, ...patch },
     } : previous)
-  }
+  }, [])
 
   async function saveReaderDefaults(patch: Partial<ReaderDefaults>) {
     await updateReaderDefaults(patch)
@@ -107,7 +80,7 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
     } : previous)
   }
 
-  async function validateSpeechifyKey(rawKey: string, persistOnSuccess: boolean) {
+  const validateSpeechifyKey = useCallback(async (rawKey: string, persistOnSuccess: boolean) => {
     const trimmedKey = rawKey.trim()
     const validationSeq = ++speechifyValidationSeqRef.current
 
@@ -131,9 +104,9 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
     }
 
     setSpeechifyValidation({ status: 'invalid', message: result.message })
-  }
+  }, [saveAppSettings])
 
-  async function validateElevenLabsKey(rawKey: string, persistOnSuccess: boolean) {
+  const validateElevenLabsKey = useCallback(async (rawKey: string, persistOnSuccess: boolean) => {
     const trimmedKey = rawKey.trim()
     const validationSeq = ++elevenLabsValidationSeqRef.current
 
@@ -157,7 +130,29 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
     }
 
     setElevenLabsValidation({ status: 'invalid', message: result.message })
-  }
+  }, [saveAppSettings])
+
+  useEffect(() => {
+    let cancelled = false
+
+    void getSettings().then((value) => {
+      if (cancelled) return
+      setSettings(value)
+      setSpeechifyKeyInput(value.appSettings.speechifyApiKey)
+      setElevenLabsKeyInput(value.appSettings.elevenLabsApiKey)
+
+      if (value.appSettings.speechifyApiKey) {
+        void validateSpeechifyKey(value.appSettings.speechifyApiKey, false)
+      }
+      if (value.appSettings.elevenLabsApiKey) {
+        void validateElevenLabsKey(value.appSettings.elevenLabsApiKey, false)
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [validateElevenLabsKey, validateSpeechifyKey])
 
   if (!settings) {
     return (
@@ -168,7 +163,9 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
   }
 
   const currentLang = getLanguageLabel(settings.appSettings.translationTargetLang) ?? settings.appSettings.translationTargetLang
-  const previewStyle = getReaderThemePreviewStyle(settings.readerDefaults.readerTheme)
+  const readerStyleMode = !settings.readerDefaults.overrideBookFont && !settings.readerDefaults.overrideBookColors
+    ? 'original'
+    : 'comfortable'
   const speechifyHint = speechifyValidation.status === 'valid'
     ? 'A key foi validada e salva.'
     : speechifyValidation.status === 'validating'
@@ -179,6 +176,29 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
     : elevenLabsValidation.status === 'validating'
       ? elevenLabsValidation.message
       : undefined
+
+  function applyComfortableDefaults() {
+    const currentFontFamily = settings?.readerDefaults.fontFamily ?? 'classic'
+
+    void saveReaderDefaults({
+      fontFamily: currentFontFamily === 'publisher' ? 'classic' : currentFontFamily,
+      overrideBookFont: true,
+      overrideBookColors: true,
+    })
+  }
+
+  function handleReaderStyleModeChange(mode: ReaderStyleMode) {
+    if (mode === 'original') {
+      void saveReaderDefaults({
+        fontFamily: 'publisher',
+        overrideBookFont: false,
+        overrideBookColors: false,
+      })
+      return
+    }
+
+    applyComfortableDefaults()
+  }
 
   return (
     <div className="min-h-screen pb-12 bg-bg-base text-text-primary">
@@ -295,96 +315,78 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
           <p className="text-xs text-text-muted mb-3">
             Tamanho inicial ao abrir qualquer livro.
           </p>
-          <div className="flex gap-2">
-            {FONT_SIZES.map(({ value, label, className }) => {
-              const active = settings.readerDefaults.defaultFontSize === value
-              return (
-                <button
-                  key={value}
-                  onClick={() => void saveReaderDefaults({ defaultFontSize: value })}
-                  className={`flex-1 py-3 rounded-md font-semibold transition-all duration-150 active:scale-95 border ${className} ${
-                    active
-                      ? 'bg-purple-primary/15 border-purple-primary/50 text-purple-light'
-                      : 'bg-bg-surface border-border text-text-muted'
-                  }`}
-                  aria-pressed={active}
-                >
-                  {label}
-                </button>
-              )
-            })}
+          <ReaderFontSizeControl
+            value={settings.readerDefaults.defaultFontSize}
+            onChange={(value) => void saveReaderDefaults({ defaultFontSize: value })}
+            surface="base"
+          />
+          <div className="mt-4">
+            <ReaderPreviewPanel
+              theme={settings.readerDefaults.readerTheme}
+              fontFamily={settings.readerDefaults.fontFamily}
+              fontSize={settings.readerDefaults.defaultFontSize}
+              lineHeight={settings.readerDefaults.lineHeight}
+            >
+              The quick brown fox jumps over the lazy dog.
+            </ReaderPreviewPanel>
           </div>
-          <p
-            className="mt-4 text-center leading-relaxed text-text-secondary"
-            style={{ fontSize: FONT_PREVIEW_PX[settings.readerDefaults.defaultFontSize] }}
-          >
-            The quick brown fox jumps over the lazy dog.
+        </Section>
+
+        <Section title="Modo de leitura padrao">
+          <p className="text-xs text-text-muted mb-3">
+            Define se livros novos preservam o estilo do EPUB ou usam a leitura confortavel do NeoReader.
           </p>
+          <ReaderModeControl
+            value={readerStyleMode}
+            onChange={handleReaderStyleModeChange}
+            surface="base"
+          />
+        </Section>
+
+        <Section title="Fonte padrao">
+          <p className="text-xs text-text-muted mb-3">
+            Define como livros novos escolhem a fonte de leitura.
+          </p>
+          <ReaderFontControl
+            value={settings.readerDefaults.fontFamily}
+            onChange={(value) => void saveReaderDefaults({
+              fontFamily: value,
+              overrideBookFont: value !== 'publisher',
+            })}
+            surface="base"
+          />
         </Section>
 
         <Section title="Espacamento padrao">
           <p className="text-xs text-text-muted mb-3">
             Define a altura de linha usada como base no leitor.
           </p>
-          <div className="grid grid-cols-3 gap-2">
-            {READER_LINE_HEIGHT_OPTIONS.map(({ value, label }) => {
-              const active = settings.readerDefaults.lineHeight === value
-              return (
-                <button
-                  key={value}
-                  onClick={() => void saveReaderDefaults({ lineHeight: value })}
-                  className={`rounded-md px-3 py-3 text-sm font-semibold transition-all duration-150 active:scale-95 border ${
-                    active
-                      ? 'bg-purple-primary/15 border-purple-primary/50 text-purple-light'
-                      : 'bg-bg-surface border-border text-text-muted'
-                  }`}
-                  aria-pressed={active}
-                >
-                  {label}
-                </button>
-              )
-            })}
-          </div>
+          <ReaderLineHeightControl
+            value={settings.readerDefaults.lineHeight}
+            onChange={(value) => void saveReaderDefaults({ lineHeight: value })}
+            surface="base"
+          />
         </Section>
 
         <Section title="Tema padrao do leitor">
           <p className="text-xs text-text-muted mb-3">
             Aparencia inicial ao abrir qualquer livro.
           </p>
-          <div className="grid grid-cols-3 gap-2">
-            {READER_THEME_OPTIONS.map(({ value, label }) => {
-              const active = settings.readerDefaults.readerTheme === value
-              return (
-                <button
-                  key={value}
-                  onClick={() => void saveReaderDefaults({ readerTheme: value })}
-                  className={`rounded-md px-3 py-3 text-sm font-semibold transition-all duration-150 active:scale-95 border ${
-                    active
-                      ? 'bg-purple-primary/15 border-purple-primary/50 text-purple-light'
-                      : 'bg-bg-surface border-border text-text-muted'
-                  }`}
-                  aria-pressed={active}
-                >
-                  {label}
-                </button>
-              )
-            })}
-          </div>
+          <ReaderThemeControl
+            value={settings.readerDefaults.readerTheme}
+            onChange={(value) => void saveReaderDefaults({ readerTheme: value, overrideBookColors: true })}
+            surface="base"
+          />
 
-          <div
-            className="mt-4 rounded-xl border px-4 py-4"
-            style={previewStyle}
-          >
-            <p
-              className="font-serif"
-              style={{
-                fontSize: FONT_PREVIEW_PX[settings.readerDefaults.defaultFontSize],
-                lineHeight: getReaderLineHeightValue(settings.readerDefaults.lineHeight),
-                color: previewStyle.color,
-              }}
+          <div className="mt-4">
+            <ReaderPreviewPanel
+              theme={settings.readerDefaults.readerTheme}
+              fontFamily={settings.readerDefaults.fontFamily}
+              fontSize={settings.readerDefaults.defaultFontSize}
+              lineHeight={settings.readerDefaults.lineHeight}
             >
               The quick brown fox jumps over the lazy dog.
-            </p>
+            </ReaderPreviewPanel>
           </div>
         </Section>
       </div>

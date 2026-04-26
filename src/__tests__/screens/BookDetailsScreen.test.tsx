@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { BookDetailsScreen } from '@/screens/BookDetailsScreen'
 import type { Book, BookSettings, ReadingProgress } from '@/types/book'
@@ -44,6 +44,7 @@ vi.mock('@/db/bookmarks', () => ({
 }))
 
 vi.mock('@/db/bookSettings', () => ({
+  getBookSettings: vi.fn(async () => mocks.bookSettings),
   updateBookSettings: mocks.updateBookSettings,
 }))
 
@@ -58,6 +59,9 @@ vi.mock('@/db/settings', () => ({
       defaultFontSize: 'md',
       lineHeight: 'comfortable',
       readerTheme: 'dark',
+      fontFamily: 'classic',
+      overrideBookFont: true,
+      overrideBookColors: true,
     },
     updatedAt: new Date(),
   })),
@@ -167,6 +171,8 @@ describe('BookDetailsScreen chapters', () => {
           ],
         },
       ],
+      previewText: 'Trecho real do livro para preview.',
+      styleDiagnostics: [],
     })
     mocks.listSpeechifyVoices.mockResolvedValue([])
   })
@@ -189,7 +195,9 @@ describe('BookDetailsScreen chapters', () => {
 
     fireEvent.click(screen.getByText('Part I'))
 
-    expect(onRead).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), 'chapter-1.xhtml')
+    await waitFor(() => {
+      expect(onRead).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), 'chapter-1.xhtml')
+    })
   })
 
   it('keeps chapter groups collapsed when there is no saved chapter inside', async () => {
@@ -212,6 +220,104 @@ describe('BookDetailsScreen chapters', () => {
 
     expect(screen.getByText('Chapter 1')).toBeTruthy()
   })
+
+  it('salva a fonte original do livro sem forcar override de fonte', async () => {
+    render(
+      <BookDetailsScreen
+        book={book}
+        onBack={vi.fn()}
+        onRead={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    await screen.findByText('Fonte do livro')
+    fireEvent.click(screen.getByText('Original do livro'))
+
+    await waitFor(() => {
+      expect(mocks.updateBookSettings).toHaveBeenCalledWith(1, {
+        fontFamily: 'publisher',
+        overrideBookFont: false,
+      })
+    })
+  })
+
+  it('mostra diagnostico de estilo e aplica modo confortavel', async () => {
+    mocks.parseExtras.mockResolvedValue({
+      description: null,
+      language: 'pt-BR',
+      toc: [],
+      previewText: 'Trecho real do livro para preview.',
+      styleDiagnostics: [
+        { issue: 'small-font-size', label: 'Fonte pequena no EPUB' },
+      ],
+    })
+
+    render(
+      <BookDetailsScreen
+        book={book}
+        onBack={vi.fn()}
+        onRead={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    await screen.findByText('Estilos fortes detectados')
+
+    expect(screen.getAllByText('Trecho real do livro para preview.').length).toBeGreaterThan(0)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar modo confortavel' }))
+
+    await waitFor(() => {
+      expect(mocks.updateBookSettings).toHaveBeenCalledWith(1, {
+        fontFamily: 'classic',
+        overrideBookFont: true,
+        overrideBookColors: true,
+      })
+    })
+  })
+
+  it('aguarda salvar o tema do livro antes de abrir a leitura', async () => {
+    const onRead = vi.fn()
+    let resolveSave!: () => void
+    mocks.updateBookSettings.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      resolveSave = resolve
+    }))
+
+    render(
+      <BookDetailsScreen
+        book={book}
+        onBack={vi.fn()}
+        onRead={onRead}
+        onOpenSettings={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    await screen.findByText('Tema do leitor')
+    fireEvent.click(screen.getByText('Papel'))
+
+    await waitFor(() => {
+      expect(mocks.updateBookSettings).toHaveBeenCalledWith(1, {
+        readerTheme: 'paper',
+        overrideBookColors: true,
+      })
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continuar leitura - 42%' }))
+    expect(onRead).not.toHaveBeenCalled()
+
+    await act(async () => {
+      resolveSave()
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(onRead).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), undefined)
+    })
+  })
 })
 
 describe('BookDetailsScreen voice settings', () => {
@@ -223,6 +329,8 @@ describe('BookDetailsScreen voice settings', () => {
       description: null,
       language: 'pt-BR',
       toc: [],
+      previewText: null,
+      styleDiagnostics: [],
     })
     mocks.listSpeechifyVoices.mockResolvedValue([
       {

@@ -10,13 +10,20 @@ interface UseReaderProgressResult {
   flushProgress: (payload?: ProgressSavePayload) => Promise<void>
 }
 
+interface LoadedProgressState {
+  bookId: number
+  progress: ReadingProgress | null
+}
+
 export function useReaderProgress(bookId: number): UseReaderProgressResult {
-  const [savedCfi, setSavedCfi] = useState<string | null>(null)
-  const [savedProgress, setSavedProgress] = useState<ReadingProgress | null>(null)
-  const [initialLoadDone, setInitialLoadDone] = useState(false)
+  const [loadedProgress, setLoadedProgress] = useState<LoadedProgressState | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingProgressRef = useRef<ProgressSavePayload | null>(null)
   const lastPersistedKeyRef = useRef<string | null>(null)
+  const activeProgress = loadedProgress?.bookId === bookId ? loadedProgress.progress : null
+  const savedCfi = activeProgress?.cfi ?? null
+  const savedProgress = activeProgress
+  const initialLoadDone = loadedProgress?.bookId === bookId
 
   const persistProgress = useCallback(
     async (payload?: ProgressSavePayload | null) => {
@@ -48,15 +55,9 @@ export function useReaderProgress(bookId: number): UseReaderProgressResult {
   // Carrega posição salva uma vez no mount
   useEffect(() => {
     let cancelled = false
-    setSavedCfi(null)
-    setSavedProgress(null)
-    setInitialLoadDone(false)
-
     getProgress(bookId).then((p) => {
       if (cancelled) return
-      setSavedProgress(p ?? null)
-      setSavedCfi(p?.cfi ?? null)
-      setInitialLoadDone(true)
+      setLoadedProgress({ bookId, progress: p ?? null })
     })
 
     return () => {

@@ -2,19 +2,42 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { useSyncRef } from '../../hooks/useSyncRef'
 import type { Book, Bookmark } from '../../types/book'
 import type { View } from 'foliate-js/view.js'
-import type { FontSize, ReaderLineHeight, ReaderTheme } from '../../types/settings'
-import { getReaderLineHeightValue, getReaderThemePalette } from '../../utils/readerPreferences'
+import type { FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from '../../types/settings'
+import { getReaderFontFamilyValue, getReaderLineHeightValue, getReaderThemePalette } from '../../utils/readerPreferences'
 import { getSentenceAt, escapeHtml } from '../../utils/readerUtils'
 import { areCfisEquivalent, normalizeCfi } from '../../utils/cfi'
+import { areTocHrefDocumentSuffixesEqual, normalizeTocHref } from '../../utils/toc'
 import { fractionToPercentage } from '../../utils/progress'
 import { splitParagraphIntoTtsChunks } from '../../utils/ttsChunking'
 
-export type { FontSize, ReaderLineHeight, ReaderTheme } from '../../types/settings'
+export type { FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from '../../types/settings'
 
 const BOOKMARK_ICON_GUTTER = 20
 const BOOKMARK_ICON_LEFT = 4
 const BOOKMARK_ICON_WIDTH = 10
 const BOOKMARK_ICON_HEIGHT = 14
+const TAP_SLOP_PX = 12
+const TOP_CHROME_TAP_ZONE_PX = 140
+const BOTTOM_CHROME_TAP_ZONE_PX = 156
+const CHROME_TAP_ZONE_MAX_VIEWPORT_RATIO = 0.28
+const RIGHT_CHROME_TAP_ZONE_MIN_PX = 48
+const RIGHT_CHROME_TAP_ZONE_MAX_PX = 72
+
+type FoliateTransformLoadDetail = {
+  isScript?: boolean
+  allow?: boolean
+}
+
+type FoliateTransformDataDetail = {
+  data?: unknown
+  type?: unknown
+}
+
+const SCRIPTABLE_EPUB_DOCUMENT_TYPES = new Set([
+  'application/xhtml+xml',
+  'text/html',
+  'image/svg+xml',
+])
 
 const TRANSLATION_ICON = {
   bot: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="7" width="16" height="11" rx="4"></rect><path d="M12 3v4"></path><path d="M9 13h.01"></path><path d="M15 13h.01"></path><path d="M9 18v2"></path><path d="M15 18v2"></path></svg>',
@@ -115,6 +138,7 @@ function getSentenceFromClick(ev: MouseEvent, para: Element): string {
   // seria inserido no ponto (x, y) — disponível no Chrome/Android WebView
   const range = (ev.target as Element).ownerDocument?.caretRangeFromPoint?.(ev.clientX, ev.clientY)
   if (!range) return fullText
+  if (!para.contains(range.startContainer)) return fullText
 
   // Calcula o offset de char dentro do textContent completo do parágrafo.
   // O Range aponta para um nó de texto interno; precisamos somar os offsets
@@ -131,10 +155,217 @@ function getSentenceFromClick(ev: MouseEvent, para: Element): string {
   return getSentenceAt(fullText, charOffset)
 }
 
+function getDocumentViewportHeight(doc: Document): number {
+  return doc.defaultView?.innerHeight
+    || doc.documentElement.clientHeight
+    || doc.body?.clientHeight
+    || 0
+}
+
+function getDocumentViewportWidth(doc: Document): number {
+  return doc.defaultView?.innerWidth
+    || doc.documentElement.clientWidth
+    || doc.body?.clientWidth
+    || 0
+}
+
+function getVisibleChromeTapZoneSize(viewportHeight: number, preferredSize: number): number {
+  if (viewportHeight <= 0) return preferredSize
+
+  return Math.min(
+    preferredSize,
+    Math.round(viewportHeight * CHROME_TAP_ZONE_MAX_VIEWPORT_RATIO),
+  )
+}
+
+function isVisibleChromeTapZone(ev: MouseEvent, doc: Document): boolean {
+  const viewportHeight = getDocumentViewportHeight(doc)
+  const topZone = getVisibleChromeTapZoneSize(viewportHeight, TOP_CHROME_TAP_ZONE_PX)
+  const bottomZone = getVisibleChromeTapZoneSize(viewportHeight, BOTTOM_CHROME_TAP_ZONE_PX)
+
+  if (viewportHeight <= 0) return ev.clientY <= topZone
+
+  return ev.clientY <= topZone || ev.clientY >= viewportHeight - bottomZone
+}
+
+function isRightChromeTapZone(ev: MouseEvent, doc: Document): boolean {
+  const viewportWidth = getDocumentViewportWidth(doc)
+  if (viewportWidth <= 0) return false
+
+  const zoneWidth = Math.max(
+    RIGHT_CHROME_TAP_ZONE_MIN_PX,
+    Math.min(RIGHT_CHROME_TAP_ZONE_MAX_PX, Math.round(viewportWidth * 0.14)),
+  )
+
+  return ev.clientX >= viewportWidth - zoneWidth
+}
+
+type RendererNavigationTarget = {
+  index: number
+  anchor?: number | ((doc: Document) => Range | Element | number | null)
+}
+
+type ResolvedHrefNavigationTarget = RendererNavigationTarget & {
+  matchType: 'exact' | 'suffix'
+}
+
+type NavigableSection = FoliateSection & {
+  id?: string
+}
+
+function splitHrefTarget(target: string): { documentHref: string; fragment: string | null } {
+  const normalized = normalizeTocHref(target)
+  const [documentHref, fragment] = normalized.split('#', 2)
+
+  return {
+    documentHref: documentHref.toLocaleLowerCase(),
+    fragment: fragment || null,
+  }
+}
+
+function getSectionHrefCandidates(section: NavigableSection): string[] {
+  return [section.id, section.href]
+    .filter((value): value is string => Boolean(value))
+}
+
+function findFragmentTarget(doc: Document, rawFragment: string): Element | number {
+  const candidates = [...new Set([
+    rawFragment,
+    (() => {
+      try {
+        return decodeURIComponent(rawFragment)
+      } catch {
+        return rawFragment
+      }
+    })(),
+  ])]
+
+  for (const fragment of candidates) {
+    const byId = doc.getElementById(fragment)
+    if (byId) return byId
+
+    const byName = Array.from(doc.querySelectorAll<HTMLElement>('[name]'))
+      .find((element) => element.getAttribute('name') === fragment)
+    if (byName) return byName
+  }
+
+  return 0
+}
+
+function buildHrefNavigationTarget(
+  sections: NavigableSection[] | undefined,
+  target: string,
+): ResolvedHrefNavigationTarget | null {
+  if (!sections?.length) return null
+
+  const { documentHref, fragment } = splitHrefTarget(target)
+  if (!documentHref) return null
+
+  const candidates = sections.flatMap((section, index) =>
+    getSectionHrefCandidates(section).map((href) => ({ href, index })),
+  )
+
+  const exactMatch = candidates.find(({ href }) =>
+    splitHrefTarget(href).documentHref === documentHref,
+  )
+  const suffixMatches = exactMatch ? [] : candidates.filter(({ href }) =>
+    areTocHrefDocumentSuffixesEqual(href, target),
+  )
+  const suffixMatchIndexes = [...new Set(suffixMatches.map((candidate) => candidate.index))]
+  const suffixMatch = suffixMatchIndexes.length === 1 ? suffixMatches[0] : null
+  const match = exactMatch ?? suffixMatch
+  if (!match) return null
+
+  return {
+    index: match.index,
+    anchor: fragment ? (doc: Document) => findFragmentTarget(doc, fragment) : () => 0,
+    matchType: exactMatch ? 'exact' : 'suffix',
+  }
+}
+
+function toRendererNavigationTarget(target: ResolvedHrefNavigationTarget): RendererNavigationTarget {
+  return {
+    index: target.index,
+    anchor: target.anchor,
+  }
+}
+
+function isScriptableEpubDocumentType(type: unknown): type is DOMParserSupportedType {
+  return typeof type === 'string' && SCRIPTABLE_EPUB_DOCUMENT_TYPES.has(type)
+}
+
+function stripExecutableEpubContent(data: unknown, type: unknown): unknown {
+  if (typeof data !== 'string' || !isScriptableEpubDocumentType(type)) return data
+
+  try {
+    const doc = new DOMParser().parseFromString(data, type)
+    let changed = false
+
+    for (const script of Array.from(doc.querySelectorAll('script'))) {
+      script.remove()
+      changed = true
+    }
+
+    for (const element of Array.from(doc.querySelectorAll('*'))) {
+      for (const attr of Array.from(element.attributes)) {
+        const name = attr.name.toLowerCase()
+        const value = attr.value.trim().toLowerCase()
+        const isScriptUrl =
+          (name === 'href' || name === 'src' || name === 'xlink:href') &&
+          value.startsWith('javascript:')
+
+        if (name.startsWith('on') || isScriptUrl) {
+          element.removeAttribute(attr.name)
+          changed = true
+        }
+      }
+    }
+
+    if (!changed) return data
+    if (type === 'text/html') return `<!doctype html>\n${doc.documentElement.outerHTML}`
+    return new XMLSerializer().serializeToString(doc)
+  } catch {
+    return data
+  }
+}
+
+function installPassiveEpubContentTransform(view: View): () => void {
+  const transformTarget = view.book?.transformTarget
+  if (!transformTarget) return () => {}
+
+  const handleLoad = (event: Event) => {
+    const detail = (event as CustomEvent<FoliateTransformLoadDetail>).detail
+    if (detail?.isScript) detail.allow = false
+  }
+
+  const handleData = (event: Event) => {
+    const detail = (event as CustomEvent<FoliateTransformDataDetail>).detail
+    if (!detail || !isScriptableEpubDocumentType(detail.type)) return
+
+    detail.data = Promise.resolve(detail.data)
+      .then((data) => stripExecutableEpubContent(data, detail.type))
+  }
+
+  transformTarget.addEventListener('load', handleLoad as EventListener)
+  transformTarget.addEventListener('data', handleData as EventListener)
+
+  return () => {
+    transformTarget.removeEventListener('load', handleLoad as EventListener)
+    transformTarget.removeEventListener('data', handleData as EventListener)
+  }
+}
+
 // CSS injetado dentro do iframe do foliate para tema escuro + tamanho de fonte.
 // Precisa usar !important porque o EPUB tem seus próprios estilos inline e no <link>.
 // As classes .nr-* são usadas para highlight e tradução inline sem conflito com o EPUB.
-function buildReaderCSS(fontSize: FontSize, lineHeight: ReaderLineHeight, readerTheme: ReaderTheme): string {
+function buildReaderCSS(
+  fontSize: FontSize,
+  lineHeight: ReaderLineHeight,
+  readerTheme: ReaderTheme,
+  fontFamily: ReaderFontFamily,
+  overrideBookFont: boolean,
+  overrideBookColors: boolean,
+): string {
   const sizes: Record<FontSize, string> = {
     sm: '16px',
     md: '18px',
@@ -143,57 +374,47 @@ function buildReaderCSS(fontSize: FontSize, lineHeight: ReaderLineHeight, reader
   }
   const palette = getReaderThemePalette(readerTheme)
   const lineHeightValue = getReaderLineHeightValue(lineHeight)
-  const translationSurface = readerTheme === 'dark'
-    ? '#0a0f18'
-    : readerTheme === 'sepia'
-      ? 'rgba(255, 249, 237, 0.98)'
-      : 'rgba(255, 255, 255, 0.98)'
-  const translationBorder = readerTheme === 'dark'
-    ? 'rgba(168, 85, 247, 0.24)'
-    : readerTheme === 'sepia'
-      ? 'rgba(124, 58, 237, 0.18)'
-      : 'rgba(59, 130, 246, 0.16)'
-  const translationGlow = readerTheme === 'dark'
-    ? 'rgba(168, 85, 247, 0.12)'
-    : readerTheme === 'sepia'
-      ? 'rgba(124, 58, 237, 0.08)'
-      : 'rgba(59, 130, 246, 0.08)'
-  const actionTileBaseBackground = readerTheme === 'dark' ? 'rgba(255,255,255,0.03)' : 'rgba(15,23,42,0.03)'
-  const actionTileBaseBorder = readerTheme === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.08)'
-  const actionTileBaseShadow = readerTheme === 'dark' ? '0 8px 18px rgba(0,0,0,0.22)' : '0 6px 14px rgba(15,23,42,0.10)'
-  const actionPressedBackground = readerTheme === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.08)'
-  const actionDisabledTile = readerTheme === 'dark' ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.08)'
-  const actionDisabledBorder = readerTheme === 'dark' ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.14)'
-  const actionLabelColor = readerTheme === 'dark' ? '#cbd5e1' : palette.text
-  const actionSpeakColor = readerTheme === 'dark' ? '#ff8aa0' : '#dc2659'
-  const actionSpeakBackground = readerTheme === 'dark' ? 'rgba(255, 23, 68, 0.08)' : 'rgba(255, 23, 68, 0.06)'
-  const actionSpeakBorder = readerTheme === 'dark' ? 'rgba(255, 77, 109, 0.22)' : 'rgba(220, 38, 89, 0.18)'
-  const actionBookmarkColor = readerTheme === 'dark' ? '#ffbf66' : '#d97706'
-  const actionBookmarkBackground = readerTheme === 'dark' ? 'rgba(255, 106, 0, 0.08)' : 'rgba(255, 159, 28, 0.08)'
-  const actionBookmarkBorder = readerTheme === 'dark' ? 'rgba(255, 159, 28, 0.24)' : 'rgba(217, 119, 6, 0.20)'
-  const actionSaveColor = readerTheme === 'dark' ? '#68e7a1' : '#059669'
-  const actionSaveBackground = readerTheme === 'dark' ? 'rgba(0, 200, 83, 0.08)' : 'rgba(16, 185, 129, 0.08)'
-  const actionSaveBorder = readerTheme === 'dark' ? 'rgba(61, 220, 132, 0.22)' : 'rgba(5, 150, 105, 0.18)'
-  const sentenceHighlightBackground = readerTheme === 'dark'
-    ? 'linear-gradient(180deg, rgba(0, 229, 255, 0.16), rgba(168, 85, 247, 0.12))'
-    : readerTheme === 'sepia'
-      ? 'linear-gradient(180deg, rgba(124, 58, 237, 0.12), rgba(14, 165, 233, 0.08))'
-      : 'linear-gradient(180deg, rgba(37, 99, 235, 0.14), rgba(14, 165, 233, 0.08))'
-  const sentenceHighlightBorder = readerTheme === 'dark'
-    ? 'rgba(0, 229, 255, 0.14)'
-    : readerTheme === 'sepia'
-      ? 'rgba(124, 58, 237, 0.12)'
-      : 'rgba(37, 99, 235, 0.12)'
-  const sentenceHighlightHalo = readerTheme === 'dark'
-    ? 'rgba(0, 229, 255, 0.04)'
-    : readerTheme === 'sepia'
-      ? 'rgba(124, 58, 237, 0.04)'
-      : 'rgba(37, 99, 235, 0.04)'
+  const readerFontFamily = getReaderFontFamilyValue(fontFamily)
+  const shouldOverrideFont = overrideBookFont && !!readerFontFamily
+  const themeColorStyles = overrideBookColors
+    ? `
+      background-color: ${palette.background} !important;
+      color: ${palette.text} !important;`
+    : ''
+  const textColorStyles = overrideBookColors
+    ? `
+      color: ${palette.text} !important;
+      background-color: transparent !important;`
+    : ''
+  const headingColorStyles = overrideBookColors
+    ? `
+      color: ${palette.heading} !important;
+      background-color: transparent !important;`
+    : ''
+  const fontFamilyStyles = shouldOverrideFont
+    ? `
+      font-family: ${readerFontFamily} !important;`
+    : ''
+  const actionTileBaseBackground = palette.isDark ? 'rgba(255,255,255,0.03)' : 'rgba(15,23,42,0.03)'
+  const actionTileBaseBorder = palette.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.08)'
+  const actionTileBaseShadow = palette.isDark ? '0 8px 18px rgba(0,0,0,0.22)' : '0 6px 14px rgba(15,23,42,0.10)'
+  const actionPressedBackground = palette.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.08)'
+  const actionDisabledTile = palette.isDark ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.08)'
+  const actionDisabledBorder = palette.isDark ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.14)'
+  const actionLabelColor = palette.isDark ? '#cbd5e1' : palette.text
+  const actionSpeakColor = palette.isDark ? '#ff8aa0' : '#dc2659'
+  const actionSpeakBackground = palette.isDark ? 'rgba(255, 23, 68, 0.08)' : 'rgba(255, 23, 68, 0.06)'
+  const actionSpeakBorder = palette.isDark ? 'rgba(255, 77, 109, 0.22)' : 'rgba(220, 38, 89, 0.18)'
+  const actionBookmarkColor = palette.isDark ? '#ffbf66' : '#d97706'
+  const actionBookmarkBackground = palette.isDark ? 'rgba(255, 106, 0, 0.08)' : 'rgba(255, 159, 28, 0.08)'
+  const actionBookmarkBorder = palette.isDark ? 'rgba(255, 159, 28, 0.24)' : 'rgba(217, 119, 6, 0.20)'
+  const actionSaveColor = palette.isDark ? '#68e7a1' : '#059669'
+  const actionSaveBackground = palette.isDark ? 'rgba(0, 200, 83, 0.08)' : 'rgba(16, 185, 129, 0.08)'
+  const actionSaveBorder = palette.isDark ? 'rgba(61, 220, 132, 0.22)' : 'rgba(5, 150, 105, 0.18)'
   return `
     html, body {
-      background-color: ${palette.background} !important;
-      color: ${palette.text} !important;
-      font-family: Georgia, Charter, serif !important;
+      ${themeColorStyles}
+      ${fontFamilyStyles}
     }
 
     /* Aplica tema de leitura + tamanho de fonte SOMENTE em elementos de texto.
@@ -203,14 +424,17 @@ function buildReaderCSS(fontSize: FontSize, lineHeight: ReaderLineHeight, reader
     div, section, article, aside, main, nav, header, footer {
       font-size: ${sizes[fontSize]} !important;
       line-height: ${lineHeightValue} !important;
-      color: ${palette.text} !important;
-      background-color: transparent !important;
+      ${textColorStyles}
+      ${fontFamilyStyles}
     }
     h1, h2, h3, h4, h5, h6 {
-      color: ${palette.heading} !important;
-      background-color: transparent !important;
+      ${headingColorStyles}
+      ${fontFamilyStyles}
     }
-    a { color: ${palette.link} !important; }
+    a { ${overrideBookColors ? `color: ${palette.link} !important;` : ''} }
+    pre, code, kbd, samp {
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace !important;
+    }
 
     /* Imagens e SVGs: renderizam com suas dimensões naturais, sem override de cor.
        max-width garante que não vazem fora do viewport em qualquer tamanho de tela. */
@@ -229,10 +453,10 @@ function buildReaderCSS(fontSize: FontSize, lineHeight: ReaderLineHeight, reader
       padding: .10em .28em !important;
       border-radius: 8px !important;
       color: inherit !important;
-      background: ${sentenceHighlightBackground} !important;
+      background: ${palette.sentenceHighlight} !important;
       box-shadow:
-        inset 0 0 0 1px ${sentenceHighlightBorder} !important,
-        0 0 0 4px ${sentenceHighlightHalo} !important;
+        inset 0 0 0 1px ${palette.sentenceHighlightBorder} !important,
+        0 0 0 4px ${palette.sentenceHighlightHalo} !important;
       -webkit-box-decoration-break: clone !important;
       box-decoration-break: clone !important;
     }
@@ -258,14 +482,14 @@ function buildReaderCSS(fontSize: FontSize, lineHeight: ReaderLineHeight, reader
     #nr-translation-block {
       margin: 14px 0 18px 0 !important;
       padding: 12px !important;
-      border: 1px solid ${translationBorder} !important;
+      border: 1px solid ${palette.translationBorder} !important;
       border-radius: 18px !important;
       background:
         linear-gradient(180deg, rgba(0, 229, 255, 0.08), transparent 26%),
         linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 80%),
-        ${translationSurface} !important;
+        ${palette.translationSurface} !important;
       box-shadow:
-        0 0 28px ${translationGlow} !important,
+        0 0 28px ${palette.translationGlow} !important,
         0 18px 40px rgba(0, 0, 0, 0.20) !important;
       font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif !important;
       color: ${palette.heading} !important;
@@ -525,19 +749,19 @@ interface EpubViewerProps {
   fontSize: FontSize
   lineHeight: ReaderLineHeight
   readerTheme: ReaderTheme
+  fontFamily: ReaderFontFamily
+  overrideBookFont: boolean
+  overrideBookColors: boolean
   savedCfi: string | null
   onRelocate: (payload: ReaderRelocatePayload) => void
   onTocReady: (toc: TocItem[]) => void
   onLoad: () => void
-  onSectionReady?: (sectionIndex: number) => void
+  onSectionReady?: (sectionIndex: number, sectionHref?: string) => void
   onError: (err: Error) => void
   // Chamado quando o usuário salva um par original/tradução via ⭐
   onSaveVocab: (sourceText: string, translatedText: string) => void
-  // Chamado quando o tap cai fora de qualquer parágrafo (margem, imagem),
-  // OU quando o chrome está visível e qualquer toque fecha os menus
+  // Chamado quando o tap cai nas zonas de menu ou fora da area de texto.
   onCenterTap: () => void
-  // Quando true, qualquer toque no iframe fecha o chrome em vez de acionar tradução/TTS.
-  // Resolve o problema de compositing do Android WebView que ignora z-index de overlays.
   chromeVisible: boolean
   // Tradução: emite o texto da frase tocada para o ReaderScreen traduzir e exibir
   // num painel React fora do iframe (evita problema de paginação no mobile)
@@ -564,7 +788,7 @@ interface EpubViewerProps {
 export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
   (
     {
-      book, bookmarks, fontSize, lineHeight, readerTheme, savedCfi,
+      book, bookmarks, fontSize, lineHeight, readerTheme, fontFamily, overrideBookFont, overrideBookColors, savedCfi,
       onRelocate, onTocReady, onLoad, onSectionReady, onError,
       onSaveVocab, onCenterTap, onTranslate,
       onSpeakOne, onParagraphTapForTts, onTtsUserScrollAway, ttsGlobalActive,
@@ -612,9 +836,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const onTtsUserScrollAwayRef = useSyncRef(onTtsUserScrollAway)
     // ttsGlobalActive: modo leitura contínua ativo (inclui pausado) — gating do clique
     const ttsGlobalActiveRef = useSyncRef(ttsGlobalActive)
-    // chromeVisible: quando true, qualquer toque no iframe fecha o chrome imediatamente
     const chromeVisibleRef = useSyncRef(chromeVisible)
-
     // Navegação entre capítulos: detecta fundo visual + swipe para avançar
     const currentSectionIdxRef = useRef(0)
     const totalSectionsRef = useRef(1)
@@ -629,6 +851,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const finalizedSectionVersionRef = useRef(0)
     const finalizeSectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const initialInteractiveReadyRef = useRef(false)
+    const renderBookmarkMarkersRef = useRef<((doc?: Document | null) => void) | null>(null)
+    const syncActiveTranslationBookmarkActionRef = useRef<((doc?: Document | null) => void) | null>(null)
     const BLOCK = 'p, li, blockquote, h1, h2, h3, h4, h5, h6'
     const bookmarksRef = useSyncRef(bookmarks)
     const onBookmarkTapRef = useSyncRef(onBookmarkTap)
@@ -679,6 +903,11 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       return null
     }
 
+    function getSectionHref(index: number): string | undefined {
+      const section = viewRef.current?.book?.sections?.[index] as NavigableSection | undefined
+      return section?.href ?? section?.id
+    }
+
     function activateSection(index: number): LoadedSectionContent | null {
       currentSectionIdxRef.current = index
       const content = getLoadedSection(index)
@@ -708,7 +937,79 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
     function getParagraphsFromDocument(doc: Document): Element[] {
       return Array.from(doc.querySelectorAll(BLOCK))
+        .filter((el) => !el.closest('#nr-translation-block'))
         .filter((el) => (el.textContent?.trim().length ?? 0) > 2)
+    }
+
+    function isReadableBlock(el: Element | null): el is HTMLElement {
+      return !!el && !el.closest('#nr-translation-block') && (el.textContent?.trim().length ?? 0) > 2
+    }
+
+    function findClosestReadableBlock(doc: Document, clientX: number, clientY: number): HTMLElement | null {
+      const blocks = getParagraphsFromDocument(doc) as HTMLElement[]
+      let closestBlock: HTMLElement | null = null
+      let closestDistance = Number.POSITIVE_INFINITY
+
+      for (const block of blocks) {
+        const rect = block.getBoundingClientRect()
+        const hasLayoutBox = rect.width > 0 || rect.height > 0
+        if (!hasLayoutBox) continue
+
+        const closestX = Math.max(rect.left, Math.min(clientX, rect.right))
+        const closestY = Math.max(rect.top, Math.min(clientY, rect.bottom))
+        const dx = clientX - closestX
+        const dy = clientY - closestY
+        const distance = Math.hypot(dx, dy)
+
+        if (distance < closestDistance) {
+          closestDistance = distance
+          closestBlock = block
+        }
+      }
+
+      return closestBlock
+    }
+
+    function getTapReadableBlock(target: Element, doc: Document, clientX: number, clientY: number): HTMLElement | null {
+      const directBlock = target.closest(BLOCK) as HTMLElement | null
+      if (isReadableBlock(directBlock)) return directBlock
+
+      return findClosestReadableBlock(doc, clientX, clientY)
+    }
+
+    function isPointInsideElement(element: Element, clientX: number, clientY: number): boolean {
+      const rect = element.getBoundingClientRect()
+      if (rect.width <= 0 || rect.height <= 0) return false
+
+      return (
+        clientX >= rect.left &&
+        clientX <= rect.right &&
+        clientY >= rect.top &&
+        clientY <= rect.bottom
+      )
+    }
+
+    function getElementFromPoint(doc: Document, clientX: number, clientY: number): Element | null {
+      return doc.elementFromPoint?.(clientX, clientY) ?? null
+    }
+
+    function getTranslationActionAtPoint(target: Element, doc: Document, clientX: number, clientY: number): HTMLElement | null {
+      const directAction = target.closest('[data-nr-action]') as HTMLElement | null
+      if (directAction) return directAction
+
+      const hitAction = getElementFromPoint(doc, clientX, clientY)?.closest('[data-nr-action]') as HTMLElement | null
+      if (hitAction) return hitAction
+
+      return Array.from(doc.querySelectorAll<HTMLElement>('#nr-translation-block [data-nr-action]'))
+        .find((button) => isPointInsideElement(button, clientX, clientY)) ?? null
+    }
+
+    function isTranslationBlockTap(target: Element, doc: Document, clientX: number, clientY: number): boolean {
+      if (target.closest('#nr-translation-block')) return true
+      if (getElementFromPoint(doc, clientX, clientY)?.closest('#nr-translation-block')) return true
+
+      const block = doc.getElementById('nr-translation-block')
+      return !!block && isPointInsideElement(block, clientX, clientY)
     }
 
     function unwrapElementPreservingChildren(el: Element): void {
@@ -1059,6 +1360,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     }
 
     function finalizePendingSection(_reason: 'stabilized' | 'relocate' | 'timeout'): void {
+      void _reason
       const pendingSection = pendingSectionRef.current
       if (!pendingSection) return
       if (finalizedSectionVersionRef.current === pendingSection.version) return
@@ -1101,7 +1403,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         initialInteractiveReadyRef.current = true
         onLoad()
       }
-      onSectionReadyRef.current?.(index)
+      onSectionReadyRef.current?.(index, getSectionHref(index))
     }
 
     function clearBookmarkMarkers(doc?: Document | null): void {
@@ -1134,6 +1436,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         }
       }
     }
+    syncActiveTranslationBookmarkActionRef.current = syncActiveTranslationBookmarkAction
+    renderBookmarkMarkersRef.current = renderBookmarkMarkers
 
     function getAdjacentSectionIndex(direction: 1 | -1, fromIndex = currentSectionIdxRef.current): number | null {
       const sections = viewRef.current?.book?.sections as Array<FoliateSection & { linear?: string }> | undefined
@@ -1189,7 +1493,26 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         autoSkipChapterStubDirectionRef.current =
           typeof target === 'string' && !isCfiTarget(target) ? 1 : 0
         autoSkipChapterStubCountRef.current = 0
-        viewRef.current?.goTo(target)
+        const view = viewRef.current
+        if (!view) return
+
+        if (typeof target === 'string' && !isCfiTarget(target)) {
+          const resolved = buildHrefNavigationTarget(view.book?.sections as NavigableSection[] | undefined, target)
+          if (resolved?.matchType === 'exact') {
+            void view.goTo(target).then((nativeResolved) => {
+              if (!nativeResolved && typeof view.renderer.goTo === 'function') {
+                return view.renderer.goTo(toRendererNavigationTarget(resolved))
+              }
+            })
+            return
+          }
+          if (resolved && typeof view.renderer.goTo === 'function') {
+            void view.renderer.goTo(toRendererNavigationTarget(resolved))
+            return
+          }
+        }
+
+        void view.goTo(target)
       },
       getVisibleLocation: () => {
         const view = viewRef.current
@@ -1202,7 +1525,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         const { para } = getVisibleParagraphInternal()
         if (!para) {
           const sectionHref = location.tocItem?.href
-            ?? view.book?.sections?.[location.index ?? currentSectionIdxRef.current]?.href
+            ?? getSectionHref(location.index ?? currentSectionIdxRef.current)
           return {
             cfi: location.cfi,
             tocLabel: location.tocItem?.label,
@@ -1221,7 +1544,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         const progress = view.getProgressOf(currentSectionIdxRef.current, range)
         const sectionHref = progress.tocItem?.href
           ?? location.tocItem?.href
-          ?? view.book?.sections?.[currentSectionIdxRef.current]?.href
+          ?? getSectionHref(currentSectionIdxRef.current)
 
         return {
           cfi,
@@ -1401,12 +1724,19 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
     // Atualiza fonte sem recriar o view (efeito separado intencional)
     useEffect(() => {
-      viewRef.current?.renderer?.setStyles?.(buildReaderCSS(fontSize, lineHeight, readerTheme))
-    }, [fontSize, lineHeight, readerTheme])
+      viewRef.current?.renderer?.setStyles?.(buildReaderCSS(
+        fontSize,
+        lineHeight,
+        readerTheme,
+        fontFamily,
+        overrideBookFont,
+        overrideBookColors,
+      ))
+    }, [fontSize, fontFamily, lineHeight, overrideBookColors, overrideBookFont, readerTheme])
 
     useEffect(() => {
-      renderBookmarkMarkers()
-      syncActiveTranslationBookmarkAction()
+      renderBookmarkMarkersRef.current?.()
+      syncActiveTranslationBookmarkActionRef.current?.()
     }, [bookmarks])
 
     // Setup principal: cria o elemento foliate, abre o EPUB, configura renderer.
@@ -1414,8 +1744,9 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     useEffect(() => {
       const container = containerRef.current
       if (!container) return
+      const loadedSections = loadedSectionsRef.current
 
-      loadedSectionsRef.current.clear()
+      loadedSections.clear()
       trackedScrollDocRef.current = null
       currentDocRef.current = null
       ttsParagraphsRef.current = []
@@ -1433,6 +1764,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       let cancelled = false
       let view: View | null = null
       let rendererStabilizedListener: EventListener | null = null
+      let cleanupPassiveEpubContentTransform: (() => void) | null = null
 
       async function setup() {
 
@@ -1461,7 +1793,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             currentSectionIdxRef.current
           lastRelocateRef.current = { ...e.detail, index: sIdx }
           const activeSection = activateSection(sIdx)
-          const sectionHref = tocItem?.href ?? view?.book?.sections?.[sIdx]?.href
+          const sectionHref = tocItem?.href ?? getSectionHref(sIdx)
           onRelocate({
             cfi,
             fraction,
@@ -1484,24 +1816,26 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           registerLoadedSection(index, doc)
           const primaryIndex = view?.renderer.primaryIndex ?? -1
           const shouldActivate =
-            index === currentSectionIdxRef.current ||
             index === primaryIndex ||
-            currentDocRef.current == null
+            index === currentSectionIdxRef.current ||
+            (currentDocRef.current == null && primaryIndex < 0)
           if (shouldActivate) activateSection(index)
 
           // Armazena parágrafos da seção para uso pelo TTS (audiobook e karaokê)
 
           // Rastreia seção atual e marca a nova seção como pendente até o renderer estabilizar.
-          pendingSectionVersionRef.current += 1
-          pendingSectionRef.current = {
-            doc,
-            index,
-            version: pendingSectionVersionRef.current,
+          if (shouldActivate) {
+            pendingSectionVersionRef.current += 1
+            pendingSectionRef.current = {
+              doc,
+              index,
+              version: pendingSectionVersionRef.current,
+            }
+            clearFinalizeSectionTimeout()
+            finalizeSectionTimeoutRef.current = setTimeout(() => {
+              finalizePendingSection('timeout')
+            }, 400)
           }
-          clearFinalizeSectionTimeout()
-          finalizeSectionTimeoutRef.current = setTimeout(() => {
-            finalizePendingSection('timeout')
-          }, 400)
           renderBookmarkMarkers(doc)
 
           // didScroll: Android WebView dispara 'click' mesmo após scroll curto.
@@ -1517,50 +1851,26 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             didScroll = false
           }, { passive: true })
           doc.addEventListener('touchmove', (ev: TouchEvent) => {
-            // Tap slop ~8px: qualquer movimento acima disso é intenção de scroll
+            // Tap slop: tolera um pequeno deslocamento do dedo sem transformar tap em scroll.
             const dy = Math.abs(ev.touches[0].clientY - touchStartY)
             const dx = Math.abs(ev.touches[0].clientX - touchStartX)
-            if (dy > 8 || dx > 8) didScroll = true
+            if (dy > TAP_SLOP_PX || dx > TAP_SLOP_PX) didScroll = true
           }, { passive: true })
           doc.addEventListener('touchend', () => {}, { passive: true })
 
           doc.addEventListener('click', (ev: MouseEvent) => {
             // Ignora clicks que são resíduo de um gesto de scroll
+            const target = ev.target instanceof Element ? ev.target : doc.documentElement
+            const ownerDocument = target.ownerDocument ?? doc
+
             if (didScroll) return
 
-            // Chrome visível: qualquer toque fecha os menus sem acionar tradução/TTS.
-            // Solução para o Android WebView que ignora z-index de overlays React
-            // e entrega o toque diretamente ao iframe (camada de composição separada).
-            if (chromeVisibleRef.current) {
-              onCenterTapRef.current()
-              return
-            }
-
-            const target = ev.target as Element
-            const targetSectionIndex = getSectionIndexForDocument(target.ownerDocument)
-            if (targetSectionIndex != null) {
-              const activeSection = activateSection(targetSectionIndex)
-              if (activeSection?.doc) setupScrollTracking(activeSection.doc)
-            }
-            const para = target.closest(BLOCK) as HTMLElement | null
-            if (para?.hasAttribute('data-nr-bookmark') && para.dataset.nrBookmarkId) {
-              const rect = para.getBoundingClientRect()
-              const clickedBookmarkIcon =
-                ev.clientX >= rect.left &&
-                ev.clientX <= rect.left + BOOKMARK_ICON_GUTTER &&
-                ev.clientY >= rect.top &&
-                ev.clientY <= rect.top + Math.max(BOOKMARK_ICON_HEIGHT + 8, 24)
-
-              if (clickedBookmarkIcon) {
-                const bookmarkId = Number(para.dataset.nrBookmarkId)
-                if (Number.isFinite(bookmarkId)) onBookmarkTapRef.current?.(bookmarkId)
-                return
-              }
-            }
-
-            // Intercepta botões Ouvir/Salvar dentro do bloco de tradução inline
-            const actionBtn = target.closest('[data-nr-action]') as HTMLElement | null
+            // Botoes do bloco inline tem prioridade sobre zonas de menu e selecao
+            // de paragrafo.
+            const actionBtn = getTranslationActionAtPoint(target, ownerDocument, ev.clientX, ev.clientY)
             if (actionBtn) {
+              ev.preventDefault()
+              ev.stopPropagation()
               const action = actionBtn.dataset.nrAction
               if (action === 'speak') {
                 onSpeakOneRef.current(activeSourceTextRef.current)
@@ -1577,7 +1887,6 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
                 }
               } else if (action === 'save' && activeTranslatedTextRef.current) {
                 onSaveVocabRef.current(activeSourceTextRef.current, activeTranslatedTextRef.current)
-                // Feedback visual temporário no botão
                 setTranslationActionLabel(actionBtn, 'Salvo')
                 actionBtn.dataset.nrFlash = '1'
                 setTimeout(() => {
@@ -1590,9 +1899,41 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               return
             }
 
-            // Tap fora de parágrafo → toggle do chrome
-            if (!para || (para.textContent?.trim() ?? '').length < 3) {
+            if (isTranslationBlockTap(target, ownerDocument, ev.clientX, ev.clientY)) return
+
+            if (isVisibleChromeTapZone(ev, ownerDocument) || isRightChromeTapZone(ev, ownerDocument)) {
               onCenterTapRef.current()
+              return
+            }
+
+            const targetSectionIndex = getSectionIndexForDocument(target.ownerDocument)
+            if (targetSectionIndex != null) {
+              const activeSection = activateSection(targetSectionIndex)
+              if (activeSection?.doc) setupScrollTracking(activeSection.doc)
+            }
+            const para = getTapReadableBlock(target, ownerDocument, ev.clientX, ev.clientY)
+
+            if (para?.hasAttribute('data-nr-bookmark') && para.dataset.nrBookmarkId) {
+              const rect = para.getBoundingClientRect()
+              const clickedBookmarkIcon =
+                ev.clientX >= rect.left &&
+                ev.clientX <= rect.left + BOOKMARK_ICON_GUTTER &&
+                ev.clientY >= rect.top &&
+                ev.clientY <= rect.top + Math.max(BOOKMARK_ICON_HEIGHT + 8, 24)
+
+              if (clickedBookmarkIcon) {
+                const bookmarkId = Number(para.dataset.nrBookmarkId)
+                if (Number.isFinite(bookmarkId)) onBookmarkTapRef.current?.(bookmarkId)
+                return
+              }
+            }
+
+            // Tap no texto com o chrome aberto fecha os menus e continua a acao.
+            if (chromeVisibleRef.current) onCenterTapRef.current()
+
+            // Tap fora da area de texto e das zonas de menu alterna o chrome.
+            if (!para) {
+              if (!chromeVisibleRef.current) onCenterTapRef.current()
               return
             }
 
@@ -1665,6 +2006,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         try {
           await view.open(book.fileBlob)
           if (cancelled) { clearTimeout(loadTimeout!); return }
+          cleanupPassiveEpubContentTransform = installPassiveEpubContentTransform(view)
 
           rendererStabilizedListener = () => {
             scheduleSectionFinalization('stabilized')
@@ -1685,7 +2027,14 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           view.renderer.setAttribute('margin-bottom', '28px')
           view.renderer.setAttribute('margin-left', '48px')
           view.renderer.setAttribute('animated', '')
-          view.renderer.setStyles?.(buildReaderCSS(fontSize, lineHeight, readerTheme))
+          view.renderer.setStyles?.(buildReaderCSS(
+            fontSize,
+            lineHeight,
+            readerTheme,
+            fontFamily,
+            overrideBookFont,
+            overrideBookColors,
+          ))
 
           onTocReady(view.book?.toc ?? [])
 
@@ -1714,7 +2063,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         scrollListenerCleanupRef.current?.()
         scrollListenerCleanupRef.current = null
         trackedScrollDocRef.current = null
-        loadedSectionsRef.current.clear()
+        loadedSections.clear()
         pendingSectionRef.current = null
         currentDocRef.current = null
         lastRelocateRef.current = null
@@ -1731,6 +2080,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         if (rendererStabilizedListener) {
           view?.renderer.removeEventListener?.('stabilized', rendererStabilizedListener)
         }
+        cleanupPassiveEpubContentTransform?.()
+        cleanupPassiveEpubContentTransform = null
         view?.close()
         view?.remove()
         viewRef.current = null

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { getBookCover } from '../db/bookCovers'
 
@@ -7,21 +7,18 @@ export function useBookCoverUrl(bookId: number | undefined): string | null {
     () => (bookId === undefined ? Promise.resolve(undefined) : getBookCover(bookId)),
     [bookId],
   )
-  const [coverUrl, setCoverUrl] = useState<string | null>(null)
+  const coverBlob = cover?.blob ?? null
+
+  const coverUrl = useMemo(
+    () => (coverBlob ? URL.createObjectURL(coverBlob) : null),
+    [coverBlob],
+  )
 
   useEffect(() => {
-    if (!cover?.blob) {
-      setCoverUrl(null)
-      return
-    }
-
-    const nextCoverUrl = URL.createObjectURL(cover.blob)
-    setCoverUrl(nextCoverUrl)
-
     return () => {
-      URL.revokeObjectURL(nextCoverUrl)
+      if (coverUrl) URL.revokeObjectURL(coverUrl)
     }
-  }, [cover?.blob])
+  }, [coverUrl])
 
   return coverUrl
 }
