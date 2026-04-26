@@ -47,6 +47,9 @@ describe('settings db helpers', () => {
         defaultFontSize: 'lg',
         lineHeight: 'comfortable',
         readerTheme: 'dark',
+        fontFamily: 'classic',
+        overrideBookFont: true,
+        overrideBookColors: true,
       },
       updatedAt: new Date('2026-04-20T10:00:00.000Z'),
     })
@@ -74,6 +77,9 @@ describe('settings db helpers', () => {
         defaultFontSize: 'xl',
         lineHeight: 'comfortable',
         readerTheme: 'dark',
+        fontFamily: 'classic',
+        overrideBookFont: true,
+        overrideBookColors: true,
       },
     }))
   })
@@ -89,6 +95,9 @@ describe('settings db helpers', () => {
         defaultFontSize: 'sm',
         lineHeight: 'comfortable',
         readerTheme: 'dark',
+        fontFamily: 'classic',
+        overrideBookFont: true,
+        overrideBookColors: true,
       },
       updatedAt: new Date('2026-04-20T10:00:00.000Z'),
     })
@@ -106,7 +115,39 @@ describe('settings db helpers', () => {
         defaultFontSize: 'sm',
         lineHeight: 'comfortable',
         readerTheme: 'dark',
+        fontFamily: 'classic',
+        overrideBookFont: true,
+        overrideBookColors: true,
       },
     }))
+  })
+
+  it('desativa override de fonte quando o padrao usa a fonte original do livro', async () => {
+    mocks.first.mockResolvedValue({
+      id: 5,
+      appSettings: {
+        speechifyApiKey: '',
+        elevenLabsApiKey: '',
+        translationTargetLang: 'pt-BR',
+      },
+      readerDefaults: {
+        defaultFontSize: 'md',
+        lineHeight: 'comfortable',
+        readerTheme: 'paper',
+        fontFamily: 'publisher',
+      },
+      updatedAt: new Date('2026-04-20T10:00:00.000Z'),
+    })
+
+    const settings = await getSettings()
+
+    expect(settings.readerDefaults).toEqual({
+      defaultFontSize: 'md',
+      lineHeight: 'comfortable',
+      readerTheme: 'paper',
+      fontFamily: 'publisher',
+      overrideBookFont: false,
+      overrideBookColors: true,
+    })
   })
 })

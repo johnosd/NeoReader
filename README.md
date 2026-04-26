@@ -174,7 +174,11 @@ Pre-requisitos:
 ```bash
 npm run build
 npx cap sync android
-npx cap open android
+npx cap run android
+
+ou 
+
+npm run build && npx cap sync android && npx cap run android
 ```
 
 No PowerShell, para limpar o projeto Android manualmente:

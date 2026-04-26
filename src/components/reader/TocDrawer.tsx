@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { Badge, BottomSheet, EmptyState } from '../ui'
 import {
@@ -17,37 +17,58 @@ interface TocDrawerProps {
   onClose: () => void
 }
 
+const EMPTY_TOGGLED_PATHS = new Set<string>()
+
+function getDefaultExpandedPaths(toc: TocItem[], currentPath?: string | null): Set<string> {
+  const next = new Set<string>()
+
+  function collectExpandedPaths(items: TocItem[], parentPath = '') {
+    items.forEach((item, index) => {
+      const path = parentPath ? `${parentPath}.${index}` : `${index}`
+      const children = getTocSubitems(item)
+      if (children.length === 0) return
+
+      if (!parentPath || currentPath?.startsWith(`${path}.`)) {
+        next.add(path)
+      }
+
+      collectExpandedPaths(children, path)
+    })
+  }
+
+  collectExpandedPaths(toc)
+  return next
+}
+
 export function TocDrawer({ open, toc, currentHref, currentLabel, onSelect, onClose }: TocDrawerProps) {
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [toggledState, setToggledState] = useState<{
+    toc: TocItem[]
+    currentPath?: string | null
+    paths: Set<string>
+  }>({ toc, currentPath: null, paths: EMPTY_TOGGLED_PATHS })
   const currentPath = findCurrentTocPath(toc, currentHref, currentLabel)
-
-  useEffect(() => {
-    const next = new Set<string>()
-
-    function collectExpandedPaths(items: TocItem[], parentPath = '') {
-      items.forEach((item, index) => {
-        const path = parentPath ? `${parentPath}.${index}` : `${index}`
-        const children = getTocSubitems(item)
-        if (children.length === 0) return
-
-        if (!parentPath || currentPath?.startsWith(`${path}.`)) {
-          next.add(path)
-        }
-
-        collectExpandedPaths(children, path)
-      })
-    }
-
-    collectExpandedPaths(toc)
-    setExpanded(next)
-  }, [toc, currentPath])
-
-  function toggleExpand(path: string) {
-    setExpanded(prev => {
-      const next = new Set(prev)
+  const defaultExpanded = useMemo(() => getDefaultExpandedPaths(toc, currentPath), [toc, currentPath])
+  const toggledPaths = toggledState.toc === toc && toggledState.currentPath === currentPath
+    ? toggledState.paths
+    : EMPTY_TOGGLED_PATHS
+  const expanded = useMemo(() => {
+    const next = new Set(defaultExpanded)
+    for (const path of toggledPaths) {
       if (next.has(path)) next.delete(path)
       else next.add(path)
-      return next
+    }
+    return next
+  }, [defaultExpanded, toggledPaths])
+
+  function toggleExpand(path: string) {
+    setToggledState((prev) => {
+      const previousPaths = prev.toc === toc && prev.currentPath === currentPath
+        ? prev.paths
+        : EMPTY_TOGGLED_PATHS
+      const next = new Set(previousPaths)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
+      return { toc, currentPath, paths: next }
     })
   }
 

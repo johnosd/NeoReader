@@ -342,4 +342,43 @@ describe('EpubService.parseExtras - toc extraction', () => {
       { label: 'Chapter 1', href: 'OPS/Text/chapter1.xhtml#heading' },
     ])
   })
+
+  it('extracts a real preview excerpt and style diagnostics from the reading spine', async () => {
+    fflateState.files = makeEpubFiles(
+      'OPS/package.opf',
+      makeOpf(
+        `
+          <item id="chapter1" href="Text/chapter1.xhtml" media-type="application/xhtml+xml" />
+        `,
+        '',
+        '',
+        '<spine><itemref id="chapter1" /></spine>',
+      ),
+      {
+        'OPS/Text/chapter1.xhtml': `
+          <html xmlns="http://www.w3.org/1999/xhtml">
+            <head>
+              <style>
+                body { background-color: #fff; }
+                p { color: #000; font-size: 10px; line-height: 1.1; }
+              </style>
+            </head>
+            <body>
+              <p>Trecho real do livro usado para conferir a leitura com fonte, tema e espacamento.</p>
+            </body>
+          </html>
+        `,
+      },
+    )
+
+    const extras = await EpubService.parseExtras(new Blob(['epub']))
+
+    expect(extras.previewText).toContain('Trecho real do livro usado para conferir a leitura')
+    expect(extras.styleDiagnostics.map((diagnostic) => diagnostic.issue)).toEqual([
+      'hardcoded-text-color',
+      'hardcoded-background-color',
+      'small-font-size',
+      'tight-line-height',
+    ])
+  })
 })

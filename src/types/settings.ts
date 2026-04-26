@@ -1,6 +1,7 @@
 export type FontSize = 'sm' | 'md' | 'lg' | 'xl'
 export type ReaderLineHeight = 'compact' | 'comfortable' | 'relaxed'
-export type ReaderTheme = 'dark' | 'sepia' | 'paper'
+export type ReaderTheme = 'dark' | 'black' | 'paper' | 'warm' | 'sepia' | 'sage' | 'contrast'
+export type ReaderFontFamily = 'publisher' | 'classic' | 'modern' | 'readable' | 'mono'
 
 export interface AppSettings {
   speechifyApiKey: string
@@ -12,6 +13,9 @@ export interface ReaderDefaults {
   defaultFontSize: FontSize
   lineHeight: ReaderLineHeight
   readerTheme: ReaderTheme
+  fontFamily: ReaderFontFamily
+  overrideBookFont: boolean
+  overrideBookColors: boolean
 }
 
 export interface UserSettings {
@@ -39,6 +43,9 @@ export const DEFAULT_READER_DEFAULTS: ReaderDefaults = {
   defaultFontSize: 'md',
   lineHeight: 'comfortable',
   readerTheme: 'dark',
+  fontFamily: 'classic',
+  overrideBookFont: true,
+  overrideBookColors: true,
 }
 
 export const DEFAULT_SETTINGS: Omit<UserSettings, 'id'> = {
@@ -53,6 +60,8 @@ type SettingsRecord = Partial<UserSettings> & LegacyUserSettings & {
 }
 
 export function normalizeUserSettings(record?: SettingsRecord | null): UserSettings {
+  const fontFamily = record?.readerDefaults?.fontFamily ?? DEFAULT_READER_DEFAULTS.fontFamily
+
   return {
     ...(record?.id !== undefined ? { id: record.id } : {}),
     appSettings: {
@@ -66,6 +75,9 @@ export function normalizeUserSettings(record?: SettingsRecord | null): UserSetti
       defaultFontSize: record?.readerDefaults?.defaultFontSize ?? record?.defaultFontSize ?? DEFAULT_READER_DEFAULTS.defaultFontSize,
       lineHeight: record?.readerDefaults?.lineHeight ?? DEFAULT_READER_DEFAULTS.lineHeight,
       readerTheme: record?.readerDefaults?.readerTheme ?? DEFAULT_READER_DEFAULTS.readerTheme,
+      fontFamily,
+      overrideBookFont: record?.readerDefaults?.overrideBookFont ?? (fontFamily !== 'publisher'),
+      overrideBookColors: record?.readerDefaults?.overrideBookColors ?? DEFAULT_READER_DEFAULTS.overrideBookColors,
     },
     updatedAt: record?.updatedAt ? new Date(record.updatedAt) : new Date(),
   }

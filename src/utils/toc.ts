@@ -108,7 +108,7 @@ function areTocHrefDocumentsEqual(left?: string | null, right?: string | null): 
   return Boolean(normalizedLeft && normalizedRight && normalizedLeft === normalizedRight)
 }
 
-function areTocHrefDocumentSuffixesEqual(left?: string | null, right?: string | null): boolean {
+export function areTocHrefDocumentSuffixesEqual(left?: string | null, right?: string | null): boolean {
   const normalizedLeft = getTocHrefDocument(left)
   const normalizedRight = getTocHrefDocument(right)
   return Boolean(

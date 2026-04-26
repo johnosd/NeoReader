@@ -35,6 +35,7 @@ declare module 'foliate-js/view.js' {
       toc: TocItem[]
       metadata: Record<string, unknown>
       sections?: FoliateSection[]
+      transformTarget?: EventTarget
     }
     renderer: HTMLElement & {
       primaryIndex: number

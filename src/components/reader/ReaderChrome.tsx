@@ -11,7 +11,7 @@ interface ReaderChromeProps {
   ttsIsPlaying: boolean
   ttsEngine: TtsProvider
   onBack: () => void
-  onFontSizeChange: (size: FontSize) => void
+  onAppearanceOpen: () => void
   onBookmarkList: () => void
   onTocOpen: () => void
   onOpenVocabulary: () => void
@@ -19,7 +19,6 @@ interface ReaderChromeProps {
   onDismiss: () => void
 }
 
-const FONT_SIZES: FontSize[] = ['sm', 'md', 'lg', 'xl']
 const iconCardClass =
   'flex h-14 items-center justify-center rounded-md border border-white/8 bg-white/[0.03] text-text-secondary transition-all duration-150 active:scale-[0.92] active:border-purple-primary/30 active:bg-purple-primary/15 active:text-white'
 const iconCardPrimaryClass =
@@ -39,7 +38,7 @@ export function ReaderChrome({
   ttsIsPlaying,
   ttsEngine,
   onBack,
-  onFontSizeChange,
+  onAppearanceOpen,
   onBookmarkList,
   onTocOpen,
   onOpenVocabulary,
@@ -56,7 +55,6 @@ export function ReaderChrome({
   const bottomState = visible
     ? 'translate-y-0 opacity-100'
     : 'translate-y-full opacity-0 pointer-events-none'
-  const nextFontSize = FONT_SIZES[(FONT_SIZES.indexOf(fontSize) + 1) % FONT_SIZES.length]
   const bookmarkLabel = `${bookmarkCount} marcador${bookmarkCount === 1 ? '' : 'es'}`
 
   return (
@@ -114,9 +112,9 @@ export function ReaderChrome({
           <div className="rounded-[30px] border border-white/8 bg-[rgba(15,7,24,0.82)] p-3 shadow-nav backdrop-blur-xl">
             <div className="grid grid-cols-4 gap-3">
               <button
-                onClick={() => onFontSizeChange(nextFontSize)}
+                onClick={onAppearanceOpen}
                 className={`${iconCardClass} ${fontSize !== 'md' ? iconCardPrimaryClass : ''}`}
-                aria-label={`Alternar tamanho da fonte. Próximo: ${nextFontSize}`}
+                aria-label="Abrir ajustes de aparencia"
               >
                 <Type size={20} strokeWidth={2.1} />
               </button>

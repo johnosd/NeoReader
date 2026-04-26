@@ -70,10 +70,20 @@ class FoliateViewMock extends HTMLElement {
   prev = vi.fn(() => Promise.resolve())
   goTo = vi.fn((target?: string | number | { index?: number }) => {
     if (typeof target === 'number') this.rendererPrimaryIndex = target
+    if (typeof target === 'string') {
+      const targetDocument = target.split('#')[0]
+      const sectionIndex = this.book.sections.findIndex((section) => (
+        section.href === targetDocument ||
+        section.id === targetDocument ||
+        section.href?.endsWith(`/${targetDocument}`) ||
+        section.id?.endsWith(`/${targetDocument}`)
+      ))
+      if (sectionIndex >= 0) this.rendererPrimaryIndex = sectionIndex
+    }
     if (typeof target === 'object' && typeof target?.index === 'number') {
       this.rendererPrimaryIndex = target.index
     }
-    return Promise.resolve()
+    return Promise.resolve(target)
   })
   getCFI = vi.fn(() => 'epubcfi(/6/4!/4/2/1:0)')
   getProgressOf = vi.fn(() => ({ tocItem: { label: 'Mock Chapter', href: 'chapter-1.xhtml' } }))

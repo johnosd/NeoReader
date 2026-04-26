@@ -33,6 +33,9 @@ function defaultProps(overrides: Record<string, unknown> = {}) {
     fontSize: 'md' as const,
     lineHeight: 'comfortable' as const,
     readerTheme: 'dark' as const,
+    fontFamily: 'classic' as const,
+    overrideBookFont: true,
+    overrideBookColors: true,
     savedCfi: null,
     onRelocate: vi.fn(),
     onTocReady: vi.fn(),
@@ -79,6 +82,31 @@ function makeFakeDoc(texts: string[] = ['First sentence. Second sentence.']) {
 function click(el: Element) {
   act(() => {
     el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+  })
+}
+
+function clickAt(el: Element, clientX: number, clientY = 120) {
+  act(() => {
+    el.dispatchEvent(new MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      clientX,
+      clientY,
+    }))
+  })
+}
+
+function setViewportWidth(doc: Document, width: number) {
+  if (doc.defaultView) {
+    Object.defineProperty(doc.defaultView, 'innerWidth', {
+      configurable: true,
+      value: width,
+    })
+  }
+
+  Object.defineProperty(doc.documentElement, 'clientWidth', {
+    configurable: true,
+    value: width,
   })
 }
 
@@ -129,6 +157,51 @@ describe('EpubViewer — abertura do livro', () => {
     expect(props.onLoad).toHaveBeenCalledOnce()
   })
 
+  it('informa o href da secao quando ela fica pronta', async () => {
+    const onSectionReady = vi.fn()
+    const { foliateEl } = await renderViewer({ onSectionReady })
+    const fakeDoc = makeFakeDoc()
+    injectFakeWindow(fakeDoc, 0)
+
+    act(() => { void foliateEl.renderer.goTo({ index: 1 }) })
+    loadSection(foliateEl, fakeDoc, 1)
+
+    expect(onSectionReady).toHaveBeenCalledWith(1, 'chapter-2.xhtml')
+  })
+
+  it('mantem a primeira secao ativa quando o Foliate precarrega uma secao adjacente', async () => {
+    const onLoad = vi.fn()
+    const onSectionReady = vi.fn()
+    const { foliateEl } = await renderViewer({ onLoad, onSectionReady })
+    const primaryDoc = makeFakeDoc(['Primary section.'])
+    const adjacentDoc = makeFakeDoc(['Adjacent section.'])
+    injectFakeWindow(primaryDoc, 0)
+    injectFakeWindow(adjacentDoc, 0)
+
+    act(() => {
+      foliateEl.fireFoliate('load', { doc: primaryDoc, index: 0 })
+      foliateEl.fireFoliate('load', { doc: adjacentDoc, index: 1 })
+      foliateEl.fireRenderer('stabilized')
+    })
+
+    expect(onLoad).toHaveBeenCalledOnce()
+    expect(onSectionReady).toHaveBeenCalledWith(0, 'chapter-1.xhtml')
+    expect(onSectionReady).not.toHaveBeenCalledWith(1, 'chapter-2.xhtml')
+  })
+
+  it('injeta tema e fonte configurados no renderer', async () => {
+    const { foliateEl } = await renderViewer({
+      readerTheme: 'sage',
+      fontFamily: 'readable',
+    })
+
+    const styles = foliateEl.renderer.setStyles.mock.calls[0]?.[0] as string
+
+    expect(styles).toContain('#e8eddc')
+    expect(styles).toContain('Verdana')
+    expect(styles).toContain('rgba(246, 250, 238, 0.98)')
+  })
+
   it('chama onError quando open() lança exceção', async () => {
     const onError = vi.fn()
 
@@ -152,10 +225,12 @@ describe('EpubViewer — seleção de texto', () => {
   let viewerRef: ReturnType<typeof createRef<EpubViewerHandle>>
   let foliateEl: FoliateViewMock
   let onTranslate: ReturnType<typeof vi.fn>
+  let onCenterTap: ReturnType<typeof vi.fn>
 
   beforeEach(async () => {
     onTranslate = vi.fn()
-    const setup = await renderViewer({ onTranslate })
+    onCenterTap = vi.fn()
+    const setup = await renderViewer({ onTranslate, onCenterTap })
     viewerRef = setup.viewerRef
     foliateEl = setup.foliateEl
 
@@ -170,6 +245,15 @@ describe('EpubViewer — seleção de texto', () => {
   it('tap em parágrafo chama onTranslate', () => {
     click(paraA)
     expect(onTranslate).toHaveBeenCalledOnce()
+  })
+
+  it('tap na faixa direita abre o menu em vez de selecionar paragrafo', () => {
+    setViewportWidth(fakeDoc, 360)
+
+    clickAt(paraA, 340)
+
+    expect(onCenterTap).toHaveBeenCalledOnce()
+    expect(onTranslate).not.toHaveBeenCalled()
   })
 
   it('apenas um parágrafo tem data-nr-active por vez', () => {
@@ -724,6 +808,11 @@ describe('EpubViewer — chapter auto-advance', () => {
 
   it('pula páginas de parte mesmo quando elas têm um parágrafo curto extra', async () => {
     const { viewerRef, foliateEl } = await renderViewer()
+    foliateEl.book.sections = [
+      { id: 'chapter-1.xhtml', href: 'chapter-1.xhtml', linear: 'yes' },
+      { id: 'part-1.xhtml', href: 'part-1.xhtml', linear: 'yes' },
+      { id: 'chapter-2.xhtml', href: 'chapter-2.xhtml', linear: 'yes' },
+    ]
 
     const partDoc = document.implementation.createHTMLDocument('part')
     const part = partDoc.createElement('div')
@@ -762,6 +851,12 @@ describe('EpubViewer — chapter auto-advance', () => {
     partDoc.body.append(part, watermark)
     injectFakeWindow(partDoc, 0, 800, 400)
 
+    foliateEl.book.sections = [
+      { id: 'chapter-1.xhtml', href: 'chapter-1.xhtml', linear: 'yes' },
+      { id: 'part-1.xhtml', href: 'part-1.xhtml', linear: 'yes' },
+      { id: 'chapter-2.xhtml', href: 'chapter-2.xhtml', linear: 'yes' },
+    ]
+
     act(() => { viewerRef.current?.goTo('part-1.xhtml') })
     expect(foliateEl.goTo).toHaveBeenCalledWith('part-1.xhtml')
 
@@ -772,6 +867,48 @@ describe('EpubViewer — chapter auto-advance', () => {
       index: 2,
       anchor: expect.any(Function),
     }))
+  })
+
+  it('resolve href do indice por sufixo quando o caminho do spine tem prefixo OPF', async () => {
+    const { viewerRef, foliateEl } = await renderViewer()
+    foliateEl.book.sections = [
+      { id: 'OPS/Text/chapter-1.xhtml', href: 'OPS/Text/chapter-1.xhtml', linear: 'yes' },
+      { id: 'OPS/Text/chapter-2.xhtml', href: 'OPS/Text/chapter-2.xhtml', linear: 'yes' },
+    ]
+    foliateEl.renderer.goTo.mockClear()
+    foliateEl.goTo.mockClear()
+
+    act(() => { viewerRef.current?.goTo('Text/chapter-2.xhtml#start') })
+
+    expect(foliateEl.goTo).not.toHaveBeenCalled()
+    expect(foliateEl.renderer.goTo).toHaveBeenCalledWith(expect.objectContaining({
+      index: 1,
+      anchor: expect.any(Function),
+    }))
+
+    const target = foliateEl.renderer.goTo.mock.calls[0]?.[0] as { anchor?: (doc: Document) => Element | number | null }
+    const doc = document.implementation.createHTMLDocument('chapter')
+    const heading = doc.createElement('h1')
+    heading.id = 'start'
+    doc.body.appendChild(heading)
+
+    expect(target.anchor?.(doc)).toBe(heading)
+  })
+
+  it('usa a navegacao nativa do Foliate quando o href do indice bate com o spine', async () => {
+    const { viewerRef, foliateEl } = await renderViewer()
+    foliateEl.book.sections = [
+      { id: 'OPS/c01.xhtml', href: 'OPS/c01.xhtml', linear: 'yes' },
+      { id: 'OPS/c02.xhtml', href: 'OPS/c02.xhtml', linear: 'yes' },
+    ]
+    foliateEl.renderer.goTo.mockClear()
+    foliateEl.goTo.mockClear()
+
+    act(() => { viewerRef.current?.goTo('OPS/c02.xhtml#h2-1') })
+    await act(async () => { await Promise.resolve() })
+
+    expect(foliateEl.goTo).toHaveBeenCalledWith('OPS/c02.xhtml#h2-1')
+    expect(foliateEl.renderer.goTo).not.toHaveBeenCalled()
   })
 
   it('prevToEnd navega para o fim da seção anterior com âncora explícita', async () => {

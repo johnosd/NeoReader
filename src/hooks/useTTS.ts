@@ -35,9 +35,21 @@ async function resolveConfiguredProvider(provider: TtsProvider): Promise<TtsProv
   return 'native'
 }
 
+function replaceSpeechControlCharacters(text: string) {
+  let result = ''
+
+  for (const character of text) {
+    const code = character.charCodeAt(0)
+    result += code <= 8 || code === 11 || code === 12 || (code >= 14 && code <= 31) || code === 127
+      ? ' '
+      : character
+  }
+
+  return result
+}
+
 function normalizeChunkText(text: string) {
-  return text
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ' ')
+  return replaceSpeechControlCharacters(text)
     .replace(/\s+/g, ' ')
     .trim()
 }

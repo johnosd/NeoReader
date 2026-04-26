@@ -11,6 +11,7 @@ import {
 import { ReaderChrome } from '../components/reader/ReaderChrome'
 import { TocDrawer } from '../components/reader/TocDrawer'
 import { BookmarkSheet } from '../components/reader/BookmarkSheet'
+import { BottomSheet } from '../components/ui'
 import { useReaderProgress } from '../hooks/useReaderProgress'
 import { useReaderStore } from '../store/readerStore'
 import type { ProgressSavePayload } from '../db/progress'
@@ -22,12 +23,21 @@ import { getBookSettings, updateBookSettings } from '../db/bookSettings'
 import { db } from '../db/database'
 import { useTTS } from '../hooks/useTTS'
 import { TtsMiniPlayer, type TtsSleepTimerOption } from '../components/reader/TtsMiniPlayer'
+import {
+  ReaderFontControl,
+  ReaderFontSizeControl,
+  ReaderLineHeightControl,
+  ReaderModeControl,
+  ReaderThemeControl,
+  type ReaderStyleMode,
+} from '../components/reader/ReaderAppearanceControls'
 import { translate } from '../services/TranslationService'
 import { EpubService } from '../services/EpubService'
 import type { Book } from '../types/book'
-import type { FontSize, ReaderLineHeight, ReaderTheme } from '../types/settings'
+import type { FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from '../types/settings'
 import type { TtsPlaybackConfig, TtsProvider } from '../types/tts'
 import { areCfisEquivalent, isCfiInLocation, normalizeCfi } from '../utils/cfi'
+import { areTocHrefDocumentSuffixesEqual } from '../utils/toc'
 import { getReaderThemePalette } from '../utils/readerPreferences'
 import { clampTtsRate, normalizeLanguageTag } from '../utils/language'
 
@@ -53,7 +63,29 @@ function isRelocateAtStartTarget(target: string, location: ReaderRelocatePayload
 
   const normalizedExpectedHref = normalizeReaderHref(target)
   const normalizedSectionHref = normalizeReaderHref(location.sectionHref)
-  return !!normalizedExpectedHref && !!normalizedSectionHref && normalizedSectionHref === normalizedExpectedHref
+  return Boolean(
+    normalizedExpectedHref &&
+    normalizedSectionHref &&
+    (
+      normalizedSectionHref === normalizedExpectedHref ||
+      areTocHrefDocumentSuffixesEqual(normalizedSectionHref, normalizedExpectedHref)
+    ),
+  )
+}
+
+function isSectionHrefAtStartTarget(target: string, sectionHref?: string | null) {
+  if (isReaderCfiTarget(target)) return false
+
+  const normalizedExpectedHref = normalizeReaderHref(target)
+  const normalizedSectionHref = normalizeReaderHref(sectionHref)
+  return Boolean(
+    normalizedExpectedHref &&
+    normalizedSectionHref &&
+    (
+      normalizedSectionHref === normalizedExpectedHref ||
+      areTocHrefDocumentSuffixesEqual(normalizedSectionHref, normalizedExpectedHref)
+    ),
+  )
 }
 
 const TTS_SLEEP_TIMER_OPTIONS: TtsSleepTimerOption[] = [
@@ -64,6 +96,8 @@ const TTS_SLEEP_TIMER_OPTIONS: TtsSleepTimerOption[] = [
   { value: '1800', label: '30 min' },
   { value: '3600', label: '1 h' },
 ]
+
+const START_NAVIGATION_FALLBACK_MS = 4000
 
 function formatSleepTimerRemaining(seconds: number | null): string | null {
   if (seconds == null) return null
@@ -93,6 +127,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   const sectionChangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingStartHrefRef = useRef<string | null>(startHref ?? null)
   const initialStartNavigationTriggeredRef = useRef(false)
+  const startNavigationFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const ttsAdvancePendingRef = useRef(false)
   const ttsAutoAdvanceSkipCountRef = useRef(0)
   const ttsSleepTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -113,9 +148,13 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   const [showBackToTtsLocation, setShowBackToTtsLocation] = useState(false)
   const [tocOpen, setTocOpen] = useState(false)
   const [bookmarkSheetOpen, setBookmarkSheetOpen] = useState(false)
+  const [appearanceSheetOpen, setAppearanceSheetOpen] = useState(false)
   const [fontSize, setFontSize] = useState<FontSize>('md')
   const [lineHeight, setLineHeight] = useState<ReaderLineHeight>('comfortable')
   const [readerTheme, setReaderTheme] = useState<ReaderTheme>('dark')
+  const [fontFamily, setFontFamily] = useState<ReaderFontFamily>('classic')
+  const [overrideBookFont, setOverrideBookFont] = useState(true)
+  const [overrideBookColors, setOverrideBookColors] = useState(true)
   const [bookLanguage, setBookLanguage] = useState('en')
   const [translationTargetLang, setTranslationTargetLang] = useState('pt-BR')
   const [ttsConfig, setTtsConfig] = useState<TtsPlaybackConfig>({
@@ -124,10 +163,61 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     rate: 1,
   })
   const [ttsEngine, setTtsEngine] = useState<TtsProvider>('native')
-  const [isLoading, setIsLoading] = useState(true)
+  const loadingStateKey = `${book.id ?? 'unknown'}::${startHref ?? ''}`
+  const [loadingState, setLoadingState] = useState({ key: loadingStateKey, isLoading: true })
+  const isLoading = loadingState.key === loadingStateKey ? loadingState.isLoading : true
   const [error, setError] = useState<string | null>(null)
-  const [sectionChangeLabel, setSectionChangeLabel] = useState<string | null>(null)
-  const [currentSectionHref, setCurrentSectionHref] = useState<string | null>(null)
+  const [sectionNavigationState, setSectionNavigationState] = useState<{
+    bookId: Book['id']
+    sectionChangeLabel: string | null
+    currentSectionHref: string | null
+  }>({ bookId: book.id, sectionChangeLabel: null, currentSectionHref: null })
+  const sectionChangeLabel = sectionNavigationState.bookId === book.id
+    ? sectionNavigationState.sectionChangeLabel
+    : null
+  const currentSectionHref = sectionNavigationState.bookId === book.id
+    ? sectionNavigationState.currentSectionHref
+    : null
+
+  const setCurrentLoading = useCallback((nextIsLoading: boolean) => {
+    setLoadingState({ key: loadingStateKey, isLoading: nextIsLoading })
+  }, [loadingStateKey])
+
+  const setSectionChangeLabelForCurrentBook = useCallback((label: string | null) => {
+    setSectionNavigationState((previous) => ({
+      bookId: book.id,
+      sectionChangeLabel: label,
+      currentSectionHref: previous.bookId === book.id ? previous.currentSectionHref : null,
+    }))
+  }, [book.id])
+
+  const setCurrentSectionHrefForCurrentBook = useCallback((href: string | null) => {
+    setSectionNavigationState((previous) => ({
+      bookId: book.id,
+      sectionChangeLabel: previous.bookId === book.id ? previous.sectionChangeLabel : null,
+      currentSectionHref: href,
+    }))
+  }, [book.id])
+
+  const clearStartNavigationFallbackTimer = useCallback(() => {
+    if (startNavigationFallbackTimerRef.current) {
+      clearTimeout(startNavigationFallbackTimerRef.current)
+      startNavigationFallbackTimerRef.current = null
+    }
+  }, [])
+
+  const releaseInitialLoading = useCallback(() => {
+    clearStartNavigationFallbackTimer()
+    setCurrentLoading(false)
+  }, [clearStartNavigationFallbackTimer, setCurrentLoading])
+
+  const scheduleStartNavigationFallback = useCallback(() => {
+    clearStartNavigationFallbackTimer()
+    startNavigationFallbackTimerRef.current = setTimeout(() => {
+      pendingStartHrefRef.current = null
+      setCurrentLoading(false)
+    }, START_NAVIGATION_FALLBACK_MS)
+  }, [clearStartNavigationFallbackTimer, setCurrentLoading])
 
   // ── Auto-hide do chrome ──────────────────────────────────────────────────────
   // useRef para o timer: persiste entre renders sem causar re-render.
@@ -164,9 +254,10 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     return () => {
       if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current)
       if (sectionChangeTimerRef.current) clearTimeout(sectionChangeTimerRef.current)
+      clearStartNavigationFallbackTimer()
       clearTtsSleepTimerHandles()
     }
-  }, [clearTtsSleepTimerHandles, resetAutoHide])
+  }, [clearStartNavigationFallbackTimer, clearTtsSleepTimerHandles, resetAutoHide])
 
 
   // Estado global compartilhado (Zustand)
@@ -194,20 +285,26 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   useEffect(() => { return () => reset() }, [reset])
 
   useEffect(() => {
+    let cancelled = false
     activeSectionIndexRef.current = null
-    setSectionChangeLabel(null)
-    setCurrentSectionHref(null)
     if (sectionChangeTimerRef.current) {
       clearTimeout(sectionChangeTimerRef.current)
       sectionChangeTimerRef.current = null
     }
-    resetTtsSleepTimer()
+    queueMicrotask(() => {
+      if (!cancelled) resetTtsSleepTimer()
+    })
+
+    return () => {
+      cancelled = true
+    }
   }, [book.id, resetTtsSleepTimer])
 
   useEffect(() => {
+    clearStartNavigationFallbackTimer()
     pendingStartHrefRef.current = startHref ?? null
     initialStartNavigationTriggeredRef.current = false
-  }, [book.id, startHref])
+  }, [book.id, clearStartNavigationFallbackTimer, startHref])
 
   // Atualiza lastOpenedAt quando o leitor abre
   useEffect(() => {
@@ -233,10 +330,14 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     void Promise.all([getSettings(), getBookSettings(book.id!), EpubService.parseExtras(book.fileBlob)]).then(([s, bs, extras]) => {
       const resolvedBookLanguage = resolveBookLanguage(bs.bookLanguage ?? extras.language)
       const selectedProvider = bs.ttsProvider ?? 'speechify'
+      const resolvedFontFamily = bs.fontFamily ?? s.readerDefaults.fontFamily
 
       setFontSize(bs.fontSize ?? s.readerDefaults.defaultFontSize)
       setLineHeight(bs.lineHeight ?? s.readerDefaults.lineHeight)
       setReaderTheme(bs.readerTheme ?? s.readerDefaults.readerTheme)
+      setFontFamily(resolvedFontFamily)
+      setOverrideBookFont(bs.overrideBookFont ?? (bs.fontFamily ? resolvedFontFamily !== 'publisher' : s.readerDefaults.overrideBookFont))
+      setOverrideBookColors(bs.overrideBookColors ?? s.readerDefaults.overrideBookColors)
       setBookLanguage(resolvedBookLanguage)
       setTranslationTargetLang(bs.translationTargetLang ?? s.appSettings.translationTargetLang)
       setTtsConfig({
@@ -249,7 +350,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
       })
       setTtsEngine(resolveTtsProvider(selectedProvider, s.appSettings))
     })
-  }, [book.id])
+  }, [book.fileBlob, book.id])
 
   // TTS: gerencia estado e sequenciamento de audiobook
   const tts = useTTS({
@@ -379,6 +480,19 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     ttsAutoAdvanceSkipCountRef.current += 1
     const moved = viewerRef.current?.goToNextTtsSection() ?? false
     if (!moved) finishTtsAtBookEnd()
+  }
+
+  function handleReaderSectionReady(_sectionIndex: number, sectionHref?: string) {
+    const pendingStartHref = pendingStartHrefRef.current
+    if (
+      pendingStartHref &&
+      initialStartNavigationTriggeredRef.current &&
+      isSectionHrefAtStartTarget(pendingStartHref, sectionHref)
+    ) {
+      setCurrentLoading(false)
+    }
+
+    handleTtsSectionReady()
   }
 
   // Botão principal: inicia do ponto parado (resume) ou do primeiro parágrafo visível
@@ -516,6 +630,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
         if (!isRelocateAtStartTarget(pendingStartHref, location)) return
 
         pendingStartHrefRef.current = null
+        releaseInitialLoading()
       }
 
       const previousSectionIndex = activeSectionIndexRef.current
@@ -524,15 +639,15 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
         previousSectionIndex !== sectionIndex &&
         tocLabel?.trim()
       ) {
-        setSectionChangeLabel(tocLabel.trim())
+        setSectionChangeLabelForCurrentBook(tocLabel.trim())
         if (sectionChangeTimerRef.current) clearTimeout(sectionChangeTimerRef.current)
         sectionChangeTimerRef.current = setTimeout(() => {
-          setSectionChangeLabel(null)
+          setSectionChangeLabelForCurrentBook(null)
           sectionChangeTimerRef.current = null
         }, 1200)
       }
       activeSectionIndexRef.current = sectionIndex
-      setCurrentSectionHref(sectionHref ?? null)
+      setCurrentSectionHrefForCurrentBook(sectionHref ?? null)
       setCfi(newCfi, newPercentage, tocLabel)
       saveProgress({
         cfi: newCfi,
@@ -542,7 +657,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
         sectionLabel: tocLabel,
       })
     },
-    [setCfi, saveProgress],
+    [releaseInitialLoading, saveProgress, setCfi, setCurrentSectionHrefForCurrentBook, setSectionChangeLabelForCurrentBook],
   )
 
   const buildProgressPayload = useCallback(
@@ -581,11 +696,12 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   useEffect(() => {
     const listenerPromise = CapApp.addListener('backButton', () => {
       if (bookmarkSheetOpen) { setBookmarkSheetOpen(false); return }
+      if (appearanceSheetOpen) { setAppearanceSheetOpen(false); return }
       if (tocOpen) { setTocOpen(false); return }
       handleBack()
     })
     return () => { void listenerPromise.then((l) => l.remove()) }
-  }, [tocOpen, bookmarkSheetOpen, handleBack])
+  }, [tocOpen, bookmarkSheetOpen, appearanceSheetOpen, handleBack])
 
   useEffect(() => {
     const appStateListenerPromise = CapApp.addListener('appStateChange', ({ isActive }) => {
@@ -679,10 +795,45 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     })
   }
 
+  function applyAppearancePatch(patch: {
+    fontSize?: FontSize
+    lineHeight?: ReaderLineHeight
+    readerTheme?: ReaderTheme
+    fontFamily?: ReaderFontFamily
+    overrideBookFont?: boolean
+    overrideBookColors?: boolean
+  }) {
+    if (patch.fontSize) setFontSize(patch.fontSize)
+    if (patch.lineHeight) setLineHeight(patch.lineHeight)
+    if (patch.readerTheme) setReaderTheme(patch.readerTheme)
+    if (patch.fontFamily) setFontFamily(patch.fontFamily)
+    if (patch.overrideBookFont !== undefined) setOverrideBookFont(patch.overrideBookFont)
+    if (patch.overrideBookColors !== undefined) setOverrideBookColors(patch.overrideBookColors)
+    void updateBookSettings(book.id!, patch)
+  }
+
+  function handleReaderStyleModeChange(mode: ReaderStyleMode) {
+    if (mode === 'original') {
+      applyAppearancePatch({
+        fontFamily: 'publisher',
+        overrideBookFont: false,
+        overrideBookColors: false,
+      })
+      return
+    }
+
+    applyAppearancePatch({
+      fontFamily: fontFamily === 'publisher' ? 'classic' : fontFamily,
+      overrideBookFont: true,
+      overrideBookColors: true,
+    })
+  }
+
   // Aguarda o load do IndexedDB antes de montar o EpubViewer
   if (!initialLoadDone) return <ReaderSkeleton />
 
   const readerPalette = getReaderThemePalette(readerTheme)
+  const readerStyleMode = !overrideBookFont && !overrideBookColors ? 'original' : 'comfortable'
 
   return (
     <div className="fixed inset-0" style={{ backgroundColor: readerPalette.background }}>
@@ -696,21 +847,30 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
           fontSize={fontSize}
           lineHeight={lineHeight}
           readerTheme={readerTheme}
+          fontFamily={fontFamily}
+          overrideBookFont={overrideBookFont}
+          overrideBookColors={overrideBookColors}
           savedCfi={startHref ? null : savedCfi}
           onRelocate={handleRelocate}
           onTocReady={setToc}
-          onSectionReady={handleTtsSectionReady}
+          onSectionReady={handleReaderSectionReady}
           onLoad={() => {
-            setIsLoading(false)
             // Navega para o capítulo selecionado na tela de detalhes (se houver)
             if (startHref && !initialStartNavigationTriggeredRef.current) {
               initialStartNavigationTriggeredRef.current = true
+              scheduleStartNavigationFallback()
               viewerRef.current?.goTo(startHref)
+              return
             } else {
               pendingStartHrefRef.current = null
             }
+            releaseInitialLoading()
           }}
-          onError={(err) => { setIsLoading(false); setError(err.message) }}
+          onError={(err) => {
+            pendingStartHrefRef.current = null
+            releaseInitialLoading()
+            setError(err.message)
+          }}
           onSaveVocab={handleSaveVocab}
           chromeVisible={chromeVisible}
           onCenterTap={handleCenterTap}
@@ -739,10 +899,9 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
         fontSize={fontSize}
         bookmarkCount={activeBookmarks.length}
         onBack={handleBack}
-        onFontSizeChange={(size) => {
+        onAppearanceOpen={() => {
           resetAutoHide()
-          setFontSize(size)
-          void updateBookSettings(book.id!, { fontSize: size })
+          setAppearanceSheetOpen(true)
         }}
         onBookmarkList={() => { resetAutoHide(); setBookmarkSheetOpen(true) }}
         onTocOpen={() => { resetAutoHide(); setTocOpen(true) }}
@@ -828,6 +987,67 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
         onClose={() => setBookmarkSheetOpen(false)}
       />
 
+      <BottomSheet
+        open={appearanceSheetOpen}
+        onClose={() => setAppearanceSheetOpen(false)}
+        title="Aparencia da leitura"
+      >
+        <div className="flex flex-col gap-5">
+          <div>
+            <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-text-muted">
+              Modo
+            </p>
+            <ReaderModeControl
+              value={readerStyleMode}
+              onChange={handleReaderStyleModeChange}
+            />
+          </div>
+
+          <div>
+            <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-text-muted">
+              Tema
+            </p>
+            <ReaderThemeControl
+              value={readerTheme}
+              onChange={(value) => applyAppearancePatch({ readerTheme: value, overrideBookColors: true })}
+            />
+          </div>
+
+          <div>
+            <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-text-muted">
+              Fonte
+            </p>
+            <ReaderFontControl
+              value={fontFamily}
+              onChange={(value) => applyAppearancePatch({
+                fontFamily: value,
+                overrideBookFont: value !== 'publisher',
+              })}
+            />
+          </div>
+
+          <div>
+            <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-text-muted">
+              Tamanho
+            </p>
+            <ReaderFontSizeControl
+              value={fontSize}
+              onChange={(value) => applyAppearancePatch({ fontSize: value })}
+            />
+          </div>
+
+          <div>
+            <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-text-muted">
+              Espacamento
+            </p>
+            <ReaderLineHeightControl
+              value={lineHeight}
+              onChange={(value) => applyAppearancePatch({ lineHeight: value })}
+            />
+          </div>
+        </div>
+      </BottomSheet>
+
       {error && (
         <div className="absolute inset-0 z-40 bg-bg-reader flex flex-col items-center justify-center gap-4 px-8">
           <p className="text-error text-sm text-center">{error}</p>
@@ -877,7 +1097,7 @@ function TtsFallbackToast({
 
 function ReaderSkeleton() {
   return (
-    <div className="fixed inset-0 bg-bg-reader flex items-center justify-center">
+    <div data-testid="reader-loading" className="fixed inset-0 z-50 bg-bg-reader flex items-center justify-center">
       <div className="w-8 h-8 border-2 border-indigo-primary border-t-transparent rounded-full animate-spin" />
     </div>
   )

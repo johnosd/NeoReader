@@ -28,6 +28,16 @@ export function areCfisEquivalent(a: string | null | undefined, b: string | null
   }
 }
 
+function formatUnknownError(error: unknown): string {
+  if (error instanceof Error) return `${error.name}: ${error.message}`
+
+  try {
+    return JSON.stringify(error) ?? String(error)
+  } catch {
+    return String(error)
+  }
+}
+
 export function isCfiInLocation(cfi: string | null | undefined, location: string | null | undefined): boolean {
   if (!cfi || !location) return false
   if (areCfisEquivalent(cfi, location)) return true
@@ -38,7 +48,11 @@ export function isCfiInLocation(cfi: string | null | undefined, location: string
     const end = CFI.collapse(location, true)
     return CFI.compare(cfi, start) >= 0 && CFI.compare(cfi, end) <= 0
   } catch (err) {
-    console.warn('[nr-cfi] failed to compare CFIs', { cfi, location, err })
+    console.warn(`[nr-cfi] failed to compare CFIs: ${JSON.stringify({
+      cfi,
+      location,
+      error: formatUnknownError(err),
+    })}`)
     return false
   }
 }
