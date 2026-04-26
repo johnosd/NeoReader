@@ -3,6 +3,7 @@ import type { Book, BookCover, ReadingProgress, Bookmark, BookSettings } from '.
 import type { VocabItem, TranslationCache } from '../types/vocabulary'
 import type { UserSettings } from '../types/settings'
 import type { TtsVoiceCacheRecord } from '../types/tts'
+import type { AuthorCacheRecord } from '../types/author'
 
 type LegacyBookRecord = Book & { coverBlob?: Blob | null }
 
@@ -18,6 +19,7 @@ class NeoReaderDB extends Dexie {
   settings!: Table<UserSettings>
   bookSettings!: Table<BookSettings>
   ttsVoiceCaches!: Table<TtsVoiceCacheRecord>
+  authors!: Table<AuthorCacheRecord>
 
   constructor() {
     super('NeoReaderDB')
@@ -122,6 +124,21 @@ class NeoReaderDB extends Dexie {
       settings:      '++id',
       bookSettings:  '++id, bookId',
       ttsVoiceCaches:'++id, &cacheKey, provider, language, updatedAt',
+    })
+
+    // v9: cache de dados de autores (bio, foto, vídeos, outros livros)
+    // &authorName = unique index — um registro por autor
+    this.version(9).stores({
+      books:         '++id, title, author, addedAt, lastOpenedAt',
+      bookCovers:    'bookId, updatedAt, source',
+      progress:      '++id, bookId, updatedAt',
+      bookmarks:     '++id, bookId, createdAt, updatedAt, deletedAt',
+      vocabulary:    '++id, bookId, createdAt',
+      translations:  '++id, textHash, createdAt',
+      settings:      '++id',
+      bookSettings:  '++id, bookId',
+      ttsVoiceCaches:'++id, &cacheKey, provider, language, updatedAt',
+      authors:       '&authorName, fetchedAt',
     })
   }
 }

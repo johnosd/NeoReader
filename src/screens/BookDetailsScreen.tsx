@@ -96,6 +96,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
     speechifyApiKey: '',
     elevenLabsApiKey: '',
     translationTargetLang: 'pt-BR',
+    youtubeApiKey: '',
   })
   const [bookLanguageSheetOpen, setBookLanguageSheetOpen] = useState(false)
   const [translationTargetLangSheetOpen, setTranslationTargetLangSheetOpen] = useState(false)

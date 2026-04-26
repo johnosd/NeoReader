@@ -7,6 +7,7 @@ export interface AppSettings {
   speechifyApiKey: string
   elevenLabsApiKey: string
   translationTargetLang: string
+  youtubeApiKey: string
 }
 
 export interface ReaderDefaults {
@@ -37,6 +38,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   speechifyApiKey: '',
   elevenLabsApiKey: '',
   translationTargetLang: 'pt-BR',
+  youtubeApiKey: '',
 }
 
 export const DEFAULT_READER_DEFAULTS: ReaderDefaults = {
@@ -69,6 +71,7 @@ export function normalizeUserSettings(record?: SettingsRecord | null): UserSetti
       speechifyApiKey: record?.appSettings?.speechifyApiKey ?? record?.speechifyApiKey ?? DEFAULT_APP_SETTINGS.speechifyApiKey,
       elevenLabsApiKey: record?.appSettings?.elevenLabsApiKey ?? DEFAULT_APP_SETTINGS.elevenLabsApiKey,
       translationTargetLang: record?.appSettings?.translationTargetLang ?? record?.translationTargetLang ?? DEFAULT_APP_SETTINGS.translationTargetLang,
+      youtubeApiKey: record?.appSettings?.youtubeApiKey ?? DEFAULT_APP_SETTINGS.youtubeApiKey,
     },
     readerDefaults: {
       ...DEFAULT_READER_DEFAULTS,

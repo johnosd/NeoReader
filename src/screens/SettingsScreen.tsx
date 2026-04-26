@@ -51,10 +51,13 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
   const [settings, setSettings] = useState<UserSettings | null>(null)
   const [showSpeechifyKey, setShowSpeechifyKey] = useState(false)
   const [showElevenLabsKey, setShowElevenLabsKey] = useState(false)
+  const [showYoutubeKey, setShowYoutubeKey] = useState(false)
   const [speechifyKeyInput, setSpeechifyKeyInput] = useState('')
   const [elevenLabsKeyInput, setElevenLabsKeyInput] = useState('')
+  const [youtubeKeyInput, setYoutubeKeyInput] = useState('')
   const [speechifyValidation, setSpeechifyValidation] = useState<KeyValidationState>(IDLE_KEY_STATE)
   const [elevenLabsValidation, setElevenLabsValidation] = useState<KeyValidationState>(IDLE_KEY_STATE)
+  const [youtubeValidation, setYoutubeValidation] = useState<KeyValidationState>(IDLE_KEY_STATE)
   const [langSheetOpen, setLangSheetOpen] = useState(false)
   const speechifyValidationSeqRef = useRef(0)
   const elevenLabsValidationSeqRef = useRef(0)
@@ -140,12 +143,16 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
       setSettings(value)
       setSpeechifyKeyInput(value.appSettings.speechifyApiKey)
       setElevenLabsKeyInput(value.appSettings.elevenLabsApiKey)
+      setYoutubeKeyInput(value.appSettings.youtubeApiKey)
 
       if (value.appSettings.speechifyApiKey) {
         void validateSpeechifyKey(value.appSettings.speechifyApiKey, false)
       }
       if (value.appSettings.elevenLabsApiKey) {
         void validateElevenLabsKey(value.appSettings.elevenLabsApiKey, false)
+      }
+      if (value.appSettings.youtubeApiKey) {
+        setYoutubeValidation({ status: 'valid' })
       }
     })
 
@@ -176,6 +183,14 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
     : elevenLabsValidation.status === 'validating'
       ? elevenLabsValidation.message
       : undefined
+
+  // YouTube key não tem endpoint de validação público — salva direto no blur
+  async function saveYoutubeKey(rawKey: string) {
+    const trimmedKey = rawKey.trim()
+    setYoutubeKeyInput(trimmedKey)
+    await saveAppSettings({ youtubeApiKey: trimmedKey })
+    setYoutubeValidation(trimmedKey ? { status: 'valid' } : IDLE_KEY_STATE)
+  }
 
   function applyComfortableDefaults() {
     const currentFontFamily = settings?.readerDefaults.fontFamily ?? 'classic'
@@ -291,6 +306,43 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
             <ValidationBadge
               state={elevenLabsValidation}
               emptyLabel="Nao configurado"
+            />
+          </div>
+        </Section>
+
+        <Section title="Videos do Autor (YouTube)">
+          <p className="text-xs text-text-muted leading-relaxed mb-3">
+            Insira sua YouTube Data API v3 key para ver entrevistas, TED Talks e palestras
+            do autor na aba "Autor" de cada livro. Obtenha a key em console.cloud.google.com.
+          </p>
+
+          <Input
+            type={showYoutubeKey ? 'text' : 'password'}
+            value={youtubeKeyInput}
+            onChange={(event) => {
+              setYoutubeKeyInput(event.target.value)
+              setYoutubeValidation(IDLE_KEY_STATE)
+            }}
+            onBlur={() => void saveYoutubeKey(youtubeKeyInput)}
+            placeholder="AIza..."
+            autoComplete="off"
+            spellCheck={false}
+            rightSlot={(
+              <button
+                type="button"
+                onClick={() => setShowYoutubeKey((value) => !value)}
+                className="p-2 text-text-muted active:opacity-60"
+                aria-label={showYoutubeKey ? 'Ocultar key' : 'Mostrar key'}
+              >
+                {showYoutubeKey ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            )}
+          />
+
+          <div className="mt-3">
+            <ValidationBadge
+              state={youtubeValidation}
+              emptyLabel="Nao configurado - videos do autor nao serao exibidos"
             />
           </div>
         </Section>
