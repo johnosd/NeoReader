@@ -17,7 +17,9 @@ const BOOKMARK_ICON_LEFT = 4
 const BOOKMARK_ICON_WIDTH = 10
 const BOOKMARK_ICON_HEIGHT = 14
 const TAP_SLOP_PX = 12
-const EDGE_TAP_MAX_DRIFT_PX = 24
+const TOP_CHROME_TAP_ZONE_PX = 140
+const BOTTOM_CHROME_TAP_ZONE_PX = 156
+const CHROME_TAP_ZONE_MAX_VIEWPORT_RATIO = 0.28
 const RIGHT_CHROME_TAP_ZONE_MIN_PX = 48
 const RIGHT_CHROME_TAP_ZONE_MAX_PX = 72
 
@@ -136,6 +138,7 @@ function getSentenceFromClick(ev: MouseEvent, para: Element): string {
   // seria inserido no ponto (x, y) — disponível no Chrome/Android WebView
   const range = (ev.target as Element).ownerDocument?.caretRangeFromPoint?.(ev.clientX, ev.clientY)
   if (!range) return fullText
+  if (!para.contains(range.startContainer)) return fullText
 
   // Calcula o offset de char dentro do textContent completo do parágrafo.
   // O Range aponta para um nó de texto interno; precisamos somar os offsets
@@ -152,11 +155,37 @@ function getSentenceFromClick(ev: MouseEvent, para: Element): string {
   return getSentenceAt(fullText, charOffset)
 }
 
+function getDocumentViewportHeight(doc: Document): number {
+  return doc.defaultView?.innerHeight
+    || doc.documentElement.clientHeight
+    || doc.body?.clientHeight
+    || 0
+}
+
 function getDocumentViewportWidth(doc: Document): number {
   return doc.defaultView?.innerWidth
     || doc.documentElement.clientWidth
     || doc.body?.clientWidth
     || 0
+}
+
+function getVisibleChromeTapZoneSize(viewportHeight: number, preferredSize: number): number {
+  if (viewportHeight <= 0) return preferredSize
+
+  return Math.min(
+    preferredSize,
+    Math.round(viewportHeight * CHROME_TAP_ZONE_MAX_VIEWPORT_RATIO),
+  )
+}
+
+function isVisibleChromeTapZone(ev: MouseEvent, doc: Document): boolean {
+  const viewportHeight = getDocumentViewportHeight(doc)
+  const topZone = getVisibleChromeTapZoneSize(viewportHeight, TOP_CHROME_TAP_ZONE_PX)
+  const bottomZone = getVisibleChromeTapZoneSize(viewportHeight, BOTTOM_CHROME_TAP_ZONE_PX)
+
+  if (viewportHeight <= 0) return ev.clientY <= topZone
+
+  return ev.clientY <= topZone || ev.clientY >= viewportHeight - bottomZone
 }
 
 function isRightChromeTapZone(ev: MouseEvent, doc: Document): boolean {
@@ -731,11 +760,8 @@ interface EpubViewerProps {
   onError: (err: Error) => void
   // Chamado quando o usuário salva um par original/tradução via ⭐
   onSaveVocab: (sourceText: string, translatedText: string) => void
-  // Chamado quando o tap cai fora de qualquer parágrafo (margem, imagem),
-  // OU quando o chrome está visível e qualquer toque fecha os menus
+  // Chamado quando o tap cai nas zonas de menu ou fora da area de texto.
   onCenterTap: () => void
-  // Quando true, qualquer toque no iframe fecha o chrome em vez de acionar tradução/TTS.
-  // Resolve o problema de compositing do Android WebView que ignora z-index de overlays.
   chromeVisible: boolean
   // Tradução: emite o texto da frase tocada para o ReaderScreen traduzir e exibir
   // num painel React fora do iframe (evita problema de paginação no mobile)
@@ -810,9 +836,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const onTtsUserScrollAwayRef = useSyncRef(onTtsUserScrollAway)
     // ttsGlobalActive: modo leitura contínua ativo (inclui pausado) — gating do clique
     const ttsGlobalActiveRef = useSyncRef(ttsGlobalActive)
-    // chromeVisible: quando true, qualquer toque no iframe fecha o chrome imediatamente
     const chromeVisibleRef = useSyncRef(chromeVisible)
-
     // Navegação entre capítulos: detecta fundo visual + swipe para avançar
     const currentSectionIdxRef = useRef(0)
     const totalSectionsRef = useRef(1)
@@ -913,7 +937,79 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
     function getParagraphsFromDocument(doc: Document): Element[] {
       return Array.from(doc.querySelectorAll(BLOCK))
+        .filter((el) => !el.closest('#nr-translation-block'))
         .filter((el) => (el.textContent?.trim().length ?? 0) > 2)
+    }
+
+    function isReadableBlock(el: Element | null): el is HTMLElement {
+      return !!el && !el.closest('#nr-translation-block') && (el.textContent?.trim().length ?? 0) > 2
+    }
+
+    function findClosestReadableBlock(doc: Document, clientX: number, clientY: number): HTMLElement | null {
+      const blocks = getParagraphsFromDocument(doc) as HTMLElement[]
+      let closestBlock: HTMLElement | null = null
+      let closestDistance = Number.POSITIVE_INFINITY
+
+      for (const block of blocks) {
+        const rect = block.getBoundingClientRect()
+        const hasLayoutBox = rect.width > 0 || rect.height > 0
+        if (!hasLayoutBox) continue
+
+        const closestX = Math.max(rect.left, Math.min(clientX, rect.right))
+        const closestY = Math.max(rect.top, Math.min(clientY, rect.bottom))
+        const dx = clientX - closestX
+        const dy = clientY - closestY
+        const distance = Math.hypot(dx, dy)
+
+        if (distance < closestDistance) {
+          closestDistance = distance
+          closestBlock = block
+        }
+      }
+
+      return closestBlock
+    }
+
+    function getTapReadableBlock(target: Element, doc: Document, clientX: number, clientY: number): HTMLElement | null {
+      const directBlock = target.closest(BLOCK) as HTMLElement | null
+      if (isReadableBlock(directBlock)) return directBlock
+
+      return findClosestReadableBlock(doc, clientX, clientY)
+    }
+
+    function isPointInsideElement(element: Element, clientX: number, clientY: number): boolean {
+      const rect = element.getBoundingClientRect()
+      if (rect.width <= 0 || rect.height <= 0) return false
+
+      return (
+        clientX >= rect.left &&
+        clientX <= rect.right &&
+        clientY >= rect.top &&
+        clientY <= rect.bottom
+      )
+    }
+
+    function getElementFromPoint(doc: Document, clientX: number, clientY: number): Element | null {
+      return doc.elementFromPoint?.(clientX, clientY) ?? null
+    }
+
+    function getTranslationActionAtPoint(target: Element, doc: Document, clientX: number, clientY: number): HTMLElement | null {
+      const directAction = target.closest('[data-nr-action]') as HTMLElement | null
+      if (directAction) return directAction
+
+      const hitAction = getElementFromPoint(doc, clientX, clientY)?.closest('[data-nr-action]') as HTMLElement | null
+      if (hitAction) return hitAction
+
+      return Array.from(doc.querySelectorAll<HTMLElement>('#nr-translation-block [data-nr-action]'))
+        .find((button) => isPointInsideElement(button, clientX, clientY)) ?? null
+    }
+
+    function isTranslationBlockTap(target: Element, doc: Document, clientX: number, clientY: number): boolean {
+      if (target.closest('#nr-translation-block')) return true
+      if (getElementFromPoint(doc, clientX, clientY)?.closest('#nr-translation-block')) return true
+
+      const block = doc.getElementById('nr-translation-block')
+      return !!block && isPointInsideElement(block, clientX, clientY)
     }
 
     function unwrapElementPreservingChildren(el: Element): void {
@@ -1749,18 +1845,15 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           let touchStartY = 0
           let touchStartX = 0
           let didScroll = false
-          let touchMoveDistance = 0
           doc.addEventListener('touchstart', (ev: TouchEvent) => {
             touchStartY = ev.touches[0].clientY
             touchStartX = ev.touches[0].clientX
             didScroll = false
-            touchMoveDistance = 0
           }, { passive: true })
           doc.addEventListener('touchmove', (ev: TouchEvent) => {
             // Tap slop: tolera um pequeno deslocamento do dedo sem transformar tap em scroll.
             const dy = Math.abs(ev.touches[0].clientY - touchStartY)
             const dx = Math.abs(ev.touches[0].clientX - touchStartX)
-            touchMoveDistance = Math.max(touchMoveDistance, dx, dy)
             if (dy > TAP_SLOP_PX || dx > TAP_SLOP_PX) didScroll = true
           }, { passive: true })
           doc.addEventListener('touchend', () => {}, { passive: true })
@@ -1769,42 +1862,15 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             // Ignora clicks que são resíduo de um gesto de scroll
             const target = ev.target instanceof Element ? ev.target : doc.documentElement
             const ownerDocument = target.ownerDocument ?? doc
-            const rightChromeTap = isRightChromeTapZone(ev, ownerDocument)
 
-            if (didScroll && (!rightChromeTap || touchMoveDistance > EDGE_TAP_MAX_DRIFT_PX)) return
+            if (didScroll) return
 
-            // Chrome visível: qualquer toque fecha os menus sem acionar tradução/TTS.
-            // Solução para o Android WebView que ignora z-index de overlays React
-            // e entrega o toque diretamente ao iframe (camada de composição separada).
-            if (chromeVisibleRef.current) {
-              onCenterTapRef.current()
-              return
-            }
-
-            const targetSectionIndex = getSectionIndexForDocument(target.ownerDocument)
-            if (targetSectionIndex != null) {
-              const activeSection = activateSection(targetSectionIndex)
-              if (activeSection?.doc) setupScrollTracking(activeSection.doc)
-            }
-            const para = target.closest(BLOCK) as HTMLElement | null
-            if (para?.hasAttribute('data-nr-bookmark') && para.dataset.nrBookmarkId) {
-              const rect = para.getBoundingClientRect()
-              const clickedBookmarkIcon =
-                ev.clientX >= rect.left &&
-                ev.clientX <= rect.left + BOOKMARK_ICON_GUTTER &&
-                ev.clientY >= rect.top &&
-                ev.clientY <= rect.top + Math.max(BOOKMARK_ICON_HEIGHT + 8, 24)
-
-              if (clickedBookmarkIcon) {
-                const bookmarkId = Number(para.dataset.nrBookmarkId)
-                if (Number.isFinite(bookmarkId)) onBookmarkTapRef.current?.(bookmarkId)
-                return
-              }
-            }
-
-            // Intercepta botões Ouvir/Salvar dentro do bloco de tradução inline
-            const actionBtn = target.closest('[data-nr-action]') as HTMLElement | null
+            // Botoes do bloco inline tem prioridade sobre zonas de menu e selecao
+            // de paragrafo.
+            const actionBtn = getTranslationActionAtPoint(target, ownerDocument, ev.clientX, ev.clientY)
             if (actionBtn) {
+              ev.preventDefault()
+              ev.stopPropagation()
               const action = actionBtn.dataset.nrAction
               if (action === 'speak') {
                 onSpeakOneRef.current(activeSourceTextRef.current)
@@ -1821,7 +1887,6 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
                 }
               } else if (action === 'save' && activeTranslatedTextRef.current) {
                 onSaveVocabRef.current(activeSourceTextRef.current, activeTranslatedTextRef.current)
-                // Feedback visual temporário no botão
                 setTranslationActionLabel(actionBtn, 'Salvo')
                 actionBtn.dataset.nrFlash = '1'
                 setTimeout(() => {
@@ -1834,14 +1899,41 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               return
             }
 
-            // Tap fora de parágrafo → toggle do chrome
-            if (rightChromeTap) {
+            if (isTranslationBlockTap(target, ownerDocument, ev.clientX, ev.clientY)) return
+
+            if (isVisibleChromeTapZone(ev, ownerDocument) || isRightChromeTapZone(ev, ownerDocument)) {
               onCenterTapRef.current()
               return
             }
 
-            if (!para || (para.textContent?.trim() ?? '').length < 3) {
-              onCenterTapRef.current()
+            const targetSectionIndex = getSectionIndexForDocument(target.ownerDocument)
+            if (targetSectionIndex != null) {
+              const activeSection = activateSection(targetSectionIndex)
+              if (activeSection?.doc) setupScrollTracking(activeSection.doc)
+            }
+            const para = getTapReadableBlock(target, ownerDocument, ev.clientX, ev.clientY)
+
+            if (para?.hasAttribute('data-nr-bookmark') && para.dataset.nrBookmarkId) {
+              const rect = para.getBoundingClientRect()
+              const clickedBookmarkIcon =
+                ev.clientX >= rect.left &&
+                ev.clientX <= rect.left + BOOKMARK_ICON_GUTTER &&
+                ev.clientY >= rect.top &&
+                ev.clientY <= rect.top + Math.max(BOOKMARK_ICON_HEIGHT + 8, 24)
+
+              if (clickedBookmarkIcon) {
+                const bookmarkId = Number(para.dataset.nrBookmarkId)
+                if (Number.isFinite(bookmarkId)) onBookmarkTapRef.current?.(bookmarkId)
+                return
+              }
+            }
+
+            // Tap no texto com o chrome aberto fecha os menus e continua a acao.
+            if (chromeVisibleRef.current) onCenterTapRef.current()
+
+            // Tap fora da area de texto e das zonas de menu alterna o chrome.
+            if (!para) {
+              if (!chromeVisibleRef.current) onCenterTapRef.current()
               return
             }
 
