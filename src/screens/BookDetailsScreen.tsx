@@ -4,6 +4,7 @@ import { ArrowLeft, Star, ChevronRight, ChevronDown, Globe, Calendar, HardDrive,
 import { useLiveQuery } from 'dexie-react-hooks'
 import { App as CapApp } from '@capacitor/app'
 import { Badge, BottomSheet, Button, EmptyState, ListItem, Spinner } from '../components/ui'
+import { AuthorTab } from '../components/AuthorTab'
 import { db } from '../db/database'
 import { toggleFavorite } from '../db/books'
 import { softDeleteBookmark } from '../db/bookmarks'
@@ -44,13 +45,14 @@ interface BookDetailsScreenProps {
   onOpenSettings: () => void
 }
 
-type Tab = 'chapters' | 'bookmarks' | 'settings' | 'details'
+type Tab = 'chapters' | 'bookmarks' | 'settings' | 'details' | 'autor'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'chapters', label: 'Capitulos' },
   { id: 'bookmarks', label: 'Marcacoes' },
   { id: 'settings', label: 'Configuracoes' },
   { id: 'details', label: 'Detalhes' },
+  { id: 'autor', label: 'Autor' },
 ]
 
 const TTS_PROVIDERS: Array<{ value: TtsProvider; label: string }> = [
@@ -971,6 +973,14 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
                   divider={false}
                 />
               </div>
+            )}
+
+            {activeTab === 'autor' && (
+              <AuthorTab
+                book={liveBook}
+                youtubeApiKey={appSettings.youtubeApiKey}
+                onOpenSettings={onOpenSettings}
+              />
             )}
           </div>
         </div>
