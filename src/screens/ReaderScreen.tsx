@@ -15,12 +15,11 @@ import { BottomSheet } from '../components/ui'
 import { useReaderProgress } from '../hooks/useReaderProgress'
 import { useReaderStore } from '../store/readerStore'
 import { useTtsSleepTimer } from '../hooks/useTtsSleepTimer'
+import { useReaderAppearance } from '../hooks/useReaderAppearance'
 import type { ProgressSavePayload } from '../db/progress'
 import { updateLastOpened } from '../db/books'
 import { addBookmark, restoreBookmark, softDeleteBookmark, updateBookmarkColor } from '../db/bookmarks'
 import { addVocabItem } from '../db/vocabulary'
-import { getSettings } from '../db/settings'
-import { getBookSettings, updateBookSettings } from '../db/bookSettings'
 import { db } from '../db/database'
 import { useTTS } from '../hooks/useTTS'
 import { TtsMiniPlayer, type TtsSleepTimerOption } from '../components/reader/TtsMiniPlayer'
@@ -30,17 +29,13 @@ import {
   ReaderLineHeightControl,
   ReaderModeControl,
   ReaderThemeControl,
-  type ReaderStyleMode,
 } from '../components/reader/ReaderAppearanceControls'
 import { translate } from '../services/TranslationService'
-import { EpubService } from '../services/EpubService'
 import type { Book } from '../types/book'
-import type { FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from '../types/settings'
-import type { TtsPlaybackConfig, TtsProvider } from '../types/tts'
+import type { TtsProvider } from '../types/tts'
 import { areCfisEquivalent, isCfiInLocation, normalizeCfi } from '../utils/cfi'
 import { areTocHrefDocumentSuffixesEqual } from '../utils/toc'
 import { getReaderThemePalette } from '../utils/readerPreferences'
-import { clampTtsRate, normalizeLanguageTag } from '../utils/language'
 
 function normalizeReaderHref(href?: string | null) {
   if (!href) return null
@@ -146,20 +141,20 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   const [tocOpen, setTocOpen] = useState(false)
   const [bookmarkSheetOpen, setBookmarkSheetOpen] = useState(false)
   const [appearanceSheetOpen, setAppearanceSheetOpen] = useState(false)
-  const [fontSize, setFontSize] = useState<FontSize>('md')
-  const [lineHeight, setLineHeight] = useState<ReaderLineHeight>('comfortable')
-  const [readerTheme, setReaderTheme] = useState<ReaderTheme>('dark')
-  const [fontFamily, setFontFamily] = useState<ReaderFontFamily>('classic')
-  const [overrideBookFont, setOverrideBookFont] = useState(true)
-  const [overrideBookColors, setOverrideBookColors] = useState(true)
-  const [bookLanguage, setBookLanguage] = useState('en')
-  const [translationTargetLang, setTranslationTargetLang] = useState('pt-BR')
-  const [ttsConfig, setTtsConfig] = useState<TtsPlaybackConfig>({
-    provider: 'native',
-    language: 'en',
-    rate: 1,
-  })
-  const [ttsEngine, setTtsEngine] = useState<TtsProvider>('native')
+  const {
+    fontSize,
+    lineHeight,
+    readerTheme,
+    fontFamily,
+    overrideBookFont,
+    overrideBookColors,
+    bookLanguage,
+    translationTargetLang,
+    ttsConfig,
+    ttsEngine,
+    applyAppearancePatch,
+    handleReaderStyleModeChange,
+  } = useReaderAppearance(book)
   const loadingStateKey = `${book.id ?? 'unknown'}::${startHref ?? ''}`
   const [loadingState, setLoadingState] = useState({ key: loadingStateKey, isLoading: true })
   const isLoading = loadingState.key === loadingStateKey ? loadingState.isLoading : true
@@ -290,46 +285,6 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     if (book.id !== undefined) updateLastOpened(book.id)
   }, [book.id])
 
-  function resolveBookLanguage(candidate?: string | null): string {
-    return normalizeLanguageTag(candidate, 'en')
-  }
-
-  function resolveTtsProvider(selectedProvider: TtsProvider, settings: Awaited<ReturnType<typeof getSettings>>['appSettings']): TtsProvider {
-    if (selectedProvider === 'speechify') {
-      return settings.speechifyApiKey ? 'speechify' : 'native'
-    }
-    if (selectedProvider === 'elevenlabs') {
-      return settings.elevenLabsApiKey ? 'elevenlabs' : 'native'
-    }
-    return 'native'
-  }
-
-  // Carrega preferências: fonte por livro (override) > fonte global > padrão
-  useEffect(() => {
-    void Promise.all([getSettings(), getBookSettings(book.id!), EpubService.parseExtras(book.fileBlob)]).then(([s, bs, extras]) => {
-      const resolvedBookLanguage = resolveBookLanguage(bs.bookLanguage ?? extras.language)
-      const selectedProvider = bs.ttsProvider ?? 'speechify'
-      const resolvedFontFamily = bs.fontFamily ?? s.readerDefaults.fontFamily
-
-      setFontSize(bs.fontSize ?? s.readerDefaults.defaultFontSize)
-      setLineHeight(bs.lineHeight ?? s.readerDefaults.lineHeight)
-      setReaderTheme(bs.readerTheme ?? s.readerDefaults.readerTheme)
-      setFontFamily(resolvedFontFamily)
-      setOverrideBookFont(bs.overrideBookFont ?? (bs.fontFamily ? resolvedFontFamily !== 'publisher' : s.readerDefaults.overrideBookFont))
-      setOverrideBookColors(bs.overrideBookColors ?? s.readerDefaults.overrideBookColors)
-      setBookLanguage(resolvedBookLanguage)
-      setTranslationTargetLang(bs.translationTargetLang ?? s.appSettings.translationTargetLang)
-      setTtsConfig({
-        provider: selectedProvider,
-        language: resolvedBookLanguage,
-        rate: clampTtsRate(bs.ttsRate ?? 1),
-        speechifyVoiceId: bs.ttsSpeechifyVoiceId,
-        elevenLabsVoiceId: bs.ttsElevenLabsVoiceId,
-        nativeVoiceKey: bs.ttsNativeVoiceKey,
-      })
-      setTtsEngine(resolveTtsProvider(selectedProvider, s.appSettings))
-    })
-  }, [book.fileBlob, book.id])
 
   // TTS: gerencia estado e sequenciamento de audiobook
   const tts = useTTS({
@@ -747,40 +702,6 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     setChromeVisible((v) => {
       if (!v) resetAutoHide()  // ao abrir: inicia timer para fechar automaticamente
       return !v
-    })
-  }
-
-  function applyAppearancePatch(patch: {
-    fontSize?: FontSize
-    lineHeight?: ReaderLineHeight
-    readerTheme?: ReaderTheme
-    fontFamily?: ReaderFontFamily
-    overrideBookFont?: boolean
-    overrideBookColors?: boolean
-  }) {
-    if (patch.fontSize) setFontSize(patch.fontSize)
-    if (patch.lineHeight) setLineHeight(patch.lineHeight)
-    if (patch.readerTheme) setReaderTheme(patch.readerTheme)
-    if (patch.fontFamily) setFontFamily(patch.fontFamily)
-    if (patch.overrideBookFont !== undefined) setOverrideBookFont(patch.overrideBookFont)
-    if (patch.overrideBookColors !== undefined) setOverrideBookColors(patch.overrideBookColors)
-    void updateBookSettings(book.id!, patch)
-  }
-
-  function handleReaderStyleModeChange(mode: ReaderStyleMode) {
-    if (mode === 'original') {
-      applyAppearancePatch({
-        fontFamily: 'publisher',
-        overrideBookFont: false,
-        overrideBookColors: false,
-      })
-      return
-    }
-
-    applyAppearancePatch({
-      fontFamily: fontFamily === 'publisher' ? 'classic' : fontFamily,
-      overrideBookFont: true,
-      overrideBookColors: true,
     })
   }
 
