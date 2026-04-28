@@ -1034,26 +1034,6 @@ export class EpubService {
   //   a) um ID de manifest: content="cover-image" → busca <item id="cover-image" href="..."/>
   //   b) um path direto:    content="Images/cover.png" → usa como href diretamente
   //   (O'Reilly usa a variante (b), a maioria dos EPUBs usa (a))
-  private static extractCoverFromMeta(
-    opfXml: string,
-    manifestItems: ManifestItem[] = this.extractManifestItems(opfXml),
-  ): string | null {
-    const content = Array.from(opfXml.matchAll(/<meta\b([\s\S]*?)\/?>/gi))
-      .map(([, rawAttrs]) => this.parseXmlAttributes(rawAttrs))
-      .find((attrs) => attrs.name?.toLowerCase() === 'cover')
-      ?.content
-
-    if (!content) return null
-
-    // Se o content parece um path de arquivo (tem extensão), usa diretamente
-    if (/\.[a-z0-9]{2,5}(?:[#?].*)?$/i.test(content)) return content
-
-    // Caso contrário, trata como ID de manifest e busca o href correspondente
-    return manifestItems.find((item) => item.id === content)?.href
-      ?? manifestItems.find((item) => item.id?.toLowerCase() === content.toLowerCase())?.href
-      ?? null
-  }
-
   private static extractCoverHrefsFromMeta(
     opfXml: string,
     manifestItems: ManifestItem[] = this.extractManifestItems(opfXml),
