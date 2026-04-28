@@ -14,6 +14,7 @@ import { BookmarkSheet } from '../components/reader/BookmarkSheet'
 import { BottomSheet } from '../components/ui'
 import { useReaderProgress } from '../hooks/useReaderProgress'
 import { useReaderStore } from '../store/readerStore'
+import { useTtsSleepTimer } from '../hooks/useTtsSleepTimer'
 import type { ProgressSavePayload } from '../db/progress'
 import { updateLastOpened } from '../db/books'
 import { addBookmark, restoreBookmark, softDeleteBookmark, updateBookmarkColor } from '../db/bookmarks'
@@ -130,9 +131,6 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   const startNavigationFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const ttsAdvancePendingRef = useRef(false)
   const ttsAutoAdvanceSkipCountRef = useRef(0)
-  const ttsSleepTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const ttsSleepIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const ttsSleepDeadlineRef = useRef<number | null>(null)
   const currentTtsParaIdxRef = useRef(0)
 
   // ── Estado local ────────────────────────────────────────────────────────────
@@ -143,8 +141,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   const [ttsProviderFallback, setTtsProviderFallback] = useState<{ provider: TtsProvider } | null>(null)
   // Controla visibilidade do mini player — true do início até o usuário apertar ⏹
   const [ttsPlayerVisible, setTtsPlayerVisible] = useState(false)
-  const [ttsSleepTimerValue, setTtsSleepTimerValue] = useState('off')
-  const [ttsSleepRemainingSeconds, setTtsSleepRemainingSeconds] = useState<number | null>(null)
+  const { sleepTimerValue: ttsSleepTimerValue, sleepRemainingSeconds: ttsSleepRemainingSeconds, handleSleepTimerChange: handleTtsSleepTimerChange_hook, resetSleepTimer: resetTtsSleepTimer } = useTtsSleepTimer()
   const [showBackToTtsLocation, setShowBackToTtsLocation] = useState(false)
   const [tocOpen, setTocOpen] = useState(false)
   const [bookmarkSheetOpen, setBookmarkSheetOpen] = useState(false)
@@ -230,24 +227,6 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     autoHideTimerRef.current = setTimeout(() => setChromeVisible(false), 2500)
   }, [])
 
-  const clearTtsSleepTimerHandles = useCallback(() => {
-    if (ttsSleepTimeoutRef.current) {
-      clearTimeout(ttsSleepTimeoutRef.current)
-      ttsSleepTimeoutRef.current = null
-    }
-    if (ttsSleepIntervalRef.current) {
-      clearInterval(ttsSleepIntervalRef.current)
-      ttsSleepIntervalRef.current = null
-    }
-    ttsSleepDeadlineRef.current = null
-  }, [])
-
-  const resetTtsSleepTimer = useCallback(() => {
-    clearTtsSleepTimerHandles()
-    setTtsSleepTimerValue('off')
-    setTtsSleepRemainingSeconds(null)
-  }, [clearTtsSleepTimerHandles])
-
   // Inicia o timer assim que o leitor monta
   useEffect(() => {
     resetAutoHide()
@@ -255,9 +234,9 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
       if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current)
       if (sectionChangeTimerRef.current) clearTimeout(sectionChangeTimerRef.current)
       clearStartNavigationFallbackTimer()
-      clearTtsSleepTimerHandles()
+      // sleep timer cleanup é responsabilidade do useTtsSleepTimer
     }
-  }, [clearStartNavigationFallbackTimer, clearTtsSleepTimerHandles, resetAutoHide])
+  }, [clearStartNavigationFallbackTimer, resetAutoHide])
 
 
   // Estado global compartilhado (Zustand)
@@ -383,33 +362,9 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     },
   })
 
-  // Helpers para obter chunks e iniciar play — reutilizados por toggle, prev, next
+  // Wrapper: adapta a assinatura do hook (value, onExpire) para o TtsMiniPlayer (value)
   function handleTtsSleepTimerChange(value: string) {
-    const option = TTS_SLEEP_TIMER_OPTIONS.find((item) => item.value === value)
-    const seconds = option && option.value !== 'off' ? Number(option.value) : null
-
-    clearTtsSleepTimerHandles()
-
-    if (!seconds || !Number.isFinite(seconds)) {
-      setTtsSleepTimerValue('off')
-      setTtsSleepRemainingSeconds(null)
-      return
-    }
-
-    setTtsSleepTimerValue(value)
-    setTtsSleepRemainingSeconds(seconds)
-    ttsSleepDeadlineRef.current = Date.now() + seconds * 1000
-
-    ttsSleepIntervalRef.current = setInterval(() => {
-      if (!ttsSleepDeadlineRef.current) return
-      const remaining = Math.max(0, Math.ceil((ttsSleepDeadlineRef.current - Date.now()) / 1000))
-      setTtsSleepRemainingSeconds(remaining)
-    }, 1000)
-
-    ttsSleepTimeoutRef.current = setTimeout(() => {
-      clearTtsSleepTimerHandles()
-      setTtsSleepTimerValue('off')
-      setTtsSleepRemainingSeconds(null)
+    handleTtsSleepTimerChange_hook(value, () => {
       ttsAdvancePendingRef.current = false
       ttsAutoAdvanceSkipCountRef.current = 0
       void tts.stop()
@@ -419,7 +374,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
       setTtsFallbackNotice(null)
       setTtsProviderFallback(null)
       setTtsFinished(false)
-    }, seconds * 1000)
+    })
   }
 
   function getTtsChunks() {
