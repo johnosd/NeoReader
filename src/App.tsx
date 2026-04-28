@@ -4,6 +4,7 @@ import { BookDetailsScreen } from './screens/BookDetailsScreen'
 import { ReaderScreen } from './screens/ReaderScreen'
 import { VocabularyScreen } from './screens/VocabularyScreen'
 import { SettingsScreen } from './screens/SettingsScreen'
+import { ErrorBoundary } from './components/ui'
 import type { Book } from './types/book'
 
 type Screen = 'library' | 'book-details' | 'reader' | 'vocabulary' | 'settings'
@@ -33,40 +34,54 @@ function App() {
 
   if (screen === 'book-details' && selectedBook) {
     return (
-      <BookDetailsScreen
-        book={selectedBook}
-        onBack={() => setScreen('library')}
-        onRead={handleOpenReader}
-        onOpenSettings={() => handleOpenSettings('book-details')}
-      />
+      <ErrorBoundary key="book-details">
+        <BookDetailsScreen
+          book={selectedBook}
+          onBack={() => setScreen('library')}
+          onRead={handleOpenReader}
+          onOpenSettings={() => handleOpenSettings('book-details')}
+        />
+      </ErrorBoundary>
     )
   }
 
   if (screen === 'reader' && selectedBook) {
     return (
-      <ReaderScreen
-        book={selectedBook}
-        startHref={readerStartHref}
-        onBack={() => setScreen('book-details')}
-        onOpenVocabulary={() => setScreen('vocabulary')}
-      />
+      <ErrorBoundary key="reader">
+        <ReaderScreen
+          book={selectedBook}
+          startHref={readerStartHref}
+          onBack={() => setScreen('book-details')}
+          onOpenVocabulary={() => setScreen('vocabulary')}
+        />
+      </ErrorBoundary>
     )
   }
 
   if (screen === 'vocabulary') {
-    return <VocabularyScreen onBack={() => setScreen('library')} />
+    return (
+      <ErrorBoundary key="vocabulary">
+        <VocabularyScreen onBack={() => setScreen('library')} />
+      </ErrorBoundary>
+    )
   }
 
   if (screen === 'settings') {
-    return <SettingsScreen onBack={() => setScreen(settingsReturnScreen)} />
+    return (
+      <ErrorBoundary key="settings">
+        <SettingsScreen onBack={() => setScreen(settingsReturnScreen)} />
+      </ErrorBoundary>
+    )
   }
 
   return (
-    <LibraryScreen
-      onOpenBook={handleOpenBookDetails}
-      onOpenVocabulary={() => setScreen('vocabulary')}
-      onOpenSettings={() => handleOpenSettings('library')}
-    />
+    <ErrorBoundary key="library">
+      <LibraryScreen
+        onOpenBook={handleOpenBookDetails}
+        onOpenVocabulary={() => setScreen('vocabulary')}
+        onOpenSettings={() => handleOpenSettings('library')}
+      />
+    </ErrorBoundary>
   )
 }
 
