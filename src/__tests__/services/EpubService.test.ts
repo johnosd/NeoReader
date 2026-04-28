@@ -382,3 +382,78 @@ describe('EpubService.parseExtras - toc extraction', () => {
     ])
   })
 })
+
+describe('EpubService.parseExtras - cache de sessão', () => {
+  const MINIMAL_EPUB = makeEpubFiles('package.opf', makeOpf(''), {})
+
+  beforeEach(() => {
+    fflateState.files = MINIMAL_EPUB
+  })
+
+  it('retorna o mesmo resultado sem reprocessar o ZIP na segunda chamada', async () => {
+    const bookId = 9001
+    EpubService.invalidateExtrasCache(bookId)
+
+    const arrayBuffer = vi.fn().mockResolvedValue(new ArrayBuffer(0))
+    const blob = { arrayBuffer } as unknown as Blob
+
+    await EpubService.parseExtras(blob, bookId)
+    await EpubService.parseExtras(blob, bookId)
+
+    // arrayBuffer é chamado apenas na primeira — segunda vem do cache
+    expect(arrayBuffer).toHaveBeenCalledTimes(1)
+  })
+
+  it('processa o ZIP separadamente para bookIds diferentes', async () => {
+    EpubService.invalidateExtrasCache(9002)
+    EpubService.invalidateExtrasCache(9003)
+
+    const arrayBuffer = vi.fn().mockResolvedValue(new ArrayBuffer(0))
+    const blob = { arrayBuffer } as unknown as Blob
+
+    await EpubService.parseExtras(blob, 9002)
+    await EpubService.parseExtras(blob, 9003)
+
+    expect(arrayBuffer).toHaveBeenCalledTimes(2)
+  })
+
+  it('sem bookId nunca usa cache — cada chamada processa o ZIP', async () => {
+    const arrayBuffer = vi.fn().mockResolvedValue(new ArrayBuffer(0))
+    const blob = { arrayBuffer } as unknown as Blob
+
+    await EpubService.parseExtras(blob)
+    await EpubService.parseExtras(blob)
+
+    expect(arrayBuffer).toHaveBeenCalledTimes(2)
+  })
+
+  it('invalidateExtrasCache força reprocessamento na próxima chamada', async () => {
+    const bookId = 9004
+    EpubService.invalidateExtrasCache(bookId)
+
+    const arrayBuffer = vi.fn().mockResolvedValue(new ArrayBuffer(0))
+    const blob = { arrayBuffer } as unknown as Blob
+
+    await EpubService.parseExtras(blob, bookId)
+    EpubService.invalidateExtrasCache(bookId)
+    await EpubService.parseExtras(blob, bookId)
+
+    expect(arrayBuffer).toHaveBeenCalledTimes(2)
+  })
+
+  it('chamadas simultâneas com mesmo bookId disparam apenas um unzip', async () => {
+    const bookId = 9005
+    EpubService.invalidateExtrasCache(bookId)
+
+    const arrayBuffer = vi.fn().mockResolvedValue(new ArrayBuffer(0))
+    const blob = { arrayBuffer } as unknown as Blob
+
+    // Dispara as duas sem await intermediário
+    await Promise.all([
+      EpubService.parseExtras(blob, bookId),
+      EpubService.parseExtras(blob, bookId),
+    ])
+
+    expect(arrayBuffer).toHaveBeenCalledTimes(1)
+  })
+})
