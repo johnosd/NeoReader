@@ -49,6 +49,14 @@ const EMPTY_EPUB_EXTRAS: EpubExtras = {
 // EPUB é um ZIP. Esse serviço abre o ZIP e extrai os metadados do OPF.
 // Fluxo: container.xml → caminho do .opf → title/author/cover
 export class EpubService {
+  // Cache de sessão: evita recomprimir o mesmo EPUB quando BookDetailsScreen remonta.
+  // Map<bookId, Promise> — a Promise garante que chamadas simultâneas não disparem 2 unzips.
+  private static extrasCache = new Map<number, Promise<EpubExtras>>()
+
+  static invalidateExtrasCache(bookId: number): void {
+    EpubService.extrasCache.delete(bookId)
+  }
+
   static async parseMetadata(file: File): Promise<EpubMetadata> {
     const buffer = await file.arrayBuffer()
     const uint8 = new Uint8Array(buffer)
@@ -83,7 +91,21 @@ export class EpubService {
 
   // Extrai campos adicionais do EPUB para a tela de detalhes (descrição, idioma, capítulos).
   // Aceita Blob porque book.fileBlob está tipado como Blob (não File).
-  static async parseExtras(fileBlob: Blob): Promise<EpubExtras> {
+  // bookId opcional: quando fornecido, armazena o resultado em cache para reutilizar
+  // sem recomprimir o ZIP a cada vez que BookDetailsScreen remonta.
+  static async parseExtras(fileBlob: Blob, bookId?: number): Promise<EpubExtras> {
+    if (bookId !== undefined) {
+      let cached = EpubService.extrasCache.get(bookId)
+      if (!cached) {
+        cached = EpubService._parseExtrasInternal(fileBlob)
+        EpubService.extrasCache.set(bookId, cached)
+      }
+      return cached
+    }
+    return EpubService._parseExtrasInternal(fileBlob)
+  }
+
+  private static async _parseExtrasInternal(fileBlob: Blob): Promise<EpubExtras> {
     try {
       const buffer = await fileBlob.arrayBuffer()
       const uint8 = new Uint8Array(buffer)
