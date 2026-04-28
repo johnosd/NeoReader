@@ -53,7 +53,16 @@
       "Bash(node ./node_modules/typescript/bin/tsc --noEmit)",
       "Bash(cmd /c \"npx tsc --noEmit && echo OK_NO_ERRORS || echo ERRORS_FOUND\")",
       "Bash(node scripts/run-debug-epub-tests.mjs)",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Bash(python -c \"from PIL import Image; img = Image.open\\('assets/logo-playstore.png'\\); print\\(img.size, img.mode\\)\")",
+      "Bash(powershell -command 'Add-Type -AssemblyName System.Drawing; $img = [System.Drawing.Image]::FromFile\\('\\\\''assets\\\\logo-playstore.png'\\\\''\\); Write-Host $img.Width $img.Height')",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\({**d.get\\('dependencies',{}\\), **d.get\\('devDependencies',{}\\)}, indent=2\\)\\)\")",
+      "Bash(npx capacitor-assets *)",
+      "Bash(node ./node_modules/@capacitor/assets/dist/index.js generate --android)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(tee /tmp/cap_assets_log.txt)",
+      "Bash(echo \"---EXIT $?\")",
+      "Bash(node node_modules/@capacitor/assets/bin/capacitor-assets generate --android)"
     ]
   }
 }
