@@ -16,6 +16,7 @@ import { useReaderProgress } from '../hooks/useReaderProgress'
 import { useReaderStore } from '../store/readerStore'
 import { useTtsSleepTimer } from '../hooks/useTtsSleepTimer'
 import { useReaderAppearance } from '../hooks/useReaderAppearance'
+import { useChromeAutoHide } from '../hooks/useChromeAutoHide'
 import type { ProgressSavePayload } from '../db/progress'
 import { updateLastOpened } from '../db/books'
 import { addBookmark, restoreBookmark, softDeleteBookmark, updateBookmarkColor } from '../db/bookmarks'
@@ -129,8 +130,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   const currentTtsParaIdxRef = useRef(0)
 
   // ── Estado local ────────────────────────────────────────────────────────────
-  // Começa visível: dá orientação inicial ao usuário, depois some automaticamente (auto-hide).
-  const [chromeVisible, setChromeVisible] = useState(true)
+  const { chromeVisible, setChromeVisible, resetAutoHide, handleCenterTap } = useChromeAutoHide()
   const [ttsFinished, setTtsFinished] = useState(false)
   const [ttsFallbackNotice, setTtsFallbackNotice] = useState<{ provider: TtsProvider } | null>(null)
   const [ttsProviderFallback, setTtsProviderFallback] = useState<{ provider: TtsProvider } | null>(null)
@@ -211,25 +211,13 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     }, START_NAVIGATION_FALLBACK_MS)
   }, [clearStartNavigationFallbackTimer, setCurrentLoading])
 
-  // ── Auto-hide do chrome ──────────────────────────────────────────────────────
-  // useRef para o timer: persiste entre renders sem causar re-render.
-  const autoHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  // Reinicia o countdown. Chamado na montagem e em cada interação com o chrome.
-  // useCallback com [] → função estável, pode ser usada em deps de useEffect.
-  const resetAutoHide = useCallback(() => {
-    if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current)
-    autoHideTimerRef.current = setTimeout(() => setChromeVisible(false), 2500)
-  }, [])
-
-  // Inicia o timer assim que o leitor monta
+  // Inicia o auto-hide assim que o leitor monta
   useEffect(() => {
     resetAutoHide()
     return () => {
-      if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current)
       if (sectionChangeTimerRef.current) clearTimeout(sectionChangeTimerRef.current)
       clearStartNavigationFallbackTimer()
-      // sleep timer cleanup é responsabilidade do useTtsSleepTimer
+      // auto-hide e sleep timer cleanup são responsabilidade dos hooks respectivos
     }
   }, [clearStartNavigationFallbackTimer, resetAutoHide])
 
@@ -694,15 +682,6 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
 
   function handleParagraphBookmark(payload: ParagraphBookmarkPayload) {
     toggleBookmarkAtLocation(payload)
-  }
-
-  // Toggle chrome: chamado pelo EpubViewer em qualquer toque (chrome aberto fecha imediatamente)
-  // ou quando tap cai fora de parágrafo (chrome fechado abre e inicia auto-hide)
-  function handleCenterTap() {
-    setChromeVisible((v) => {
-      if (!v) resetAutoHide()  // ao abrir: inicia timer para fechar automaticamente
-      return !v
-    })
   }
 
   // Aguarda o load do IndexedDB antes de montar o EpubViewer
