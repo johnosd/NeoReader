@@ -18,6 +18,17 @@ interface GuideReference {
   href: string
 }
 
+interface SpineDocument {
+  href: string
+  path: string
+  label: string
+}
+
+interface TocResolution {
+  index: number
+  path: string
+}
+
 export type EpubStyleIssue =
   | 'hardcoded-text-color'
   | 'hardcoded-background-color'
@@ -80,11 +91,11 @@ export class EpubService {
     const opfXml = this.readFileAsText(files, opfPath)
     if (!opfXml) throw new Error(`EPUB inválido: OPF não encontrado em ${opfPath}`)
 
-    const title = this.extractTag(opfXml, 'dc:title') ?? file.name.replace('.epub', '')
-    const author = this.extractTag(opfXml, 'dc:creator') ?? 'Autor desconhecido'
+    const title = this.extractXmlTextByLocalName(opfXml, 'title') ?? file.name.replace('.epub', '')
+    const author = this.extractXmlTextByLocalName(opfXml, 'creator') ?? 'Autor desconhecido'
 
     // 3. Extrair capa (opcional — muitos EPUBs não têm)
-    const coverBlob = this.extractCover(opfXml, opfPath, files)
+    const coverBlob = this.extractCover(opfXml, opfPath, files, title, author)
 
     return { title, author, coverBlob }
   }
@@ -122,8 +133,8 @@ export class EpubService {
       const opfXml = this.readFileAsText(files, opfPath)
       if (!opfXml) return EMPTY_EPUB_EXTRAS
 
-      const description = this.extractTag(opfXml, 'dc:description')
-      const language = this.extractTag(opfXml, 'dc:language')
+      const description = this.extractXmlTextByLocalName(opfXml, 'description')
+      const language = this.extractLanguage(opfXml, opfPath, files)
       const toc = this.parseToc(opfXml, opfPath, files)
       const readingPreview = this.extractReadingPreview(opfXml, opfPath, files)
 
@@ -151,9 +162,9 @@ export class EpubService {
         .filter((item) => item.id)
         .map((item) => [item.id!.toLowerCase(), item]),
     )
-    const spineCandidates = this.extractSpineItemIds(opfXml)
-      .map((id) => manifestById.get(id.toLowerCase()) ?? null)
-      .filter((item): item is ManifestItem => Boolean(item && this.isHtmlResource(item.href, item.mediaType)))
+    const spineCandidates = this.getSpineDocuments(opfXml, opfPath, manifestById)
+      .map((spineDocument) => manifestItems.find((item) => this.resolveZipPath(opfPath, item.href) === spineDocument.path) ?? null)
+      .filter((item): item is ManifestItem => Boolean(item))
     const fallbackCandidates = manifestItems.filter((item) => (
       this.isHtmlResource(item.href, item.mediaType)
       && !item.properties.includes('nav')
@@ -166,6 +177,7 @@ export class EpubService {
     }
 
     const diagnostics = new Map<EpubStyleIssue, EpubStyleDiagnostic>()
+    let firstPreviewText: string | null = null
 
     for (const [path] of candidateMap) {
       const html = this.readFileAsText(files, path)
@@ -175,23 +187,22 @@ export class EpubService {
         diagnostics.set(diagnostic.issue, diagnostic)
       }
 
-      const previewText = this.extractPreviewTextFromHtml(html)
-      if (previewText) {
-        return {
-          previewText,
-          styleDiagnostics: [...diagnostics.values()],
-        }
+      if (!firstPreviewText) {
+        const previewText = this.extractPreviewTextFromHtml(html)
+        if (previewText) firstPreviewText = previewText
       }
     }
 
     return {
-      previewText: null,
+      previewText: firstPreviewText,
       styleDiagnostics: [...diagnostics.values()],
     }
   }
 
   private static extractSpineItemIds(opfXml: string): string[] {
-    const spineXml = opfXml.match(/<spine\b[\s\S]*?(?:<\/spine>|\/>)/i)?.[0] ?? ''
+    const spineXml = opfXml.match(/<spine\b[\s\S]*?<\/spine>/i)?.[0]
+      ?? opfXml.match(/<spine\b[^>]*\/>/i)?.[0]
+      ?? ''
 
     return Array.from(spineXml.matchAll(/<itemref\b([\s\S]*?)\/?>/gi))
       .map(([, rawAttrs]) => this.parseXmlAttributes(rawAttrs))
@@ -205,7 +216,7 @@ export class EpubService {
 
     if (!doc) {
       const bodyHtml = html.match(/<body\b[\s\S]*?>([\s\S]*?)<\/body>/i)?.[1] ?? html
-      const text = this.cleanText(
+      const text = this.normalizePreviewCandidate(this.cleanText(
         bodyHtml
           .replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
           .replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
@@ -216,7 +227,7 @@ export class EpubService {
           .replace(/&amp;/gi, '&')
           .replace(/&lt;/gi, '<')
           .replace(/&gt;/gi, '>'),
-      )
+      ))
 
       return this.isPreviewTextCandidate(text) ? this.truncatePreviewText(text) : null
     }
@@ -227,19 +238,27 @@ export class EpubService {
     })
 
     const chunks = Array.from(root.querySelectorAll('p, blockquote, li, h1, h2, h3'))
-      .map((node) => this.cleanText(node.textContent))
+      .map((node) => this.normalizePreviewCandidate(this.cleanText(node.textContent)))
       .filter((value) => this.isPreviewTextCandidate(value))
     const combined = this.cleanText(chunks.join(' '))
     if (combined) return this.truncatePreviewText(combined)
 
-    const fallback = this.cleanText(root.textContent)
+    const fallback = this.normalizePreviewCandidate(this.cleanText(root.textContent))
     return this.isPreviewTextCandidate(fallback) ? this.truncatePreviewText(fallback) : null
   }
 
+  private static normalizePreviewCandidate(value: string): string {
+    return this.cleanText(value)
+      .replace(/^page\s+\d+\s+/i, '')
+      .replace(/^the text on this page is estimated to be only\s+[\d.]+%\s+accurate\s+/i, '')
+  }
+
   private static isPreviewTextCandidate(value: string): boolean {
-    return value.length >= 24
+    return value.length > 24
       && !/^(chapter|capitulo)\s+[\divxlcdm]+$/i.test(value)
-      && !/^(sumario|contents|table of contents)$/i.test(value)
+      && !/^(cover|copyright|all rights reserved|sumario|contents|table of contents|indice)\b/i.test(value)
+      && !/\b(oceanofpdf|end user license agreement|internet archive|automated character recognition|produced in epub format)\b/i.test(value)
+      && !/^dados de copyright\b/i.test(value)
   }
 
   private static truncatePreviewText(text: string): string {
@@ -285,6 +304,13 @@ export class EpubService {
     files: Record<string, Uint8Array>,
   ): TocItem[] {
     const manifestItems = this.extractManifestItems(opfXml)
+    const manifestById = new Map(
+      manifestItems
+        .filter((item) => item.id)
+        .map((item) => [item.id!.toLowerCase(), item]),
+    )
+    const spineDocuments = this.getSpineDocuments(opfXml, opfPath, manifestById)
+    let rawToc: TocItem[] = []
 
     // EPUB3: item com properties="nav"
     const navHref = manifestItems.find((item) => item.properties.includes('nav'))?.href
@@ -293,8 +319,7 @@ export class EpubService {
       const navPath = this.resolveZipPath(opfPath, navHref)
       const navXml = this.readFileAsText(files, navPath)
       if (navXml) {
-        const result = this.parseTocFromNav(navXml, navPath)
-        if (result.length > 0) return result
+        rawToc = this.parseTocFromNav(navXml, navPath)
       }
     }
 
@@ -312,15 +337,16 @@ export class EpubService {
       ncxHref = manifestItems.find((item) => /\.ncx(?:[#?].*)?$/i.test(item.href))?.href ?? null
     }
 
-    if (ncxHref) {
+    if (rawToc.length === 0 && ncxHref) {
       const ncxPath = this.resolveZipPath(opfPath, ncxHref)
       const ncxXml = this.readFileAsText(files, ncxPath)
       if (ncxXml) {
-        return this.parseTocFromNcx(ncxXml, ncxPath)
+        rawToc = this.parseTocFromNcx(ncxXml, ncxPath)
       }
     }
 
-    return []
+    const sanitized = this.sanitizeToc(rawToc, spineDocuments, files)
+    return sanitized.length > 0 ? sanitized : this.buildSyntheticToc(spineDocuments, files)
   }
 
   // Parseia nav.xhtml (EPUB3): extrai entradas do <nav epub:type="toc"> com profundidade.
@@ -407,6 +433,145 @@ export class EpubService {
       href,
       ...(subitems.length > 0 ? { subitems } : {}),
     }
+  }
+
+  private static sanitizeToc(
+    toc: TocItem[],
+    spineDocuments: SpineDocument[],
+    files: Record<string, Uint8Array>,
+  ): TocItem[] {
+    if (spineDocuments.length === 0) return toc
+
+    const flattened = this.flattenToc(toc)
+      .map((item, order) => {
+        const resolution = this.resolveTocHrefToSpine(spineDocuments, item.href)
+        if (!resolution) return null
+
+        const href = this.sanitizeTocHref(item.href, resolution, files)
+        return {
+          label: item.label || this.labelFromHref(resolution.path),
+          href,
+          index: resolution.index,
+          order,
+        }
+      })
+      .filter((item): item is TocItem & { index: number; order: number } => Boolean(item))
+
+    const sorted = flattened.sort((left, right) => left.index - right.index || left.order - right.order)
+    const deduped = new Map<string, TocItem & { index: number; order: number }>()
+
+    for (const item of sorted) {
+      const key = `${item.label}\n${item.href}`
+      if (!deduped.has(key)) deduped.set(key, item)
+    }
+
+    return [...deduped.values()].map(({ label, href }) => ({ label, href }))
+  }
+
+  private static flattenToc(items: TocItem[]): TocItem[] {
+    return items.flatMap((item) => [
+      item,
+      ...this.flattenToc(Array.isArray(item.subitems) ? item.subitems : []),
+    ])
+  }
+
+  private static sanitizeTocHref(
+    href: string,
+    resolution: TocResolution,
+    files: Record<string, Uint8Array>,
+  ): string {
+    const fragment = this.splitHref(href).fragment
+    if (!fragment) return resolution.path
+
+    const html = this.readFileAsText(files, resolution.path)
+    return html && this.hasFragmentTarget(html, fragment)
+      ? `${resolution.path}#${fragment}`
+      : resolution.path
+  }
+
+  private static resolveTocHrefToSpine(
+    spineDocuments: SpineDocument[],
+    href: string,
+  ): TocResolution | null {
+    const { documentHref } = this.splitHref(href)
+    const normalizedTarget = this.normalizeZipPath(documentHref).toLowerCase()
+    if (!normalizedTarget || this.isExternalHref(normalizedTarget)) return null
+
+    const exactIndex = spineDocuments.findIndex((document) =>
+      this.normalizeZipPath(document.path).toLowerCase() === normalizedTarget,
+    )
+    if (exactIndex >= 0) {
+      return { index: exactIndex, path: spineDocuments[exactIndex].path }
+    }
+
+    const suffixIndexes = spineDocuments
+      .map((document, index) => {
+        const normalizedDocument = this.normalizeZipPath(document.path).toLowerCase()
+        return normalizedDocument.endsWith(`/${normalizedTarget}`)
+          || normalizedTarget.endsWith(`/${normalizedDocument}`)
+          ? index
+          : null
+      })
+      .filter((index): index is number => index !== null)
+
+    return suffixIndexes.length === 1
+      ? { index: suffixIndexes[0], path: spineDocuments[suffixIndexes[0]].path }
+      : null
+  }
+
+  private static splitHref(href: string): { documentHref: string; fragment: string | null } {
+    const normalized = href.trim().replace(/\\/g, '/')
+    const [pathWithQuery, fragment = ''] = normalized.split('#', 2)
+    const [documentHref] = pathWithQuery.split('?')
+    return {
+      documentHref,
+      fragment: fragment || null,
+    }
+  }
+
+  private static hasFragmentTarget(html: string, fragment: string): boolean {
+    const candidates = [...new Set([
+      fragment,
+      (() => {
+        try {
+          return decodeURIComponent(fragment)
+        } catch {
+          return fragment
+        }
+      })(),
+    ])]
+
+    for (const candidate of candidates) {
+      const escaped = candidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      if (new RegExp(`\\b(?:id|name)\\s*=\\s*["']${escaped}["']`, 'i').test(html)) return true
+    }
+
+    return false
+  }
+
+  private static buildSyntheticToc(
+    spineDocuments: SpineDocument[],
+    files: Record<string, Uint8Array>,
+  ): TocItem[] {
+    return spineDocuments
+      .map((spineDocument) => ({
+        label: this.extractDocumentTitle(files, spineDocument.path) ?? spineDocument.label,
+        href: spineDocument.path,
+      }))
+      .filter((item) => item.label && item.href)
+  }
+
+  private static extractDocumentTitle(
+    files: Record<string, Uint8Array>,
+    path: string,
+  ): string | null {
+    const html = this.readFileAsText(files, path)
+    if (!html) return null
+
+    const heading = html.match(/<h[1-3]\b[^>]*>([\s\S]*?)<\/h[1-3]>/i)?.[1]
+      ?? html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1]
+    const label = this.cleanText(heading?.replace(/<[^>]+>/g, ' '))
+    return label || null
   }
 
   private static parseDocument(source: string, type: DOMParserSupportedType): Document | null {
@@ -578,9 +743,82 @@ export class EpubService {
   }
 
   // Extrai o conteúdo de uma tag XML simples (sem atributos aninhados)
-  private static extractTag(xml: string, tag: string): string | null {
-    const match = xml.match(new RegExp(`<${tag}[^>]*>([^<]+)</${tag}>`))
-    return match?.[1]?.trim() ?? null
+  private static extractXmlTextByLocalName(xml: string, localName: string): string | null {
+    const expected = localName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const match = xml.match(new RegExp(`<([\\w.-]+:)?${expected}\\b[^>]*>([\\s\\S]*?)<\\/\\1?${expected}>`, 'i'))
+    return match ? this.decodeXmlEntities(this.cleanText(match[2])) : null
+  }
+
+  private static decodeXmlEntities(value: string): string {
+    return value
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .replace(/&apos;/gi, "'")
+  }
+
+  private static extractLanguage(
+    opfXml: string,
+    opfPath: string,
+    files: Record<string, Uint8Array>,
+  ): string {
+    const opfLanguage = this.normalizeLanguageCandidate(
+      this.extractXmlTextByLocalName(opfXml, 'language'),
+    )
+    if (opfLanguage) return opfLanguage
+
+    const manifestById = this.getManifestById(opfXml)
+    const spineDocuments = this.getSpineDocuments(opfXml, opfPath, manifestById)
+    const sampledTexts: string[] = []
+
+    for (const spineDocument of spineDocuments.slice(0, 12)) {
+      const html = this.readFileAsText(files, spineDocument.path)
+      if (!html) continue
+
+      const htmlLanguage = this.extractHtmlLanguage(html)
+      if (htmlLanguage) return htmlLanguage
+
+      const preview = this.extractPreviewTextFromHtml(html)
+      if (preview) sampledTexts.push(preview)
+    }
+
+    return this.inferLanguageFromText(sampledTexts.join(' ')) ?? 'en'
+  }
+
+  private static normalizeLanguageCandidate(value?: string | null): string | null {
+    const candidate = value?.trim().replace(/_/g, '-')
+    if (!candidate || /^und(?:etermined)?$/i.test(candidate)) return null
+
+    try {
+      return Intl.getCanonicalLocales(candidate)[0] ?? null
+    } catch {
+      const base = candidate.match(/^[a-z]{2,3}\b/i)?.[0]?.toLowerCase()
+      return base ?? null
+    }
+  }
+
+  private static extractHtmlLanguage(html: string): string | null {
+    const match = html.match(/\b(?:xml:)?lang\s*=\s*["']([^"']+)["']/i)
+    return this.normalizeLanguageCandidate(match?.[1])
+  }
+
+  private static inferLanguageFromText(text: string): string | null {
+    const normalized = text.toLowerCase()
+    if (!normalized) return null
+
+    const scores = {
+      pt: this.countMatches(normalized, /\b(que|para|com|uma|não|voce|você|direitos|sobre|prefácio|capítulo)\b/g),
+      es: this.countMatches(normalized, /\b(que|para|con|una|los|las|del|derechos|capítulo|prólogo)\b/g),
+      en: this.countMatches(normalized, /\b(the|and|with|that|this|chapter|preface|copyright|rights)\b/g),
+    }
+    const best = Object.entries(scores).sort((left, right) => right[1] - left[1])[0]
+    return best && best[1] > 0 ? best[0] : null
+  }
+
+  private static countMatches(value: string, pattern: RegExp): number {
+    return Array.from(value.matchAll(pattern)).length
   }
 
   // Retorna o MIME type correto a partir da extensão do arquivo.
@@ -628,6 +866,32 @@ export class EpubService {
       .filter((item) => Boolean(item.href))
   }
 
+  private static getManifestById(opfXml: string): Map<string, ManifestItem> {
+    return new Map(
+      this.extractManifestItems(opfXml)
+        .filter((item) => item.id)
+        .map((item) => [item.id!.toLowerCase(), item]),
+    )
+  }
+
+  private static getSpineDocuments(
+    opfXml: string,
+    opfPath: string,
+    manifestById = this.getManifestById(opfXml),
+  ): SpineDocument[] {
+    return this.extractSpineItemIds(opfXml)
+      .map((id) => manifestById.get(id.toLowerCase()) ?? null)
+      .filter((item): item is ManifestItem => Boolean(item && this.isHtmlResource(item.href, item.mediaType)))
+      .map((item) => {
+        const path = this.resolveZipPath(opfPath, item.href)
+        return {
+          href: item.href,
+          path,
+          label: this.labelFromHref(path),
+        }
+      })
+  }
+
   private static extractGuideReferences(opfXml: string): GuideReference[] {
     return Array.from(opfXml.matchAll(/<reference\b([\s\S]*?)\/?>/gi))
       .map(([, rawAttrs]) => {
@@ -670,6 +934,21 @@ export class EpubService {
     return /(^|[/._-])cover([/._-]|$)/i.test(href)
   }
 
+  private static isExternalHref(href: string): boolean {
+    return /^(?!blob:)[a-z][a-z0-9+.-]*:/i.test(href)
+  }
+
+  private static labelFromHref(href: string): string {
+    const fileName = this.normalizeZipPath(href)
+      .split('/')
+      .pop()
+      ?.replace(/\.[^.]+$/, '')
+      .replace(/[_-]+/g, ' ')
+      .trim()
+
+    return fileName || 'Capitulo'
+  }
+
   // Extrai a capa como Blob. EPUBs variam muito — estratégia em cascata:
   //   1. properties="cover-image" no manifest
   //   2. <meta name="cover"> → item por id/path
@@ -682,23 +961,43 @@ export class EpubService {
     opfXml: string,
     opfPath: string,
     files: Record<string, Uint8Array>,
+    title: string,
+    author: string,
   ): Blob | null {
     const manifestItems = this.extractManifestItems(opfXml)
     const guideReferences = this.extractGuideReferences(opfXml)
-    const coverHref =
-      this.extractCoverFromProperties(opfXml, manifestItems) ??
-      this.extractCoverFromMeta(opfXml, manifestItems) ??
-      manifestItems.find((item) => (
-        item.id?.toLowerCase() === 'cover' && this.isCoverCandidate(item)
-      ))?.href ??
-      manifestItems.find((item) => (
-        this.looksLikeCoverPath(item.href) && this.isCoverCandidate(item)
-      ))?.href ??
-      guideReferences.find((ref) => ref.type?.toLowerCase().includes('cover'))?.href ??
-      manifestItems.find((item) => item.mediaType?.toLowerCase().startsWith('image/'))?.href
+    const coverHrefs = [
+      this.extractCoverFromProperties(opfXml, manifestItems),
+      ...this.extractCoverHrefsFromMeta(opfXml, manifestItems),
+      ...manifestItems
+        .filter((item) => item.id?.toLowerCase() === 'cover' && this.isCoverCandidate(item))
+        .map((item) => item.href),
+      ...manifestItems
+        .filter((item) => this.looksLikeCoverPath(item.href) && this.isCoverCandidate(item))
+        .map((item) => item.href),
+      ...guideReferences
+        .filter((ref) => ref.type?.toLowerCase().includes('cover'))
+        .map((ref) => ref.href),
+      ...this.extractCoverHrefsFromSpine(opfXml, opfPath, files),
+      ...manifestItems
+        .filter((item) => item.mediaType?.toLowerCase().startsWith('image/'))
+        .map((item) => item.href),
+    ].filter((href): href is string => Boolean(href))
 
-    if (!coverHref) return null
+    for (const coverHref of [...new Set(coverHrefs)]) {
+      const coverBlob = this.extractCoverBlobFromHref(manifestItems, opfPath, files, coverHref)
+      if (coverBlob) return coverBlob
+    }
 
+    return this.createFallbackCover(title, author)
+  }
+
+  private static extractCoverBlobFromHref(
+    manifestItems: ManifestItem[],
+    opfPath: string,
+    files: Record<string, Uint8Array>,
+    coverHref: string,
+  ): Blob | null {
     const coverItem = this.findManifestItemByHref(manifestItems, opfPath, coverHref)
     const coverPath = this.resolveZipPath(opfPath, coverHref)
 
@@ -753,6 +1052,75 @@ export class EpubService {
     return manifestItems.find((item) => item.id === content)?.href
       ?? manifestItems.find((item) => item.id?.toLowerCase() === content.toLowerCase())?.href
       ?? null
+  }
+
+  private static extractCoverHrefsFromMeta(
+    opfXml: string,
+    manifestItems: ManifestItem[] = this.extractManifestItems(opfXml),
+  ): string[] {
+    const content = Array.from(opfXml.matchAll(/<meta\b([\s\S]*?)\/?>/gi))
+      .map(([, rawAttrs]) => this.parseXmlAttributes(rawAttrs))
+      .find((attrs) => attrs.name?.toLowerCase() === 'cover')
+      ?.content
+
+    if (!content) return []
+
+    const manifestHref = manifestItems.find((item) => item.id === content)?.href
+      ?? manifestItems.find((item) => item.id?.toLowerCase() === content.toLowerCase())?.href
+      ?? null
+
+    return [
+      manifestHref,
+      /\.[a-z0-9]{2,5}(?:[#?].*)?$/i.test(content) ? content : null,
+    ].filter((href): href is string => Boolean(href))
+  }
+
+  private static extractCoverHrefsFromSpine(
+    opfXml: string,
+    opfPath: string,
+    files: Record<string, Uint8Array>,
+  ): string[] {
+    const spineDocuments = this.getSpineDocuments(opfXml, opfPath)
+    const hrefs: string[] = []
+
+    for (const spineDocument of spineDocuments.slice(0, 5)) {
+      const html = this.readFileAsText(files, spineDocument.path)
+      if (!html) continue
+
+      const looksLikeCoverPage = this.looksLikeCoverPath(spineDocument.path)
+        || /<meta\b[^>]*(?:name=["']calibre:cover["'][^>]*content=["']true["']|content=["']true["'][^>]*name=["']calibre:cover["'])/i.test(html)
+        || /<title\b[^>]*>\s*(?:cover|capa|cubierta)\s*<\/title>/i.test(html)
+
+      if (looksLikeCoverPage) {
+        const href = this.extractFirstImageHrefFromHtml(html)
+        if (href) hrefs.push(this.resolveZipPath(spineDocument.path, href))
+      }
+    }
+
+    return hrefs
+  }
+
+  private static extractFirstImageHrefFromHtml(html: string): string | null {
+    return html.match(/<img[\s\S]*?src=["']([^"']+)["']/i)?.[1]
+      ?? html.match(/<image[\s\S]*?href=["']([^"']+)["']/i)?.[1]
+      ?? html.match(/<image[\s\S]*?xlink:href=["']([^"']+)["']/i)?.[1]
+      ?? null
+  }
+
+  private static createFallbackCover(title: string, author: string): Blob {
+    const safeTitle = this.escapeXml(title || 'NeoReader')
+    const safeAuthor = this.escapeXml(author || 'Autor desconhecido')
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="900" viewBox="0 0 600 900"><rect width="600" height="900" fill="#1f2937"/><rect x="42" y="42" width="516" height="816" fill="none" stroke="#f9fafb" stroke-width="6"/><text x="300" y="360" text-anchor="middle" font-family="Arial, sans-serif" font-size="44" font-weight="700" fill="#f9fafb">${safeTitle}</text><text x="300" y="460" text-anchor="middle" font-family="Arial, sans-serif" font-size="26" fill="#d1d5db">${safeAuthor}</text></svg>`
+    return new Blob([svg], { type: 'image/svg+xml' })
+  }
+
+  private static escapeXml(value: string): string {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;')
   }
 
   // Abre um arquivo HTML de capa e extrai o src do primeiro <img> (ou href do
