@@ -355,6 +355,56 @@ export function useTTS(options: UseTTSOptions) {
     await speakWithNative(text, session, paraIdx, offsetInPara)
   }
 
+  // Despacha para o provider correto com fallback automático para native em caso de erro.
+  // nativeParaIdx: controla highlights sintéticos no native — undefined desativa (ex: speakOne).
+  // Retorna sessionEnded=true se a sessão foi cancelada durante o erro (caller deve parar).
+  async function speakChunk(
+    provider: TtsProvider,
+    text: string,
+    paraIdx: number,
+    nativeParaIdx: number | undefined,
+    offsetInPara: number,
+    session: number,
+    trackPlaybackState: boolean,
+    onFallback: (p: TtsProvider) => void,
+  ): Promise<{ sessionEnded: boolean; usedProvider: TtsProvider }> {
+    if (provider === 'speechify') {
+      activeProviderRef.current = 'speechify'
+      try {
+        await speakWithSpeechify(text, paraIdx, offsetInPara, session, trackPlaybackState)
+        return { sessionEnded: false, usedProvider: 'speechify' }
+      } catch (error) {
+        if (shouldStopRef.current || playSessionRef.current !== session) {
+          return { sessionEnded: true, usedProvider: 'speechify' }
+        }
+        logPremiumTtsFallback('speechify', error)
+        onFallback('speechify')
+        await fallbackToNative(text, session, nativeParaIdx, offsetInPara)
+        return { sessionEnded: false, usedProvider: 'native' }
+      }
+    }
+
+    if (provider === 'elevenlabs') {
+      activeProviderRef.current = 'elevenlabs'
+      try {
+        await speakWithElevenLabs(text, paraIdx, offsetInPara, session, trackPlaybackState)
+        return { sessionEnded: false, usedProvider: 'elevenlabs' }
+      } catch (error) {
+        if (shouldStopRef.current || playSessionRef.current !== session) {
+          return { sessionEnded: true, usedProvider: 'elevenlabs' }
+        }
+        logPremiumTtsFallback('elevenlabs', error)
+        onFallback('elevenlabs')
+        await fallbackToNative(text, session, nativeParaIdx, offsetInPara)
+        return { sessionEnded: false, usedProvider: 'native' }
+      }
+    }
+
+    activeProviderRef.current = 'native'
+    await speakWithNative(text, session, nativeParaIdx, offsetInPara)
+    return { sessionEnded: false, usedProvider: 'native' }
+  }
+
   async function play(chunks: TtsChunk[], startIdx = 0) {
     const mySession = ++playSessionRef.current
     let resolvePlaybackDone = () => {}
@@ -405,32 +455,12 @@ export function useTTS(options: UseTTSOptions) {
           callbacksRef.current.onParagraphChange(chunk.paraIdx)
         }
 
-        if (playbackProvider === 'speechify') {
-          activeProviderRef.current = 'speechify'
-          try {
-            await speakWithSpeechify(text, chunk.paraIdx, chunk.offsetInPara, mySession)
-          } catch (error) {
-            if (shouldStopRef.current || playSessionRef.current !== mySession) break
-            logPremiumTtsFallback('speechify', error)
-            playbackProvider = 'native'
-            notifyProviderFallback('speechify')
-            await fallbackToNative(text, mySession, chunk.paraIdx, chunk.offsetInPara)
-          }
-        } else if (playbackProvider === 'elevenlabs') {
-          activeProviderRef.current = 'elevenlabs'
-          try {
-            await speakWithElevenLabs(text, chunk.paraIdx, chunk.offsetInPara, mySession)
-          } catch (error) {
-            if (shouldStopRef.current || playSessionRef.current !== mySession) break
-            logPremiumTtsFallback('elevenlabs', error)
-            playbackProvider = 'native'
-            notifyProviderFallback('elevenlabs')
-            await fallbackToNative(text, mySession, chunk.paraIdx, chunk.offsetInPara)
-          }
-        } else {
-          activeProviderRef.current = 'native'
-          await speakWithNative(text, mySession, chunk.paraIdx, chunk.offsetInPara)
-        }
+        const { sessionEnded, usedProvider } = await speakChunk(
+          playbackProvider, text, chunk.paraIdx, chunk.paraIdx,
+          chunk.offsetInPara, mySession, true, notifyProviderFallback,
+        )
+        if (sessionEnded) break
+        if (usedProvider === 'native' && playbackProvider !== 'native') playbackProvider = 'native'
       }
     } catch (error) {
       playbackError = error
@@ -541,30 +571,11 @@ export function useTTS(options: UseTTSOptions) {
 
     try {
       if (!normalizedText) return
-      if (resolvedProvider === 'speechify') {
-        activeProviderRef.current = 'speechify'
-        try {
-          await speakWithSpeechify(normalizedText, 0, 0, mySession, false)
-        } catch (error) {
-          if (shouldStopRef.current || playSessionRef.current !== mySession) return
-          logPremiumTtsFallback('speechify', error)
-          notifyProviderFallback('speechify')
-          await fallbackToNative(normalizedText, mySession)
-        }
-      } else if (resolvedProvider === 'elevenlabs') {
-        activeProviderRef.current = 'elevenlabs'
-        try {
-          await speakWithElevenLabs(normalizedText, 0, 0, mySession, false)
-        } catch (error) {
-          if (shouldStopRef.current || playSessionRef.current !== mySession) return
-          logPremiumTtsFallback('elevenlabs', error)
-          notifyProviderFallback('elevenlabs')
-          await fallbackToNative(normalizedText, mySession)
-        }
-      } else {
-        activeProviderRef.current = 'native'
-        await speakWithNative(normalizedText, mySession)
-      }
+      const { sessionEnded } = await speakChunk(
+        resolvedProvider, normalizedText, 0, undefined,
+        0, mySession, false, notifyProviderFallback,
+      )
+      if (sessionEnded) return
     } catch (error) {
       speakOneError = error
       logTtsPlaybackError(error)

@@ -14,12 +14,13 @@ import { BookmarkSheet } from '../components/reader/BookmarkSheet'
 import { BottomSheet } from '../components/ui'
 import { useReaderProgress } from '../hooks/useReaderProgress'
 import { useReaderStore } from '../store/readerStore'
+import { useTtsSleepTimer } from '../hooks/useTtsSleepTimer'
+import { useReaderAppearance } from '../hooks/useReaderAppearance'
+import { useChromeAutoHide } from '../hooks/useChromeAutoHide'
 import type { ProgressSavePayload } from '../db/progress'
 import { updateLastOpened } from '../db/books'
 import { addBookmark, restoreBookmark, softDeleteBookmark, updateBookmarkColor } from '../db/bookmarks'
 import { addVocabItem } from '../db/vocabulary'
-import { getSettings } from '../db/settings'
-import { getBookSettings, updateBookSettings } from '../db/bookSettings'
 import { db } from '../db/database'
 import { useTTS } from '../hooks/useTTS'
 import { TtsMiniPlayer, type TtsSleepTimerOption } from '../components/reader/TtsMiniPlayer'
@@ -29,17 +30,13 @@ import {
   ReaderLineHeightControl,
   ReaderModeControl,
   ReaderThemeControl,
-  type ReaderStyleMode,
 } from '../components/reader/ReaderAppearanceControls'
 import { translate } from '../services/TranslationService'
-import { EpubService } from '../services/EpubService'
 import type { Book } from '../types/book'
-import type { FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from '../types/settings'
-import type { TtsPlaybackConfig, TtsProvider } from '../types/tts'
+import type { TtsProvider } from '../types/tts'
 import { areCfisEquivalent, isCfiInLocation, normalizeCfi } from '../utils/cfi'
 import { areTocHrefDocumentSuffixesEqual } from '../utils/toc'
 import { getReaderThemePalette } from '../utils/readerPreferences'
-import { clampTtsRate, normalizeLanguageTag } from '../utils/language'
 
 function normalizeReaderHref(href?: string | null) {
   if (!href) return null
@@ -130,39 +127,34 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   const startNavigationFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const ttsAdvancePendingRef = useRef(false)
   const ttsAutoAdvanceSkipCountRef = useRef(0)
-  const ttsSleepTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const ttsSleepIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const ttsSleepDeadlineRef = useRef<number | null>(null)
   const currentTtsParaIdxRef = useRef(0)
 
   // ── Estado local ────────────────────────────────────────────────────────────
-  // Começa visível: dá orientação inicial ao usuário, depois some automaticamente (auto-hide).
-  const [chromeVisible, setChromeVisible] = useState(true)
+  const { chromeVisible, setChromeVisible, resetAutoHide, handleCenterTap } = useChromeAutoHide()
   const [ttsFinished, setTtsFinished] = useState(false)
   const [ttsFallbackNotice, setTtsFallbackNotice] = useState<{ provider: TtsProvider } | null>(null)
   const [ttsProviderFallback, setTtsProviderFallback] = useState<{ provider: TtsProvider } | null>(null)
   // Controla visibilidade do mini player — true do início até o usuário apertar ⏹
   const [ttsPlayerVisible, setTtsPlayerVisible] = useState(false)
-  const [ttsSleepTimerValue, setTtsSleepTimerValue] = useState('off')
-  const [ttsSleepRemainingSeconds, setTtsSleepRemainingSeconds] = useState<number | null>(null)
+  const { sleepTimerValue: ttsSleepTimerValue, sleepRemainingSeconds: ttsSleepRemainingSeconds, handleSleepTimerChange: handleTtsSleepTimerChange_hook, resetSleepTimer: resetTtsSleepTimer } = useTtsSleepTimer()
   const [showBackToTtsLocation, setShowBackToTtsLocation] = useState(false)
   const [tocOpen, setTocOpen] = useState(false)
   const [bookmarkSheetOpen, setBookmarkSheetOpen] = useState(false)
   const [appearanceSheetOpen, setAppearanceSheetOpen] = useState(false)
-  const [fontSize, setFontSize] = useState<FontSize>('md')
-  const [lineHeight, setLineHeight] = useState<ReaderLineHeight>('comfortable')
-  const [readerTheme, setReaderTheme] = useState<ReaderTheme>('dark')
-  const [fontFamily, setFontFamily] = useState<ReaderFontFamily>('classic')
-  const [overrideBookFont, setOverrideBookFont] = useState(true)
-  const [overrideBookColors, setOverrideBookColors] = useState(true)
-  const [bookLanguage, setBookLanguage] = useState('en')
-  const [translationTargetLang, setTranslationTargetLang] = useState('pt-BR')
-  const [ttsConfig, setTtsConfig] = useState<TtsPlaybackConfig>({
-    provider: 'native',
-    language: 'en',
-    rate: 1,
-  })
-  const [ttsEngine, setTtsEngine] = useState<TtsProvider>('native')
+  const {
+    fontSize,
+    lineHeight,
+    readerTheme,
+    fontFamily,
+    overrideBookFont,
+    overrideBookColors,
+    bookLanguage,
+    translationTargetLang,
+    ttsConfig,
+    ttsEngine,
+    applyAppearancePatch,
+    handleReaderStyleModeChange,
+  } = useReaderAppearance(book)
   const loadingStateKey = `${book.id ?? 'unknown'}::${startHref ?? ''}`
   const [loadingState, setLoadingState] = useState({ key: loadingStateKey, isLoading: true })
   const isLoading = loadingState.key === loadingStateKey ? loadingState.isLoading : true
@@ -219,45 +211,15 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     }, START_NAVIGATION_FALLBACK_MS)
   }, [clearStartNavigationFallbackTimer, setCurrentLoading])
 
-  // ── Auto-hide do chrome ──────────────────────────────────────────────────────
-  // useRef para o timer: persiste entre renders sem causar re-render.
-  const autoHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  // Reinicia o countdown. Chamado na montagem e em cada interação com o chrome.
-  // useCallback com [] → função estável, pode ser usada em deps de useEffect.
-  const resetAutoHide = useCallback(() => {
-    if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current)
-    autoHideTimerRef.current = setTimeout(() => setChromeVisible(false), 2500)
-  }, [])
-
-  const clearTtsSleepTimerHandles = useCallback(() => {
-    if (ttsSleepTimeoutRef.current) {
-      clearTimeout(ttsSleepTimeoutRef.current)
-      ttsSleepTimeoutRef.current = null
-    }
-    if (ttsSleepIntervalRef.current) {
-      clearInterval(ttsSleepIntervalRef.current)
-      ttsSleepIntervalRef.current = null
-    }
-    ttsSleepDeadlineRef.current = null
-  }, [])
-
-  const resetTtsSleepTimer = useCallback(() => {
-    clearTtsSleepTimerHandles()
-    setTtsSleepTimerValue('off')
-    setTtsSleepRemainingSeconds(null)
-  }, [clearTtsSleepTimerHandles])
-
-  // Inicia o timer assim que o leitor monta
+  // Inicia o auto-hide assim que o leitor monta
   useEffect(() => {
     resetAutoHide()
     return () => {
-      if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current)
       if (sectionChangeTimerRef.current) clearTimeout(sectionChangeTimerRef.current)
       clearStartNavigationFallbackTimer()
-      clearTtsSleepTimerHandles()
+      // auto-hide e sleep timer cleanup são responsabilidade dos hooks respectivos
     }
-  }, [clearStartNavigationFallbackTimer, clearTtsSleepTimerHandles, resetAutoHide])
+  }, [clearStartNavigationFallbackTimer, resetAutoHide])
 
 
   // Estado global compartilhado (Zustand)
@@ -311,46 +273,6 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     if (book.id !== undefined) updateLastOpened(book.id)
   }, [book.id])
 
-  function resolveBookLanguage(candidate?: string | null): string {
-    return normalizeLanguageTag(candidate, 'en')
-  }
-
-  function resolveTtsProvider(selectedProvider: TtsProvider, settings: Awaited<ReturnType<typeof getSettings>>['appSettings']): TtsProvider {
-    if (selectedProvider === 'speechify') {
-      return settings.speechifyApiKey ? 'speechify' : 'native'
-    }
-    if (selectedProvider === 'elevenlabs') {
-      return settings.elevenLabsApiKey ? 'elevenlabs' : 'native'
-    }
-    return 'native'
-  }
-
-  // Carrega preferências: fonte por livro (override) > fonte global > padrão
-  useEffect(() => {
-    void Promise.all([getSettings(), getBookSettings(book.id!), EpubService.parseExtras(book.fileBlob)]).then(([s, bs, extras]) => {
-      const resolvedBookLanguage = resolveBookLanguage(bs.bookLanguage ?? extras.language)
-      const selectedProvider = bs.ttsProvider ?? 'speechify'
-      const resolvedFontFamily = bs.fontFamily ?? s.readerDefaults.fontFamily
-
-      setFontSize(bs.fontSize ?? s.readerDefaults.defaultFontSize)
-      setLineHeight(bs.lineHeight ?? s.readerDefaults.lineHeight)
-      setReaderTheme(bs.readerTheme ?? s.readerDefaults.readerTheme)
-      setFontFamily(resolvedFontFamily)
-      setOverrideBookFont(bs.overrideBookFont ?? (bs.fontFamily ? resolvedFontFamily !== 'publisher' : s.readerDefaults.overrideBookFont))
-      setOverrideBookColors(bs.overrideBookColors ?? s.readerDefaults.overrideBookColors)
-      setBookLanguage(resolvedBookLanguage)
-      setTranslationTargetLang(bs.translationTargetLang ?? s.appSettings.translationTargetLang)
-      setTtsConfig({
-        provider: selectedProvider,
-        language: resolvedBookLanguage,
-        rate: clampTtsRate(bs.ttsRate ?? 1),
-        speechifyVoiceId: bs.ttsSpeechifyVoiceId,
-        elevenLabsVoiceId: bs.ttsElevenLabsVoiceId,
-        nativeVoiceKey: bs.ttsNativeVoiceKey,
-      })
-      setTtsEngine(resolveTtsProvider(selectedProvider, s.appSettings))
-    })
-  }, [book.fileBlob, book.id])
 
   // TTS: gerencia estado e sequenciamento de audiobook
   const tts = useTTS({
@@ -383,33 +305,9 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     },
   })
 
-  // Helpers para obter chunks e iniciar play — reutilizados por toggle, prev, next
+  // Wrapper: adapta a assinatura do hook (value, onExpire) para o TtsMiniPlayer (value)
   function handleTtsSleepTimerChange(value: string) {
-    const option = TTS_SLEEP_TIMER_OPTIONS.find((item) => item.value === value)
-    const seconds = option && option.value !== 'off' ? Number(option.value) : null
-
-    clearTtsSleepTimerHandles()
-
-    if (!seconds || !Number.isFinite(seconds)) {
-      setTtsSleepTimerValue('off')
-      setTtsSleepRemainingSeconds(null)
-      return
-    }
-
-    setTtsSleepTimerValue(value)
-    setTtsSleepRemainingSeconds(seconds)
-    ttsSleepDeadlineRef.current = Date.now() + seconds * 1000
-
-    ttsSleepIntervalRef.current = setInterval(() => {
-      if (!ttsSleepDeadlineRef.current) return
-      const remaining = Math.max(0, Math.ceil((ttsSleepDeadlineRef.current - Date.now()) / 1000))
-      setTtsSleepRemainingSeconds(remaining)
-    }, 1000)
-
-    ttsSleepTimeoutRef.current = setTimeout(() => {
-      clearTtsSleepTimerHandles()
-      setTtsSleepTimerValue('off')
-      setTtsSleepRemainingSeconds(null)
+    handleTtsSleepTimerChange_hook(value, () => {
       ttsAdvancePendingRef.current = false
       ttsAutoAdvanceSkipCountRef.current = 0
       void tts.stop()
@@ -419,7 +317,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
       setTtsFallbackNotice(null)
       setTtsProviderFallback(null)
       setTtsFinished(false)
-    }, seconds * 1000)
+    })
   }
 
   function getTtsChunks() {
@@ -784,49 +682,6 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
 
   function handleParagraphBookmark(payload: ParagraphBookmarkPayload) {
     toggleBookmarkAtLocation(payload)
-  }
-
-  // Toggle chrome: chamado pelo EpubViewer em qualquer toque (chrome aberto fecha imediatamente)
-  // ou quando tap cai fora de parágrafo (chrome fechado abre e inicia auto-hide)
-  function handleCenterTap() {
-    setChromeVisible((v) => {
-      if (!v) resetAutoHide()  // ao abrir: inicia timer para fechar automaticamente
-      return !v
-    })
-  }
-
-  function applyAppearancePatch(patch: {
-    fontSize?: FontSize
-    lineHeight?: ReaderLineHeight
-    readerTheme?: ReaderTheme
-    fontFamily?: ReaderFontFamily
-    overrideBookFont?: boolean
-    overrideBookColors?: boolean
-  }) {
-    if (patch.fontSize) setFontSize(patch.fontSize)
-    if (patch.lineHeight) setLineHeight(patch.lineHeight)
-    if (patch.readerTheme) setReaderTheme(patch.readerTheme)
-    if (patch.fontFamily) setFontFamily(patch.fontFamily)
-    if (patch.overrideBookFont !== undefined) setOverrideBookFont(patch.overrideBookFont)
-    if (patch.overrideBookColors !== undefined) setOverrideBookColors(patch.overrideBookColors)
-    void updateBookSettings(book.id!, patch)
-  }
-
-  function handleReaderStyleModeChange(mode: ReaderStyleMode) {
-    if (mode === 'original') {
-      applyAppearancePatch({
-        fontFamily: 'publisher',
-        overrideBookFont: false,
-        overrideBookColors: false,
-      })
-      return
-    }
-
-    applyAppearancePatch({
-      fontFamily: fontFamily === 'publisher' ? 'classic' : fontFamily,
-      overrideBookFont: true,
-      overrideBookColors: true,
-    })
   }
 
   // Aguarda o load do IndexedDB antes de montar o EpubViewer

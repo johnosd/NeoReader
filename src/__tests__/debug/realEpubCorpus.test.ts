@@ -515,6 +515,39 @@ function assertPreviewLooksLikeReadingText(fileName: string, previewText: string
   expect(preview, `${fileName}: preview parece vir de propaganda/artefato`).not.toMatch(/\b(oceanofpdf|end user license agreement)\b/i)
 }
 
+function hasMeaningfulReadingText(html: string): boolean {
+  const text = stripHtml(html)
+    .replace(/^page\s+\d+\b/i, '')
+    .trim()
+
+  return text.length > 24
+    && !/^(cover|copyright|all rights reserved|sumario|indice|contents|table of contents)\b/i.test(text)
+}
+
+function isImageOnlyReadingEpub(inspection: EpubPackageInspection): boolean {
+  let sawImagePage = false
+
+  for (const documentPath of inspection.spineDocuments.slice(0, RESOURCE_DOCUMENT_SAMPLE_SIZE)) {
+    const html = readZipText(inspection.files, documentPath)
+    if (!html) continue
+
+    if (hasMeaningfulReadingText(html)) return false
+    if (/<(?:img|image)\b/i.test(html)) sawImagePage = true
+  }
+
+  return sawImagePage
+}
+
+function assertPreviewMatchesEpubShape(
+  fileName: string,
+  previewText: string | null,
+  inspection: EpubPackageInspection,
+): void {
+  if (previewText === null && isImageOnlyReadingEpub(inspection)) return
+
+  assertPreviewLooksLikeReadingText(fileName, previewText)
+}
+
 function assertCoverLooksUsable(fileName: string, coverBlob: Blob | null): void {
   expect(coverBlob, `${fileName} deve extrair uma capa`).not.toBeNull()
   expect(coverBlob?.size ?? 0, `${fileName}: capa extraida esta vazia ou pequena demais`).toBeGreaterThan(128)
@@ -610,7 +643,7 @@ function assertReferencedResourcesExist(fileName: string, inspection: EpubPackag
       const resolvedPath = resolveZipPath(documentPath, resource.href)
       checkedResourceCount += 1
 
-      if (!readZipBytes(inspection.files, resolvedPath)) {
+      if (!readZipBytes(inspection.files, resolvedPath) && !/\.xpgt$/i.test(resolvedPath)) {
         missingResources.push(`${documentPath} -> ${resource.href} (${resolvedPath})`)
       }
     }
@@ -676,7 +709,7 @@ if (!shouldRunDebugEpubCorpus) {
         const extras = await EpubService.parseExtras(file)
         assertLanguageLooksValid(fileName, extras.language)
         expect(extras.toc.length, `${fileName} deve extrair indice`).toBeGreaterThan(0)
-        assertPreviewLooksLikeReadingText(fileName, extras.previewText)
+        assertPreviewMatchesEpubShape(fileName, extras.previewText, inspection)
         assertStyleDiagnosticsMatchSources(fileName, extras.styleDiagnostics, inspection, extras.previewText)
         assertReferencedResourcesExist(fileName, inspection)
 

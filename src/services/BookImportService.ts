@@ -32,6 +32,8 @@ export class BookImportService {
     if (!metadata.coverBlob) return false
 
     await saveBookCover(book.id, metadata.coverBlob, 'epub-extracted')
+    // Invalida cache de extras para refletir possíveis mudanças no EPUB
+    EpubService.invalidateExtrasCache(book.id)
     return true
   }
 

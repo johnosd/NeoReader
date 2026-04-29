@@ -163,7 +163,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
 
   useEffect(() => {
     setExtrasLoading(true)
-    EpubService.parseExtras(liveBook.fileBlob).then((result) => {
+    EpubService.parseExtras(liveBook.fileBlob, liveBook.id).then((result) => {
       setExtras(result)
       setExtrasLoading(false)
     })

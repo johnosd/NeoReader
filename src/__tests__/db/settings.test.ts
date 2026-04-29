@@ -41,6 +41,7 @@ describe('settings db helpers', () => {
       appSettings: {
         speechifyApiKey: 'legacy-key',
         elevenLabsApiKey: '',
+        youtubeApiKey: '',
         translationTargetLang: 'es',
       },
       readerDefaults: {
@@ -71,6 +72,7 @@ describe('settings db helpers', () => {
       appSettings: {
         speechifyApiKey: 'legacy-key',
         elevenLabsApiKey: '',
+        youtubeApiKey: '',
         translationTargetLang: 'fr',
       },
       readerDefaults: {
@@ -109,6 +111,7 @@ describe('settings db helpers', () => {
       appSettings: {
         speechifyApiKey: '',
         elevenLabsApiKey: '',
+        youtubeApiKey: '',
         translationTargetLang: 'de',
       },
       readerDefaults: {

@@ -219,6 +219,42 @@ describe('EpubService.parseMetadata - cover extraction', () => {
 
     expect(await blobText(metadata.coverBlob)).toBe('first-image')
   })
+
+  it('tries meta cover ids with extensions before treating them as direct paths', async () => {
+    fflateState.files = makeEpubFiles(
+      'OPS/package.opf',
+      makeOpf(
+        `
+          <item id="x1.png" href="Images/real-cover.jpg" media-type="image/jpeg" />
+        `,
+        `<meta name="cover" content="x1.png" />`,
+      ),
+      {
+        'OPS/Images/real-cover.jpg': bytes('id-with-extension'),
+      },
+    )
+
+    const metadata = await EpubService.parseMetadata(makeFile())
+
+    expect(await blobText(metadata.coverBlob)).toBe('id-with-extension')
+  })
+
+  it('generates a deterministic SVG cover when the EPUB has no images', async () => {
+    fflateState.files = makeEpubFiles(
+      'OPS/package.opf',
+      makeOpf(`
+        <item id="chapter-1" href="Text/chapter1.xhtml" media-type="application/xhtml+xml" />
+      `),
+      {
+        'OPS/Text/chapter1.xhtml': '<html><body><p>Text-only book.</p></body></html>',
+      },
+    )
+
+    const metadata = await EpubService.parseMetadata(makeFile())
+
+    expect(metadata.coverBlob?.type).toBe('image/svg+xml')
+    expect(await blobText(metadata.coverBlob)).toContain('Test Book')
+  })
 })
 
 describe('EpubService.parseExtras - toc extraction', () => {
@@ -380,5 +416,193 @@ describe('EpubService.parseExtras - toc extraction', () => {
       'small-font-size',
       'tight-line-height',
     ])
+  })
+
+  it('infers language from reading documents when OPF language is missing or undetermined', async () => {
+    fflateState.files = makeEpubFiles(
+      'OPS/package.opf',
+      makeOpf(
+        `
+          <item id="chapter1" href="Text/chapter1.xhtml" media-type="application/xhtml+xml" />
+        `,
+        '<dc:language>UND</dc:language>',
+        '',
+        '<spine><itemref idref="chapter1" /></spine>',
+      ),
+      {
+        'OPS/Text/chapter1.xhtml': `
+          <html xml:lang="pt-BR">
+            <body><p>Texto real do livro para detectar idioma.</p></body>
+          </html>
+        `,
+      },
+    )
+
+    const extras = await EpubService.parseExtras(new Blob(['epub']))
+
+    expect(extras.language).toBe('pt-BR')
+  })
+
+  it('skips copyright and archive notices when building the reading preview', async () => {
+    fflateState.files = makeEpubFiles(
+      'OPS/package.opf',
+      makeOpf(
+        `
+          <item id="notice" href="Text/notice.xhtml" media-type="application/xhtml+xml" />
+          <item id="copyright" href="Text/copyright.xhtml" media-type="application/xhtml+xml" />
+          <item id="chapter1" href="Text/chapter1.xhtml" media-type="application/xhtml+xml" />
+        `,
+        '',
+        '',
+        '<spine><itemref idref="notice" /><itemref idref="copyright" /><itemref idref="chapter1" /></spine>',
+      ),
+      {
+        'OPS/Text/notice.xhtml': '<html><body><p>This book was produced in EPUB format by the Internet Archive.</p></body></html>',
+        'OPS/Text/copyright.xhtml': '<html><body><p>Copyright 2024 All rights reserved.</p></body></html>',
+        'OPS/Text/chapter1.xhtml': '<html><body><p>Actual reading text from the first useful chapter appears here.</p></body></html>',
+      },
+    )
+
+    const extras = await EpubService.parseExtras(new Blob(['epub']))
+
+    expect(extras.previewText).toContain('Actual reading text')
+  })
+
+  it('sanitizes TOC hrefs against the spine and strips missing fragments', async () => {
+    fflateState.files = makeEpubFiles(
+      'OPS/package.opf',
+      makeOpf(
+        `
+          <item id="nav" href="Navigation/nav.xhtml" media-type="application/xhtml+xml" properties="nav" />
+          <item id="chapter1" href="Text/chapter1.xhtml" media-type="application/xhtml+xml" />
+          <item id="chapter2" href="Text/chapter2.xhtml" media-type="application/xhtml+xml" />
+        `,
+        '',
+        '',
+        '<spine><itemref idref="chapter1" /><itemref idref="chapter2" /></spine>',
+      ),
+      {
+        'OPS/Navigation/nav.xhtml': `
+          <html xmlns:epub="http://www.idpf.org/2007/ops">
+            <body>
+              <nav epub:type="toc">
+                <ol>
+                  <li><a href="../Text/missing.xhtml">Missing</a></li>
+                  <li><a href="../Text/chapter2.xhtml#absent">Second</a></li>
+                  <li><a href="../Text/chapter1.xhtml#start">First</a></li>
+                </ol>
+              </nav>
+            </body>
+          </html>
+        `,
+        'OPS/Text/chapter1.xhtml': '<html><body><h1 id="start">First</h1><p>First chapter text for reading.</p></body></html>',
+        'OPS/Text/chapter2.xhtml': '<html><body><h1>Second</h1><p>Second chapter text for reading.</p></body></html>',
+      },
+    )
+
+    const extras = await EpubService.parseExtras(new Blob(['epub']))
+
+    expect(extras.toc).toEqual([
+      { label: 'First', href: 'OPS/Text/chapter1.xhtml#start' },
+      { label: 'Second', href: 'OPS/Text/chapter2.xhtml' },
+    ])
+  })
+
+  it('builds a synthetic TOC from the spine when nav and ncx are empty', async () => {
+    fflateState.files = makeEpubFiles(
+      'OPS/package.opf',
+      makeOpf(
+        `
+          <item id="chapter1" href="Text/chapter1.xhtml" media-type="application/xhtml+xml" />
+        `,
+        '',
+        '',
+        '<spine><itemref idref="chapter1" /></spine>',
+      ),
+      {
+        'OPS/Text/chapter1.xhtml': '<html><head><title>Fallback Chapter</title></head><body><p>Reading text.</p></body></html>',
+      },
+    )
+
+    const extras = await EpubService.parseExtras(new Blob(['epub']))
+
+    expect(extras.toc).toEqual([
+      { label: 'Fallback Chapter', href: 'OPS/Text/chapter1.xhtml' },
+    ])
+  })
+})
+
+describe('EpubService.parseExtras - cache de sessão', () => {
+  const MINIMAL_EPUB = makeEpubFiles('package.opf', makeOpf(''), {})
+
+  beforeEach(() => {
+    fflateState.files = MINIMAL_EPUB
+  })
+
+  it('retorna o mesmo resultado sem reprocessar o ZIP na segunda chamada', async () => {
+    const bookId = 9001
+    EpubService.invalidateExtrasCache(bookId)
+
+    const arrayBuffer = vi.fn().mockResolvedValue(new ArrayBuffer(0))
+    const blob = { arrayBuffer } as unknown as Blob
+
+    await EpubService.parseExtras(blob, bookId)
+    await EpubService.parseExtras(blob, bookId)
+
+    // arrayBuffer é chamado apenas na primeira — segunda vem do cache
+    expect(arrayBuffer).toHaveBeenCalledTimes(1)
+  })
+
+  it('processa o ZIP separadamente para bookIds diferentes', async () => {
+    EpubService.invalidateExtrasCache(9002)
+    EpubService.invalidateExtrasCache(9003)
+
+    const arrayBuffer = vi.fn().mockResolvedValue(new ArrayBuffer(0))
+    const blob = { arrayBuffer } as unknown as Blob
+
+    await EpubService.parseExtras(blob, 9002)
+    await EpubService.parseExtras(blob, 9003)
+
+    expect(arrayBuffer).toHaveBeenCalledTimes(2)
+  })
+
+  it('sem bookId nunca usa cache — cada chamada processa o ZIP', async () => {
+    const arrayBuffer = vi.fn().mockResolvedValue(new ArrayBuffer(0))
+    const blob = { arrayBuffer } as unknown as Blob
+
+    await EpubService.parseExtras(blob)
+    await EpubService.parseExtras(blob)
+
+    expect(arrayBuffer).toHaveBeenCalledTimes(2)
+  })
+
+  it('invalidateExtrasCache força reprocessamento na próxima chamada', async () => {
+    const bookId = 9004
+    EpubService.invalidateExtrasCache(bookId)
+
+    const arrayBuffer = vi.fn().mockResolvedValue(new ArrayBuffer(0))
+    const blob = { arrayBuffer } as unknown as Blob
+
+    await EpubService.parseExtras(blob, bookId)
+    EpubService.invalidateExtrasCache(bookId)
+    await EpubService.parseExtras(blob, bookId)
+
+    expect(arrayBuffer).toHaveBeenCalledTimes(2)
+  })
+
+  it('chamadas simultâneas com mesmo bookId disparam apenas um unzip', async () => {
+    const bookId = 9005
+    EpubService.invalidateExtrasCache(bookId)
+
+    const arrayBuffer = vi.fn().mockResolvedValue(new ArrayBuffer(0))
+    const blob = { arrayBuffer } as unknown as Blob
+
+    // Dispara as duas sem await intermediário
+    await Promise.all([
+      EpubService.parseExtras(blob, bookId),
+      EpubService.parseExtras(blob, bookId),
+    ])
+
+    expect(arrayBuffer).toHaveBeenCalledTimes(1)
   })
 })

@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   addBook: vi.fn(),
   saveBookCover: vi.fn(),
   parseMetadata: vi.fn(),
+  invalidateExtrasCache: vi.fn(),
   transaction: vi.fn(),
 }))
 
@@ -26,6 +27,7 @@ vi.mock('@/db/database', () => ({
 vi.mock('@/services/EpubService', () => ({
   EpubService: {
     parseMetadata: mocks.parseMetadata,
+    invalidateExtrasCache: mocks.invalidateExtrasCache,
   },
 }))
 
@@ -36,6 +38,7 @@ describe('BookImportService', () => {
     mocks.addBook.mockReset()
     mocks.saveBookCover.mockReset()
     mocks.parseMetadata.mockReset()
+    mocks.invalidateExtrasCache.mockReset()
     mocks.transaction.mockReset()
     mocks.transaction.mockImplementation((...args: unknown[]) => {
       const scope = args.at(-1)

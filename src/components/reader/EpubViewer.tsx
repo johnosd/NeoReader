@@ -1127,6 +1127,30 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       const paras = ttsParagraphsRef.current
       if (paras.length === 0) return { para: null, paraIndex: 0 }
 
+      // Primary: detect visible paragraph from actual viewport position.
+      // Works for both foliate rendering modes in flow:scrolled:
+      //   iframe-scroll: rect is already viewport-relative (accounts for win.scrollY); iframeTop ≈ 0
+      //   container-scroll: rect = para offset within static iframe; iframeTop = container scroll offset
+      // This avoids relying on lastRelocateRef.range which is optional and may point to section start.
+      const doc = currentDocRef.current
+      if (doc) {
+        const win = doc.defaultView
+        if (win) {
+          const frameEl = win.frameElement  // <iframe> in parent doc; null if cross-origin
+          const iframeTop = frameEl ? (frameEl as Element).getBoundingClientRect().top : 0
+          const mainViewportHeight = window.innerHeight
+          for (let i = 0; i < paras.length; i++) {
+            const rect = paras[i].getBoundingClientRect()
+            const absTop = iframeTop + rect.top
+            const absBottom = iframeTop + rect.bottom
+            if (rect.height > 0 && absBottom > 0 && absTop < mainViewportHeight) {
+              return { para: paras[i], paraIndex: i }
+            }
+          }
+        }
+      }
+
+      // Fallback: range from last relocate event (may be undefined or point to section start)
       const paraIndex = getParagraphIndexFromRange(lastRelocateRef.current?.range)
       return {
         para: paras[paraIndex] ?? null,
