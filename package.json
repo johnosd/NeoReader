@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "android:run": "npm run build && npx cap sync android && npx cap run android",
     "lint": "eslint .",
+    "postinstall": "node scripts/patch-capacitor-tts-proguard.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:debug-epubs": "node scripts/run-debug-epub-tests.mjs",
