@@ -155,12 +155,14 @@ O app tambem permite salvar as chaves pela tela de configuracoes. Para usar vari
 ```env
 VITE_SPEECHIFY_API_KEY=
 VITE_ELEVENLABS_API_KEY=
+VITE_NYT_API_KEY=
 ```
 
 | Variavel | Uso | Obrigatorio |
 |---|---|---|
 | `VITE_SPEECHIFY_API_KEY` | Vozes neurais e speech marks da Speechify | Nao |
 | `VITE_ELEVENLABS_API_KEY` | Vozes premium e alinhamento temporal da ElevenLabs | Nao |
+| `VITE_NYT_API_KEY` | Listas atuais do NYT Best Sellers na biblioteca | Nao |
 
 A chave do YouTube e persistida pela tela de configuracoes do app; o codigo atual nao le uma variavel `VITE_` para ela.
 
