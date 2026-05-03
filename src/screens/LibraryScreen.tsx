@@ -4,7 +4,6 @@ import { Bell, BookOpen, Plus } from 'lucide-react'
 import neoLogo from '../../docs/design-system/logo/pacote_logos/neo_reader_icon_reduced_transparent.svg'
 import { HeroBanner } from '../components/HeroBanner'
 import { BookRow } from '../components/BookRow'
-import { NytBooksRow } from '../components/NytBooksRow'
 import { BookOptionsSheet } from '../components/BookOptionsSheet'
 import { BottomNav } from '../components/BottomNav'
 import { EmptyState, Skeleton, Toast } from '../components/ui'
@@ -12,15 +11,13 @@ import { useLibraryGroups } from '../hooks/useLibraryGroups'
 import { BookImportService } from '../services/BookImportService'
 import type { Book } from '../types/book'
 
-const NYT_API_KEY = import.meta.env.VITE_NYT_API_KEY as string | undefined
-
 interface LibraryScreenProps {
   onOpenBook: (book: Book) => void
-  onOpenVocabulary: () => void
+  onOpenDiscover: () => void
   onOpenSettings: () => void
 }
 
-export function LibraryScreen({ onOpenBook, onOpenVocabulary, onOpenSettings }: LibraryScreenProps) {
+export function LibraryScreen({ onOpenBook, onOpenDiscover, onOpenSettings }: LibraryScreenProps) {
   const { isLoading, isEmpty, heroBook, inProgressBooks, recentBooks } = useLibraryGroups()
   const [optionsBook, setOptionsBook] = useState<Book | null>(null)
   const [importing, setImporting] = useState(false)
@@ -102,24 +99,6 @@ export function LibraryScreen({ onOpenBook, onOpenVocabulary, onOpenSettings }: 
 
             <BookRow title="Continue lendo" books={inProgressBooks} onPress={onOpenBook} onOpenOptions={setOptionsBook} variant="progress" />
             <BookRow title="Meus Livros" books={recentBooks} onPress={onOpenBook} onOpenOptions={setOptionsBook} />
-
-            {NYT_API_KEY && (
-              <>
-                <div className="mt-8 mb-1 border-t border-white/5" />
-                <div className="px-5 mt-5">
-                  <p className="text-[16px] font-semibold text-text-primary">Tendencias no Mundo</p>
-                  <p className="text-[11px] mt-[2px]" style={{ color: 'rgba(100,116,139,0.8)' }}>
-                    O que o mundo esta lendo agora · NYT Best Sellers
-                  </p>
-                </div>
-
-                <NytBooksRow listName="advice-how-to-and-miscellaneous" />
-                <NytBooksRow listName="hardcover-fiction" />
-                <NytBooksRow listName="business-books" />
-
-                <div className="h-4" />
-              </>
-            )}
           </>
         )}
       </main>
@@ -145,7 +124,7 @@ export function LibraryScreen({ onOpenBook, onOpenVocabulary, onOpenSettings }: 
 
       <BottomNav
         onTabChange={(tab) => {
-          if (tab === 'books') onOpenVocabulary()
+          if (tab === 'discover') onOpenDiscover()
           if (tab === 'profile') onOpenSettings()
         }}
       />

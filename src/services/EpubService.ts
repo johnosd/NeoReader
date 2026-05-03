@@ -1,4 +1,5 @@
 import { unzip } from 'fflate'
+import { decodeHtmlEntities, htmlToPlainText, normalizePlainText } from '../utils/textSanitizer'
 
 export interface EpubMetadata {
   title: string
@@ -133,7 +134,7 @@ export class EpubService {
       const opfXml = this.readFileAsText(files, opfPath)
       if (!opfXml) return EMPTY_EPUB_EXTRAS
 
-      const description = this.extractXmlTextByLocalName(opfXml, 'description')
+      const description = this.extractXmlTextByLocalName(opfXml, 'description', { html: true })
       const language = this.extractLanguage(opfXml, opfPath, files)
       const toc = this.parseToc(opfXml, opfPath, files)
       const readingPreview = this.extractReadingPreview(opfXml, opfPath, files)
@@ -743,20 +744,22 @@ export class EpubService {
   }
 
   // Extrai o conteúdo de uma tag XML simples (sem atributos aninhados)
-  private static extractXmlTextByLocalName(xml: string, localName: string): string | null {
+  private static extractXmlTextByLocalName(
+    xml: string,
+    localName: string,
+    options: { html?: boolean } = {},
+  ): string | null {
     const expected = localName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const match = xml.match(new RegExp(`<([\\w.-]+:)?${expected}\\b[^>]*>([\\s\\S]*?)<\\/\\1?${expected}>`, 'i'))
-    return match ? this.decodeXmlEntities(this.cleanText(match[2])) : null
+    if (!match) return null
+
+    return options.html
+      ? htmlToPlainText(match[2])
+      : normalizePlainText(this.decodeXmlEntities(this.cleanText(match[2])))
   }
 
   private static decodeXmlEntities(value: string): string {
-    return value
-      .replace(/&nbsp;/gi, ' ')
-      .replace(/&amp;/gi, '&')
-      .replace(/&lt;/gi, '<')
-      .replace(/&gt;/gi, '>')
-      .replace(/&quot;/gi, '"')
-      .replace(/&apos;/gi, "'")
+    return decodeHtmlEntities(value)
   }
 
   private static extractLanguage(

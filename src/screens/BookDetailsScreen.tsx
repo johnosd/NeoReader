@@ -7,11 +7,19 @@ import { Badge, BottomSheet, Button, EmptyState, ListItem, Spinner } from '../co
 import { AuthorTab } from '../components/AuthorTab'
 import { db } from '../db/database'
 import { toggleFavorite } from '../db/books'
+import { getStoredBookInfo, patchBookInfo, saveBookInfo } from '../db/bookInfo'
 import { softDeleteBookmark } from '../db/bookmarks'
 import { getBookSettings, updateBookSettings } from '../db/bookSettings'
 import { getSettings } from '../db/settings'
 import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
 import { EpubService, type EpubExtras } from '../services/EpubService'
+import {
+  BookInfoService,
+  EpubBookInfoProvider,
+  GoogleBooksProvider,
+  OpenLibraryProvider,
+  YouTubeReviewsProvider,
+} from '../services/bookInfo'
 import { ElevenLabsService } from '../services/ElevenLabsService'
 import { NativeTtsService } from '../services/NativeTtsService'
 import { SpeechifyService } from '../services/SpeechifyService'
@@ -25,6 +33,14 @@ import {
   type ReaderStyleMode,
 } from '../components/reader/ReaderAppearanceControls'
 import type { Book, BookSettings } from '../types/book'
+import type {
+  BookInfoConfidence,
+  BookInfoProviderAttemptDiagnostic,
+  BookInfoSource,
+  BookReview,
+  ResolvedBookInfo,
+  StoredBookInfo,
+} from '../types/bookInfo'
 import type { AppSettings, FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from '../types/settings'
 import type { TtsProvider, TtsVoiceOption } from '../types/tts'
 import { clampTtsRate, normalizeLanguageTag } from '../utils/language'
@@ -45,14 +61,15 @@ interface BookDetailsScreenProps {
   onOpenSettings: () => void
 }
 
-type Tab = 'chapters' | 'bookmarks' | 'settings' | 'details' | 'autor'
+type Tab = 'chapters' | 'bookmarks' | 'settings' | 'details' | 'reviews' | 'autor'
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: 'chapters', label: 'Capitulos' },
+  { id: 'chapters', label: 'Capitulo' },
   { id: 'bookmarks', label: 'Marcacoes' },
+  { id: 'reviews', label: 'Reviews' },
+  { id: 'autor', label: 'Autor' },
   { id: 'settings', label: 'Configuracoes' },
   { id: 'details', label: 'Detalhes' },
-  { id: 'autor', label: 'Autor' },
 ]
 
 const TTS_PROVIDERS: Array<{ value: TtsProvider; label: string }> = [
@@ -87,6 +104,10 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
   const [descExpanded, setDescExpanded] = useState(false)
   const [extras, setExtras] = useState<EpubExtras | null>(null)
   const [extrasLoading, setExtrasLoading] = useState(true)
+  const [bookInfo, setBookInfo] = useState<StoredBookInfo | null>(null)
+  const [bookInfoLoading, setBookInfoLoading] = useState(true)
+  const [bookInfoRefreshToken, setBookInfoRefreshToken] = useState(0)
+  const [bookInfoDiagnostics, setBookInfoDiagnostics] = useState<BookInfoProviderAttemptDiagnostic[]>([])
   const [optimisticBookSettings, setOptimisticBookSettings] = useState<BookSettings | null>(null)
   const [defaultFontSize, setDefaultFontSize] = useState<FontSize>('md')
   const [defaultLineHeight, setDefaultLineHeight] = useState<ReaderLineHeight>('comfortable')
@@ -100,6 +121,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
     translationTargetLang: 'pt-BR',
     youtubeApiKey: '',
   })
+  const [settingsLoaded, setSettingsLoaded] = useState(false)
   const [bookLanguageSheetOpen, setBookLanguageSheetOpen] = useState(false)
   const [translationTargetLangSheetOpen, setTranslationTargetLangSheetOpen] = useState(false)
   const [ttsProviderSheetOpen, setTtsProviderSheetOpen] = useState(false)
@@ -154,6 +176,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
       setDefaultOverrideBookFont(settings.readerDefaults.overrideBookFont)
       setDefaultOverrideBookColors(settings.readerDefaults.overrideBookColors)
       setAppSettings(settings.appSettings)
+      setSettingsLoaded(true)
     })
   }, [])
 
@@ -168,6 +191,74 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
       setExtrasLoading(false)
     })
   }, [liveBook.fileBlob])
+
+  useEffect(() => {
+    if (!liveBook.id || !settingsLoaded) return
+
+    let cancelled = false
+    setBookInfoLoading(true)
+    setBookInfoDiagnostics([])
+
+    async function loadBookInfo() {
+      const diagnostics: BookInfoProviderAttemptDiagnostic[] = []
+      const recordDiagnostic = (attempt: BookInfoProviderAttemptDiagnostic) => {
+        diagnostics.push(attempt)
+        if (import.meta.env.DEV && !cancelled) {
+          setBookInfoDiagnostics([...diagnostics])
+        }
+      }
+
+      try {
+        const stored = await getStoredBookInfo(liveBook.id!)
+        if (cancelled) return
+
+        let nextInfo = stored ?? null
+        const needsBaseCollection = !stored || !hasDisplayableBookInfo(stored) || bookInfoRefreshToken > 0
+        const needsYoutubeReviews = Boolean(appSettings.youtubeApiKey)
+          && !stored?.reviews?.value.some((review) => review.provider === 'youtube')
+
+        if (needsBaseCollection) {
+          const collected = await new BookInfoService([
+            new EpubBookInfoProvider(),
+            new GoogleBooksProvider(),
+            new OpenLibraryProvider(),
+            new YouTubeReviewsProvider({ apiKey: appSettings.youtubeApiKey }),
+          ], { onProviderAttempt: recordDiagnostic }).collect(liveBook.fileBlob, {
+            lookupHints: {
+              title: liveBook.title,
+              author: liveBook.author,
+              identifiers: [],
+            },
+          })
+          nextInfo = await saveBookInfo(liveBook.id!, collected)
+        } else if (needsYoutubeReviews) {
+          const collected = await new BookInfoService([
+            new YouTubeReviewsProvider({ apiKey: appSettings.youtubeApiKey }),
+          ], { onProviderAttempt: recordDiagnostic }).collect(liveBook.fileBlob, stored)
+
+          if (collected.reviews) {
+            nextInfo = await patchBookInfo(liveBook.id!, {
+              reviews: collected.reviews,
+              lookupHints: collected.lookupHints,
+            })
+          }
+        }
+
+        if (!cancelled) setBookInfo(nextInfo)
+      } catch (error) {
+        console.warn('Book info enrichment failed in details screen.', error)
+        if (!cancelled) setBookInfo(null)
+      } finally {
+        if (!cancelled) setBookInfoLoading(false)
+      }
+    }
+
+    void loadBookInfo()
+
+    return () => {
+      cancelled = true
+    }
+  }, [appSettings.youtubeApiKey, bookInfoRefreshToken, liveBook.fileBlob, liveBook.id, liveBook.title, liveBook.author, settingsLoaded])
 
   useEffect(() => {
     const listener = CapApp.addListener('backButton', onBack)
@@ -213,6 +304,17 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
   const selectedVoiceMeta = providerConfigured
     ? `${selectedVoiceLabel} - ${getLanguageLabel(effectiveBookLanguage) ?? effectiveBookLanguage}`
     : 'Abra as Configuracoes gerais para configurar a API key'
+  const publishedYear = formatPublishedYear(bookInfo?.publishedDate?.value)
+  const headerRating = bookInfo?.rating
+    ? formatBookRating(bookInfo.rating.value.average, bookInfo.rating.value.count)
+    : null
+  const headerRatingLabel = headerRating
+    ? `Nota ${headerRating}`
+    : bookInfoLoading
+      ? 'Buscando nota'
+      : 'Nota indisponivel'
+  const aboutDescription = extras?.description ?? bookInfo?.synopsis?.value ?? null
+  const youtubeReviews = bookInfo?.reviews?.value.filter((review) => review.provider === 'youtube') ?? []
 
   const normalizedVoiceSearch = ttsVoiceSearch.trim().toLocaleLowerCase()
   const filteredTtsVoiceOptions = normalizedVoiceSearch
@@ -533,14 +635,30 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
             <h1 className="text-2xl font-serif font-bold text-text-primary leading-snug">
               {liveBook.title}
             </h1>
-            {liveBook.author && (
-              <button
-                onClick={() => setActiveTab('autor')}
-                className="mt-1 text-sm text-purple-light active:opacity-70 transition-opacity"
-              >
-                {liveBook.author}
-              </button>
+            {(liveBook.author || publishedYear) && (
+              <div className="mt-1 flex flex-wrap items-center justify-center gap-2 text-sm">
+                {liveBook.author && (
+                  <button
+                    onClick={() => setActiveTab('autor')}
+                    className="text-purple-light active:opacity-70 transition-opacity"
+                  >
+                    {liveBook.author}
+                  </button>
+                )}
+                {publishedYear && (
+                  <span className="text-text-muted">
+                    {publishedYear}
+                  </span>
+                )}
+              </div>
             )}
+            <div className="mt-2 flex items-center justify-center gap-1.5 text-sm font-semibold text-text-secondary">
+              {bookInfoLoading && !headerRating
+                ? <Loader2 size={15} className="animate-spin text-text-muted" />
+                : <Star size={15} className={headerRating ? 'text-purple-light fill-purple-light' : 'text-text-muted'} />
+              }
+              <span>{headerRatingLabel}</span>
+            </div>
           </div>
         </div>
 
@@ -563,10 +681,10 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
 
         <div className="px-4">
           <Section title="Sobre o livro">
-            {extras?.description && (
+            {aboutDescription && (
               <div className="mb-4">
                 <p className={`text-sm text-text-secondary leading-relaxed ${descExpanded ? '' : 'line-clamp-3'}`}>
-                  {extras.description}
+                  {aboutDescription}
                 </p>
                 <button
                   onClick={() => setDescExpanded((value) => !value)}
@@ -599,7 +717,11 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
             <div className="flex gap-1 min-w-max">
               {TABS.map((tab) => {
                 const active = activeTab === tab.id
-                const count = tab.id === 'bookmarks' && bookmarks.length > 0 ? bookmarks.length : null
+                const count = tab.id === 'bookmarks' && bookmarks.length > 0
+                  ? bookmarks.length
+                  : tab.id === 'reviews' && youtubeReviews.length > 0
+                    ? youtubeReviews.length
+                    : null
                 return (
                   <button
                     key={tab.id}
@@ -953,31 +1075,53 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
             )}
 
             {activeTab === 'details' && (
-              <div className="rounded-md bg-bg-surface border border-border overflow-hidden">
-                {langLabel && (
-                  <ListItem leading={<Globe size={18} />} title="Idioma" meta={langLabel} divider />
-                )}
-                <ListItem
-                  leading={<Calendar size={18} />}
-                  title="Adicionado"
-                  meta={formatDate(liveBook.addedAt)}
-                  divider={!!liveBook.lastOpenedAt}
+              <div className="space-y-4">
+                <BookInfoDetails
+                  info={bookInfo}
+                  loading={bookInfoLoading}
+                  onRefresh={() => setBookInfoRefreshToken((value) => value + 1)}
                 />
-                {liveBook.lastOpenedAt && (
+                <BookInfoDiagnosticsSection
+                  diagnostics={bookInfoDiagnostics}
+                  loading={bookInfoLoading}
+                  onRefresh={() => setBookInfoRefreshToken((value) => value + 1)}
+                />
+
+                <div className="rounded-md bg-bg-surface border border-border overflow-hidden">
+                  {langLabel && (
+                    <ListItem leading={<Globe size={18} />} title="Idioma" meta={langLabel} divider />
+                  )}
                   <ListItem
                     leading={<Calendar size={18} />}
-                    title="Ultimo acesso"
-                    meta={formatDate(liveBook.lastOpenedAt)}
-                    divider
+                    title="Adicionado"
+                    meta={formatDate(liveBook.addedAt)}
+                    divider={!!liveBook.lastOpenedAt}
                   />
-                )}
-                <ListItem
-                  leading={<HardDrive size={18} />}
-                  title="Tamanho"
-                  meta={formatFileSize(liveBook.fileBlob.size)}
-                  divider={false}
-                />
+                  {liveBook.lastOpenedAt && (
+                    <ListItem
+                      leading={<Calendar size={18} />}
+                      title="Ultimo acesso"
+                      meta={formatDate(liveBook.lastOpenedAt)}
+                      divider
+                    />
+                  )}
+                  <ListItem
+                    leading={<HardDrive size={18} />}
+                    title="Tamanho"
+                    meta={formatFileSize(liveBook.fileBlob.size)}
+                    divider={false}
+                  />
+                </div>
               </div>
+            )}
+
+            {activeTab === 'reviews' && (
+              <BookReviewsTab
+                reviews={youtubeReviews}
+                loading={bookInfoLoading}
+                youtubeApiKey={appSettings.youtubeApiKey}
+                onOpenSettings={onOpenSettings}
+              />
             )}
 
             {activeTab === 'autor' && (
@@ -1239,6 +1383,415 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
       </div>
     </section>
   )
+}
+
+function BookInfoDiagnosticsSection({
+  diagnostics,
+  loading,
+  onRefresh,
+}: {
+  diagnostics: BookInfoProviderAttemptDiagnostic[]
+  loading: boolean
+  onRefresh: () => void
+}) {
+  return (
+    <section>
+      <h2 className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-3">
+        Diagnostico
+      </h2>
+      <div className="rounded-md border border-border bg-bg-surface px-4 py-3">
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={loading}
+          className="w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm font-semibold text-purple-light transition-colors active:bg-white/10 disabled:opacity-50"
+        >
+          {loading ? 'Atualizando informacoes' : 'Atualizar informacoes'}
+        </button>
+
+        {import.meta.env.DEV && diagnostics.length > 0 && (
+          <div className="mt-4 space-y-3 border-t border-white/8 pt-3">
+            <div className="text-[11px] font-bold uppercase tracking-wider text-amber-200">
+              Fontes consultadas
+            </div>
+            {diagnostics.map((attempt, index) => (
+              <div key={`${attempt.source}-${index}`} className="text-xs leading-relaxed text-text-muted">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-semibold text-text-primary">
+                    {formatBookInfoSource(attempt.source)}
+                  </span>
+                  <span className={formatDiagnosticStatusClass(attempt.status)}>
+                    {formatDiagnosticStatus(attempt.status)}
+                  </span>
+                  {attempt.fields.length > 0 && (
+                    <span>{attempt.fields.join(', ')}</span>
+                  )}
+                </div>
+                {attempt.message && (
+                  <div className="mt-1 break-words">
+                    {attempt.message}
+                  </div>
+                )}
+                {attempt.details && attempt.details.length > 0 && (
+                  <ul className="mt-1 space-y-1">
+                    {attempt.details.map((detail) => (
+                      <li key={detail} className="break-words">
+                        {detail}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function BookReviewsTab({
+  reviews,
+  loading,
+  youtubeApiKey,
+  onOpenSettings,
+}: {
+  reviews: BookReview[]
+  loading: boolean
+  youtubeApiKey: string
+  onOpenSettings: () => void
+}) {
+  if (loading && reviews.length === 0) {
+    return (
+      <div className="flex flex-col gap-6 pb-4">
+        <VideoReviewsSkeleton />
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-6 pb-4">
+      {reviews.length > 0 ? (
+        <VideoReviewsCarousel reviews={reviews} />
+      ) : (
+        <EmptyState
+          icon={<Play size={32} />}
+          title="Reviews nao encontrados"
+          description="Ainda nao encontramos reviews em video para este livro."
+        />
+      )}
+      {!youtubeApiKey && <ReviewsYoutubePrompt onOpenSettings={onOpenSettings} />}
+    </div>
+  )
+}
+
+function VideoReviewsCarousel({ reviews }: { reviews: BookReview[] }) {
+  return (
+    <div>
+      <h3 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-text-muted">
+        Videos
+      </h3>
+      <div className="flex gap-3 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
+        {reviews.slice(0, 8).map((review) => {
+          const videoId = getYouTubeVideoId(review.url)
+          const thumbnailUrl = videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : null
+          return (
+            <button
+              key={review.url ?? review.title}
+              type="button"
+              onClick={() => review.url && window.open(review.url, '_blank')}
+              disabled={!review.url}
+              className="flex-shrink-0 w-48 text-left transition-opacity active:opacity-70 disabled:opacity-60"
+            >
+              <div className="relative w-full overflow-hidden rounded-md bg-white/5" style={{ aspectRatio: '16/9' }}>
+                {thumbnailUrl ? (
+                  <img
+                    src={thumbnailUrl}
+                    alt={review.title}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-text-muted">
+                    <Play size={24} />
+                  </div>
+                )}
+                <div className="absolute inset-0 flex items-center justify-center bg-black/10">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-black/65 text-white">
+                    <Play size={17} className="ml-0.5 fill-white" />
+                  </div>
+                </div>
+              </div>
+              <p className="mt-1.5 text-xs font-semibold text-text-primary line-clamp-2 leading-tight">
+                {review.title}
+              </p>
+              {review.channelTitle && (
+                <p className="mt-0.5 truncate text-[10px] text-text-muted">
+                  {review.channelTitle}
+                </p>
+              )}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function ReviewsYoutubePrompt({ onOpenSettings }: { onOpenSettings: () => void }) {
+  return (
+    <div className="rounded-md border border-border bg-bg-surface p-4 flex flex-col gap-3">
+      <p className="text-xs text-text-muted leading-relaxed">
+        Configure sua YouTube API key nas Configuracoes para buscar reviews em video deste livro.
+      </p>
+      <button
+        type="button"
+        onClick={onOpenSettings}
+        className="self-start rounded-md bg-purple-primary/20 px-3 py-1.5 text-xs font-semibold text-purple-light transition-colors active:bg-purple-primary/30"
+      >
+        Ir para Configuracoes
+      </button>
+    </div>
+  )
+}
+
+function VideoReviewsSkeleton() {
+  return (
+    <div>
+      <div className="mb-3 h-3 w-16 rounded-sm bg-white/8" />
+      <div className="flex gap-3">
+        {[0, 1, 2].map((index) => (
+          <div key={index} className="w-48 flex-shrink-0">
+            <div className="aspect-video w-full rounded-md bg-white/8" />
+            <div className="mt-2 h-3 w-full rounded-sm bg-white/8" />
+            <div className="mt-1 h-2.5 w-2/3 rounded-sm bg-white/8" />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function BookInfoDetails({
+  info,
+  loading,
+  onRefresh,
+}: {
+  info: StoredBookInfo | null
+  loading: boolean
+  onRefresh: () => void
+}) {
+  if (loading && !info) {
+    return (
+      <div className="rounded-md border border-border bg-bg-surface px-4 py-3 text-sm text-text-muted">
+        Atualizando informacoes do livro...
+      </div>
+    )
+  }
+
+  if (!info) {
+    return <BookInfoEmptyState loading={loading} onRefresh={onRefresh} />
+  }
+
+  const rows: BookInfoDetailRow[] = []
+  if (info.category) {
+    rows.push({
+      title: 'Categoria',
+      meta: info.category.value.map((item) => item.label).join(', '),
+      source: info.category,
+    })
+  }
+  if (info.rating) {
+    rows.push({
+      title: 'Rating',
+      meta: formatBookRating(info.rating.value.average, info.rating.value.count),
+      source: info.rating,
+    })
+  }
+  if (info.pageCount) {
+    rows.push({
+      title: 'Paginas',
+      meta: String(info.pageCount.value),
+      source: info.pageCount,
+    })
+  }
+  if (info.publishedDate) {
+    rows.push({
+      title: 'Publicacao',
+      meta: info.publishedDate.value,
+      source: info.publishedDate,
+    })
+  }
+  if (info.universalIdentifier) {
+    rows.push({
+      title: 'Identificador',
+      meta: `${info.universalIdentifier.value.kind}: ${info.universalIdentifier.value.value}`,
+      source: info.universalIdentifier,
+    })
+  }
+
+  if (rows.length === 0) {
+    return <BookInfoEmptyState loading={loading} onRefresh={onRefresh} />
+  }
+
+  return (
+    <div className="space-y-4">
+      {rows.length > 0 && (
+        <section>
+          <h2 className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-3">
+            Informacoes editoriais
+          </h2>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {rows.map((row) => (
+            <div
+              key={row.title}
+              className="rounded-md border border-border bg-bg-surface px-4 py-3"
+            >
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white/6 text-text-secondary">
+                  <BookOpen size={16} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-text-muted">
+                    {row.title}
+                  </div>
+                  <div className="mt-1 break-words text-sm font-semibold text-text-primary">
+                    {row.meta}
+                  </div>
+                  <BookInfoSourceLine value={row.source} compact />
+                </div>
+              </div>
+            </div>
+          ))}
+          </div>
+        </section>
+      )}
+
+    </div>
+  )
+}
+
+function BookInfoEmptyState({
+  loading,
+}: {
+  loading: boolean
+  onRefresh: () => void
+}) {
+  return (
+    <div className="rounded-md border border-border bg-bg-surface px-4 py-5">
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-white/6 text-text-secondary">
+          {loading ? <Loader2 size={18} className="animate-spin" /> : <BookOpen size={18} />}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold text-text-primary">
+            {loading ? 'Atualizando informacoes do livro' : 'Nenhuma informacao editorial encontrada'}
+          </div>
+          <p className="mt-1 text-sm leading-relaxed text-text-muted">
+            {loading
+              ? 'Estamos buscando dados no EPUB e em fontes externas.'
+              : 'Tente atualizar usando titulo e autor salvos na biblioteca.'}
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function hasDisplayableBookInfo(info: ResolvedBookInfo | null | undefined): boolean {
+  return Boolean(
+    info?.synopsis
+    || info?.category
+    || info?.rating
+    || info?.pageCount
+    || info?.publishedDate
+    || info?.universalIdentifier
+    || (info?.reviews?.value.length ?? 0) > 0,
+  )
+}
+
+function getYouTubeVideoId(url?: string): string | null {
+  if (!url) return null
+  try {
+    const parsedUrl = new URL(url)
+    if (parsedUrl.hostname.includes('youtu.be')) {
+      return parsedUrl.pathname.split('/').filter(Boolean)[0] ?? null
+    }
+    return parsedUrl.searchParams.get('v')
+  } catch {
+    return null
+  }
+}
+
+function BookInfoSourceLine({
+  value,
+  compact = false,
+}: {
+  value: BookInfoSourceMeta
+  compact?: boolean
+}) {
+  return (
+    <div className={`${compact ? 'text-[10px]' : 'mt-3 text-[11px]'} font-semibold uppercase tracking-wider text-text-muted`}>
+      {formatBookInfoSource(value.source)} - {formatBookInfoConfidence(value.confidence)}
+    </div>
+  )
+}
+
+function formatBookRating(average: number, count?: number): string {
+  const rating = `${average.toFixed(1)}/5`
+  return count ? `${rating} (${count})` : rating
+}
+
+function formatPublishedYear(value?: string | null): string | null {
+  const match = value?.match(/\b(\d{4})\b/)
+  return match?.[1] ?? null
+}
+
+interface BookInfoSourceMeta {
+  source: BookInfoSource
+  confidence: BookInfoConfidence
+}
+
+interface BookInfoDetailRow {
+  title: string
+  meta: string
+  source: BookInfoSourceMeta
+}
+
+function formatBookInfoSource(source: BookInfoSource): string {
+  const labels: Record<BookInfoSource, string> = {
+    'epub-metadata': 'EPUB',
+    'google-books': 'Google Books',
+    'open-library': 'Open Library',
+    youtube: 'YouTube',
+    manual: 'Manual',
+    derived: 'Estimado',
+  }
+  return labels[source]
+}
+
+function formatBookInfoConfidence(confidence: BookInfoConfidence): string {
+  const labels: Record<BookInfoConfidence, string> = {
+    high: 'alta confianca',
+    medium: 'media confianca',
+    low: 'baixa confianca',
+  }
+  return labels[confidence]
+}
+
+function formatDiagnosticStatus(status: BookInfoProviderAttemptDiagnostic['status']): string {
+  const labels: Record<BookInfoProviderAttemptDiagnostic['status'], string> = {
+    success: 'com dados',
+    empty: 'sem dados',
+    failed: 'falhou',
+  }
+  return labels[status]
+}
+
+function formatDiagnosticStatusClass(status: BookInfoProviderAttemptDiagnostic['status']): string {
+  const base = 'rounded-sm px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider'
+  if (status === 'success') return `${base} bg-emerald-400/10 text-emerald-200`
+  if (status === 'failed') return `${base} bg-red-400/10 text-red-200`
+  return `${base} bg-white/6 text-text-muted`
 }
 
 function Stat({ value, label }: { value: number; label: string }) {

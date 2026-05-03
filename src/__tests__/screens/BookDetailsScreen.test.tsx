@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { BookDetailsScreen } from '@/screens/BookDetailsScreen'
 import type { Book, BookSettings, ReadingProgress } from '@/types/book'
+import type { StoredBookInfo } from '@/types/bookInfo'
 
 const mocks = vi.hoisted(() => ({
   liveQueryIndex: 0,
@@ -14,6 +15,10 @@ const mocks = vi.hoisted(() => ({
   updateBookSettings: vi.fn(),
   listSpeechifyVoices: vi.fn(),
   parseExtras: vi.fn(),
+  getStoredBookInfo: vi.fn(),
+  saveBookInfo: vi.fn(),
+  patchBookInfo: vi.fn(),
+  collectBookInfo: vi.fn(),
 }))
 
 vi.mock('dexie-react-hooks', () => ({
@@ -43,6 +48,12 @@ vi.mock('@/db/bookmarks', () => ({
   softDeleteBookmark: vi.fn(),
 }))
 
+vi.mock('@/db/bookInfo', () => ({
+  getStoredBookInfo: mocks.getStoredBookInfo,
+  saveBookInfo: mocks.saveBookInfo,
+  patchBookInfo: mocks.patchBookInfo,
+}))
+
 vi.mock('@/db/bookSettings', () => ({
   getBookSettings: vi.fn(async () => mocks.bookSettings),
   updateBookSettings: mocks.updateBookSettings,
@@ -54,6 +65,7 @@ vi.mock('@/db/settings', () => ({
       speechifyApiKey: 'speechify-key',
       elevenLabsApiKey: '',
       translationTargetLang: 'pt-BR',
+      youtubeApiKey: '',
     },
     readerDefaults: {
       defaultFontSize: 'md',
@@ -75,6 +87,32 @@ vi.mock('@/services/EpubService', () => ({
   EpubService: {
     parseExtras: mocks.parseExtras,
   },
+}))
+
+vi.mock('@/services/bookInfo', () => ({
+  BookInfoService: vi.fn(function BookInfoServiceMock(
+    _providers,
+    options?: { onProviderAttempt?: (attempt: unknown) => void },
+  ) {
+    return {
+      collect: async (...args: unknown[]) => {
+        options?.onProviderAttempt?.({
+          source: 'google-books',
+          status: 'empty',
+          fields: [],
+          details: [
+            'API key Google Books: configurada',
+            'Query "Livro de teste Autor" retornou HTTP 200, totalItems=0, encontrado=nao.',
+          ],
+        })
+        return mocks.collectBookInfo(...args)
+      },
+    }
+  }),
+  EpubBookInfoProvider: vi.fn(function EpubBookInfoProviderMock() {}),
+  GoogleBooksProvider: vi.fn(function GoogleBooksProviderMock() {}),
+  OpenLibraryProvider: vi.fn(function OpenLibraryProviderMock() {}),
+  YouTubeReviewsProvider: vi.fn(function YouTubeReviewsProviderMock() {}),
 }))
 
 vi.mock('@/services/SpeechifyService', () => ({
@@ -130,6 +168,26 @@ const book: Book = {
   isFavorite: false,
 }
 
+function emptyBookInfo(): StoredBookInfo {
+  return {
+    bookId: 1,
+    createdAt: new Date('2026-05-01T00:00:00.000Z'),
+    updatedAt: new Date('2026-05-01T00:00:00.000Z'),
+    category: null,
+    rating: null,
+    synopsis: null,
+    pageCount: null,
+    publishedDate: null,
+    universalIdentifier: null,
+    reviews: null,
+    lookupHints: {
+      title: 'Livro de teste',
+      author: 'Autor',
+      identifiers: [],
+    },
+  }
+}
+
 async function openVoiceSheet() {
   render(
     <BookDetailsScreen
@@ -159,6 +217,17 @@ describe('BookDetailsScreen chapters', () => {
       updatedAt: new Date('2024-01-02T00:00:00Z'),
     }
     mocks.updateBookSettings.mockReset()
+    mocks.getStoredBookInfo.mockReset()
+    mocks.saveBookInfo.mockReset()
+    mocks.patchBookInfo.mockReset()
+    mocks.collectBookInfo.mockReset()
+    mocks.getStoredBookInfo.mockResolvedValue(emptyBookInfo())
+    mocks.collectBookInfo.mockResolvedValue(emptyBookInfo())
+    mocks.saveBookInfo.mockImplementation(async (_bookId: number, info: StoredBookInfo) => ({
+      ...emptyBookInfo(),
+      ...info,
+      bookId: 1,
+    }))
     mocks.parseExtras.mockResolvedValue({
       description: null,
       language: 'pt-BR',
@@ -175,6 +244,26 @@ describe('BookDetailsScreen chapters', () => {
       styleDiagnostics: [],
     })
     mocks.listSpeechifyVoices.mockResolvedValue([])
+  })
+
+  it('renderiza as abas na ordem definida para detalhes do livro', () => {
+    const expectedTabs = ['Capitulo', 'Marcacoes', 'Reviews', 'Autor', 'Configuracoes', 'Detalhes']
+
+    render(
+      <BookDetailsScreen
+        book={book}
+        onBack={vi.fn()}
+        onRead={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    )
+
+    const tabLabels = screen.getAllByRole('button')
+      .map((button) => button.textContent?.replace(/\d+$/, '').trim() ?? '')
+      .filter((label) => expectedTabs.includes(label))
+    const tabsStart = tabLabels.indexOf('Capitulo')
+
+    expect(tabLabels.slice(tabsStart, tabsStart + expectedTabs.length)).toEqual(expectedTabs)
   })
 
   it('shows nested chapters and opens groups at the first navigable child', async () => {
@@ -318,6 +407,193 @@ describe('BookDetailsScreen chapters', () => {
       expect(onRead).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), undefined)
     })
   })
+
+  it('mostra informacoes enriquecidas na aba de detalhes', async () => {
+    const longSynopsis = [
+      'Sinopse enriquecida do livro com detalhes suficientes para validar o comportamento expansivel da interface.',
+      'Este texto descreve personagens, contexto, temas e uma visao geral da obra para ocupar bastante espaco na tela.',
+      'A apresentacao deve comecar recolhida para manter a aba escaneavel e permitir que o leitor abra o conteudo completo.',
+      'Quando expandida, a sinopse revela a parte final do texto sem esconder as informacoes editoriais e os reviews.',
+    ].join(' ')
+
+    mocks.getStoredBookInfo.mockResolvedValue({
+      ...emptyBookInfo(),
+      synopsis: {
+        value: longSynopsis,
+        source: 'epub-metadata',
+        confidence: 'high',
+      },
+      rating: {
+        value: { average: 4.4, count: 18, scale: 5 },
+        source: 'google-books',
+        confidence: 'medium',
+      },
+      publishedDate: {
+        value: '2008-08-01',
+        source: 'google-books',
+        confidence: 'medium',
+      },
+      reviews: {
+        value: [{
+          title: 'Review em video',
+          url: 'https://www.youtube.com/watch?v=abc123',
+          provider: 'youtube',
+          channelTitle: 'Canal de livros',
+        }],
+        source: 'youtube',
+        confidence: 'medium',
+      },
+    })
+
+    render(
+      <BookDetailsScreen
+        book={book}
+        onBack={vi.fn()}
+        onRead={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Detalhes' }))
+
+    expect(await screen.findByText('2008')).toBeTruthy()
+    expect(screen.getByText('Nota 4.4/5 (18)')).toBeTruthy()
+    expect(await screen.findByText(/Sinopse enriquecida do livro/)).toBeTruthy()
+    expect(screen.getByText('Diagnostico')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Atualizar informacoes' })).toBeTruthy()
+    expect(screen.queryByText('Sinopse')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Leia mais' }))
+    expect(screen.getByText(/Quando expandida/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Mostrar menos' })).toBeTruthy()
+    expect(screen.getByText('4.4/5 (18)')).toBeTruthy()
+    expect(screen.queryByText('Review em video')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: /Reviews/ }))
+
+    expect(screen.getByText('Review em video')).toBeTruthy()
+    expect(screen.getByText('Canal de livros')).toBeTruthy()
+  })
+
+  it('coleta informacoes usando titulo e autor salvos quando livro antigo ainda nao tem bookInfo', async () => {
+    const collected = {
+      ...emptyBookInfo(),
+      rating: {
+        value: { average: 4.8, scale: 5 as const },
+        source: 'google-books' as const,
+        confidence: 'medium' as const,
+      },
+    }
+    mocks.getStoredBookInfo.mockResolvedValue(undefined)
+    mocks.collectBookInfo.mockResolvedValue(collected)
+    mocks.saveBookInfo.mockResolvedValue(collected)
+
+    render(
+      <BookDetailsScreen
+        book={book}
+        onBack={vi.fn()}
+        onRead={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Detalhes' }))
+
+    expect(await screen.findByText('4.8/5')).toBeTruthy()
+    expect(mocks.collectBookInfo).toHaveBeenCalledWith(book.fileBlob, {
+      lookupHints: {
+        title: 'Livro de teste',
+        author: 'Autor',
+        identifiers: [],
+      },
+    })
+    expect(mocks.saveBookInfo).toHaveBeenCalledWith(1, collected)
+  })
+
+  it('mostra nota indisponivel no cabecalho quando nenhuma fonte retorna rating', async () => {
+    mocks.getStoredBookInfo.mockResolvedValue({
+      ...emptyBookInfo(),
+      synopsis: {
+        value: 'Sinopse sem rating externo.',
+        source: 'google-books',
+        confidence: 'medium',
+      },
+    })
+
+    render(
+      <BookDetailsScreen
+        book={book}
+        onBack={vi.fn()}
+        onRead={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    )
+
+    expect(await screen.findByText('Nota indisponivel')).toBeTruthy()
+  })
+
+  it('recoleta quando existe bookInfo salvo mas sem campos exibiveis', async () => {
+    const emptyStored = emptyBookInfo()
+    const collected = {
+      ...emptyBookInfo(),
+      pageCount: {
+        value: 320,
+        source: 'google-books' as const,
+        confidence: 'medium' as const,
+      },
+    }
+    mocks.getStoredBookInfo.mockResolvedValue(emptyStored)
+    mocks.collectBookInfo.mockResolvedValue(collected)
+    mocks.saveBookInfo.mockResolvedValue(collected)
+
+    render(
+      <BookDetailsScreen
+        book={book}
+        onBack={vi.fn()}
+        onRead={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Detalhes' }))
+
+    expect(await screen.findByText('320')).toBeTruthy()
+    expect(mocks.collectBookInfo).toHaveBeenCalledWith(book.fileBlob, {
+      lookupHints: {
+        title: 'Livro de teste',
+        author: 'Autor',
+        identifiers: [],
+      },
+    })
+  })
+
+  it('mostra estado vazio e permite atualizar manualmente quando nenhuma fonte retorna dados', async () => {
+    mocks.getStoredBookInfo.mockResolvedValue(emptyBookInfo())
+    mocks.collectBookInfo.mockResolvedValue(emptyBookInfo())
+    mocks.saveBookInfo.mockResolvedValue(emptyBookInfo())
+
+    render(
+      <BookDetailsScreen
+        book={book}
+        onBack={vi.fn()}
+        onRead={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Detalhes' }))
+
+    expect(await screen.findByText('Nenhuma informacao editorial encontrada')).toBeTruthy()
+    expect(screen.getByText('Diagnostico')).toBeTruthy()
+    expect(screen.getByText('Fontes consultadas')).toBeTruthy()
+    expect(screen.getByText('API key Google Books: configurada')).toBeTruthy()
+    expect(screen.getByText('Query "Livro de teste Autor" retornou HTTP 200, totalItems=0, encontrado=nao.')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Atualizar informacoes' }))
+
+    await waitFor(() => {
+      expect(mocks.collectBookInfo).toHaveBeenCalledTimes(2)
+    })
+  })
 })
 
 describe('BookDetailsScreen voice settings', () => {
@@ -325,6 +601,12 @@ describe('BookDetailsScreen voice settings', () => {
     mocks.liveQueryIndex = 0
     mocks.progress = null
     mocks.updateBookSettings.mockReset()
+    mocks.getStoredBookInfo.mockReset()
+    mocks.saveBookInfo.mockReset()
+    mocks.patchBookInfo.mockReset()
+    mocks.collectBookInfo.mockReset()
+    mocks.getStoredBookInfo.mockResolvedValue(emptyBookInfo())
+    mocks.collectBookInfo.mockResolvedValue(emptyBookInfo())
     mocks.parseExtras.mockResolvedValue({
       description: null,
       language: 'pt-BR',

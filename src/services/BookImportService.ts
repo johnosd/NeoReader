@@ -1,14 +1,16 @@
 import { db } from '../db/database'
 import { saveBookCover } from '../db/bookCovers'
+import { saveBookInfo } from '../db/bookInfo'
 import { addBook } from '../db/books'
 import { EpubService } from './EpubService'
+import { BookInfoService } from './bookInfo'
 import type { Book } from '../types/book'
 
 export class BookImportService {
   static async importEpub(file: File): Promise<number> {
     const metadata = await EpubService.parseMetadata(file)
 
-    return db.transaction('rw', db.books, db.bookCovers, async () => {
+    const bookId = await db.transaction('rw', db.books, db.bookCovers, async () => {
       const bookId = await addBook({
         title: metadata.title,
         author: metadata.author,
@@ -23,6 +25,9 @@ export class BookImportService {
 
       return bookId
     })
+
+    await this.collectAndSaveBookInfo(bookId, file, metadata.title, metadata.author)
+    return bookId
   }
 
   static async reextractCover(book: Pick<Book, 'id' | 'title' | 'fileBlob'>): Promise<boolean> {
@@ -39,6 +44,26 @@ export class BookImportService {
 
   static async updateManualCover(bookId: number, coverBlob: Blob): Promise<void> {
     await saveBookCover(bookId, coverBlob, 'manual-upload')
+  }
+
+  private static async collectAndSaveBookInfo(
+    bookId: number,
+    file: File,
+    title: string,
+    author: string,
+  ): Promise<void> {
+    try {
+      const info = await new BookInfoService().collect(file, {
+        lookupHints: {
+          title,
+          author,
+          identifiers: [],
+        },
+      })
+      await saveBookInfo(bookId, info)
+    } catch (error) {
+      console.warn('Book info enrichment failed during import.', error)
+    }
   }
 
   private static toStoredFile(book: Pick<Book, 'title' | 'fileBlob'>): File {

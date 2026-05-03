@@ -4,6 +4,7 @@ import { BookDetailsScreen } from './screens/BookDetailsScreen'
 import { ReaderScreen } from './screens/ReaderScreen'
 import { VocabularyScreen } from './screens/VocabularyScreen'
 import { SettingsScreen } from './screens/SettingsScreen'
+import { DiscoverScreen } from './screens/DiscoverScreen'
 import { ErrorBoundary } from './components/ui'
 import type { Book } from './types/book'
 
@@ -12,6 +13,7 @@ type Route =
   | { name: 'book-details'; book: Book }
   | { name: 'reader'; book: Book; startHref?: string }
   | { name: 'vocabulary' }
+  | { name: 'discover' }
   | { name: 'settings' }
 
 function App() {
@@ -53,6 +55,16 @@ function App() {
         </ErrorBoundary>
       )
 
+    case 'discover':
+      return (
+        <ErrorBoundary key="discover">
+          <DiscoverScreen
+            onBack={pop}
+            onOpenSettings={() => push({ name: 'settings' })}
+          />
+        </ErrorBoundary>
+      )
+
     case 'settings':
       return (
         <ErrorBoundary key="settings">
@@ -65,7 +77,7 @@ function App() {
         <ErrorBoundary key="library">
           <LibraryScreen
             onOpenBook={(book) => push({ name: 'book-details', book })}
-            onOpenVocabulary={() => push({ name: 'vocabulary' })}
+            onOpenDiscover={() => push({ name: 'discover' })}
             onOpenSettings={() => push({ name: 'settings' })}
           />
         </ErrorBoundary>
