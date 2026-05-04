@@ -850,16 +850,6 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
         <div className="flex flex-col gap-5">
           <div>
             <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-text-muted">
-              Modo
-            </p>
-            <ReaderModeControl
-              value={readerStyleMode}
-              onChange={handleReaderStyleModeChange}
-            />
-          </div>
-
-          <div>
-            <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-text-muted">
               Tema
             </p>
             <ReaderThemeControl
@@ -898,6 +888,16 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
             <ReaderLineHeightControl
               value={lineHeight}
               onChange={(value) => applyAppearancePatch({ lineHeight: value })}
+            />
+          </div>
+
+          <div>
+            <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-text-muted">
+              Modo
+            </p>
+            <ReaderModeControl
+              value={readerStyleMode}
+              onChange={handleReaderStyleModeChange}
             />
           </div>
         </div>

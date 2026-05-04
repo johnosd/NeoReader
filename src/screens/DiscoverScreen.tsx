@@ -9,10 +9,11 @@ const NYT_API_KEY = import.meta.env.VITE_NYT_API_KEY as string | undefined
 
 interface DiscoverScreenProps {
   onBack: () => void
-  onOpenSettings: () => void
+  onOpenLibrary: () => void
+  onOpenProfile: () => void
 }
 
-export function DiscoverScreen({ onBack, onOpenSettings }: DiscoverScreenProps) {
+export function DiscoverScreen({ onBack, onOpenLibrary, onOpenProfile }: DiscoverScreenProps) {
   useEffect(() => {
     const listenerPromise = CapApp.addListener('backButton', onBack)
     return () => { void listenerPromise.then((l) => l.remove()) }
@@ -64,8 +65,8 @@ export function DiscoverScreen({ onBack, onOpenSettings }: DiscoverScreenProps) 
       <BottomNav
         activeTab="discover"
         onTabChange={(tab) => {
-          if (tab === 'home' || tab === 'biblioteca') onBack()
-          if (tab === 'profile') onOpenSettings()
+          if (tab === 'home' || tab === 'biblioteca') onOpenLibrary()
+          if (tab === 'profile') onOpenProfile()
         }}
       />
     </div>
