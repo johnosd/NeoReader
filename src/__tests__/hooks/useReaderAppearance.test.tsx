@@ -179,4 +179,26 @@ describe('useReaderAppearance', () => {
 
     expect(result.current.ttsEngine).toBe('speechify')
   })
+
+  it('switchToNativeTts atualiza o estado e persiste o provider nativo', async () => {
+    mocks.getBookSettings.mockResolvedValue({ ttsProvider: 'speechify' })
+    mocks.getSettings.mockResolvedValue({
+      ...defaultSettings,
+      appSettings: { ...defaultSettings.appSettings, speechifyApiKey: 'valid-key' },
+    })
+
+    const { result } = renderHook(() => useReaderAppearance(book))
+    await act(async () => { await Promise.resolve() })
+
+    expect(result.current.ttsConfig.provider).toBe('speechify')
+    expect(result.current.ttsEngine).toBe('speechify')
+
+    act(() => { result.current.switchToNativeTts() })
+
+    expect(result.current.ttsConfig.provider).toBe('native')
+    expect(result.current.ttsEngine).toBe('native')
+    expect(mocks.updateBookSettings).toHaveBeenCalledWith(book.id, {
+      ttsProvider: 'native',
+    })
+  })
 })

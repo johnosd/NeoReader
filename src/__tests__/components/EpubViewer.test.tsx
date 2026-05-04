@@ -102,6 +102,18 @@ function clickAt(el: Element, clientX: number, clientY = 360) {
   })
 }
 
+function setCaretRange(doc: Document, textNode: Text, offset: number) {
+  Object.defineProperty(doc, 'caretRangeFromPoint', {
+    configurable: true,
+    value: () => {
+      const range = doc.createRange()
+      range.setStart(textNode, offset)
+      range.collapse(true)
+      return range
+    },
+  })
+}
+
 function setElementRect(el: Element, rect: Pick<DOMRect, 'left' | 'top' | 'right' | 'bottom' | 'width' | 'height'>) {
   Object.defineProperty(el, 'getBoundingClientRect', {
     configurable: true,
@@ -384,6 +396,64 @@ describe('EpubViewer — seleção de texto', () => {
 
     expect(paraA.hasAttribute('data-nr-active')).toBe(false)
     expect(onTranslate).toHaveBeenCalledOnce() // não chamou uma 2ª vez
+  })
+
+  it('tap no mesmo parágrafo durante loading é ignorado e mantém o spinner', () => {
+    click(paraA)
+    act(() => { viewerRef.current?.showTranslationLoading() })
+
+    click(paraA)
+
+    const block = fakeDoc.getElementById('nr-translation-block')
+    expect(onTranslate).toHaveBeenCalledOnce()
+    expect(paraA.hasAttribute('data-nr-active')).toBe(true)
+    expect(block?.querySelector('.nr-tr-spinner')).not.toBeNull()
+  })
+
+  it('toggle off após tradução reintegra o texto movido para o remainder', async () => {
+    const onTranslate = vi.fn()
+    const { viewerRef, foliateEl } = await renderViewer({ onTranslate })
+    const fakeDoc = makeFakeDoc(['First sentence. Second sentence.'])
+    const para = fakeDoc.querySelector('p') as HTMLElement
+    setCaretRange(fakeDoc, para.firstChild as Text, 2)
+    loadSection(foliateEl, fakeDoc, 0)
+
+    click(para)
+    act(() => { viewerRef.current?.showTranslationLoading() })
+
+    expect(para.textContent).toBe('First sentence.')
+    expect(fakeDoc.getElementById('nr-para-remainder')?.textContent).toBe(' Second sentence.')
+
+    act(() => { viewerRef.current?.injectTranslation('Tradução A') })
+    click(para)
+
+    expect(para.textContent).toBe('First sentence. Second sentence.')
+    expect(fakeDoc.getElementById('nr-translation-block')).toBeNull()
+    expect(fakeDoc.getElementById('nr-para-remainder')).toBeNull()
+    expect(para.hasAttribute('data-nr-active')).toBe(false)
+    expect(onTranslate).toHaveBeenCalledOnce()
+  })
+
+  it('selecionar outro parágrafo após tradução limpa o bloco anterior', async () => {
+    const onTranslate = vi.fn()
+    const { viewerRef, foliateEl } = await renderViewer({ onTranslate })
+    const fakeDoc = makeFakeDoc(['First paragraph.', 'Other paragraph.'])
+    const [firstPara, secondPara] = Array.from(fakeDoc.querySelectorAll('p')) as HTMLElement[]
+    loadSection(foliateEl, fakeDoc, 0)
+
+    click(firstPara)
+    act(() => { viewerRef.current?.showTranslationLoading() })
+    act(() => { viewerRef.current?.injectTranslation('Tradução A') })
+
+    click(secondPara)
+
+    expect(firstPara.textContent).toBe('First paragraph.')
+    expect(firstPara.hasAttribute('data-nr-active')).toBe(false)
+    expect(secondPara.hasAttribute('data-nr-active')).toBe(true)
+    expect(fakeDoc.getElementById('nr-translation-block')).toBeNull()
+    expect(fakeDoc.getElementById('nr-para-remainder')).toBeNull()
+    expect(onTranslate).toHaveBeenCalledTimes(2)
+    expect(onTranslate).toHaveBeenLastCalledWith('Other paragraph.')
   })
 })
 

@@ -128,11 +128,12 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   const ttsAdvancePendingRef = useRef(false)
   const ttsAutoAdvanceSkipCountRef = useRef(0)
   const currentTtsParaIdxRef = useRef(0)
+  const ttsFallbackNoticeShownRef = useRef(new Set<TtsProvider>())
 
   // ── Estado local ────────────────────────────────────────────────────────────
   const { chromeVisible, setChromeVisible, resetAutoHide, handleCenterTap } = useChromeAutoHide()
   const [ttsFinished, setTtsFinished] = useState(false)
-  const [ttsFallbackNotice, setTtsFallbackNotice] = useState<{ provider: TtsProvider } | null>(null)
+  const [ttsFallbackNotice, setTtsFallbackNotice] = useState<{ provider: TtsProvider; reason: string } | null>(null)
   const [ttsProviderFallback, setTtsProviderFallback] = useState<{ provider: TtsProvider } | null>(null)
   // Controla visibilidade do mini player — true do início até o usuário apertar ⏹
   const [ttsPlayerVisible, setTtsPlayerVisible] = useState(false)
@@ -142,6 +143,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   const [bookmarkSheetOpen, setBookmarkSheetOpen] = useState(false)
   const [appearanceSheetOpen, setAppearanceSheetOpen] = useState(false)
   const {
+    isReady: readerAppearanceReady,
     fontSize,
     lineHeight,
     readerTheme,
@@ -153,6 +155,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     ttsConfig,
     ttsEngine,
     applyAppearancePatch,
+    switchToNativeTts,
     handleReaderStyleModeChange,
   } = useReaderAppearance(book)
   const loadingStateKey = `${book.id ?? 'unknown'}::${startHref ?? ''}`
@@ -249,6 +252,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   useEffect(() => {
     let cancelled = false
     activeSectionIndexRef.current = null
+    ttsFallbackNoticeShownRef.current.clear()
     if (sectionChangeTimerRef.current) {
       clearTimeout(sectionChangeTimerRef.current)
       sectionChangeTimerRef.current = null
@@ -291,8 +295,12 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
       viewerRef.current?.highlightTts(paraIdx, 0, 0)
       viewerRef.current?.scrollToParagraph(paraIdx)
     },
-    onProviderFallback: ({ provider }) => {
-      setTtsFallbackNotice({ provider })
+    onProviderFallback: ({ provider, reason }) => {
+      if (!ttsFallbackNoticeShownRef.current.has(provider)) {
+        ttsFallbackNoticeShownRef.current.add(provider)
+        setTtsFallbackNotice({ provider, reason })
+        switchToNativeTts()
+      }
       setTtsProviderFallback({ provider })
     },
     onStop: () => {
@@ -684,8 +692,8 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     toggleBookmarkAtLocation(payload)
   }
 
-  // Aguarda o load do IndexedDB antes de montar o EpubViewer
-  if (!initialLoadDone) return <ReaderSkeleton />
+  // Aguarda IndexedDB e preferências do livro antes de montar o EpubViewer.
+  if (!initialLoadDone || !readerAppearanceReady) return <ReaderSkeleton />
 
   const readerPalette = getReaderThemePalette(readerTheme)
   const readerStyleMode = !overrideBookFont && !overrideBookColors ? 'original' : 'comfortable'
@@ -789,6 +797,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
       {ttsFallbackNotice && (
         <TtsFallbackToast
           provider={ttsFallbackNotice.provider}
+          reason={ttsFallbackNotice.reason}
           onDismiss={() => setTtsFallbackNotice(null)}
         />
       )}
@@ -917,9 +926,11 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
 
 function TtsFallbackToast({
   provider,
+  reason,
   onDismiss,
 }: {
   provider: TtsProvider
+  reason: string
   onDismiss: () => void
 }) {
   useEffect(() => {
@@ -936,6 +947,9 @@ function TtsFallbackToast({
           </p>
           <p className="mt-1 text-sm text-text-secondary">
             {getTtsProviderLabel(provider)} está com problemas. Usando TTS nativo.
+          </p>
+          <p className="mt-1 text-xs leading-snug text-text-muted">
+            {reason}
           </p>
         </div>
         <button

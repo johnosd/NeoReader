@@ -813,6 +813,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     // Texto original e traduzido da frase ativa — usados pelos botões Ouvir/Salvar no iframe
     const activeSourceTextRef = useRef<string>('')
     const activeTranslatedTextRef = useRef<string>('')
+    const activeTranslationIdSeqRef = useRef(0)
     // Lock: bloqueia nova seleção enquanto a tradução HTTP anterior ainda está em voo.
     // Evita que dois parágrafos fiquem simultaneamente marcados com data-nr-active.
     const translationInProgressRef = useRef(false)
@@ -1010,6 +1011,81 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
       const block = doc.getElementById('nr-translation-block')
       return !!block && isPointInsideElement(block, clientX, clientY)
+    }
+
+    function getOrCreateTranslationId(para: Element): string {
+      const paraEl = para as HTMLElement
+      if (!paraEl.dataset.nrTranslationId) {
+        activeTranslationIdSeqRef.current += 1
+        paraEl.dataset.nrTranslationId = String(activeTranslationIdSeqRef.current)
+      }
+      return paraEl.dataset.nrTranslationId
+    }
+
+    function getTranslationBlockForParagraph(para: Element): HTMLElement | null {
+      const block = para.ownerDocument?.getElementById('nr-translation-block') as HTMLElement | null
+      if (!block) return null
+
+      const translationId = (para as HTMLElement).dataset.nrTranslationId
+      if (translationId && block.dataset.nrTranslationFor && block.dataset.nrTranslationFor !== translationId) {
+        return null
+      }
+
+      return block
+    }
+
+    function getTranslationRemainderForParagraph(para: Element): HTMLElement | null {
+      const translationId = (para as HTMLElement).dataset.nrTranslationId
+      const remainders = Array.from(para.ownerDocument?.querySelectorAll<HTMLElement>('#nr-para-remainder') ?? [])
+
+      return remainders.find((remainder) => (
+        !translationId ||
+        !remainder.dataset.nrRemainderFor ||
+        remainder.dataset.nrRemainderFor === translationId
+      )) ?? null
+    }
+
+    function unwrapTranslationSentence(para: Element): void {
+      const sentSpan = para.querySelector('.nr-hl-sentence')
+      if (!sentSpan) return
+
+      const parent = sentSpan.parentNode!
+      while (sentSpan.firstChild) parent.insertBefore(sentSpan.firstChild, sentSpan)
+      sentSpan.remove()
+      parent.normalize()
+    }
+
+    function clearTranslationForParagraph(para: Element, clearActiveRefs = false): void {
+      const remainder = getTranslationRemainderForParagraph(para)
+      if (remainder) {
+        while (remainder.firstChild) para.appendChild(remainder.firstChild)
+        remainder.remove()
+      }
+
+      getTranslationBlockForParagraph(para)?.remove()
+      para.removeAttribute('data-nr-active')
+      para.classList.remove('nr-hl')
+      unwrapTranslationSentence(para)
+      delete (para as HTMLElement).dataset.nrTranslationId
+
+      if (clearActiveRefs) {
+        activeSourceTextRef.current = ''
+        activeTranslatedTextRef.current = ''
+        activeTranslationParaRef.current = null
+      }
+    }
+
+    function clearActiveTranslation(releaseLock = false): void {
+      if (releaseLock) translationInProgressRef.current = false
+
+      const para = activeTranslationParaRef.current
+      if (!para) {
+        activeSourceTextRef.current = ''
+        activeTranslatedTextRef.current = ''
+        return
+      }
+
+      clearTranslationForParagraph(para, true)
     }
 
     function unwrapElementPreservingChildren(el: Element): void {
@@ -1663,11 +1739,13 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         const para = activeTranslationParaRef.current
         if (!para) return
         translationInProgressRef.current = true
+        const translationId = getOrCreateTranslationId(para)
         const doc = para.ownerDocument!
         doc.getElementById('nr-translation-block')?.remove()
         const block = doc.createElement('div')
         block.id = 'nr-translation-block'
         block.className = 'nr-translation-block'
+        block.dataset.nrTranslationFor = translationId
         block.innerHTML = `
           <div class="nr-tr-panel">
             <div class="nr-tr-loading">
@@ -1689,6 +1767,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             const remainder = doc.createElement('p')
             remainder.id = 'nr-para-remainder'
             remainder.className = para.className
+            remainder.dataset.nrRemainderFor = translationId
             const styleAttr = para.getAttribute('style')
             if (styleAttr) remainder.setAttribute('style', styleAttr)
             remainder.appendChild(extracted)
@@ -1722,27 +1801,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       },
 
       clearTranslation: () => {
-        translationInProgressRef.current = false
-        const para = activeTranslationParaRef.current
-        if (!para) return
-        // Reintegra o texto extraído de volta ao parágrafo original antes de remover o bloco
-        const remainder = para.ownerDocument?.getElementById('nr-para-remainder')
-        if (remainder) {
-          while (remainder.firstChild) para.appendChild(remainder.firstChild)
-          remainder.remove()
-        }
-        para.ownerDocument?.getElementById('nr-translation-block')?.remove()
-        para.removeAttribute('data-nr-active')
-        para.classList.remove('nr-hl')
-        const sentSpan = para.querySelector('.nr-hl-sentence')
-        if (sentSpan) {
-          const parent = sentSpan.parentNode!
-          while (sentSpan.firstChild) parent.insertBefore(sentSpan.firstChild, sentSpan)
-          sentSpan.remove()
-        }
-        activeSourceTextRef.current = ''
-        activeTranslatedTextRef.current = ''
-        activeTranslationParaRef.current = null
+        clearActiveTranslation(true)
       },
     }))
 
@@ -1971,43 +2030,26 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               return
             }
 
+            // Bloqueia qualquer nova seleção/toggle enquanto o spinner está ativo.
+            if (translationInProgressRef.current) return
+
             // Toggle off: parágrafo já destacado → limpa highlight e bloco de tradução inline
             if (para.hasAttribute('data-nr-active')) {
-              para.ownerDocument?.getElementById('nr-translation-block')?.remove()
-              para.removeAttribute('data-nr-active')
-              para.classList.remove('nr-hl')
-              const sentSpan = para.querySelector('.nr-hl-sentence')
-              if (sentSpan) {
-                const parent = sentSpan.parentNode!
-                while (sentSpan.firstChild) parent.insertBefore(sentSpan.firstChild, sentSpan)
-                sentSpan.remove()
-              }
-              activeTranslationParaRef.current = null
-              activeSourceTextRef.current = ''
-              activeTranslatedTextRef.current = ''
+              clearActiveTranslation()
               return
             }
 
-            // Bloqueia nova seleção enquanto a tradução anterior ainda está em voo
-            if (translationInProgressRef.current) return
+            const sourceText = getSentenceFromClick(ev, para)
 
             // Limpa parágrafo anterior se o tap foi em um parágrafo diferente
             const prevPara = activeTranslationParaRef.current
             if (prevPara && prevPara !== para) {
-              prevPara.ownerDocument?.getElementById('nr-translation-block')?.remove()
-              prevPara.removeAttribute('data-nr-active')
-              prevPara.classList.remove('nr-hl')
-              const prevSpan = prevPara.querySelector('.nr-hl-sentence')
-              if (prevSpan) {
-                const parent = prevSpan.parentNode!
-                while (prevSpan.firstChild) parent.insertBefore(prevSpan.firstChild, prevSpan)
-                prevSpan.remove()
-              }
+              clearTranslationForParagraph(prevPara)
             }
 
             // Toggle on: detecta a frase clicada, destaca no iframe e emite para o ReaderScreen.
             // O ReaderScreen injeta o bloco de tradução diretamente no iframe via showTranslationLoading/injectTranslation.
-            const sourceText = getSentenceFromClick(ev, para)
+            getOrCreateTranslationId(para)
             para.setAttribute('data-nr-active', '1')
             highlightSentenceInParagraph(para, sourceText)
             activeTranslationParaRef.current = para
