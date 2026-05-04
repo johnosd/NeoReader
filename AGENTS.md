@@ -1,7 +1,6 @@
 ## General instructions
 
 - Use small, focused commits.
-- Prefer creating a new branch for each task.
 - Run tests before opening a PR.
 - Do not change unrelated files.
 - Explain the reasoning in the PR description.

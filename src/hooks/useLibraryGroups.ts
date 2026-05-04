@@ -2,12 +2,14 @@ import { useMemo } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/database'
 import type { Book, ReadingStatus } from '../types/book'
+import type { StoredBookInfo } from '../types/bookInfo'
 import { resolveReadingState } from '../utils/readingState'
 
 // Book enriquecido com o percentual de leitura já resolvido
 export interface BookWithProgress extends Book {
   percentage: number
   readingStatus: ReadingStatus
+  bookInfo: StoredBookInfo | null
 }
 
 interface LibraryGroups {
@@ -22,11 +24,12 @@ export function useLibraryGroups(): LibraryGroups {
   // Uma única query reativa que junta books + progress do IndexedDB.
   // Promise.all garante que as duas tabelas sejam lidas em paralelo.
   const data = useLiveQuery(async () => {
-    const [books, allProgress] = await Promise.all([
+    const [books, allProgress, allBookInfo] = await Promise.all([
       db.books.toArray(),
       db.progress.toArray(),
+      db.bookInfo.toArray(),
     ])
-    return { books, allProgress }
+    return { books, allProgress, allBookInfo }
   }, [])
 
   // useMemo evita recomputar os grupos a cada render quando `data` não mudou.
@@ -37,14 +40,16 @@ export function useLibraryGroups(): LibraryGroups {
       return { isLoading: true, isEmpty: false, heroBook: null, inProgressBooks: [], recentBooks: [] }
     }
 
-    const { books, allProgress } = data
+    const { books, allProgress, allBookInfo } = data
 
     // Map bookId → progresso completo para lookup O(1)
     const progressMap = new Map(allProgress.map(p => [p.bookId, p]))
+    const bookInfoMap = new Map(allBookInfo.map(info => [info.bookId, info]))
 
     const withProgress: BookWithProgress[] = books.map(b => ({
       ...b,
       ...resolveReadingState(b, progressMap.get(b.id!) ?? null),
+      bookInfo: bookInfoMap.get(b.id!) ?? null,
     }))
 
     if (withProgress.length === 0) {

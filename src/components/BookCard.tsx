@@ -1,4 +1,4 @@
-import { MoreVertical, BookOpen } from 'lucide-react'
+import { BookOpen, MoreVertical, Star } from 'lucide-react'
 import type { BookWithProgress } from '../hooks/useLibraryGroups'
 import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
 
@@ -12,6 +12,10 @@ export function BookCard({ book, onPress, onOpenOptions }: BookCardProps) {
   const coverUrl = useBookCoverUrl(book.id)
 
   const pct = book.percentage
+  const isNew = book.lastOpenedAt === null
+  const rating = formatCardRating(book.bookInfo?.rating?.value.average)
+  const publishedYear = formatPublishedYear(book.bookInfo?.publishedDate?.value)
+  const hasCardMeta = !!rating || !!publishedYear
 
   return (
     <div
@@ -27,7 +31,7 @@ export function BookCard({ book, onPress, onOpenOptions }: BookCardProps) {
         style={{
           aspectRatio: '2/3',
           borderRadius: 6,
-          background: '#1e0e2d',
+          background: 'linear-gradient(145deg,#240046,#7b2cbf)',
           border: '1px solid rgba(255,255,255,0.07)',
           boxShadow: '0 4px 14px rgba(0,0,0,0.45)',
         }}
@@ -41,11 +45,39 @@ export function BookCard({ book, onPress, onOpenOptions }: BookCardProps) {
         )}
 
         {/* Bottom gradient for badge legibility */}
-        {pct > 0 && (
+        {(pct > 0 || hasCardMeta) && (
           <div
             className="absolute inset-0"
-            style={{ background: 'linear-gradient(to top, rgba(7,3,12,0.6) 0%, transparent 40%)' }}
+            style={{ background: 'linear-gradient(to top, rgba(7,3,12,0.72) 0%, rgba(7,3,12,0.28) 34%, transparent 58%)' }}
           />
+        )}
+
+        {isNew && (
+          <div
+            className="absolute top-2 left-2 px-2 py-[3px] rounded-[2px] text-[10px] font-extrabold uppercase tracking-[0.08em]"
+            style={{ background: '#1bcc64', color: '#fff' }}
+          >
+            Novo
+          </div>
+        )}
+
+        {hasCardMeta && (
+          <div className="absolute left-2 right-2 bottom-2 flex items-center gap-[6px] flex-wrap">
+            {rating && (
+              <div className="inline-flex items-center gap-1 text-[11px]" style={{ color: 'rgba(248,250,252,0.74)' }}>
+                <Star size={12} fill="#1bcc64" stroke="#1bcc64" style={{ color: '#1bcc64' }} />
+                <span className="text-[12px] font-bold" style={{ color: '#1bcc64' }}>{rating}</span>
+              </div>
+            )}
+            {publishedYear && (
+              <span
+                className="inline-flex items-center px-2 py-[3px] rounded-[2px] text-[10px] font-extrabold uppercase tracking-[0.08em]"
+                style={{ color: '#cbd5e1', border: '1px solid rgba(203,213,225,0.34)', background: 'rgba(7,3,12,0.38)' }}
+              >
+                {publishedYear}
+              </span>
+            )}
+          </div>
         )}
 
         {/* Progress bar */}
@@ -82,4 +114,14 @@ export function BookCard({ book, onPress, onOpenOptions }: BookCardProps) {
       </div>
     </div>
   )
+}
+
+function formatCardRating(average?: number | null): string | null {
+  if (typeof average !== 'number' || !Number.isFinite(average) || average <= 0) return null
+  return average.toFixed(1)
+}
+
+function formatPublishedYear(value?: string | null): string | null {
+  const match = value?.match(/\b(\d{4})\b/)
+  return match?.[1] ?? null
 }

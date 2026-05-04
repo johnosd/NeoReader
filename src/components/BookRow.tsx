@@ -54,7 +54,7 @@ export function BookRow({ title, books, onPress, onOpenOptions, variant = 'defau
           /* Vertical cover cards */
           <div className="flex gap-3 px-5 pb-2">
             {books.map(book => (
-              <div key={book.id} className="w-[100px] shrink-0">
+              <div key={book.id} className="w-[140px] shrink-0">
                 <BookCard book={book} onPress={onPress} onOpenOptions={onOpenOptions} />
               </div>
             ))}
