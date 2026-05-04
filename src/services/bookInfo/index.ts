@@ -1,0 +1,6 @@
+export { BookInfoService } from './BookInfoService'
+export { BookInfoRefreshService } from './BookInfoRefreshService'
+export { EpubBookInfoProvider } from './EpubBookInfoProvider'
+export { GoogleBooksProvider } from './GoogleBooksProvider'
+export { OpenLibraryProvider } from './OpenLibraryProvider'
+export { YouTubeReviewsProvider } from './YouTubeReviewsProvider'

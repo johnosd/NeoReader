@@ -1,8 +1,9 @@
 import { useRef, useState, type ReactNode } from 'react'
-import { ImagePlus, RefreshCw, Trash2 } from 'lucide-react'
+import { DatabaseZap, ImagePlus, RefreshCw, Trash2 } from 'lucide-react'
 import { BottomSheet, Button, Spinner } from './ui'
 import { deleteBook } from '../db/books'
 import { BookImportService } from '../services/BookImportService'
+import { BookInfoRefreshService } from '../services/bookInfo'
 import type { Book } from '../types/book'
 
 interface BookOptionsSheetProps {
@@ -36,6 +37,19 @@ export function BookOptionsSheet({ book, onClose }: BookOptionsSheetProps) {
   }
 
   // Reextrai a capa do arquivo EPUB já armazenado
+  async function handleAtualizarDados() {
+    if (!book?.id) return
+    setLoading(true)
+    setError(null)
+    try {
+      await BookInfoRefreshService.refreshBookInfo(book)
+      handleClose()
+    } catch {
+      setError('Erro ao atualizar dados do livro. Tente novamente.')
+      setLoading(false)
+    }
+  }
+
   async function handleRecriarCapa() {
     if (!book?.id) return
     setLoading(true)
@@ -86,6 +100,13 @@ export function BookOptionsSheet({ book, onClose }: BookOptionsSheetProps) {
         )}
 
         <div className="flex flex-col gap-2">
+          <OptionRow
+            icon={<DatabaseZap size={18} />}
+            title="Atualizar dados do livro"
+            description="Busca categoria, nota, sinopse, publicacao e reviews"
+            onClick={handleAtualizarDados}
+            disabled={loading}
+          />
           <OptionRow
             icon={<RefreshCw size={18} />}
             title="Recriar capa"

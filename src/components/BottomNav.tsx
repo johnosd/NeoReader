@@ -1,6 +1,6 @@
-import { Home, Star, BookOpen, User } from 'lucide-react'
+import { BookOpen, Compass, Home, User } from 'lucide-react'
 
-type Tab = 'home' | 'books' | 'biblioteca' | 'profile'
+type Tab = 'home' | 'discover' | 'biblioteca' | 'profile'
 
 interface BottomNavProps {
   activeTab?: Tab
@@ -9,7 +9,7 @@ interface BottomNavProps {
 
 const NAV_ITEMS: { id: Tab; label: string; Icon: typeof Home }[] = [
   { id: 'home',       label: 'Início',     Icon: Home     },
-  { id: 'books',      label: 'Vocab',      Icon: Star     },
+  { id: 'discover',   label: 'Descubra',   Icon: Compass  },
   { id: 'biblioteca', label: 'Biblioteca', Icon: BookOpen },
   { id: 'profile',    label: 'Perfil',     Icon: User     },
 ]

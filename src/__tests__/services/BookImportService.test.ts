@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   addBook: vi.fn(),
   saveBookCover: vi.fn(),
+  saveBookInfo: vi.fn(),
   parseMetadata: vi.fn(),
+  collectBookInfo: vi.fn(),
   invalidateExtrasCache: vi.fn(),
   transaction: vi.fn(),
 }))
@@ -14,6 +16,10 @@ vi.mock('@/db/books', () => ({
 
 vi.mock('@/db/bookCovers', () => ({
   saveBookCover: mocks.saveBookCover,
+}))
+
+vi.mock('@/db/bookInfo', () => ({
+  saveBookInfo: mocks.saveBookInfo,
 }))
 
 vi.mock('@/db/database', () => ({
@@ -31,19 +37,43 @@ vi.mock('@/services/EpubService', () => ({
   },
 }))
 
+vi.mock('@/services/bookInfo', () => ({
+  BookInfoService: vi.fn(function BookInfoServiceMock() {
+    return {
+    collect: mocks.collectBookInfo,
+    }
+  }),
+}))
+
 import { BookImportService } from '@/services/BookImportService'
 
 describe('BookImportService', () => {
   beforeEach(() => {
     mocks.addBook.mockReset()
     mocks.saveBookCover.mockReset()
+    mocks.saveBookInfo.mockReset()
     mocks.parseMetadata.mockReset()
+    mocks.collectBookInfo.mockReset()
     mocks.invalidateExtrasCache.mockReset()
     mocks.transaction.mockReset()
     mocks.transaction.mockImplementation((...args: unknown[]) => {
       const scope = args.at(-1)
       if (typeof scope !== 'function') throw new Error('transaction scope ausente')
       return scope()
+    })
+    mocks.collectBookInfo.mockResolvedValue({
+      category: null,
+      rating: null,
+      synopsis: null,
+      pageCount: null,
+      publishedDate: null,
+      universalIdentifier: null,
+      reviews: null,
+      lookupHints: {
+        title: 'Imported Book',
+        author: 'Imported Author',
+        identifiers: [],
+      },
     })
   })
 
@@ -69,6 +99,18 @@ describe('BookImportService', () => {
       lastOpenedAt: null,
     }))
     expect(mocks.saveBookCover).toHaveBeenCalledWith(42, coverBlob, 'epub-extracted')
+    expect(mocks.collectBookInfo).toHaveBeenCalledWith(file, {
+      lookupHints: {
+        title: 'Imported Book',
+        author: 'Imported Author',
+        identifiers: [],
+      },
+    })
+    expect(mocks.saveBookInfo).toHaveBeenCalledWith(42, expect.objectContaining({
+      lookupHints: expect.objectContaining({
+        title: 'Imported Book',
+      }),
+    }))
   })
 
   it('não cria registro de capa quando o EPUB não expõe nenhuma imagem de capa', async () => {
@@ -85,6 +127,22 @@ describe('BookImportService', () => {
 
     expect(mocks.addBook).toHaveBeenCalledTimes(1)
     expect(mocks.saveBookCover).not.toHaveBeenCalled()
+  })
+
+  it('mantem a importacao quando o enriquecimento de metadados falha', async () => {
+    const file = new File(['epub'], 'book.epub', { type: 'application/epub+zip' })
+
+    mocks.parseMetadata.mockResolvedValue({
+      title: 'Livro',
+      author: 'Autor',
+      coverBlob: null,
+    })
+    mocks.addBook.mockResolvedValue(11)
+    mocks.collectBookInfo.mockRejectedValue(new Error('network failed'))
+
+    await expect(BookImportService.importEpub(file)).resolves.toBe(11)
+
+    expect(mocks.saveBookInfo).not.toHaveBeenCalled()
   })
 
   it('reextrai e atualiza a capa de um livro já salvo sem duplicar lógica na UI', async () => {

@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   bookDetailsProps: null as Record<string, unknown> | null,
   readerProps: null as Record<string, unknown> | null,
   vocabularyProps: null as Record<string, unknown> | null,
+  discoverProps: null as Record<string, unknown> | null,
   settingsProps: null as Record<string, unknown> | null,
 }))
 
@@ -27,8 +28,8 @@ vi.mock('@/screens/LibraryScreen', () => ({
         <button data-testid="open-book" onClick={() => (props.onOpenBook as (b: Book) => void)(testBook)}>
           Abrir livro
         </button>
-        <button data-testid="open-vocabulary" onClick={() => (props.onOpenVocabulary as () => void)()}>
-          Vocabulário
+        <button data-testid="open-discover" onClick={() => (props.onOpenDiscover as () => void)()}>
+          Descubra
         </button>
         <button data-testid="open-settings" onClick={() => (props.onOpenSettings as () => void)()}>
           Configurações
@@ -78,6 +79,20 @@ vi.mock('@/screens/VocabularyScreen', () => ({
   },
 }))
 
+vi.mock('@/screens/DiscoverScreen', () => ({
+  DiscoverScreen: (props: Record<string, unknown>) => {
+    mocks.discoverProps = props
+    return (
+      <div data-testid="discover">
+        <button data-testid="back" onClick={() => (props.onBack as () => void)()}>Voltar</button>
+        <button data-testid="open-settings" onClick={() => (props.onOpenSettings as () => void)()}>
+          Configurações
+        </button>
+      </div>
+    )
+  },
+}))
+
 vi.mock('@/screens/SettingsScreen', () => ({
   SettingsScreen: (props: Record<string, unknown>) => {
     mocks.settingsProps = props
@@ -110,6 +125,7 @@ describe('App — navigation stack', () => {
     mocks.bookDetailsProps = null
     mocks.readerProps = null
     mocks.vocabularyProps = null
+    mocks.discoverProps = null
     mocks.settingsProps = null
     render(<App />)
   })
@@ -148,13 +164,13 @@ describe('App — navigation stack', () => {
     assertNoScreen('book-details')
   })
 
-  it('Library → Vocabulary → Back → Library', () => {
-    fireEvent.click(screen.getByTestId('open-vocabulary'))
-    assertScreen('vocabulary')
+  it('Library → Discover → Back → Library', () => {
+    fireEvent.click(screen.getByTestId('open-discover'))
+    assertScreen('discover')
 
     fireEvent.click(screen.getByTestId('back'))
     assertScreen('library')
-    assertNoScreen('vocabulary')
+    assertNoScreen('discover')
   })
 
   it('Reader → Vocabulary → Back → Reader', () => {

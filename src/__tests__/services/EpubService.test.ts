@@ -262,6 +262,21 @@ describe('EpubService.parseExtras - toc extraction', () => {
     fflateState.files = {}
   })
 
+  it('normalizes HTML markup and entities from EPUB descriptions', async () => {
+    fflateState.files = makeEpubFiles(
+      'OPS/package.opf',
+      makeOpf(
+        '',
+        '<dc:description>&lt;b&gt;&lt;i&gt;New York Times&lt;/i&gt; Bestselling Author.&lt;br&gt;Readers can&amp;rsquo;t stop talking about it.&lt;/b&gt;</dc:description>',
+      ),
+      {},
+    )
+
+    const extras = await EpubService.parseExtras(new Blob(['epub']))
+
+    expect(extras.description).toBe("New York Times Bestselling Author. Readers can't stop talking about it.")
+  })
+
   it('extracts EPUB3 nav entries with flexible attributes and normalized hrefs', async () => {
     fflateState.files = makeEpubFiles(
       'OPS/package.opf',
