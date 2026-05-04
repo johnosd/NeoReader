@@ -12,21 +12,26 @@ interface AuthorTabProps {
 }
 
 export function AuthorTab({ book, youtubeApiKey, onOpenSettings }: AuthorTabProps) {
-  const [loading, setLoading] = useState(true)
-  const [authorData, setAuthorData] = useState<AuthorData | null>(null)
+  const requestKey = `${book.author}::${youtubeApiKey}`
+  const [authorState, setAuthorState] = useState<{
+    key: string
+    loading: boolean
+    data: AuthorData | null
+  }>({ key: requestKey, loading: true, data: null })
 
   useEffect(() => {
     let cancelled = false
-    setLoading(true)
 
     void getAuthorData(book.author, youtubeApiKey || undefined).then((data) => {
       if (cancelled) return
-      setAuthorData(data)
-      setLoading(false)
+      setAuthorState({ key: requestKey, loading: false, data })
     })
 
     return () => { cancelled = true }
-  }, [book.author, youtubeApiKey])
+  }, [book.author, requestKey, youtubeApiKey])
+
+  const loading = authorState.key !== requestKey || authorState.loading
+  const authorData = authorState.key === requestKey ? authorState.data : null
 
   if (loading) return <AuthorSkeleton hasYoutubeKey={Boolean(youtubeApiKey)} />
 
@@ -109,7 +114,7 @@ function VideoCarousel({ videos }: { videos: AuthorData['videos'] }) {
         {videos.map((video) => (
           <button
             key={video.id}
-            onClick={() => window.open(`https://www.youtube.com/watch?v=${video.id}`, '_blank')}
+            onClick={() => window.open(`https://www.youtube.com/watch?v=${video.id}`, '_blank', 'noopener,noreferrer')}
             className="flex-shrink-0 w-48 text-left active:opacity-70 transition-opacity"
           >
             <div className="relative w-full rounded-md overflow-hidden bg-white/5" style={{ aspectRatio: '16/9' }}>

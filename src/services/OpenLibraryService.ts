@@ -1,3 +1,5 @@
+import { fetchWithTimeout, getDefaultFetch } from './http'
+
 export interface OpenLibraryBookData {
   title?: string
   authors?: Array<{ name?: string }>
@@ -33,27 +35,29 @@ interface OpenLibraryServiceOptions {
   fetchImpl?: typeof fetch
   baseUrl?: string
   webBaseUrl?: string
-}
-
-function getDefaultFetch(): typeof fetch {
-  return globalThis.fetch.bind(globalThis) as typeof fetch
+  timeoutMs?: number
 }
 
 export class OpenLibraryService {
   private readonly fetchImpl: typeof fetch
   private readonly baseUrl: string
   private readonly webBaseUrl: string
+  private readonly timeoutMs: number | undefined
   private diagnostics: string[] = []
 
   constructor(options: OpenLibraryServiceOptions = {}) {
     this.fetchImpl = options.fetchImpl ?? getDefaultFetch()
     this.baseUrl = options.baseUrl ?? 'https://openlibrary.org/api/books'
     this.webBaseUrl = options.webBaseUrl ?? 'https://openlibrary.org'
+    this.timeoutMs = options.timeoutMs
   }
 
   async fetchBookByIsbn(isbn: string): Promise<OpenLibraryBookData | null> {
     const url = `${this.baseUrl}?bibkeys=ISBN:${encodeURIComponent(isbn)}&format=json&jscmd=data`
-    const response = await this.fetchImpl(url)
+    const response = await fetchWithTimeout(url, {
+      fetchImpl: this.fetchImpl,
+      timeoutMs: this.timeoutMs,
+    })
     this.diagnostics.push(`Book data ISBN ${isbn}: HTTP ${response.status ?? (response.ok ? 200 : 0)}.`)
     if (!response.ok) return null
 
@@ -64,7 +68,10 @@ export class OpenLibraryService {
   }
 
   async fetchRatingByIsbn(isbn: string): Promise<OpenLibraryRatingData | null> {
-    const editionResponse = await this.fetchImpl(`${this.webBaseUrl}/isbn/${encodeURIComponent(isbn)}.json`)
+    const editionResponse = await fetchWithTimeout(`${this.webBaseUrl}/isbn/${encodeURIComponent(isbn)}.json`, {
+      fetchImpl: this.fetchImpl,
+      timeoutMs: this.timeoutMs,
+    })
     this.diagnostics.push(`Edition ISBN ${isbn}: HTTP ${editionResponse.status ?? (editionResponse.ok ? 200 : 0)}.`)
     if (!editionResponse.ok) return null
 
@@ -77,7 +84,10 @@ export class OpenLibraryService {
       return null
     }
 
-    const ratingResponse = await this.fetchImpl(`${this.webBaseUrl}${workKey}/ratings.json`)
+    const ratingResponse = await fetchWithTimeout(`${this.webBaseUrl}${workKey}/ratings.json`, {
+      fetchImpl: this.fetchImpl,
+      timeoutMs: this.timeoutMs,
+    })
     this.diagnostics.push(`Ratings ${workKey}: HTTP ${ratingResponse.status ?? (ratingResponse.ok ? 200 : 0)}.`)
     if (!ratingResponse.ok) return null
 

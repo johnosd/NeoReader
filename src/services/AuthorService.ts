@@ -1,13 +1,6 @@
 import { getCachedAuthor, setCachedAuthor } from '../db/authors'
 import type { AuthorData, AuthorBook, AuthorVideo } from '../types/author'
-
-const FETCH_TIMEOUT_MS = 10_000
-
-function fetchWithTimeout(url: string): Promise<Response> {
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
-  return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timeoutId))
-}
+import { fetchWithTimeout } from './http'
 
 // Open Library: busca OLID (identificador interno) pelo nome do autor
 async function fetchOlid(authorName: string): Promise<string | null> {

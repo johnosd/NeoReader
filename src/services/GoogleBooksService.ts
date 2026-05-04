@@ -1,3 +1,5 @@
+import { fetchWithTimeout, getDefaultFetch } from './http'
+
 export interface GoogleBooksIndustryIdentifier {
   type?: string
   identifier?: string
@@ -31,19 +33,17 @@ interface GoogleBooksServiceOptions {
   baseUrl?: string
   apiKey?: string
   maxResults?: number
+  timeoutMs?: number
 }
 
 type GoogleBooksVolumeSelector = (volumes: GoogleBooksVolume[]) => GoogleBooksVolume | null
-
-function getDefaultFetch(): typeof fetch {
-  return globalThis.fetch.bind(globalThis) as typeof fetch
-}
 
 export class GoogleBooksService {
   private readonly fetchImpl: typeof fetch
   private readonly baseUrl: string
   private readonly apiKey: string | null
   private readonly maxResults: number
+  private readonly timeoutMs: number | undefined
   private diagnostics: string[] = []
 
   constructor(options: GoogleBooksServiceOptions = {}) {
@@ -51,6 +51,7 @@ export class GoogleBooksService {
     this.baseUrl = options.baseUrl ?? 'https://www.googleapis.com/books/v1/volumes'
     this.apiKey = options.apiKey?.trim() || null
     this.maxResults = options.maxResults ?? 5
+    this.timeoutMs = options.timeoutMs
   }
 
   async searchFirstVolume(
@@ -67,7 +68,10 @@ export class GoogleBooksService {
     }
 
     for (const query of queries) {
-      const response = await this.fetchImpl(this.buildUrl(query))
+      const response = await fetchWithTimeout(this.buildUrl(query), {
+        fetchImpl: this.fetchImpl,
+        timeoutMs: this.timeoutMs,
+      })
       const status = response.status ?? (response.ok ? 200 : 0)
       if (!response.ok) {
         this.diagnostics.push(`Query "${query}" retornou HTTP ${status}.`)

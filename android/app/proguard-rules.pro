@@ -19,3 +19,15 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+-keep class com.getcapacitor.** { *; }
+-keep @com.getcapacitor.annotation.CapacitorPlugin class * { *; }
+-keep class com.getcapacitor.community.tts.** { *; }
+
+# @capacitor-firebase/authentication ships optional provider handlers. We only
+# configure Google, so Facebook SDK classes are intentionally absent.
+-dontwarn com.facebook.CallbackManager$Factory
+-dontwarn com.facebook.CallbackManager
+-dontwarn com.facebook.FacebookCallback
+-dontwarn com.facebook.login.LoginManager
+-dontwarn com.facebook.login.widget.LoginButton

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { ArrowLeft, Eye, EyeOff, Check, Globe, ChevronRight } from 'lucide-react'
+import { ArrowLeft, Eye, EyeOff, Check, Globe, ChevronRight, LogOut, User } from 'lucide-react'
 import { App as CapApp } from '@capacitor/app'
 import { Badge, BottomSheet, Input, ListItem, Spinner } from '../components/ui'
 import {
@@ -14,11 +14,14 @@ import {
 import { getSettings, updateAppSettings, updateReaderDefaults } from '../db/settings'
 import { ElevenLabsService } from '../services/ElevenLabsService'
 import { SpeechifyService } from '../services/SpeechifyService'
+import type { AuthUser } from '../types/auth'
 import type { AppSettings, ReaderDefaults, UserSettings } from '../types/settings'
 import { getLanguageLabel, TRANSLATION_LANGUAGE_OPTIONS } from '../utils/languageOptions'
 
 interface SettingsScreenProps {
   onBack: () => void
+  authUser?: AuthUser | null
+  onSignOut?: () => Promise<void>
 }
 
 type KeyValidationStatus = 'idle' | 'validating' | 'valid' | 'invalid'
@@ -47,7 +50,7 @@ function ValidationBadge({ state, emptyLabel }: { state: KeyValidationState; emp
   return <p className="text-xs text-text-muted">{emptyLabel}</p>
 }
 
-export function SettingsScreen({ onBack }: SettingsScreenProps) {
+export function SettingsScreen({ onBack, authUser, onSignOut }: SettingsScreenProps) {
   const [settings, setSettings] = useState<UserSettings | null>(null)
   const [showSpeechifyKey, setShowSpeechifyKey] = useState(false)
   const [showElevenLabsKey, setShowElevenLabsKey] = useState(false)
@@ -59,6 +62,7 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
   const [elevenLabsValidation, setElevenLabsValidation] = useState<KeyValidationState>(IDLE_KEY_STATE)
   const [youtubeValidation, setYoutubeValidation] = useState<KeyValidationState>(IDLE_KEY_STATE)
   const [langSheetOpen, setLangSheetOpen] = useState(false)
+  const [signingOut, setSigningOut] = useState(false)
   const speechifyValidationSeqRef = useRef(0)
   const elevenLabsValidationSeqRef = useRef(0)
 
@@ -215,6 +219,17 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
     applyComfortableDefaults()
   }
 
+  async function handleSignOut() {
+    if (!onSignOut || signingOut) return
+
+    setSigningOut(true)
+    try {
+      await onSignOut()
+    } finally {
+      setSigningOut(false)
+    }
+  }
+
   return (
     <div className="min-h-screen pb-12 bg-bg-base text-text-primary">
       <header className="px-4 pt-10 pb-4 flex items-center gap-3">
@@ -232,6 +247,43 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
       </header>
 
       <div className="px-4 flex flex-col gap-6">
+        <Section title="Conta">
+          <div className="flex items-center gap-3">
+            {authUser?.photoURL ? (
+              <img
+                src={authUser.photoURL}
+                alt=""
+                className="w-11 h-11 rounded-full object-cover border border-white/10"
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <div className="w-11 h-11 rounded-full bg-white/10 border border-white/10 flex items-center justify-center text-text-secondary">
+                <User size={20} />
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-text-primary truncate">
+                {authUser?.displayName ?? 'Conta Google'}
+              </p>
+              <p className="text-xs text-text-muted truncate">
+                {authUser?.email ?? 'Sessao autenticada'}
+              </p>
+            </div>
+          </div>
+
+          {onSignOut && (
+            <button
+              type="button"
+              onClick={() => void handleSignOut()}
+              disabled={signingOut}
+              className="mt-4 h-11 w-full rounded-md border border-error/30 bg-error/10 text-error text-sm font-semibold flex items-center justify-center gap-2 active:bg-error/20 disabled:opacity-50 disabled:pointer-events-none"
+            >
+              <LogOut size={16} />
+              {signingOut ? 'Saindo...' : 'Sair da conta'}
+            </button>
+          )}
+        </Section>
+
         <Section title="TTS Premium (Speechify)">
           <p className="text-xs text-text-muted leading-relaxed mb-3">
             Insira sua API key da Speechify para habilitar vozes neurais e karaoke de palavras.
@@ -345,6 +397,13 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
               emptyLabel="Nao configurado - videos do autor nao serao exibidos"
             />
           </div>
+        </Section>
+
+        <Section title="Chaves publicas do build">
+          <p className="text-xs text-text-muted leading-relaxed">
+            Google Books e NYT Best Sellers usam variaveis VITE_ definidas no build. Essas chaves ficam embutidas no app,
+            entao devem ser restritas no provedor por API, pacote/app e cota antes do envio para a Play Store.
+          </p>
         </Section>
 
         <Section title="Traducao">

@@ -9,6 +9,18 @@ const mocks = vi.hoisted(() => ({
   vocabularyProps: null as Record<string, unknown> | null,
   discoverProps: null as Record<string, unknown> | null,
   settingsProps: null as Record<string, unknown> | null,
+  authState: {
+    status: 'signed-in',
+    configured: true,
+    user: {
+      uid: 'user-1',
+      displayName: 'Leitora',
+      email: 'leitora@example.com',
+      photoURL: null,
+    },
+  } as Record<string, unknown>,
+  signInWithGoogle: vi.fn(),
+  signOut: vi.fn(),
 }))
 
 const testBook: Book = {
@@ -32,7 +44,7 @@ vi.mock('@/screens/LibraryScreen', () => ({
           Descubra
         </button>
         <button data-testid="open-settings" onClick={() => (props.onOpenSettings as () => void)()}>
-          Configurações
+          Configuracoes
         </button>
       </div>
     )
@@ -47,7 +59,7 @@ vi.mock('@/screens/BookDetailsScreen', () => ({
         <button data-testid="back" onClick={() => (props.onBack as () => void)()}>Voltar</button>
         <button data-testid="read" onClick={() => (props.onRead as (b: Book) => void)(testBook)}>Ler</button>
         <button data-testid="open-settings" onClick={() => (props.onOpenSettings as () => void)()}>
-          Configurações
+          Configuracoes
         </button>
       </div>
     )
@@ -61,7 +73,7 @@ vi.mock('@/screens/ReaderScreen', () => ({
       <div data-testid="reader">
         <button data-testid="back" onClick={() => (props.onBack as () => void)()}>Voltar</button>
         <button data-testid="open-vocabulary" onClick={() => (props.onOpenVocabulary as () => void)()}>
-          Vocabulário
+          Vocabulario
         </button>
       </div>
     )
@@ -86,7 +98,7 @@ vi.mock('@/screens/DiscoverScreen', () => ({
       <div data-testid="discover">
         <button data-testid="back" onClick={() => (props.onBack as () => void)()}>Voltar</button>
         <button data-testid="open-settings" onClick={() => (props.onOpenSettings as () => void)()}>
-          Configurações
+          Configuracoes
         </button>
       </div>
     )
@@ -99,19 +111,49 @@ vi.mock('@/screens/SettingsScreen', () => ({
     return (
       <div data-testid="settings">
         <button data-testid="back" onClick={() => (props.onBack as () => void)()}>Voltar</button>
+        <button data-testid="sign-out" onClick={() => (props.onSignOut as () => void)()}>Sair</button>
       </div>
     )
   },
 }))
 
+vi.mock('@/screens/WelcomeScreen', () => ({
+  WelcomeScreen: (props: Record<string, unknown>) => (
+    <div data-testid="welcome">
+      <button data-testid="complete-welcome" onClick={() => (props.onComplete as () => void)()}>
+        Comecar
+      </button>
+    </div>
+  ),
+}))
+
+vi.mock('@/screens/LoginScreen', () => ({
+  LoginScreen: (props: Record<string, unknown>) => (
+    <div data-testid="login">
+      <button data-testid="google-login" onClick={() => (props.onSignInWithGoogle as () => void)()}>
+        Google
+      </button>
+      <span data-testid="login-configured">{String(props.configured)}</span>
+    </div>
+  ),
+}))
+
 vi.mock('@/components/ui', () => ({
+  Spinner: () => <div data-testid="spinner" />,
   ErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}))
+
+vi.mock('@/hooks/useAuth', () => ({
+  useAuth: () => ({
+    state: mocks.authState,
+    signInWithGoogle: mocks.signInWithGoogle,
+    signOut: mocks.signOut,
+  }),
 }))
 
 import App from '@/App'
 
 function assertScreen(testId: string) {
-  // getByTestId lança se não encontrar — serve como asserção
   screen.getByTestId(testId)
 }
 
@@ -119,7 +161,7 @@ function assertNoScreen(testId: string) {
   expect(screen.queryByTestId(testId)).toBeNull()
 }
 
-describe('App — navigation stack', () => {
+describe('App navigation and auth gate', () => {
   beforeEach(() => {
     mocks.libraryProps = null
     mocks.bookDetailsProps = null
@@ -127,16 +169,32 @@ describe('App — navigation stack', () => {
     mocks.vocabularyProps = null
     mocks.discoverProps = null
     mocks.settingsProps = null
+    mocks.authState = {
+      status: 'signed-in',
+      configured: true,
+      user: {
+        uid: 'user-1',
+        displayName: 'Leitora',
+        email: 'leitora@example.com',
+        photoURL: null,
+      },
+    }
+    mocks.signInWithGoogle.mockReset()
+    mocks.signOut.mockReset()
+    window.localStorage.clear()
+  })
+
+  it('comeca na biblioteca quando autenticado', () => {
     render(<App />)
-  })
 
-  it('começa na biblioteca', () => {
     assertScreen('library')
     assertNoScreen('book-details')
     assertNoScreen('reader')
   })
 
-  it('Library → BookDetails → Reader', () => {
+  it('Library -> BookDetails -> Reader', () => {
+    render(<App />)
+
     fireEvent.click(screen.getByTestId('open-book'))
     assertScreen('book-details')
 
@@ -145,7 +203,9 @@ describe('App — navigation stack', () => {
     assertNoScreen('book-details')
   })
 
-  it('Reader → Back → BookDetails', () => {
+  it('Reader -> Back -> BookDetails', () => {
+    render(<App />)
+
     fireEvent.click(screen.getByTestId('open-book'))
     fireEvent.click(screen.getByTestId('read'))
     assertScreen('reader')
@@ -155,7 +215,9 @@ describe('App — navigation stack', () => {
     assertNoScreen('reader')
   })
 
-  it('BookDetails → Back → Library', () => {
+  it('BookDetails -> Back -> Library', () => {
+    render(<App />)
+
     fireEvent.click(screen.getByTestId('open-book'))
     assertScreen('book-details')
 
@@ -164,7 +226,9 @@ describe('App — navigation stack', () => {
     assertNoScreen('book-details')
   })
 
-  it('Library → Discover → Back → Library', () => {
+  it('Library -> Discover -> Back -> Library', () => {
+    render(<App />)
+
     fireEvent.click(screen.getByTestId('open-discover'))
     assertScreen('discover')
 
@@ -173,7 +237,9 @@ describe('App — navigation stack', () => {
     assertNoScreen('discover')
   })
 
-  it('Reader → Vocabulary → Back → Reader', () => {
+  it('Reader -> Vocabulary -> Back -> Reader', () => {
+    render(<App />)
+
     fireEvent.click(screen.getByTestId('open-book'))
     fireEvent.click(screen.getByTestId('read'))
     fireEvent.click(screen.getByTestId('open-vocabulary'))
@@ -184,7 +250,9 @@ describe('App — navigation stack', () => {
     assertNoScreen('vocabulary')
   })
 
-  it('Library → Settings → Back → Library', () => {
+  it('Library -> Settings -> Back -> Library', () => {
+    render(<App />)
+
     fireEvent.click(screen.getByTestId('open-settings'))
     assertScreen('settings')
 
@@ -192,21 +260,56 @@ describe('App — navigation stack', () => {
     assertScreen('library')
   })
 
-  it('BookDetails → Settings → Back → BookDetails (não Library)', () => {
+  it('BookDetails -> Settings -> Back -> BookDetails', () => {
+    render(<App />)
+
     fireEvent.click(screen.getByTestId('open-book'))
     fireEvent.click(screen.getByTestId('open-settings'))
     assertScreen('settings')
 
     fireEvent.click(screen.getByTestId('back'))
-    // Era o bug do settingsReturnScreen — agora pop() resolve corretamente
     assertScreen('book-details')
     assertNoScreen('library')
   })
 
   it('passa o livro correto para ReaderScreen', () => {
+    render(<App />)
+
     fireEvent.click(screen.getByTestId('open-book'))
     fireEvent.click(screen.getByTestId('read'))
 
     expect(mocks.readerProps?.book).toEqual(expect.objectContaining({ id: 1, title: 'Livro de Teste' }))
+  })
+
+  it('mostra Welcome antes do Login quando nao autenticado', () => {
+    mocks.authState = { status: 'signed-out', configured: true, user: null }
+    render(<App />)
+
+    assertScreen('welcome')
+    fireEvent.click(screen.getByTestId('complete-welcome'))
+
+    assertScreen('login')
+    expect(screen.getByTestId('login-configured').textContent).toBe('true')
+  })
+
+  it('pula Welcome ja visto e envia login Google pela tela de Login', () => {
+    window.localStorage.setItem('neoreader:welcome-seen', '1')
+    mocks.authState = { status: 'signed-out', configured: true, user: null }
+    render(<App />)
+
+    assertScreen('login')
+    fireEvent.click(screen.getByTestId('google-login'))
+
+    expect(mocks.signInWithGoogle).toHaveBeenCalledTimes(1)
+  })
+
+  it('passa usuario e logout para Settings', () => {
+    render(<App />)
+
+    fireEvent.click(screen.getByTestId('open-settings'))
+    fireEvent.click(screen.getByTestId('sign-out'))
+
+    expect(mocks.settingsProps?.authUser).toEqual(expect.objectContaining({ uid: 'user-1' }))
+    expect(mocks.signOut).toHaveBeenCalledTimes(1)
   })
 })

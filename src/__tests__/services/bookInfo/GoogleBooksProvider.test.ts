@@ -89,6 +89,7 @@ describe('GoogleBooksProvider', () => {
 
     expect(fetchImpl).toHaveBeenCalledWith(
       'https://www.googleapis.com/books/v1/volumes?q=isbn%3A9780132350884&maxResults=5&key=google-key',
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     )
     expect(info.category).toEqual({
       value: [
@@ -135,6 +136,7 @@ describe('GoogleBooksProvider', () => {
     expect(fetchImpl).toHaveBeenNthCalledWith(
       1,
       'https://www.googleapis.com/books/v1/volumes?q=intitle%3ADom+Casmurro+inauthor%3AMachado+de+Assis&maxResults=5',
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     )
   })
 
@@ -157,10 +159,12 @@ describe('GoogleBooksProvider', () => {
     expect(fetchImpl).toHaveBeenNthCalledWith(
       1,
       'https://www.googleapis.com/books/v1/volumes?q=intitle%3ALet+Them+inauthor%3AMel+Robins&maxResults=5',
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     )
     expect(fetchImpl).toHaveBeenNthCalledWith(
       2,
       'https://www.googleapis.com/books/v1/volumes?q=Let+Them+Mel+Robins&maxResults=5',
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     )
     expect(provider.getDiagnostics()).toEqual([
       'API key Google Books: ausente',

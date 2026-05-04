@@ -153,18 +153,34 @@ Scripts disponiveis:
 O app tambem permite salvar as chaves pela tela de configuracoes. Para usar variaveis em desenvolvimento, crie um `.env` local na raiz do projeto.
 
 ```env
+VITE_FIREBASE_API_KEY=
+VITE_FIREBASE_AUTH_DOMAIN=neoreader-f728d.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=neoreader-f728d
+VITE_FIREBASE_APP_ID=
+VITE_FIREBASE_MESSAGING_SENDER_ID=
+VITE_FIREBASE_STORAGE_BUCKET=neoreader-f728d.firebasestorage.app
 VITE_SPEECHIFY_API_KEY=
 VITE_ELEVENLABS_API_KEY=
+VITE_GOOGLE_BOOKS_API_KEY=
 VITE_NYT_API_KEY=
 ```
 
 | Variavel | Uso | Obrigatorio |
 |---|---|---|
+| `VITE_FIREBASE_API_KEY` | Firebase Auth para login Google | Sim |
+| `VITE_FIREBASE_AUTH_DOMAIN` | Dominio de auth do projeto Firebase | Sim |
+| `VITE_FIREBASE_PROJECT_ID` | Projeto Firebase usado pelo app | Sim |
+| `VITE_FIREBASE_APP_ID` | App web do Firebase usado pelo bundle Vite | Sim |
+| `VITE_FIREBASE_MESSAGING_SENDER_ID` | Identificador do Firebase usado pela config web | Nao |
+| `VITE_FIREBASE_STORAGE_BUCKET` | Bucket do projeto Firebase, se habilitado | Nao |
 | `VITE_SPEECHIFY_API_KEY` | Vozes neurais e speech marks da Speechify | Nao |
 | `VITE_ELEVENLABS_API_KEY` | Vozes premium e alinhamento temporal da ElevenLabs | Nao |
+| `VITE_GOOGLE_BOOKS_API_KEY` | Metadados editoriais via Google Books com menos risco de quota publica | Nao |
 | `VITE_NYT_API_KEY` | Listas atuais do NYT Best Sellers na biblioteca | Nao |
 
 A chave do YouTube e persistida pela tela de configuracoes do app; o codigo atual nao le uma variavel `VITE_` para ela.
+Toda variavel `VITE_` fica embutida no bundle web/Android, portanto deve ser restrita no provedor por API, pacote/app e cota. Nao use `VITE_` para segredos de servidor.
+Para Android, mantenha `android/app/google-services.json` apenas localmente. No Firebase Console, habilite Google como provedor de login e cadastre o SHA fingerprint do certificado usado para debug/release.
 
 ---
 
@@ -207,6 +223,26 @@ Para atualizar icones Android, coloque `icon-only.png` e `icon-foreground.png` e
 ```bash
 npx @capacitor/assets generate --android
 ```
+
+Para gerar um bundle release local sem commitar segredos, defina as propriedades abaixo em `android/gradle.properties` local, em `~/.gradle/gradle.properties` ou como variaveis de ambiente:
+
+```properties
+NEOREADER_RELEASE_STORE_FILE=C:\\caminho\\release.keystore
+NEOREADER_RELEASE_STORE_PASSWORD=
+NEOREADER_RELEASE_KEY_ALIAS=
+NEOREADER_RELEASE_KEY_PASSWORD=
+```
+
+Depois rode:
+
+```bash
+npm run build
+npx cap sync android
+cd android
+./gradlew :app:bundleRelease
+```
+
+O release desativa backup Android (`allowBackup=false`) para evitar backup automatico de livros, vocabulario, preferencias e API keys locais.
 
 ---
 
