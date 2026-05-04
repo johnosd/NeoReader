@@ -159,6 +159,7 @@ function App() {
             onOpenBook={(book) => push({ name: 'book-details', book })}
             onOpenDiscover={openDiscover}
             onOpenProfile={openProfile}
+            onOpenSettings={() => push({ name: 'settings' })}
           />
         </ErrorBoundary>
       )

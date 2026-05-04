@@ -1,4 +1,4 @@
-import { Check } from 'lucide-react'
+import { Check, Minus, Plus } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from '../../types/settings'
 import {
@@ -16,21 +16,20 @@ type ControlSurface = 'base' | 'surface'
 
 const READER_FONT_SIZE_OPTIONS: Array<{
   value: FontSize
-  label: string
   description: string
-  className: string
+  px: number
 }> = [
-  { value: 'sm', label: 'A', description: 'Pequena', className: 'text-sm' },
-  { value: 'md', label: 'A', description: 'Media', className: 'text-base' },
-  { value: 'lg', label: 'A', description: 'Grande', className: 'text-lg' },
-  { value: 'xl', label: 'A', description: 'Extra', className: 'text-xl' },
+  { value: 'sm', description: 'Pequena', px: 16 },
+  { value: 'md', description: 'Media', px: 18 },
+  { value: 'lg', description: 'Grande', px: 22 },
+  { value: 'xl', description: 'Extra', px: 26 },
 ]
 
 const READER_FONT_PREVIEW_PX: Record<FontSize, number> = {
-  sm: 14,
-  md: 16,
-  lg: 18,
-  xl: 20,
+  sm: 16,
+  md: 18,
+  lg: 22,
+  xl: 26,
 }
 
 const READER_STYLE_MODE_OPTIONS: Array<{
@@ -77,6 +76,18 @@ function MiniLines({ lineHeight }: { lineHeight: ReaderLineHeight }) {
   )
 }
 
+function getFontSizeIndex(value: FontSize) {
+  return Math.max(0, READER_FONT_SIZE_OPTIONS.findIndex((option) => option.value === value))
+}
+
+function getFontSizeMeta(value: FontSize) {
+  return READER_FONT_SIZE_OPTIONS[getFontSizeIndex(value)] ?? READER_FONT_SIZE_OPTIONS[1]
+}
+
+function getLineHeightLabel(value: ReaderLineHeight) {
+  return getReaderLineHeightValue(value).toFixed(2).replace(/0$/, '')
+}
+
 export function ReaderModeControl({
   value,
   onChange,
@@ -118,34 +129,53 @@ export function ReaderThemeControl({
   onChange: (value: ReaderTheme) => void
   surface?: ControlSurface
 }) {
+  const inactiveFrame = surface === 'base'
+    ? 'border-white/10'
+    : 'border-border'
+
   return (
-    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+    <div className="grid auto-cols-[98px] grid-flow-col gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {READER_THEME_OPTIONS.map((option) => {
         const active = value === option.value
         const palette = getReaderThemePalette(option.value)
+        const mutedLine = palette.isDark ? 'rgba(255,255,255,0.20)' : 'rgba(15,23,42,0.22)'
+        const strongLine = palette.isDark ? 'rgba(255,255,255,0.34)' : 'rgba(15,23,42,0.32)'
 
         return (
           <button
             key={option.value}
             type="button"
             onClick={() => onChange(option.value)}
-            className={choiceClass(active, surface, 'min-h-[76px] px-3 py-3 pr-9 text-left')}
+            className={[
+              'h-[72px] overflow-hidden rounded-md border text-left transition-all duration-150 active:scale-[0.98]',
+              active
+                ? 'border-purple-light shadow-[0_0_0_1px_rgba(168,85,247,0.35)]'
+                : inactiveFrame,
+            ].join(' ')}
+            style={{ backgroundColor: palette.background }}
             aria-pressed={active}
+            aria-label={`Tema ${option.label}`}
           >
-            <ActiveMark active={active} />
-            <span className="flex items-center gap-3">
-              <span
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border"
-                style={{ backgroundColor: palette.background, borderColor: palette.previewBorder }}
-              >
+            <span className="flex h-full flex-col justify-between px-2 py-2">
+              <span>
                 <span
-                  className="h-4 w-4 rounded-full"
-                  style={{ backgroundColor: palette.text }}
-                />
+                  className="mb-2 block text-[10px] font-semibold"
+                  style={{ color: palette.text, opacity: 0.5 }}
+                  aria-hidden="true"
+                >
+                  Aa
+                </span>
+                <span className="flex flex-col gap-1">
+                  <span className="h-0.5 w-16 rounded-full" style={{ backgroundColor: strongLine }} />
+                  <span className="h-0.5 w-12 rounded-full" style={{ backgroundColor: mutedLine }} />
+                  <span className="h-0.5 w-14 rounded-full" style={{ backgroundColor: mutedLine }} />
+                </span>
               </span>
-              <span className="min-w-0">
-                <span className="block truncate text-sm font-semibold">{option.label}</span>
-                <span className="mt-0.5 block text-xs leading-snug text-text-muted">{option.description}</span>
+              <span
+                className="block truncate text-center text-[11px] font-bold"
+                style={{ color: active ? '#c084fc' : palette.text, opacity: active ? 1 : 0.62 }}
+              >
+                {option.label}
               </span>
             </span>
           </button>
@@ -164,8 +194,12 @@ export function ReaderFontControl({
   onChange: (value: ReaderFontFamily) => void
   surface?: ControlSurface
 }) {
+  const inactiveFrame = surface === 'base'
+    ? 'border-white/10 bg-purple-primary/10'
+    : 'border-border bg-bg-surface'
+
   return (
-    <div className="grid grid-cols-1 gap-2">
+    <div className="grid auto-cols-[112px] grid-flow-col gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {READER_FONT_FAMILY_OPTIONS.map((option) => {
         const active = value === option.value
 
@@ -174,26 +208,20 @@ export function ReaderFontControl({
             key={option.value}
             type="button"
             onClick={() => onChange(option.value)}
-            className={choiceClass(active, surface, 'min-h-[70px] px-3 py-3 pr-9 text-left')}
+            className={[
+              'flex h-[52px] items-center justify-center rounded-md border px-3 text-center transition-all duration-150 active:scale-[0.98]',
+              active
+                ? 'border-purple-light bg-purple-primary/15 text-purple-light shadow-[0_0_0_1px_rgba(168,85,247,0.22)]'
+                : `${inactiveFrame} text-text-secondary`,
+            ].join(' ')}
             aria-pressed={active}
+            aria-label={`Fonte ${option.label}`}
           >
-            <ActiveMark active={active} />
-            <span className="flex items-center justify-between gap-3">
-              <span className="min-w-0">
-                <span className="block truncate text-sm font-semibold" style={getReaderFontPreviewStyle(option.value)}>
-                  {option.label}
-                </span>
-                <span className="mt-1 block text-xs leading-snug text-text-muted">
-                  {option.description}
-                </span>
-              </span>
-              <span
-                className="shrink-0 text-xl font-semibold text-text-primary/80"
-                style={getReaderFontPreviewStyle(option.value)}
-                aria-hidden="true"
-              >
-                Aa
-              </span>
+            <span
+              className="block max-w-full truncate text-sm font-semibold"
+              style={getReaderFontPreviewStyle(option.value)}
+            >
+              {option.label}
             </span>
           </button>
         )
@@ -205,33 +233,73 @@ export function ReaderFontControl({
 export function ReaderFontSizeControl({
   value,
   onChange,
-  surface = 'surface',
 }: {
   value: FontSize
   onChange: (value: FontSize) => void
   surface?: ControlSurface
 }) {
-  return (
-    <div className="grid grid-cols-4 gap-2">
-      {READER_FONT_SIZE_OPTIONS.map((option) => {
-        const active = value === option.value
+  const activeIndex = getFontSizeIndex(value)
+  const activeMeta = getFontSizeMeta(value)
+  const progress = (activeIndex / (READER_FONT_SIZE_OPTIONS.length - 1)) * 100
+  const canDecrease = activeIndex > 0
+  const canIncrease = activeIndex < READER_FONT_SIZE_OPTIONS.length - 1
 
-        return (
-          <button
-            key={option.value}
-            type="button"
-            onClick={() => onChange(option.value)}
-            className={choiceClass(active, surface, `min-h-[58px] px-2 py-2 text-center ${option.className}`)}
-            aria-label={`Fonte ${option.description}`}
-            aria-pressed={active}
-          >
-            <span className="block font-semibold leading-none">{option.label}</span>
-            <span className="mt-1 block text-[10px] font-semibold uppercase tracking-[0.06em] text-text-muted">
-              {option.description}
-            </span>
-          </button>
-        )
-      })}
+  function setByIndex(index: number) {
+    const next = READER_FONT_SIZE_OPTIONS[Math.min(Math.max(index, 0), READER_FONT_SIZE_OPTIONS.length - 1)]
+    if (next.value !== value) onChange(next.value)
+  }
+
+  return (
+    <div>
+      <div className="mb-3 flex items-center justify-between">
+        <span className="text-xs font-semibold text-text-muted">{activeMeta.description}</span>
+        <span className="font-mono text-sm font-bold text-purple-light">{activeMeta.px}px</span>
+      </div>
+      <div className="flex items-center gap-4">
+        <button
+          type="button"
+          onClick={() => setByIndex(activeIndex - 1)}
+          disabled={!canDecrease}
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-purple-primary/25 bg-purple-primary/10 text-text-primary transition-transform active:scale-95 disabled:opacity-40"
+          aria-label="Diminuir tamanho da fonte"
+        >
+          <Minus size={18} />
+        </button>
+
+        <div className="relative h-8 flex-1">
+          <div className="absolute left-0 right-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-white/10" />
+          <div
+            className="absolute left-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-purple-light"
+            style={{ width: `${progress}%` }}
+          />
+          {READER_FONT_SIZE_OPTIONS.map((option, index) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => setByIndex(index)}
+              className={[
+                'absolute top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border transition-all',
+                index === activeIndex
+                  ? 'border-purple-light bg-purple-light shadow-[0_0_12px_rgba(168,85,247,0.65)]'
+                  : 'border-transparent bg-transparent',
+              ].join(' ')}
+              style={{ left: `${(index / (READER_FONT_SIZE_OPTIONS.length - 1)) * 100}%` }}
+              aria-label={`Fonte ${option.description}`}
+              aria-pressed={index === activeIndex}
+            />
+          ))}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setByIndex(activeIndex + 1)}
+          disabled={!canIncrease}
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-purple-primary/25 bg-purple-primary/10 text-text-primary transition-transform active:scale-95 disabled:opacity-40"
+          aria-label="Aumentar tamanho da fonte"
+        >
+          <Plus size={18} />
+        </button>
+      </div>
     </div>
   )
 }
@@ -246,7 +314,7 @@ export function ReaderLineHeightControl({
   surface?: ControlSurface
 }) {
   return (
-    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+    <div className="grid grid-cols-3 gap-2">
       {READER_LINE_HEIGHT_OPTIONS.map((option) => {
         const active = value === option.value
 
@@ -255,11 +323,11 @@ export function ReaderLineHeightControl({
             key={option.value}
             type="button"
             onClick={() => onChange(option.value)}
-            className={choiceClass(active, surface, 'flex min-h-[62px] items-center gap-3 px-3 py-3 text-left')}
+            className={choiceClass(active, surface, 'flex min-h-[62px] flex-col items-center justify-center gap-2 px-2 py-3 text-center')}
             aria-pressed={active}
           >
             <MiniLines lineHeight={option.value} />
-            <span className="text-sm font-semibold">{option.label}</span>
+            <span className="font-mono text-sm font-semibold">{getLineHeightLabel(option.value)}</span>
           </button>
         )
       })}

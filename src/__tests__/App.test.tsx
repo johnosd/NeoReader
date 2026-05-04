@@ -47,6 +47,9 @@ vi.mock('@/screens/LibraryScreen', () => ({
         <button data-testid="open-profile" onClick={() => (props.onOpenProfile as () => void)()}>
           Perfil
         </button>
+        <button data-testid="open-settings" onClick={() => (props.onOpenSettings as () => void)()}>
+          Configuracoes
+        </button>
       </div>
     )
   },
@@ -285,6 +288,16 @@ describe('App navigation and auth gate', () => {
 
     fireEvent.click(screen.getByTestId('back'))
     assertScreen('profile')
+  })
+
+  it('Library -> Settings -> Back -> Library', () => {
+    render(<App />)
+
+    fireEvent.click(screen.getByTestId('open-settings'))
+    assertScreen('settings')
+
+    fireEvent.click(screen.getByTestId('back'))
+    assertScreen('library')
   })
 
   it('BookDetails -> Settings -> Back -> BookDetails', () => {

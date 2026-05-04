@@ -746,23 +746,16 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
               <div className="rounded-md p-4 bg-bg-surface border border-border flex flex-col gap-4">
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-3">
-                    Tamanho de fonte
+                    Previa
                   </p>
-                  <ReaderFontSizeControl
-                    value={fontSize}
-                    onChange={(value) => applyBookSettingsPatch({ fontSize: value })}
-                    surface="base"
-                  />
-                  <div className="mt-4">
-                    <ReaderPreviewPanel
-                      theme={readerTheme}
-                      fontFamily={fontFamily}
-                      fontSize={fontSize}
-                      lineHeight={lineHeight}
-                    >
-                      {readerPreviewText}
-                    </ReaderPreviewPanel>
-                  </div>
+                  <ReaderPreviewPanel
+                    theme={readerTheme}
+                    fontFamily={fontFamily}
+                    fontSize={fontSize}
+                    lineHeight={lineHeight}
+                  >
+                    {readerPreviewText}
+                  </ReaderPreviewPanel>
                 </div>
 
                 {styleDiagnostics.length > 0 && (
@@ -797,11 +790,11 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
 
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-3">
-                    Modo de leitura
+                    Tema do leitor
                   </p>
-                  <ReaderModeControl
-                    value={readerStyleMode}
-                    onChange={handleReaderStyleModeChange}
+                  <ReaderThemeControl
+                    value={readerTheme}
+                    onChange={(value) => applyBookSettingsPatch({ readerTheme: value, overrideBookColors: true })}
                     surface="base"
                   />
                 </div>
@@ -830,6 +823,17 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
 
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-3">
+                    Tamanho de fonte
+                  </p>
+                  <ReaderFontSizeControl
+                    value={fontSize}
+                    onChange={(value) => applyBookSettingsPatch({ fontSize: value })}
+                    surface="base"
+                  />
+                </div>
+
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-3">
                     Espacamento
                   </p>
                   <ReaderLineHeightControl
@@ -841,24 +845,13 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
 
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-3">
-                    Tema do leitor
+                    Modo de leitura
                   </p>
-                  <ReaderThemeControl
-                    value={readerTheme}
-                    onChange={(value) => applyBookSettingsPatch({ readerTheme: value, overrideBookColors: true })}
+                  <ReaderModeControl
+                    value={readerStyleMode}
+                    onChange={handleReaderStyleModeChange}
                     surface="base"
                   />
-
-                  <div className="mt-4">
-                    <ReaderPreviewPanel
-                      theme={readerTheme}
-                      fontFamily={fontFamily}
-                      fontSize={fontSize}
-                      lineHeight={lineHeight}
-                    >
-                      {readerPreviewText}
-                    </ReaderPreviewPanel>
-                  </div>
                 </div>
 
                 <div>

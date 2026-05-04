@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { App as CapApp } from '@capacitor/app'
-import { Bell, BookOpen, Plus } from 'lucide-react'
+import { BookOpen, Plus, Settings } from 'lucide-react'
 import neoLogo from '../../docs/design-system/logo/neo-reader-header-logo.svg'
 import { HeroBanner } from '../components/HeroBanner'
 import { BookRow } from '../components/BookRow'
@@ -15,9 +15,10 @@ interface LibraryScreenProps {
   onOpenBook: (book: Book) => void
   onOpenDiscover: () => void
   onOpenProfile: () => void
+  onOpenSettings: () => void
 }
 
-export function LibraryScreen({ onOpenBook, onOpenDiscover, onOpenProfile }: LibraryScreenProps) {
+export function LibraryScreen({ onOpenBook, onOpenDiscover, onOpenProfile, onOpenSettings }: LibraryScreenProps) {
   const { isLoading, isEmpty, heroBook, inProgressBooks, recentBooks } = useLibraryGroups()
   const [optionsBook, setOptionsBook] = useState<Book | null>(null)
   const [importing, setImporting] = useState(false)
@@ -59,7 +60,7 @@ export function LibraryScreen({ onOpenBook, onOpenDiscover, onOpenProfile }: Lib
       {!showFloatingHeader && (
         <header className="px-4 pt-8 pb-3 flex items-center justify-between">
           <LibraryLogo />
-          <NotificationButton />
+          <SettingsButton onClick={onOpenSettings} />
         </header>
       )}
 
@@ -84,7 +85,7 @@ export function LibraryScreen({ onOpenBook, onOpenDiscover, onOpenProfile }: Lib
                     style={{ background: 'linear-gradient(180deg, rgba(7,3,12,0.96) 0%, rgba(7,3,12,0.80) 55%, transparent 100%)' }}
                   />
                   <div className="relative"><LibraryLogo /></div>
-                  <div className="relative"><NotificationButton glass /></div>
+                  <div className="relative"><SettingsButton glass onClick={onOpenSettings} /></div>
                 </header>
               )}
 
@@ -150,18 +151,19 @@ function LibraryLogo() {
   )
 }
 
-function NotificationButton({ glass }: { glass?: boolean }) {
+function SettingsButton({ glass, onClick }: { glass?: boolean; onClick: () => void }) {
   return (
     <button
+      onClick={onClick}
       className={[
         'p-2.5 rounded-md text-text-primary active:scale-95 transition-transform',
         glass
           ? 'bg-black/30 border border-white/15 text-white backdrop-blur-sm'
           : 'bg-bg-surface border border-border',
       ].join(' ')}
-      aria-label="Notificações"
+      aria-label="Configurações gerais"
     >
-      <Bell size={20} />
+      <Settings size={20} />
     </button>
   )
 }
