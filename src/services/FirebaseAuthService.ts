@@ -1,3 +1,5 @@
+import { FirebaseAuthentication, type User as NativeFirebaseUser } from '@capacitor-firebase/authentication'
+import { Capacitor } from '@capacitor/core'
 import { initializeApp, getApps, type FirebaseOptions } from 'firebase/app'
 import {
   browserLocalPersistence,
@@ -30,6 +32,10 @@ class FirebaseAuthConfigError extends Error {
 
 let authInstance: Auth | null | undefined
 let persistenceReady: Promise<void> | null = null
+
+function isNativeRuntime() {
+  return Capacitor.isNativePlatform()
+}
 
 function cleanEnvValue(value: string | undefined) {
   const trimmed = value?.trim()
@@ -94,7 +100,41 @@ export function toAuthUser(user: User): AuthUser {
   }
 }
 
+function toNativeAuthUser(user: NativeFirebaseUser): AuthUser {
+  return {
+    uid: user.uid,
+    displayName: user.displayName,
+    email: user.email,
+    photoURL: user.photoUrl,
+  }
+}
+
 export function observeFirebaseAuth(callback: (user: AuthUser | null) => void): Unsubscribe {
+  if (isNativeRuntime()) {
+    let active = true
+
+    void FirebaseAuthentication.getCurrentUser().then((result) => {
+      if (!active) return
+      callback(result.user ? toNativeAuthUser(result.user) : null)
+    }).catch(() => {
+      if (!active) return
+      callback(null)
+    })
+
+    let removeNativeListener: (() => void) | null = null
+    void FirebaseAuthentication.addListener('authStateChange', (event) => {
+      callback(event.user ? toNativeAuthUser(event.user) : null)
+    }).then((handle) => {
+      removeNativeListener = () => { void handle.remove() }
+      if (!active) removeNativeListener()
+    })
+
+    return () => {
+      active = false
+      removeNativeListener?.()
+    }
+  }
+
   const auth = getConfiguredAuth()
   if (!auth) {
     callback(null)
@@ -107,6 +147,8 @@ export function observeFirebaseAuth(callback: (user: AuthUser | null) => void): 
 }
 
 export async function consumeGoogleRedirectResult() {
+  if (isNativeRuntime()) return
+
   const auth = getConfiguredAuth()
   if (!auth) return
 
@@ -114,16 +156,30 @@ export async function consumeGoogleRedirectResult() {
   await getRedirectResult(auth)
 }
 
-export async function signInWithGoogleRedirect() {
+export async function signInWithGoogleRedirect(): Promise<AuthUser | null> {
+  if (isNativeRuntime()) {
+    const result = await FirebaseAuthentication.signInWithGoogle()
+    if (result.user) return toNativeAuthUser(result.user)
+
+    const currentUser = await FirebaseAuthentication.getCurrentUser()
+    return currentUser.user ? toNativeAuthUser(currentUser.user) : null
+  }
+
   const auth = ensureConfiguredAuth()
   await ensureLocalPersistence(auth)
 
   const provider = new GoogleAuthProvider()
   provider.setCustomParameters({ prompt: 'select_account' })
   await signInWithRedirect(auth, provider)
+  return null
 }
 
 export async function signOut() {
+  if (isNativeRuntime()) {
+    await FirebaseAuthentication.signOut()
+    return
+  }
+
   const auth = ensureConfiguredAuth()
   await firebaseSignOut(auth)
 }

@@ -48,12 +48,16 @@ export function useAuth() {
   }, [configured])
 
   const signInWithGoogle = useCallback(async () => {
-    await signInWithGoogleRedirect()
+    const user = await signInWithGoogleRedirect()
+    if (user) {
+      setState({ status: 'signed-in', user, configured: true })
+    }
   }, [])
 
   const signOut = useCallback(async () => {
     await signOutFromFirebase()
-  }, [])
+    setState({ status: 'signed-out', user: null, configured })
+  }, [configured])
 
   return {
     state,
