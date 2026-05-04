@@ -5,6 +5,7 @@ import { ReaderScreen } from './screens/ReaderScreen'
 import { VocabularyScreen } from './screens/VocabularyScreen'
 import { SettingsScreen } from './screens/SettingsScreen'
 import { DiscoverScreen } from './screens/DiscoverScreen'
+import { ProfileScreen } from './screens/ProfileScreen'
 import { WelcomeScreen } from './screens/WelcomeScreen'
 import { LoginScreen } from './screens/LoginScreen'
 import { ErrorBoundary, Spinner } from './components/ui'
@@ -17,6 +18,7 @@ type Route =
   | { name: 'reader'; book: Book; startHref?: string }
   | { name: 'vocabulary' }
   | { name: 'discover' }
+  | { name: 'profile' }
   | { name: 'settings' }
 
 const WELCOME_SEEN_KEY = 'neoreader:welcome-seen'
@@ -47,6 +49,9 @@ function App() {
 
   const push = (route: Route) => setStack((prev) => [...prev, route])
   const pop = () => setStack((prev) => (prev.length > 1 ? prev.slice(0, -1) : prev))
+  const openLibrary = () => setStack([{ name: 'library' }])
+  const openDiscover = () => setStack([{ name: 'library' }, { name: 'discover' }])
+  const openProfile = () => setStack([{ name: 'library' }, { name: 'profile' }])
 
   function completeWelcome() {
     setWelcomeSeen()
@@ -118,7 +123,22 @@ function App() {
         <ErrorBoundary key="discover">
           <DiscoverScreen
             onBack={pop}
+            onOpenLibrary={openLibrary}
+            onOpenProfile={openProfile}
+          />
+        </ErrorBoundary>
+      )
+
+    case 'profile':
+      return (
+        <ErrorBoundary key="profile">
+          <ProfileScreen
+            authUser={auth.state.user}
+            onBack={pop}
+            onOpenLibrary={openLibrary}
+            onOpenDiscover={openDiscover}
             onOpenSettings={() => push({ name: 'settings' })}
+            onSignOut={auth.signOut}
           />
         </ErrorBoundary>
       )
@@ -128,8 +148,6 @@ function App() {
         <ErrorBoundary key="settings">
           <SettingsScreen
             onBack={pop}
-            authUser={auth.state.user}
-            onSignOut={auth.signOut}
           />
         </ErrorBoundary>
       )
@@ -139,8 +157,8 @@ function App() {
         <ErrorBoundary key="library">
           <LibraryScreen
             onOpenBook={(book) => push({ name: 'book-details', book })}
-            onOpenDiscover={() => push({ name: 'discover' })}
-            onOpenSettings={() => push({ name: 'settings' })}
+            onOpenDiscover={openDiscover}
+            onOpenProfile={openProfile}
           />
         </ErrorBoundary>
       )

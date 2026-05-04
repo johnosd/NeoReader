@@ -14,10 +14,10 @@ import type { Book } from '../types/book'
 interface LibraryScreenProps {
   onOpenBook: (book: Book) => void
   onOpenDiscover: () => void
-  onOpenSettings: () => void
+  onOpenProfile: () => void
 }
 
-export function LibraryScreen({ onOpenBook, onOpenDiscover, onOpenSettings }: LibraryScreenProps) {
+export function LibraryScreen({ onOpenBook, onOpenDiscover, onOpenProfile }: LibraryScreenProps) {
   const { isLoading, isEmpty, heroBook, inProgressBooks, recentBooks } = useLibraryGroups()
   const [optionsBook, setOptionsBook] = useState<Book | null>(null)
   const [importing, setImporting] = useState(false)
@@ -125,7 +125,7 @@ export function LibraryScreen({ onOpenBook, onOpenDiscover, onOpenSettings }: Li
       <BottomNav
         onTabChange={(tab) => {
           if (tab === 'discover') onOpenDiscover()
-          if (tab === 'profile') onOpenSettings()
+          if (tab === 'profile') onOpenProfile()
         }}
       />
 

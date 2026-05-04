@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   readerProps: null as Record<string, unknown> | null,
   vocabularyProps: null as Record<string, unknown> | null,
   discoverProps: null as Record<string, unknown> | null,
+  profileProps: null as Record<string, unknown> | null,
   settingsProps: null as Record<string, unknown> | null,
   authState: {
     status: 'signed-in',
@@ -43,8 +44,8 @@ vi.mock('@/screens/LibraryScreen', () => ({
         <button data-testid="open-discover" onClick={() => (props.onOpenDiscover as () => void)()}>
           Descubra
         </button>
-        <button data-testid="open-settings" onClick={() => (props.onOpenSettings as () => void)()}>
-          Configuracoes
+        <button data-testid="open-profile" onClick={() => (props.onOpenProfile as () => void)()}>
+          Perfil
         </button>
       </div>
     )
@@ -97,9 +98,24 @@ vi.mock('@/screens/DiscoverScreen', () => ({
     return (
       <div data-testid="discover">
         <button data-testid="back" onClick={() => (props.onBack as () => void)()}>Voltar</button>
+        <button data-testid="open-profile" onClick={() => (props.onOpenProfile as () => void)()}>
+          Perfil
+        </button>
+      </div>
+    )
+  },
+}))
+
+vi.mock('@/screens/ProfileScreen', () => ({
+  ProfileScreen: (props: Record<string, unknown>) => {
+    mocks.profileProps = props
+    return (
+      <div data-testid="profile">
+        <button data-testid="back" onClick={() => (props.onBack as () => void)()}>Voltar</button>
         <button data-testid="open-settings" onClick={() => (props.onOpenSettings as () => void)()}>
           Configuracoes
         </button>
+        <button data-testid="sign-out" onClick={() => (props.onSignOut as () => void)()}>Sair</button>
       </div>
     )
   },
@@ -111,7 +127,6 @@ vi.mock('@/screens/SettingsScreen', () => ({
     return (
       <div data-testid="settings">
         <button data-testid="back" onClick={() => (props.onBack as () => void)()}>Voltar</button>
-        <button data-testid="sign-out" onClick={() => (props.onSignOut as () => void)()}>Sair</button>
       </div>
     )
   },
@@ -168,6 +183,7 @@ describe('App navigation and auth gate', () => {
     mocks.readerProps = null
     mocks.vocabularyProps = null
     mocks.discoverProps = null
+    mocks.profileProps = null
     mocks.settingsProps = null
     mocks.authState = {
       status: 'signed-in',
@@ -250,14 +266,25 @@ describe('App navigation and auth gate', () => {
     assertNoScreen('vocabulary')
   })
 
-  it('Library -> Settings -> Back -> Library', () => {
+  it('Library -> Profile -> Back -> Library', () => {
     render(<App />)
 
+    fireEvent.click(screen.getByTestId('open-profile'))
+    assertScreen('profile')
+
+    fireEvent.click(screen.getByTestId('back'))
+    assertScreen('library')
+  })
+
+  it('Profile -> Settings -> Back -> Profile', () => {
+    render(<App />)
+
+    fireEvent.click(screen.getByTestId('open-profile'))
     fireEvent.click(screen.getByTestId('open-settings'))
     assertScreen('settings')
 
     fireEvent.click(screen.getByTestId('back'))
-    assertScreen('library')
+    assertScreen('profile')
   })
 
   it('BookDetails -> Settings -> Back -> BookDetails', () => {
@@ -303,13 +330,13 @@ describe('App navigation and auth gate', () => {
     expect(mocks.signInWithGoogle).toHaveBeenCalledTimes(1)
   })
 
-  it('passa usuario e logout para Settings', () => {
+  it('passa usuario e logout para Profile', () => {
     render(<App />)
 
-    fireEvent.click(screen.getByTestId('open-settings'))
+    fireEvent.click(screen.getByTestId('open-profile'))
     fireEvent.click(screen.getByTestId('sign-out'))
 
-    expect(mocks.settingsProps?.authUser).toEqual(expect.objectContaining({ uid: 'user-1' }))
+    expect(mocks.profileProps?.authUser).toEqual(expect.objectContaining({ uid: 'user-1' }))
     expect(mocks.signOut).toHaveBeenCalledTimes(1)
   })
 })
