@@ -22,6 +22,10 @@ export function HeroBanner({ book, onPress, onOpenOptions }: HeroBannerProps) {
     : book.readingStatus === 'reading' ? 'Em leitura'
     : 'Destaque'
 
+  const badgeStyle = book.readingStatus === 'reading'
+    ? { background: 'linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%)', color: '#1f1300' }
+    : { background: 'linear-gradient(135deg, #7b2cbf 0%, #9d4edd 100%)', color: '#ffffff' }
+
   const progressWidth = book.readingStatus === 'finished' ? 100 : (book.percentage ?? 0)
 
   return (
@@ -96,8 +100,8 @@ export function HeroBanner({ book, onPress, onOpenOptions }: HeroBannerProps) {
 
         {/* Status badge — below description */}
         <span
-          className="inline-flex items-center rounded-[3px] px-2 py-[3px] mb-4 text-[9px] font-black uppercase tracking-[0.18em] text-white"
-          style={{ background: 'linear-gradient(135deg, #7b2cbf 0%, #9d4edd 100%)' }}
+          className="inline-flex items-center rounded-[3px] px-2 py-[3px] mb-4 text-[9px] font-black uppercase tracking-[0.18em]"
+          style={badgeStyle}
         >
           {badgeLabel}
         </span>

@@ -207,24 +207,24 @@ function ProfileHeroBackground({ bookId }: { bookId: number | undefined }) {
           src={coverUrl}
           alt=""
           aria-hidden
-          className="absolute inset-0 h-full w-full scale-110 object-cover opacity-35 blur-2xl"
+          className="absolute inset-0 h-full w-full scale-110 object-cover opacity-[0.18] blur-2xl grayscale"
         />
         <img
           src={coverUrl}
           alt=""
           aria-hidden
-          className="absolute inset-0 h-full w-full object-cover object-top opacity-70"
+          className="absolute inset-0 h-full w-full object-cover object-top opacity-[0.78]"
         />
         <div
           className="absolute inset-0"
           style={{
             background:
-              'linear-gradient(180deg, rgba(7,3,12,0.38) 0%, rgba(7,3,12,0.70) 58%, rgba(7,3,12,0.98) 100%)',
+              'linear-gradient(180deg, rgba(0,0,0,0.18) 0%, rgba(0,0,0,0.42) 54%, rgba(0,0,0,0.78) 100%)',
           }}
         />
         <div
           className="absolute inset-0"
-          style={{ background: 'radial-gradient(ellipse at 30% 50%, rgba(123,44,191,0.28) 0%, transparent 62%)' }}
+          style={{ background: 'linear-gradient(90deg, rgba(0,0,0,0.28) 0%, rgba(0,0,0,0.04) 42%, rgba(0,0,0,0.22) 100%)' }}
         />
       </>
     )
@@ -265,7 +265,7 @@ function StatsGrid({
           className="py-3 text-center"
           style={{ borderRight: index < stats.length - 1 ? '1px solid rgba(255,255,255,0.06)' : undefined }}
         >
-          <div className="text-[17px] font-extrabold leading-none text-text-primary">{stat.value}</div>
+          <div className="text-[17px] font-extrabold leading-none text-success/80">{stat.value}</div>
           <div className="mt-1 text-[10px] text-text-muted">{stat.label}</div>
         </div>
       ))}

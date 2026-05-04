@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { App as CapApp } from '@capacitor/app'
 import { Bell, BookOpen, Plus } from 'lucide-react'
-import neoLogo from '../../docs/design-system/logo/pacote_logos/neo_reader_icon_reduced_transparent.svg'
+import neoLogo from '../../docs/design-system/logo/neo-reader-header-logo.svg'
 import { HeroBanner } from '../components/HeroBanner'
 import { BookRow } from '../components/BookRow'
 import { BookOptionsSheet } from '../components/BookOptionsSheet'
@@ -57,7 +57,7 @@ export function LibraryScreen({ onOpenBook, onOpenDiscover, onOpenProfile }: Lib
 
       {/* Normal (block) header — shown when no hero */}
       {!showFloatingHeader && (
-        <header className="pl-0 pr-3 pt-1 pb-3 flex items-center justify-between">
+        <header className="px-4 pt-8 pb-3 flex items-center justify-between">
           <LibraryLogo />
           <NotificationButton />
         </header>
@@ -78,7 +78,7 @@ export function LibraryScreen({ onOpenBook, onOpenDiscover, onOpenProfile }: Lib
           <>
             <div className="relative">
               {showFloatingHeader && (
-                <header className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-3 pt-8 pb-6">
+                <header className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 pt-8 pb-6">
                   <div
                     className="absolute inset-0 pointer-events-none"
                     style={{ background: 'linear-gradient(180deg, rgba(7,3,12,0.96) 0%, rgba(7,3,12,0.80) 55%, transparent 100%)' }}
@@ -136,13 +136,15 @@ export function LibraryScreen({ onOpenBook, onOpenDiscover, onOpenProfile }: Lib
 
 function LibraryLogo() {
   return (
-    <div className="flex items-center gap-1">
-      <img src={neoLogo} alt="" aria-hidden className="w-[132px] h-[132px] -ml-[30px]" />
-      <h1 className="text-[1.35rem] font-black tracking-tight leading-none">
-        <span className="text-white" style={{ textShadow: '0 0 12px rgba(255,255,255,0.55), 0 0 28px rgba(200,160,255,0.3)' }}>
-          Neo
-        </span>
-        <span style={{ color: '#a855f7' }}>Reader</span>
+    <div className="flex items-center gap-2" aria-label="NeoReader">
+      <img
+        src={neoLogo}
+        alt=""
+        aria-hidden
+        className="h-14 w-14 object-contain drop-shadow-[0_0_12px_rgba(168,85,247,0.45)]"
+      />
+      <h1 className="text-xl font-black tracking-[-0.02em] leading-none text-text-primary">
+        Neo<span className="text-purple-primary">Reader</span>
       </h1>
     </div>
   )
