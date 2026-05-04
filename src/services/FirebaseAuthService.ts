@@ -8,6 +8,7 @@ import {
   GoogleAuthProvider,
   onAuthStateChanged,
   setPersistence,
+  signInWithPopup,
   signInWithRedirect,
   signOut as firebaseSignOut,
   type Auth,
@@ -35,6 +36,13 @@ let persistenceReady: Promise<void> | null = null
 
 function isNativeRuntime() {
   return Capacitor.isNativePlatform()
+}
+
+function shouldUsePopupSignIn() {
+  if (typeof window === 'undefined') return false
+
+  const devHostnames = new Set(['localhost', '127.0.0.1', '::1'])
+  return import.meta.env.DEV || devHostnames.has(window.location.hostname)
 }
 
 function cleanEnvValue(value: string | undefined) {
@@ -170,6 +178,12 @@ export async function signInWithGoogleRedirect(): Promise<AuthUser | null> {
 
   const provider = new GoogleAuthProvider()
   provider.setCustomParameters({ prompt: 'select_account' })
+
+  if (shouldUsePopupSignIn()) {
+    const result = await signInWithPopup(auth, provider)
+    return result.user ? toAuthUser(result.user) : null
+  }
+
   await signInWithRedirect(auth, provider)
   return null
 }
