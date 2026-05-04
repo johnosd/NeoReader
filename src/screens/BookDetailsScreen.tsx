@@ -7,19 +7,13 @@ import { Badge, BottomSheet, Button, EmptyState, ListItem, Spinner } from '../co
 import { AuthorTab } from '../components/AuthorTab'
 import { db } from '../db/database'
 import { toggleFavorite } from '../db/books'
-import { getStoredBookInfo, patchBookInfo, saveBookInfo } from '../db/bookInfo'
 import { softDeleteBookmark } from '../db/bookmarks'
 import { getBookSettings, updateBookSettings } from '../db/bookSettings'
 import { getSettings } from '../db/settings'
+import { useBookDetailsTtsVoices } from '../hooks/useBookDetailsTtsVoices'
 import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
+import { useBookInfo } from '../hooks/useBookInfo'
 import { EpubService, type EpubExtras } from '../services/EpubService'
-import {
-  BookInfoService,
-  EpubBookInfoProvider,
-  GoogleBooksProvider,
-  OpenLibraryProvider,
-  YouTubeReviewsProvider,
-} from '../services/bookInfo'
 import { ElevenLabsService } from '../services/ElevenLabsService'
 import { NativeTtsService } from '../services/NativeTtsService'
 import { SpeechifyService } from '../services/SpeechifyService'
@@ -38,7 +32,6 @@ import type {
   BookInfoProviderAttemptDiagnostic,
   BookInfoSource,
   BookReview,
-  ResolvedBookInfo,
   StoredBookInfo,
 } from '../types/bookInfo'
 import type { AppSettings, FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from '../types/settings'
@@ -79,7 +72,6 @@ const TTS_PROVIDERS: Array<{ value: TtsProvider; label: string }> = [
 ]
 
 const TTS_RATE_OPTIONS = [0.8, 0.9, 1, 1.1, 1.2]
-const INITIAL_TTS_VOICE_COUNT = 12
 const VOICE_PREVIEW_ERROR = 'Nao foi possivel tocar a amostra desta voz.'
 
 function isTtsProviderConfigured(provider: TtsProvider, settings: AppSettings) {
@@ -104,10 +96,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
   const [descExpanded, setDescExpanded] = useState(false)
   const [extras, setExtras] = useState<EpubExtras | null>(null)
   const [extrasLoading, setExtrasLoading] = useState(true)
-  const [bookInfo, setBookInfo] = useState<StoredBookInfo | null>(null)
-  const [bookInfoLoading, setBookInfoLoading] = useState(true)
   const [bookInfoRefreshToken, setBookInfoRefreshToken] = useState(0)
-  const [bookInfoDiagnostics, setBookInfoDiagnostics] = useState<BookInfoProviderAttemptDiagnostic[]>([])
   const [optimisticBookSettings, setOptimisticBookSettings] = useState<BookSettings | null>(null)
   const [defaultFontSize, setDefaultFontSize] = useState<FontSize>('md')
   const [defaultLineHeight, setDefaultLineHeight] = useState<ReaderLineHeight>('comfortable')
@@ -127,11 +116,6 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
   const [ttsProviderSheetOpen, setTtsProviderSheetOpen] = useState(false)
   const [ttsVoiceSheetOpen, setTtsVoiceSheetOpen] = useState(false)
   const [ttsSpeedSheetOpen, setTtsSpeedSheetOpen] = useState(false)
-  const [ttsVoiceOptions, setTtsVoiceOptions] = useState<TtsVoiceOption[]>([])
-  const [showAllTtsVoices, setShowAllTtsVoices] = useState(false)
-  const [ttsVoiceLoading, setTtsVoiceLoading] = useState(false)
-  const [ttsVoiceError, setTtsVoiceError] = useState<string | null>(null)
-  const [ttsVoiceSearch, setTtsVoiceSearch] = useState('')
   const [ttsVoicePreviewingId, setTtsVoicePreviewingId] = useState<string | null>(null)
   const [ttsVoicePreviewError, setTtsVoicePreviewError] = useState<string | null>(null)
   const [expandedChapterPaths, setExpandedChapterPaths] = useState<Set<string>>(new Set())
@@ -166,6 +150,16 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
   const selectedTtsProvider: TtsProvider = bookSettingsRow?.ttsProvider ?? 'speechify'
   const effectiveTtsProvider = resolveEffectiveTtsProvider(selectedTtsProvider, appSettings)
   const ttsRate = clampTtsRate(bookSettingsRow?.ttsRate ?? 1)
+  const {
+    info: bookInfo,
+    loading: bookInfoLoading,
+    diagnostics: bookInfoDiagnostics,
+  } = useBookInfo({
+    book: liveBook,
+    enabled: settingsLoaded,
+    youtubeApiKey: appSettings.youtubeApiKey,
+    refreshToken: bookInfoRefreshToken,
+  })
 
   useEffect(() => {
     getSettings().then((settings) => {
@@ -190,75 +184,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
       setExtras(result)
       setExtrasLoading(false)
     })
-  }, [liveBook.fileBlob])
-
-  useEffect(() => {
-    if (!liveBook.id || !settingsLoaded) return
-
-    let cancelled = false
-    setBookInfoLoading(true)
-    setBookInfoDiagnostics([])
-
-    async function loadBookInfo() {
-      const diagnostics: BookInfoProviderAttemptDiagnostic[] = []
-      const recordDiagnostic = (attempt: BookInfoProviderAttemptDiagnostic) => {
-        diagnostics.push(attempt)
-        if (import.meta.env.DEV && !cancelled) {
-          setBookInfoDiagnostics([...diagnostics])
-        }
-      }
-
-      try {
-        const stored = await getStoredBookInfo(liveBook.id!)
-        if (cancelled) return
-
-        let nextInfo = stored ?? null
-        const needsBaseCollection = !stored || !hasDisplayableBookInfo(stored) || bookInfoRefreshToken > 0
-        const needsYoutubeReviews = Boolean(appSettings.youtubeApiKey)
-          && !stored?.reviews?.value.some((review) => review.provider === 'youtube')
-
-        if (needsBaseCollection) {
-          const collected = await new BookInfoService([
-            new EpubBookInfoProvider(),
-            new GoogleBooksProvider(),
-            new OpenLibraryProvider(),
-            new YouTubeReviewsProvider({ apiKey: appSettings.youtubeApiKey }),
-          ], { onProviderAttempt: recordDiagnostic }).collect(liveBook.fileBlob, {
-            lookupHints: {
-              title: liveBook.title,
-              author: liveBook.author,
-              identifiers: [],
-            },
-          })
-          nextInfo = await saveBookInfo(liveBook.id!, collected)
-        } else if (needsYoutubeReviews) {
-          const collected = await new BookInfoService([
-            new YouTubeReviewsProvider({ apiKey: appSettings.youtubeApiKey }),
-          ], { onProviderAttempt: recordDiagnostic }).collect(liveBook.fileBlob, stored)
-
-          if (collected.reviews) {
-            nextInfo = await patchBookInfo(liveBook.id!, {
-              reviews: collected.reviews,
-              lookupHints: collected.lookupHints,
-            })
-          }
-        }
-
-        if (!cancelled) setBookInfo(nextInfo)
-      } catch (error) {
-        console.warn('Book info enrichment failed in details screen.', error)
-        if (!cancelled) setBookInfo(null)
-      } finally {
-        if (!cancelled) setBookInfoLoading(false)
-      }
-    }
-
-    void loadBookInfo()
-
-    return () => {
-      cancelled = true
-    }
-  }, [appSettings.youtubeApiKey, bookInfoRefreshToken, liveBook.fileBlob, liveBook.id, liveBook.title, liveBook.author, settingsLoaded])
+  }, [liveBook.fileBlob, liveBook.id])
 
   useEffect(() => {
     const listener = CapApp.addListener('backButton', onBack)
@@ -315,21 +241,19 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
       : 'Nota indisponivel'
   const aboutDescription = extras?.description ?? bookInfo?.synopsis?.value ?? null
   const youtubeReviews = bookInfo?.reviews?.value.filter((review) => review.provider === 'youtube') ?? []
-
-  const normalizedVoiceSearch = ttsVoiceSearch.trim().toLocaleLowerCase()
-  const filteredTtsVoiceOptions = normalizedVoiceSearch
-    ? ttsVoiceOptions.filter((voice) =>
-        [voice.label, voice.locale, voice.meta]
-          .filter(Boolean)
-          .some((value) => value!.toLocaleLowerCase().includes(normalizedVoiceSearch)),
-      )
-    : ttsVoiceOptions
-  const visibleTtsVoiceOptions = showAllTtsVoices
-    ? filteredTtsVoiceOptions
-    : normalizedVoiceSearch
-      ? filteredTtsVoiceOptions
-      : filteredTtsVoiceOptions.slice(0, INITIAL_TTS_VOICE_COUNT)
-  const hiddenTtsVoiceCount = Math.max(0, filteredTtsVoiceOptions.length - visibleTtsVoiceOptions.length)
+  const {
+    visibleOptions: visibleTtsVoiceOptions,
+    hiddenCount: hiddenTtsVoiceCount,
+    loading: ttsVoiceLoading,
+    error: ttsVoiceError,
+    search: ttsVoiceSearch,
+    setSearch: setTtsVoiceSearch,
+    setShowAll: setShowAllTtsVoices,
+    loadOptions: loadVoiceOptions,
+  } = useBookDetailsTtsVoices({
+    appSettings,
+    effectiveBookLanguage,
+  })
 
   function applyBookSettingsPatch(patch: Partial<Omit<BookSettings, 'id' | 'bookId'>>) {
     setOptimisticBookSettings((previous) => ({
@@ -374,39 +298,6 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
     applyComfortableReadingMode()
   }
 
-  const loadVoiceOptions = useCallback(async (provider: TtsProvider) => {
-    setTtsVoiceLoading(true)
-    setTtsVoiceError(null)
-    try {
-      if (provider === 'speechify') {
-        if (!appSettings.speechifyApiKey) {
-          setTtsVoiceOptions([])
-          setTtsVoiceError('Configure a API key da Speechify nas Configuracoes gerais.')
-          return
-        }
-        setTtsVoiceOptions(await SpeechifyService.listCompatibleVoices(effectiveBookLanguage, appSettings.speechifyApiKey))
-        return
-      }
-
-      if (provider === 'elevenlabs') {
-        if (!appSettings.elevenLabsApiKey) {
-          setTtsVoiceOptions([])
-          setTtsVoiceError('Configure a API key da ElevenLabs nas Configuracoes gerais.')
-          return
-        }
-        setTtsVoiceOptions(await ElevenLabsService.listCompatibleVoices(effectiveBookLanguage, appSettings.elevenLabsApiKey))
-        return
-      }
-
-      setTtsVoiceOptions(await NativeTtsService.listCompatibleVoices(effectiveBookLanguage))
-    } catch {
-      setTtsVoiceOptions([])
-      setTtsVoiceError('Nao foi possivel carregar as vozes compativeis.')
-    } finally {
-      setTtsVoiceLoading(false)
-    }
-  }, [appSettings.elevenLabsApiKey, appSettings.speechifyApiKey, effectiveBookLanguage])
-
   function toggleChapterExpanded(path: string) {
     setExpandedChapterPaths((previous) => {
       const next = new Set(previous)
@@ -448,7 +339,14 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
     setTtsVoicePreviewError(null)
     cancelTtsVoicePreview()
     void loadVoiceOptions(selectedTtsProvider)
-  }, [cancelTtsVoicePreview, loadVoiceOptions, selectedTtsProvider, ttsVoiceSheetOpen])
+  }, [
+    cancelTtsVoicePreview,
+    loadVoiceOptions,
+    selectedTtsProvider,
+    setShowAllTtsVoices,
+    setTtsVoiceSearch,
+    ttsVoiceSheetOpen,
+  ])
 
   function closeTtsVoiceSheet() {
     setTtsVoiceSheetOpen(false)
@@ -1499,7 +1397,7 @@ function VideoReviewsCarousel({ reviews }: { reviews: BookReview[] }) {
             <button
               key={review.url ?? review.title}
               type="button"
-              onClick={() => review.url && window.open(review.url, '_blank')}
+              onClick={() => review.url && window.open(review.url, '_blank', 'noopener,noreferrer')}
               disabled={!review.url}
               className="flex-shrink-0 w-48 text-left transition-opacity active:opacity-70 disabled:opacity-60"
             >
@@ -1694,18 +1592,6 @@ function BookInfoEmptyState({
         </div>
       </div>
     </div>
-  )
-}
-
-function hasDisplayableBookInfo(info: ResolvedBookInfo | null | undefined): boolean {
-  return Boolean(
-    info?.synopsis
-    || info?.category
-    || info?.rating
-    || info?.pageCount
-    || info?.publishedDate
-    || info?.universalIdentifier
-    || (info?.reviews?.value.length ?? 0) > 0,
   )
 }
 

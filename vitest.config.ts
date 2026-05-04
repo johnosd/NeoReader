@@ -9,6 +9,7 @@ export default defineConfig({
     setupFiles: ['./src/__tests__/setup.ts'],
     // Sem globals: cada arquivo importa explicitamente de 'vitest'
     globals: false,
+    exclude: ['**/node_modules/**', '**/dist/**', '**/android/**', '**/.claude/**'],
   },
   resolve: {
     alias: {

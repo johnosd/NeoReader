@@ -1,3 +1,5 @@
+import { fetchWithTimeout } from './http'
+
 export interface NytBook {
   rank: number
   title: string
@@ -40,7 +42,7 @@ export class NytBooksService {
     if (!apiKey) throw new Error('NYT API key missing')
 
     const url = `${NytBooksService.BASE_URL}/lists/current/${listName}.json?api-key=${encodeURIComponent(apiKey)}`
-    const response = await fetch(url)
+    const response = await fetchWithTimeout(url)
 
     if (!response.ok) throw new Error(`NYT API error ${response.status}`)
 

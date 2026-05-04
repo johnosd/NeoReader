@@ -347,6 +347,13 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
           </div>
         </Section>
 
+        <Section title="Chaves publicas do build">
+          <p className="text-xs text-text-muted leading-relaxed">
+            Google Books e NYT Best Sellers usam variaveis VITE_ definidas no build. Essas chaves ficam embutidas no app,
+            entao devem ser restritas no provedor por API, pacote/app e cota antes do envio para a Play Store.
+          </p>
+        </Section>
+
         <Section title="Traducao">
           <div className="-mx-4">
             <ListItem

@@ -84,6 +84,7 @@ describe('OpenLibraryProvider', () => {
 
     expect(fetchImpl).toHaveBeenCalledWith(
       'https://openlibrary.org/api/books?bibkeys=ISBN:9780132350884&format=json&jscmd=data',
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     )
     expect(info.category).toEqual({
       value: [
@@ -184,10 +185,12 @@ describe('OpenLibraryProvider', () => {
     expect(fetchImpl).toHaveBeenNthCalledWith(
       2,
       'https://openlibrary.org/isbn/9781401971373.json',
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     )
     expect(fetchImpl).toHaveBeenNthCalledWith(
       3,
       'https://openlibrary.org/works/OL39181496W/ratings.json',
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     )
     expect(info.rating).toEqual({
       value: { average: 4.333333333333333, count: 18, scale: 5 },

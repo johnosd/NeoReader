@@ -155,6 +155,7 @@ O app tambem permite salvar as chaves pela tela de configuracoes. Para usar vari
 ```env
 VITE_SPEECHIFY_API_KEY=
 VITE_ELEVENLABS_API_KEY=
+VITE_GOOGLE_BOOKS_API_KEY=
 VITE_NYT_API_KEY=
 ```
 
@@ -162,9 +163,11 @@ VITE_NYT_API_KEY=
 |---|---|---|
 | `VITE_SPEECHIFY_API_KEY` | Vozes neurais e speech marks da Speechify | Nao |
 | `VITE_ELEVENLABS_API_KEY` | Vozes premium e alinhamento temporal da ElevenLabs | Nao |
+| `VITE_GOOGLE_BOOKS_API_KEY` | Metadados editoriais via Google Books com menos risco de quota publica | Nao |
 | `VITE_NYT_API_KEY` | Listas atuais do NYT Best Sellers na biblioteca | Nao |
 
 A chave do YouTube e persistida pela tela de configuracoes do app; o codigo atual nao le uma variavel `VITE_` para ela.
+Toda variavel `VITE_` fica embutida no bundle web/Android, portanto deve ser restrita no provedor por API, pacote/app e cota. Nao use `VITE_` para segredos de servidor.
 
 ---
 
@@ -207,6 +210,26 @@ Para atualizar icones Android, coloque `icon-only.png` e `icon-foreground.png` e
 ```bash
 npx @capacitor/assets generate --android
 ```
+
+Para gerar um bundle release local sem commitar segredos, defina as propriedades abaixo em `android/gradle.properties` local, em `~/.gradle/gradle.properties` ou como variaveis de ambiente:
+
+```properties
+NEOREADER_RELEASE_STORE_FILE=C:\\caminho\\release.keystore
+NEOREADER_RELEASE_STORE_PASSWORD=
+NEOREADER_RELEASE_KEY_ALIAS=
+NEOREADER_RELEASE_KEY_PASSWORD=
+```
+
+Depois rode:
+
+```bash
+npm run build
+npx cap sync android
+cd android
+./gradlew :app:bundleRelease
+```
+
+O release desativa backup Android (`allowBackup=false`) para evitar backup automatico de livros, vocabulario, preferencias e API keys locais.
 
 ---
 

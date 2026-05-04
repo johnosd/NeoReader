@@ -4,6 +4,7 @@ import type {
   BookReview,
   ResolvedBookInfo,
 } from '../../types/bookInfo'
+import { fetchWithTimeout, getDefaultFetch } from '../http'
 
 interface YouTubeSearchItem {
   id?: {
@@ -26,10 +27,7 @@ interface YouTubeReviewsProviderOptions {
   fetchImpl?: typeof fetch
   baseUrl?: string
   maxResults?: number
-}
-
-function getDefaultFetch(): typeof fetch {
-  return globalThis.fetch.bind(globalThis) as typeof fetch
+  timeoutMs?: number
 }
 
 export class YouTubeReviewsProvider implements BookInfoProvider {
@@ -38,12 +36,14 @@ export class YouTubeReviewsProvider implements BookInfoProvider {
   private readonly fetchImpl: typeof fetch
   private readonly baseUrl: string
   private readonly maxResults: number
+  private readonly timeoutMs: number | undefined
 
   constructor(options: YouTubeReviewsProviderOptions = {}) {
     this.apiKey = options.apiKey?.trim() || null
     this.fetchImpl = options.fetchImpl ?? getDefaultFetch()
     this.baseUrl = options.baseUrl ?? 'https://www.googleapis.com/youtube/v3/search'
     this.maxResults = options.maxResults ?? 5
+    this.timeoutMs = options.timeoutMs
   }
 
   async collect(_fileBlob: Blob, context?: ResolvedBookInfo): Promise<Partial<ResolvedBookInfo>> {
@@ -58,7 +58,10 @@ export class YouTubeReviewsProvider implements BookInfoProvider {
     for (const query of queries) {
       if (reviews.length >= this.maxResults) break
 
-      const response = await this.fetchImpl(this.buildUrl(query))
+      const response = await fetchWithTimeout(this.buildUrl(query), {
+        fetchImpl: this.fetchImpl,
+        timeoutMs: this.timeoutMs,
+      })
       if (!response.ok) continue
 
       const data = await response.json() as YouTubeSearchResponse
