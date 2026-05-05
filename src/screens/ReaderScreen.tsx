@@ -211,7 +211,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
 
 
   // Estado global compartilhado (Zustand)
-  const { cfi, percentage, toc, tocLabel, setCfi, setToc, reset } = useReaderStore()
+  const { cfi, percentage, chapterPercentage, toc, tocLabel, setCfi, setToc, reset } = useReaderStore()
 
   // Progresso do IndexedDB (async)
   const { savedCfi, savedProgress, initialLoadDone, saveProgress, flushProgress } = useReaderProgress(book.id!)
@@ -521,7 +521,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
 
   const handleRelocate = useCallback(
     (location: ReaderRelocatePayload) => {
-      const { cfi: newCfi, percentage: newPercentage, tocLabel, sectionHref, fraction, sectionIndex } = location
+      const { cfi: newCfi, percentage: newPercentage, chapterPercentage: newChapterPercentage, tocLabel, sectionHref, fraction, sectionIndex } = location
       const pendingStartHref = pendingStartHrefRef.current
       if (pendingStartHref) {
         if (!initialStartNavigationTriggeredRef.current) return
@@ -547,7 +547,11 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
       }
       activeSectionIndexRef.current = sectionIndex
       setCurrentSectionHrefForCurrentBook(sectionHref ?? null)
-      setCfi(newCfi, newPercentage, tocLabel)
+      if (newChapterPercentage !== undefined) {
+        setCfi(newCfi, newPercentage, tocLabel, newChapterPercentage)
+      } else {
+        setCfi(newCfi, newPercentage, tocLabel)
+      }
       saveProgress({
         cfi: newCfi,
         percentage: newPercentage,
@@ -752,6 +756,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
         visible={chromeVisible}
         title={book.title}
         percentage={percentage}
+        chapterPercentage={chapterPercentage}
         fontSize={fontSize}
         bookmarkCount={activeBookmarks.length}
         onBack={handleBack}

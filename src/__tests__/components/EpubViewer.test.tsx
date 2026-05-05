@@ -513,6 +513,86 @@ describe('EpubViewer — posição visível', () => {
     expect(secondPara.getAttribute('data-nr-para-cfi')).toBe('epubcfi(/6/8!/4/2/10/2/1:0)')
   })
 
+  it('calcula progresso do capitulo usando limites claros do indice', async () => {
+    const onRelocate = vi.fn()
+    const { foliateEl } = await renderViewer({ onRelocate })
+    foliateEl.getSectionFractions.mockReturnValue([0, 0.2, 0.4, 1])
+
+    const firstDoc = makeFakeDoc(['Chapter 1.'])
+    const secondDoc = makeFakeDoc(['Chapter 2.'])
+    loadSection(foliateEl, firstDoc, 0)
+    loadSection(foliateEl, secondDoc, 1)
+
+    act(() => {
+      foliateEl.fireFoliate('relocate', {
+        cfi: 'epubcfi(/6/10!/4/2/1:0)',
+        fraction: 0.3,
+        tocItem: { label: 'Chapter 2', href: 'chapter-2.xhtml' },
+        section: { current: 1, total: 3 },
+        index: 1,
+      })
+    })
+
+    expect(onRelocate).toHaveBeenLastCalledWith(expect.objectContaining({
+      percentage: 30,
+      chapterPercentage: 50,
+      sectionIndex: 1,
+      tocLabel: 'Chapter 2',
+    }))
+  })
+
+  it('usa progresso da secao como fallback quando o item do indice tem ancora', async () => {
+    const onRelocate = vi.fn()
+    const { foliateEl } = await renderViewer({ onRelocate })
+    foliateEl.book.sections = [{ href: 'chapter.xhtml', linear: 'yes' }]
+    foliateEl.book.toc = [
+      { label: 'Parte 1', href: 'chapter.xhtml#parte-1' },
+      { label: 'Parte 2', href: 'chapter.xhtml#parte-2' },
+    ]
+    foliateEl.getSectionFractions.mockReturnValue([0, 1])
+
+    const doc = makeFakeDoc(['Anchored section.'])
+    loadSection(foliateEl, doc, 0)
+
+    act(() => {
+      foliateEl.fireFoliate('relocate', {
+        cfi: 'epubcfi(/6/8!/4/2/1:0)',
+        fraction: 0.35,
+        tocItem: { label: 'Parte 1', href: 'chapter.xhtml#parte-1' },
+        section: { current: 0, total: 1 },
+        index: 0,
+      })
+    })
+
+    expect(onRelocate).toHaveBeenLastCalledWith(expect.objectContaining({
+      percentage: 35,
+      chapterPercentage: 35,
+      sectionIndex: 0,
+      tocLabel: 'Parte 1',
+    }))
+  })
+
+  it('omite progresso do capitulo quando nao ha indice confiavel', async () => {
+    const onRelocate = vi.fn()
+    const { foliateEl } = await renderViewer({ onRelocate })
+    foliateEl.book.toc = []
+
+    const doc = makeFakeDoc(['Chapter without toc.'])
+    loadSection(foliateEl, doc, 0)
+
+    act(() => {
+      foliateEl.fireFoliate('relocate', {
+        cfi: 'epubcfi(/6/8!/4/2/1:0)',
+        fraction: 0.2,
+        tocItem: { label: 'Missing', href: 'missing.xhtml' },
+        section: { current: 0, total: 1 },
+        index: 0,
+      })
+    })
+
+    expect(onRelocate.mock.calls.at(-1)?.[0]).not.toHaveProperty('chapterPercentage')
+  })
+
   it('mantem o retorno do TTS na secao do audio apos scroll para uma secao anterior', async () => {
     const { viewerRef, foliateEl } = await renderViewer()
 
@@ -931,6 +1011,7 @@ describe('EpubViewer — posição visível', () => {
     expect(onRelocate).toHaveBeenLastCalledWith(expect.objectContaining({
       cfi: 'epubcfi(/6/10!/4/2/1:0)',
       percentage: 32,
+      chapterPercentage: 60,
       sectionIndex: 1,
       tocLabel: 'Chapter 2',
       sectionHref: 'chapter-2.xhtml',
@@ -941,6 +1022,7 @@ describe('EpubViewer — posição visível', () => {
       sectionHref: 'chapter-2.xhtml',
       fraction: 0.32,
       percentage: 32,
+      chapterPercentage: 60,
     })
 
     click(secondPara)

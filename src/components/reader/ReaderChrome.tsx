@@ -6,6 +6,7 @@ interface ReaderChromeProps {
   visible: boolean
   title: string
   percentage: number
+  chapterPercentage?: number | null
   fontSize: FontSize
   bookmarkCount: number
   ttsIsPlaying: boolean
@@ -33,6 +34,7 @@ export function ReaderChrome({
   visible,
   title,
   percentage,
+  chapterPercentage,
   fontSize,
   bookmarkCount,
   ttsIsPlaying,
@@ -82,8 +84,13 @@ export function ReaderChrome({
               </p>
               <div className="mt-2 flex items-center justify-center gap-1.5">
                 <span className={pvBadgeReadClass}>
-                  {percentage}% lido
+                  Livro {percentage}%
                 </span>
+                {chapterPercentage !== null && chapterPercentage !== undefined && (
+                  <span className={pvBadgeReadClass}>
+                    Cap. {chapterPercentage}%
+                  </span>
+                )}
                 <span className={bookmarkCount > 0 ? pvBadgeBookmarkClass : pvBadgeNeutralClass}>
                   {bookmarkLabel}
                 </span>

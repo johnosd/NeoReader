@@ -7,9 +7,10 @@ import { create } from 'zustand'
 interface ReaderState {
   cfi: string
   percentage: number
+  chapterPercentage: number | null
   toc: TocItem[]
   tocLabel: string   // nome do capítulo atual (do evento relocate)
-  setCfi: (cfi: string, percentage: number, tocLabel: string | undefined) => void
+  setCfi: (cfi: string, percentage: number, tocLabel: string | undefined, chapterPercentage?: number) => void
   setToc: (toc: TocItem[]) => void
   reset: () => void // chamado no unmount do ReaderScreen para limpar estado residual
 }
@@ -17,9 +18,15 @@ interface ReaderState {
 export const useReaderStore = create<ReaderState>((set) => ({
   cfi: '',
   percentage: 0,
+  chapterPercentage: null,
   toc: [],
   tocLabel: '',
-  setCfi: (cfi, percentage, tocLabel) => set({ cfi, percentage, tocLabel: tocLabel ?? '' }),
+  setCfi: (cfi, percentage, tocLabel, chapterPercentage) => set({
+    cfi,
+    percentage,
+    tocLabel: tocLabel ?? '',
+    chapterPercentage: chapterPercentage ?? null,
+  }),
   setToc: (toc) => set({ toc }),
-  reset: () => set({ cfi: '', percentage: 0, toc: [], tocLabel: '' }),
+  reset: () => set({ cfi: '', percentage: 0, chapterPercentage: null, toc: [], tocLabel: '' }),
 }))

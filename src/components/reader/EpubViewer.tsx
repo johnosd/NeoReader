@@ -7,7 +7,7 @@ import { getReaderFontFamilyValue, getReaderLineHeightValue, getReaderThemePalet
 import { getSentenceAt, escapeHtml } from '../../utils/readerUtils'
 import { areCfisEquivalent, normalizeCfi } from '../../utils/cfi'
 import { areTocHrefDocumentSuffixesEqual, normalizeTocHref } from '../../utils/toc'
-import { fractionToPercentage } from '../../utils/progress'
+import { clampPercentage, fractionToPercentage } from '../../utils/progress'
 import { splitParagraphIntoTtsChunks } from '../../utils/ttsChunking'
 
 export type { FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from '../../types/settings'
@@ -231,6 +231,16 @@ type NavigableSection = FoliateSection & {
   id?: string
 }
 
+type RelocateTocItem = {
+  label: string
+  href?: string
+}
+
+type FlattenedProgressTocItem = {
+  item: TocItem
+  index: number
+}
+
 function splitHrefTarget(target: string): { documentHref: string; fragment: string | null } {
   const normalized = normalizeTocHref(target)
   const [documentHref, fragment] = normalized.split('#', 2)
@@ -239,6 +249,143 @@ function splitHrefTarget(target: string): { documentHref: string; fragment: stri
     documentHref: documentHref.toLocaleLowerCase(),
     fragment: fragment || null,
   }
+}
+
+function hrefHasFragment(target?: string | null): boolean {
+  return Boolean(target && splitHrefTarget(target).fragment)
+}
+
+function flattenProgressToc(items: TocItem[]): FlattenedProgressTocItem[] {
+  const flattened: FlattenedProgressTocItem[] = []
+
+  function visit(nextItems: TocItem[]) {
+    for (const item of nextItems) {
+      flattened.push({ item, index: flattened.length })
+      if (Array.isArray(item.subitems) && item.subitems.length > 0) visit(item.subitems)
+    }
+  }
+
+  visit(items)
+  return flattened
+}
+
+function normalizeTocProgressLabel(label?: string | null): string {
+  return label?.replace(/\s+/g, ' ').trim().toLocaleLowerCase() ?? ''
+}
+
+function scoreProgressTocItem(item: TocItem, current: RelocateTocItem): number {
+  const currentHref = current.href
+  const labelMatches = Boolean(
+    normalizeTocProgressLabel(current.label) &&
+    normalizeTocProgressLabel(current.label) === normalizeTocProgressLabel(item.label),
+  )
+  const exactHrefMatches = Boolean(
+    currentHref &&
+    normalizeTocHref(item.href).toLocaleLowerCase() === normalizeTocHref(currentHref).toLocaleLowerCase(),
+  )
+  const documentMatches = Boolean(
+    currentHref &&
+    areTocHrefDocumentSuffixesEqual(item.href, currentHref),
+  )
+
+  if (exactHrefMatches && labelMatches) return 120
+  if (exactHrefMatches) return 110
+  if (documentMatches && labelMatches) return 100
+  if (documentMatches) return 80
+  if (labelMatches) return 40
+  return 0
+}
+
+function findProgressTocItem(toc: TocItem[], current?: RelocateTocItem): FlattenedProgressTocItem | null {
+  if (!current?.href) return null
+
+  let best: { entry: FlattenedProgressTocItem; score: number } | null = null
+  for (const entry of flattenProgressToc(toc)) {
+    const score = scoreProgressTocItem(entry.item, current)
+    if (score === 0) continue
+    if (!best || score > best.score) best = { entry, score }
+  }
+
+  return best?.entry ?? null
+}
+
+function resolveSectionIndexForTocHref(
+  sections: NavigableSection[] | undefined,
+  target?: string | null,
+): number | null {
+  if (!sections?.length || !target) return null
+  return buildHrefNavigationTarget(sections, target)?.index ?? null
+}
+
+function getPercentageWithinFractionRange(
+  fraction: number | undefined,
+  start: number | undefined,
+  end: number | undefined,
+): number | undefined {
+  if (
+    typeof fraction !== 'number' ||
+    typeof start !== 'number' ||
+    typeof end !== 'number' ||
+    !Number.isFinite(fraction) ||
+    !Number.isFinite(start) ||
+    !Number.isFinite(end) ||
+    end <= start
+  ) {
+    return undefined
+  }
+
+  return clampPercentage(((fraction - start) / (end - start)) * 100)
+}
+
+function getSectionProgressPercentage(
+  fractions: number[],
+  fraction: number | undefined,
+  sectionIndex: number,
+): number | undefined {
+  const sectionStart = fractions[sectionIndex]
+  const sectionEnd = fractions[sectionIndex + 1] ?? 1
+  return getPercentageWithinFractionRange(fraction, sectionStart, sectionEnd)
+}
+
+function getChapterProgressPercentage(
+  view: View,
+  fraction: number | undefined,
+  sectionIndex: number,
+  currentTocItem?: RelocateTocItem,
+): number | undefined {
+  const fractions = view.getSectionFractions()
+  const toc = view.book?.toc ?? []
+  if (toc.length === 0 || !currentTocItem?.href) return undefined
+
+  const currentEntry = findProgressTocItem(toc, currentTocItem)
+  if (!currentEntry) return undefined
+
+  const sections = view.book?.sections as NavigableSection[] | undefined
+  const currentHref = currentEntry.item.href
+  const currentSectionIndex = resolveSectionIndexForTocHref(sections, currentHref)
+  if (currentSectionIndex == null) return undefined
+  if (hrefHasFragment(currentHref)) return getSectionProgressPercentage(fractions, fraction, sectionIndex)
+
+  const flattenedToc = flattenProgressToc(toc)
+  const nextEntry = flattenedToc[currentEntry.index + 1]
+  if (!nextEntry) {
+    return getPercentageWithinFractionRange(fraction, fractions[currentSectionIndex], 1)
+  }
+
+  if (hrefHasFragment(nextEntry.item.href)) {
+    return getSectionProgressPercentage(fractions, fraction, sectionIndex)
+  }
+
+  const nextSectionIndex = resolveSectionIndexForTocHref(sections, nextEntry.item.href)
+  if (nextSectionIndex == null || nextSectionIndex <= currentSectionIndex) {
+    return getSectionProgressPercentage(fractions, fraction, sectionIndex)
+  }
+
+  return getPercentageWithinFractionRange(
+    fraction,
+    fractions[currentSectionIndex],
+    fractions[nextSectionIndex],
+  )
 }
 
 function getSectionHrefCandidates(section: NavigableSection): string[] {
@@ -756,6 +903,7 @@ export interface VisibleReadingLocation {
   sectionHref?: string
   fraction?: number
   percentage?: number
+  chapterPercentage?: number
 }
 
 export interface ReaderRelocatePayload extends VisibleReadingLocation {
@@ -1729,17 +1877,20 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
         const fraction = location.fraction
         const percentage = fractionToPercentage(fraction)
+        const sectionIndex = location.index ?? currentSectionIdxRef.current
 
         const { para } = getVisibleParagraphInternal()
         if (!para) {
           const sectionHref = location.tocItem?.href
-            ?? getSectionHref(location.index ?? currentSectionIdxRef.current)
+            ?? getSectionHref(sectionIndex)
+          const chapterPercentage = getChapterProgressPercentage(view, fraction, sectionIndex, location.tocItem)
           return {
             cfi: location.cfi,
             tocLabel: location.tocItem?.label,
             sectionHref,
             fraction,
             percentage,
+            ...(chapterPercentage !== undefined ? { chapterPercentage } : {}),
           }
         }
 
@@ -1753,6 +1904,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         const sectionHref = progress.tocItem?.href
           ?? location.tocItem?.href
           ?? getSectionHref(currentSectionIdxRef.current)
+        const tocItem = progress.tocItem?.href ? progress.tocItem : location.tocItem
+        const chapterPercentage = getChapterProgressPercentage(view, fraction, currentSectionIdxRef.current, tocItem)
 
         return {
           cfi,
@@ -1760,6 +1913,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           sectionHref,
           fraction,
           percentage,
+          ...(chapterPercentage !== undefined ? { chapterPercentage } : {}),
         }
       },
 
@@ -1987,10 +2141,12 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           lastRelocateRef.current = { ...e.detail, index: sIdx }
           const activeSection = activateSection(sIdx)
           const sectionHref = tocItem?.href ?? getSectionHref(sIdx)
+          const chapterPercentage = view ? getChapterProgressPercentage(view, fraction, sIdx, tocItem) : undefined
           onRelocate({
             cfi,
             fraction,
             percentage: fractionToPercentage(fraction),
+            ...(chapterPercentage !== undefined ? { chapterPercentage } : {}),
             tocLabel: tocItem?.label,
             sectionHref,
             sectionIndex: sIdx,
