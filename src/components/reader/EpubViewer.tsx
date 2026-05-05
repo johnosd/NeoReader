@@ -41,12 +41,30 @@ const SCRIPTABLE_EPUB_DOCUMENT_TYPES = new Set([
 
 const TRANSLATION_ICON = {
   bot: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="7" width="16" height="11" rx="4"></rect><path d="M12 3v4"></path><path d="M9 13h.01"></path><path d="M15 13h.01"></path><path d="M9 18v2"></path><path d="M15 18v2"></path></svg>',
+  next: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path><path d="M5 18l6-6-6-6"></path></svg>',
   speak: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"></path><path d="M15.5 8.5a5 5 0 0 1 0 7"></path><path d="M18 6a9 9 0 0 1 0 12"></path></svg>',
   bookmark: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4z"></path></svg>',
   save: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.75 5.57 6.15.89-4.45 4.33 1.05 6.16L12 17.77l-5.5 2.91 1.05-6.16L3.1 9.46l6.15-.89z"></path></svg>',
 } as const
 
-function renderTranslationAction(action: 'speak' | 'bookmark' | 'save', label: string, icon: string, variant: 'default' | 'primary' = 'default'): string {
+type TranslationAction = 'next' | 'speak' | 'bookmark' | 'save'
+
+function splitParagraphIntoTranslationUnits(text: string): Array<{ sentence: string; offset: number }> {
+  const units = [...text.matchAll(/[^.!?。！？…]+(?:[.!?。！？…]+["'”’»)]*|$)/g)]
+    .map((match) => {
+      const raw = match[0]
+      const sentence = raw.trim()
+      return {
+        sentence,
+        offset: (match.index ?? 0) + raw.indexOf(sentence),
+      }
+    })
+    .filter((unit) => unit.sentence.length > 0)
+
+  return units.length > 0 ? units : [{ sentence: text.trim(), offset: 0 }].filter((unit) => unit.sentence.length > 0)
+}
+
+function renderTranslationAction(action: TranslationAction, label: string, icon: string, variant: 'default' | 'primary' = 'default'): string {
   return `
     <button type="button" data-nr-action="${action}" class="nr-tr-action nr-tr-action-${action}${variant === 'primary' ? ' is-primary' : ''}">
       <span class="nr-tr-action-tile">
@@ -402,6 +420,9 @@ function buildReaderCSS(
   const actionDisabledTile = palette.isDark ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.08)'
   const actionDisabledBorder = palette.isDark ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.14)'
   const actionLabelColor = palette.isDark ? '#cbd5e1' : palette.text
+  const actionNextColor = palette.isDark ? '#7dd3fc' : '#0284c7'
+  const actionNextBackground = palette.isDark ? 'rgba(14, 165, 233, 0.08)' : 'rgba(14, 165, 233, 0.07)'
+  const actionNextBorder = palette.isDark ? 'rgba(56, 189, 248, 0.22)' : 'rgba(2, 132, 199, 0.18)'
   const actionSpeakColor = palette.isDark ? '#ff8aa0' : '#dc2659'
   const actionSpeakBackground = palette.isDark ? 'rgba(255, 23, 68, 0.08)' : 'rgba(255, 23, 68, 0.06)'
   const actionSpeakBorder = palette.isDark ? 'rgba(255, 77, 109, 0.22)' : 'rgba(220, 38, 89, 0.18)'
@@ -541,7 +562,7 @@ function buildReaderCSS(
     @keyframes nr-spin { to { transform: rotate(360deg); } }
     .nr-tr-actions {
       display: grid !important;
-      grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+      grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
       gap: 6px !important;
       margin-top: 12px !important;
       position: relative !important;
@@ -614,6 +635,9 @@ function buildReaderCSS(
       transform: scale(0.94) !important;
       background: ${actionPressedBackground} !important;
     }
+    .nr-tr-action-next {
+      color: ${actionNextColor} !important;
+    }
     .nr-tr-action-speak {
       color: ${actionSpeakColor} !important;
     }
@@ -622,6 +646,11 @@ function buildReaderCSS(
     }
     .nr-tr-action-save {
       color: ${actionSaveColor} !important;
+    }
+    .nr-tr-action-next .nr-tr-action-tile {
+      background: ${actionNextBackground} !important;
+      border-color: ${actionNextBorder} !important;
+      box-shadow: inset 0 0 15px rgba(14, 165, 233, 0.10), ${actionTileBaseShadow} !important;
     }
     .nr-tr-action-speak .nr-tr-action-tile {
       background: ${actionSpeakBackground} !important;
@@ -852,6 +881,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const finalizedSectionVersionRef = useRef(0)
     const finalizeSectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const initialInteractiveReadyRef = useRef(false)
+    const pendingInlineNextTranslationRef = useRef(false)
     const renderBookmarkMarkersRef = useRef<((doc?: Document | null) => void) | null>(null)
     const syncActiveTranslationBookmarkActionRef = useRef<((doc?: Document | null) => void) | null>(null)
     const BLOCK = 'p, li, blockquote, h1, h2, h3, h4, h5, h6'
@@ -939,11 +969,15 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     function getParagraphsFromDocument(doc: Document): Element[] {
       return Array.from(doc.querySelectorAll(BLOCK))
         .filter((el) => !el.closest('#nr-translation-block'))
+        .filter((el) => (el as HTMLElement).id !== 'nr-para-remainder')
         .filter((el) => (el.textContent?.trim().length ?? 0) > 2)
     }
 
     function isReadableBlock(el: Element | null): el is HTMLElement {
-      return !!el && !el.closest('#nr-translation-block') && (el.textContent?.trim().length ?? 0) > 2
+      return !!el &&
+        !el.closest('#nr-translation-block') &&
+        (el as HTMLElement).id !== 'nr-para-remainder' &&
+        (el.textContent?.trim().length ?? 0) > 2
     }
 
     function findClosestReadableBlock(doc: Document, clientX: number, clientY: number): HTMLElement | null {
@@ -1086,6 +1120,72 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       }
 
       clearTranslationForParagraph(para, true)
+    }
+
+    function getTranslationUnitsForParagraph(para: Element): Array<{ sentence: string; offset: number }> {
+      const text = para.textContent?.trim() ?? ''
+      if (!text) return []
+      return splitParagraphIntoTranslationUnits(text)
+    }
+
+    function selectTextForInlineTranslation(para: Element, sourceText: string): boolean {
+      sourceText = sourceText.trim()
+      if (!sourceText) return false
+
+      const prevPara = activeTranslationParaRef.current
+      if (prevPara && prevPara !== para) {
+        clearTranslationForParagraph(prevPara)
+      }
+
+      getOrCreateTranslationId(para)
+      para.setAttribute('data-nr-active', '1')
+      highlightSentenceInParagraph(para, sourceText)
+      activeTranslationParaRef.current = para
+      activeSourceTextRef.current = sourceText
+      activeTranslatedTextRef.current = ''
+      translationInProgressRef.current = false
+      onTranslateRef.current(sourceText)
+      return true
+    }
+
+    function selectFirstTranslationUnitInParagraph(para: Element): boolean {
+      const firstUnit = getTranslationUnitsForParagraph(para)[0]
+      const sourceText = firstUnit?.sentence ?? para.textContent?.trim() ?? ''
+      return selectTextForInlineTranslation(para, sourceText)
+    }
+
+    function selectFirstParagraphForPendingInlineNext(doc: Document): boolean {
+      const firstPara = getParagraphsFromDocument(doc)[0]
+      if (!firstPara) return false
+      return selectFirstTranslationUnitInParagraph(firstPara)
+    }
+
+    function translateNextParagraphFromActive(): void {
+      const activePara = activeTranslationParaRef.current
+      const doc = activePara?.ownerDocument ?? currentDocRef.current
+      if (!doc) return
+
+      if (activePara) {
+        const activeSourceText = activeSourceTextRef.current.trim()
+        clearTranslationForParagraph(activePara)
+
+        const units = getTranslationUnitsForParagraph(activePara)
+        const currentUnitIndex = units.findIndex((unit) => unit.sentence.trim() === activeSourceText)
+        const nextUnit = currentUnitIndex >= 0 ? units[currentUnitIndex + 1] : null
+        if (nextUnit && selectTextForInlineTranslation(activePara, nextUnit.sentence)) return
+
+        const paragraphs = getParagraphsFromDocument(doc)
+        const currentIndex = paragraphs.indexOf(activePara)
+        const nextPara = currentIndex >= 0 ? paragraphs[currentIndex + 1] : null
+        if (nextPara && selectFirstTranslationUnitInParagraph(nextPara)) return
+      }
+
+      pendingInlineNextTranslationRef.current = true
+      clearActiveTranslation(true)
+      autoSkipChapterStubDirectionRef.current = 1
+      autoSkipChapterStubCountRef.current = 0
+      const moved = goToAdjacentSection(1, () => 0)
+      if (!moved) pendingInlineNextTranslationRef.current = false
     }
 
     function unwrapElementPreservingChildren(el: Element): void {
@@ -1504,6 +1604,14 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         onLoad()
       }
       onSectionReadyRef.current?.(index, getSectionHref(index))
+
+      if (pendingInlineNextTranslationRef.current) {
+        if (selectFirstParagraphForPendingInlineNext(doc)) {
+          pendingInlineNextTranslationRef.current = false
+        } else if (!hasNextSection || !goToAdjacentSection(1, () => 0)) {
+          pendingInlineNextTranslationRef.current = false
+        }
+      }
     }
 
     function clearBookmarkMarkers(doc?: Document | null): void {
@@ -1793,6 +1901,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             <p class="nr-tr-text">${escapeHtml(translatedText)}</p>
           </div>
           <div class="nr-tr-actions">
+            ${renderTranslationAction('next', 'Next', TRANSLATION_ICON.next)}
             ${renderTranslationAction('speak', 'Ouvir', TRANSLATION_ICON.speak)}
             ${renderTranslationAction('bookmark', 'Marcar', TRANSLATION_ICON.bookmark, 'primary')}
             ${renderTranslationAction('save', 'Salvar', TRANSLATION_ICON.save)}
@@ -1841,6 +1950,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       activeSourceTextRef.current = ''
       activeTranslatedTextRef.current = ''
       translationInProgressRef.current = false
+      pendingInlineNextTranslationRef.current = false
       initialInteractiveReadyRef.current = false
       scrollToBottomOnLoadRef.current = false
 
@@ -1955,7 +2065,9 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               ev.preventDefault()
               ev.stopPropagation()
               const action = actionBtn.dataset.nrAction
-              if (action === 'speak') {
+              if (action === 'next') {
+                translateNextParagraphFromActive()
+              } else if (action === 'speak') {
                 onSpeakOneRef.current(activeSourceTextRef.current)
               } else if (action === 'bookmark') {
                 if (actionBtn.dataset.nrPending === '1') return
@@ -2139,6 +2251,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         activeSourceTextRef.current = ''
         activeTranslatedTextRef.current = ''
         translationInProgressRef.current = false
+        pendingInlineNextTranslationRef.current = false
         initialInteractiveReadyRef.current = false
         scrollToBottomOnLoadRef.current = false
         autoSkipChapterStubDirectionRef.current = 0

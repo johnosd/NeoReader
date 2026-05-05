@@ -166,6 +166,14 @@ function loadSection(foliateEl: FoliateViewMock, doc: Document, index = 0) {
   })
 }
 
+async function flushAnimationFrame() {
+  await act(async () => {
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => resolve())
+    })
+  })
+}
+
 /** Injeta um defaultView falso num Document para simular posição de scroll. */
 function injectFakeWindow(doc: Document, scrollY: number, innerHeight = 800, scrollHeight = 1200) {
   const scrollTarget = new EventTarget()
@@ -1204,8 +1212,115 @@ describe('EpubViewer - bloco inline de traducao', () => {
 
     block = fakeDoc.getElementById('nr-translation-block')
     expect(block?.textContent).not.toContain('Traducao pronta')
+    expect(Array.from(block?.querySelectorAll('[data-nr-action]') ?? []).map((el) => (
+      (el as HTMLElement).dataset.nrAction
+    ))).toEqual(['next', 'speak', 'bookmark', 'save'])
+    expect(block?.querySelector('[data-nr-action="next"]')?.textContent?.trim()).toBe('Next')
     expect(block?.querySelector('[data-nr-action="speak"]')).not.toBeNull()
     expect(block?.querySelector('[data-nr-action="bookmark"]')).not.toBeNull()
     expect(block?.querySelector('[data-nr-action="save"]')).not.toBeNull()
+  })
+
+  it('botao Next seleciona e traduz a primeira unidade do proximo paragrafo', async () => {
+    const onTranslate = vi.fn()
+    const { viewerRef, foliateEl } = await renderViewer({ onTranslate })
+    const fakeDoc = makeFakeDoc(['First paragraph.', 'Second paragraph.'])
+    const paras = fakeDoc.querySelectorAll('p')
+
+    loadSection(foliateEl, fakeDoc, 0)
+    click(paras[0]!)
+    act(() => { viewerRef.current?.showTranslationLoading() })
+    act(() => { viewerRef.current?.injectTranslation('Translated first') })
+
+    const nextBtn = fakeDoc.getElementById('nr-translation-block')?.querySelector('[data-nr-action="next"]') as HTMLElement
+    click(nextBtn)
+
+    expect(onTranslate).toHaveBeenNthCalledWith(1, 'First paragraph.')
+    expect(onTranslate).toHaveBeenNthCalledWith(2, 'Second paragraph.')
+    expect(paras[0]?.hasAttribute('data-nr-active')).toBe(false)
+    expect(paras[1]?.hasAttribute('data-nr-active')).toBe(true)
+    expect(paras[1]?.querySelector('.nr-hl-sentence')?.textContent).toBe('Second paragraph.')
+  })
+
+  it('botao Next avanca para a proxima frase antes do proximo paragrafo', async () => {
+    const onTranslate = vi.fn()
+    const { viewerRef, foliateEl } = await renderViewer({ onTranslate })
+    const fakeDoc = makeFakeDoc(['First sentence. Remainder sentence.', 'Real next paragraph.'])
+    const paras = fakeDoc.querySelectorAll('p')
+    const firstTextNode = paras[0]?.firstChild as Text
+    setCaretRange(fakeDoc, firstTextNode, 3)
+
+    loadSection(foliateEl, fakeDoc, 0)
+    click(paras[0]!)
+    act(() => { viewerRef.current?.showTranslationLoading() })
+    act(() => { viewerRef.current?.injectTranslation('Translated first sentence') })
+
+    expect(fakeDoc.getElementById('nr-para-remainder')?.textContent).toBe(' Remainder sentence.')
+
+    const nextBtn = fakeDoc.getElementById('nr-translation-block')?.querySelector('[data-nr-action="next"]') as HTMLElement
+    click(nextBtn)
+
+    expect(onTranslate).toHaveBeenLastCalledWith('Remainder sentence.')
+    expect(fakeDoc.getElementById('nr-para-remainder')).toBeNull()
+    expect(paras[0]?.hasAttribute('data-nr-active')).toBe(true)
+    expect(paras[0]?.querySelector('.nr-hl-sentence')?.textContent).toBe('Remainder sentence.')
+    expect(paras[1]?.hasAttribute('data-nr-active')).toBe(false)
+  })
+
+  it('botao Next percorre frases dentro do paragrafo seguinte antes de pular texto', async () => {
+    const onTranslate = vi.fn()
+    const { viewerRef, foliateEl } = await renderViewer({ onTranslate })
+    const fakeDoc = makeFakeDoc([
+      'The main goal of this book is to provide an intuition into the field of LLMs.',
+      'The pace of development in the Language AI field is incredibly fast and frustration. you can build trying to keep up with the latest technologies.Instead, we focus on the fundamentals of LLMs and intend to provide a fun and easy learning process',
+    ])
+    const paras = fakeDoc.querySelectorAll('p')
+
+    loadSection(foliateEl, fakeDoc, 0)
+    click(paras[0]!)
+    act(() => { viewerRef.current?.showTranslationLoading() })
+    act(() => { viewerRef.current?.injectTranslation('Translated first') })
+
+    let nextBtn = fakeDoc.getElementById('nr-translation-block')?.querySelector('[data-nr-action="next"]') as HTMLElement
+    click(nextBtn)
+
+    expect(onTranslate).toHaveBeenNthCalledWith(2, 'The pace of development in the Language AI field is incredibly fast and frustration.')
+
+    act(() => { viewerRef.current?.showTranslationLoading() })
+    act(() => { viewerRef.current?.injectTranslation('Translated second') })
+    nextBtn = fakeDoc.getElementById('nr-translation-block')?.querySelector('[data-nr-action="next"]') as HTMLElement
+    click(nextBtn)
+
+    expect(onTranslate).toHaveBeenNthCalledWith(3, 'you can build trying to keep up with the latest technologies.')
+    expect(paras[1]?.hasAttribute('data-nr-active')).toBe(true)
+  })
+
+  it('botao Next no ultimo paragrafo avanca secao e traduz o primeiro paragrafo carregado', async () => {
+    const onTranslate = vi.fn()
+    const { viewerRef, foliateEl } = await renderViewer({ onTranslate })
+    const firstDoc = makeFakeDoc(['Last paragraph in chapter 2.'])
+    const secondDoc = makeFakeDoc(['First paragraph in chapter 3.', 'Second paragraph in chapter 3.'])
+    const firstPara = firstDoc.querySelector('p') as HTMLElement
+
+    act(() => { void foliateEl.renderer.goTo({ index: 1 }) })
+    loadSection(foliateEl, firstDoc, 1)
+    click(firstPara)
+    act(() => { viewerRef.current?.showTranslationLoading() })
+    act(() => { viewerRef.current?.injectTranslation('Translated last') })
+
+    const nextBtn = firstDoc.getElementById('nr-translation-block')?.querySelector('[data-nr-action="next"]') as HTMLElement
+    click(nextBtn)
+
+    expect(foliateEl.renderer.goTo).toHaveBeenLastCalledWith({
+      index: 2,
+      anchor: expect.any(Function),
+    })
+
+    loadSection(foliateEl, secondDoc, 2)
+    await flushAnimationFrame()
+
+    expect(onTranslate).toHaveBeenNthCalledWith(1, 'Last paragraph in chapter 2.')
+    expect(onTranslate).toHaveBeenNthCalledWith(2, 'First paragraph in chapter 3.')
+    expect(secondDoc.querySelector('p')?.hasAttribute('data-nr-active')).toBe(true)
   })
 })
