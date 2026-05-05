@@ -66,38 +66,131 @@ function decodeBase64ToBlob(base64: string, type: string) {
   return new Blob([bytes], { type })
 }
 
-function alignmentToSpeechMarks(alignment?: ElevenLabsAlignment | null): TtsSpeechMark[] {
-  if (!alignment) return []
+function getCharacterOffsets(characters: string[]): number[] {
+  const offsets: number[] = []
+  let offset = 0
 
+  for (const character of characters) {
+    offsets.push(offset)
+    offset += character.length
+  }
+  offsets.push(offset)
+
+  return offsets
+}
+
+function foldSearchText(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[’‘]/g, "'")
+    .replace(/[“”]/g, '"')
+    .toLocaleLowerCase()
+}
+
+function buildFoldedSearchIndex(text: string): { folded: string; originalOffsets: number[] } {
+  let folded = ''
+  const originalOffsets: number[] = []
+
+  for (let offset = 0; offset < text.length;) {
+    const codePoint = text.codePointAt(offset)
+    const character = String.fromCodePoint(codePoint ?? text.charCodeAt(offset))
+    const foldedCharacter = foldSearchText(character)
+
+    for (let foldedOffset = 0; foldedOffset < foldedCharacter.length; foldedOffset += 1) {
+      originalOffsets.push(offset)
+    }
+
+    folded += foldedCharacter
+    offset += character.length
+  }
+
+  originalOffsets.push(text.length)
+  return { folded, originalOffsets }
+}
+
+function findFoldedWordInText(sourceText: string, word: string, fromOffset: number): { start: number; end: number } | null {
+  const directIndex = sourceText.indexOf(word, fromOffset)
+  if (directIndex >= 0) return { start: directIndex, end: directIndex + word.length }
+
+  const foldedWord = foldSearchText(word)
+  if (!foldedWord) return null
+
+  const sourceIndex = buildFoldedSearchIndex(sourceText)
+  const firstFoldedOffset = sourceIndex.originalOffsets.findIndex((offset) => offset >= fromOffset)
+  const foldedFromOffset = firstFoldedOffset >= 0 ? firstFoldedOffset : sourceIndex.folded.length
+  const foldedIndex = sourceIndex.folded.indexOf(foldedWord, foldedFromOffset)
+  if (foldedIndex < 0) return null
+
+  const start = sourceIndex.originalOffsets[foldedIndex]
+  const end = sourceIndex.originalOffsets[foldedIndex + foldedWord.length] ?? sourceText.length
+  return end > start ? { start, end } : null
+}
+
+function alignmentToRawSpeechMarks(alignment: ElevenLabsAlignment): TtsSpeechMark[] {
+  const { characters, character_start_times_seconds, character_end_times_seconds } = alignment
+  const characterOffsets = getCharacterOffsets(characters)
   const marks: TtsSpeechMark[] = []
   let wordStart = -1
 
-  for (let index = 0; index < alignment.characters.length; index += 1) {
-    const character = alignment.characters[index]
+  for (let index = 0; index < characters.length; index += 1) {
+    const character = characters[index]
     const isWhitespace = character.trim().length === 0
 
     if (!isWhitespace && wordStart < 0) {
       wordStart = index
     }
 
-    const isWordBoundary = wordStart >= 0 && (isWhitespace || index === alignment.characters.length - 1)
+    const isWordBoundary = wordStart >= 0 && (isWhitespace || index === characters.length - 1)
     if (!isWordBoundary) continue
 
     const wordEnd = isWhitespace ? index : index + 1
-    const wordValue = alignment.characters.slice(wordStart, wordEnd).join('').trim()
-    if (wordValue) {
+    const wordValue = characters.slice(wordStart, wordEnd).join('').trim()
+    const startTime = character_start_times_seconds[wordStart]
+    const endTime = character_end_times_seconds[wordEnd - 1]
+    if (wordValue && Number.isFinite(startTime) && Number.isFinite(endTime)) {
       marks.push({
         value: wordValue,
-        start: wordStart,
-        end: wordEnd,
-        start_time: Math.round(alignment.character_start_times_seconds[wordStart] * 1000),
-        end_time: Math.round(alignment.character_end_times_seconds[wordEnd - 1] * 1000),
+        start: characterOffsets[wordStart],
+        end: characterOffsets[wordEnd],
+        start_time: Math.round(startTime * 1000),
+        end_time: Math.round(endTime * 1000),
       })
     }
     wordStart = -1
   }
 
   return marks
+}
+
+function realignSpeechMarksToText(marks: TtsSpeechMark[], sourceText: string): TtsSpeechMark[] {
+  let cursor = 0
+
+  return marks.flatMap((mark) => {
+    const match = findFoldedWordInText(sourceText, mark.value, cursor)
+    if (!match) return []
+
+    cursor = match.end
+    return [{
+      ...mark,
+      start: match.start,
+      end: match.end,
+    }]
+  })
+}
+
+function alignmentToSpeechMarks(alignment: ElevenLabsAlignment | null | undefined, sourceText: string): TtsSpeechMark[] {
+  if (!alignment) return []
+  if (
+    alignment.characters.length !== alignment.character_start_times_seconds.length ||
+    alignment.characters.length !== alignment.character_end_times_seconds.length
+  ) {
+    return []
+  }
+
+  const rawMarks = alignmentToRawSpeechMarks(alignment)
+  const alignmentText = alignment.characters.join('')
+  return alignmentText === sourceText ? rawMarks : realignSpeechMarksToText(rawMarks, sourceText)
 }
 
 function buildVoiceMeta(voice: ElevenLabsVoice) {
@@ -269,9 +362,13 @@ export const ElevenLabsService = {
       normalized_alignment?: ElevenLabsAlignment | null
     }
 
+    const originalSpeechMarks = alignmentToSpeechMarks(data.alignment, trimmedText)
+
     return {
       audioBlob: decodeBase64ToBlob(data.audio_base64, 'audio/mpeg'),
-      speechMarks: alignmentToSpeechMarks(data.normalized_alignment ?? data.alignment),
+      speechMarks: originalSpeechMarks.length > 0
+        ? originalSpeechMarks
+        : alignmentToSpeechMarks(data.normalized_alignment, trimmedText),
     }
   },
 }
