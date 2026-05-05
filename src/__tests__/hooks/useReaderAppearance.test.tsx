@@ -49,6 +49,10 @@ const defaultSettings = {
 const emptyBookSettings = {}
 
 beforeEach(() => {
+  mocks.getSettings.mockClear()
+  mocks.getBookSettings.mockClear()
+  mocks.parseExtras.mockClear()
+  mocks.updateBookSettings.mockClear()
   mocks.getSettings.mockResolvedValue(defaultSettings)
   mocks.getBookSettings.mockResolvedValue(emptyBookSettings)
   mocks.parseExtras.mockResolvedValue({ language: 'en', toc: [], description: null })
@@ -199,6 +203,50 @@ describe('useReaderAppearance', () => {
     expect(result.current.ttsEngine).toBe('native')
     expect(mocks.updateBookSettings).toHaveBeenCalledWith(book.id, {
       ttsProvider: 'native',
+    })
+  })
+
+  it('applyTtsConfigPatch atualiza provider disponivel e persiste no banco', async () => {
+    mocks.getSettings.mockResolvedValue({
+      ...defaultSettings,
+      appSettings: { ...defaultSettings.appSettings, elevenLabsApiKey: 'eleven-key' },
+    })
+
+    const { result } = renderHook(() => useReaderAppearance(book))
+    await act(async () => { await Promise.resolve() })
+
+    act(() => { result.current.applyTtsConfigPatch({ provider: 'elevenlabs' }) })
+
+    expect(result.current.ttsConfig.provider).toBe('elevenlabs')
+    expect(result.current.ttsEngine).toBe('elevenlabs')
+    expect(result.current.ttsProviderAvailability.elevenlabs).toBe(true)
+    expect(mocks.updateBookSettings).toHaveBeenCalledWith(book.id, {
+      ttsProvider: 'elevenlabs',
+    })
+  })
+
+  it('applyTtsConfigPatch aplica clamp de velocidade e persiste ttsRate', async () => {
+    const { result } = renderHook(() => useReaderAppearance(book))
+    await act(async () => { await Promise.resolve() })
+
+    act(() => { result.current.applyTtsConfigPatch({ rate: 2 }) })
+
+    expect(result.current.ttsConfig.rate).toBe(1.2)
+    expect(mocks.updateBookSettings).toHaveBeenCalledWith(book.id, {
+      ttsRate: 1.2,
+    })
+  })
+
+  it('applyTtsConfigPatch ignora provider premium indisponivel', async () => {
+    const { result } = renderHook(() => useReaderAppearance(book))
+    await act(async () => { await Promise.resolve() })
+
+    act(() => { result.current.applyTtsConfigPatch({ provider: 'elevenlabs' }) })
+
+    expect(result.current.ttsConfig.provider).not.toBe('elevenlabs')
+    expect(result.current.ttsEngine).toBe('speechify')
+    expect(mocks.updateBookSettings).not.toHaveBeenCalledWith(book.id, {
+      ttsProvider: 'elevenlabs',
     })
   })
 })

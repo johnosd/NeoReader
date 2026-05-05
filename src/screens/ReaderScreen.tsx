@@ -14,7 +14,6 @@ import { BookmarkSheet } from '../components/reader/BookmarkSheet'
 import { BottomSheet } from '../components/ui'
 import { useReaderProgress } from '../hooks/useReaderProgress'
 import { useReaderStore } from '../store/readerStore'
-import { useTtsSleepTimer } from '../hooks/useTtsSleepTimer'
 import { useReaderAppearance } from '../hooks/useReaderAppearance'
 import { useChromeAutoHide } from '../hooks/useChromeAutoHide'
 import type { ProgressSavePayload } from '../db/progress'
@@ -23,7 +22,7 @@ import { addBookmark, restoreBookmark, softDeleteBookmark, updateBookmarkColor }
 import { addVocabItem } from '../db/vocabulary'
 import { db } from '../db/database'
 import { useTTS } from '../hooks/useTTS'
-import { TtsMiniPlayer, type TtsSleepTimerOption } from '../components/reader/TtsMiniPlayer'
+import { TtsMiniPlayer } from '../components/reader/TtsMiniPlayer'
 import {
   ReaderFontControl,
   ReaderFontSizeControl,
@@ -37,6 +36,7 @@ import type { TtsProvider } from '../types/tts'
 import { areCfisEquivalent, isCfiInLocation, normalizeCfi } from '../utils/cfi'
 import { areTocHrefDocumentSuffixesEqual } from '../utils/toc'
 import { getReaderThemePalette } from '../utils/readerPreferences'
+import { clampTtsRate } from '../utils/language'
 
 function normalizeReaderHref(href?: string | null) {
   if (!href) return null
@@ -85,24 +85,7 @@ function isSectionHrefAtStartTarget(target: string, sectionHref?: string | null)
   )
 }
 
-const TTS_SLEEP_TIMER_OPTIONS: TtsSleepTimerOption[] = [
-  { value: 'off', label: 'Sem timer' },
-  { value: '60', label: '1 min' },
-  { value: '300', label: '5 min' },
-  { value: '900', label: '15 min' },
-  { value: '1800', label: '30 min' },
-  { value: '3600', label: '1 h' },
-]
-
 const START_NAVIGATION_FALLBACK_MS = 4000
-
-function formatSleepTimerRemaining(seconds: number | null): string | null {
-  if (seconds == null) return null
-  const safeSeconds = Math.max(0, seconds)
-  const minutes = Math.floor(safeSeconds / 60)
-  const remainingSeconds = safeSeconds % 60
-  return `${minutes}:${String(remainingSeconds).padStart(2, '0')}`
-}
 
 function getTtsProviderLabel(provider: TtsProvider) {
   if (provider === 'speechify') return 'Speechify'
@@ -128,6 +111,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   const ttsAdvancePendingRef = useRef(false)
   const ttsAutoAdvanceSkipCountRef = useRef(0)
   const currentTtsParaIdxRef = useRef(0)
+  const pendingTtsConfigRestartRef = useRef<number | null>(null)
   const ttsFallbackNoticeShownRef = useRef(new Set<TtsProvider>())
 
   // ── Estado local ────────────────────────────────────────────────────────────
@@ -137,7 +121,6 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   const [ttsProviderFallback, setTtsProviderFallback] = useState<{ provider: TtsProvider } | null>(null)
   // Controla visibilidade do mini player — true do início até o usuário apertar ⏹
   const [ttsPlayerVisible, setTtsPlayerVisible] = useState(false)
-  const { sleepTimerValue: ttsSleepTimerValue, sleepRemainingSeconds: ttsSleepRemainingSeconds, handleSleepTimerChange: handleTtsSleepTimerChange_hook, resetSleepTimer: resetTtsSleepTimer } = useTtsSleepTimer()
   const [showBackToTtsLocation, setShowBackToTtsLocation] = useState(false)
   const [tocOpen, setTocOpen] = useState(false)
   const [bookmarkSheetOpen, setBookmarkSheetOpen] = useState(false)
@@ -154,7 +137,9 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     translationTargetLang,
     ttsConfig,
     ttsEngine,
+    ttsProviderAvailability,
     applyAppearancePatch,
+    applyTtsConfigPatch,
     switchToNativeTts,
     handleReaderStyleModeChange,
   } = useReaderAppearance(book)
@@ -250,21 +235,13 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   useEffect(() => { return () => reset() }, [reset])
 
   useEffect(() => {
-    let cancelled = false
     activeSectionIndexRef.current = null
     ttsFallbackNoticeShownRef.current.clear()
     if (sectionChangeTimerRef.current) {
       clearTimeout(sectionChangeTimerRef.current)
       sectionChangeTimerRef.current = null
     }
-    queueMicrotask(() => {
-      if (!cancelled) resetTtsSleepTimer()
-    })
-
-    return () => {
-      cancelled = true
-    }
-  }, [book.id, resetTtsSleepTimer])
+  }, [book.id])
 
   useEffect(() => {
     clearStartNavigationFallbackTimer()
@@ -313,21 +290,6 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     },
   })
 
-  // Wrapper: adapta a assinatura do hook (value, onExpire) para o TtsMiniPlayer (value)
-  function handleTtsSleepTimerChange(value: string) {
-    handleTtsSleepTimerChange_hook(value, () => {
-      ttsAdvancePendingRef.current = false
-      ttsAutoAdvanceSkipCountRef.current = 0
-      void tts.stop()
-      tts.resetPosition()
-      setTtsPlayerVisible(false)
-      setShowBackToTtsLocation(false)
-      setTtsFallbackNotice(null)
-      setTtsProviderFallback(null)
-      setTtsFinished(false)
-    })
-  }
-
   function getTtsChunks() {
     return viewerRef.current?.getSentenceChunks() ?? []
   }
@@ -344,10 +306,42 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     void tts.play(chunks, idx)
   }
 
+  useEffect(() => {
+    const restartIdx = pendingTtsConfigRestartRef.current
+    if (restartIdx == null) return
+
+    pendingTtsConfigRestartRef.current = null
+    const chunks = getTtsChunks()
+    if (chunks.length === 0) return
+    startPlay(chunks, Math.min(restartIdx, chunks.length - 1))
+  }, [ttsConfig.provider, ttsConfig.rate])
+
+  function scheduleTtsConfigRestartIfPlaying() {
+    if (!tts.isPlaying) return
+    pendingTtsConfigRestartRef.current = tts.lastChunkIdx.current
+    void tts.stop()
+  }
+
+  function handleTtsProviderChange(provider: TtsProvider) {
+    if (provider === ttsConfig.provider || !ttsProviderAvailability[provider]) return
+
+    setTtsFallbackNotice(null)
+    setTtsProviderFallback(null)
+    scheduleTtsConfigRestartIfPlaying()
+    applyTtsConfigPatch({ provider })
+  }
+
+  function handleTtsRateChange(rate: number) {
+    const nextRate = clampTtsRate(rate)
+    if (nextRate === ttsConfig.rate) return
+
+    scheduleTtsConfigRestartIfPlaying()
+    applyTtsConfigPatch({ rate: nextRate })
+  }
+
   function finishTtsAtBookEnd() {
     ttsAdvancePendingRef.current = false
     ttsAutoAdvanceSkipCountRef.current = 0
-    resetTtsSleepTimer()
     tts.resetPosition()
     setTtsPlayerVisible(false)
     setShowBackToTtsLocation(false)
@@ -490,7 +484,6 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   function handleTtsStop() {
     ttsAdvancePendingRef.current = false
     ttsAutoAdvanceSkipCountRef.current = 0
-    resetTtsSleepTimer()
     void tts.stop()
     tts.resetPosition()
     setTtsPlayerVisible(false)
@@ -807,9 +800,8 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
           isPlaying={tts.isPlaying}
           activeProvider={ttsProviderFallback ? 'native' : ttsEngine}
           fallbackFromProvider={ttsProviderFallback?.provider ?? null}
-          sleepTimerValue={ttsSleepTimerValue}
-          sleepTimerOptions={TTS_SLEEP_TIMER_OPTIONS}
-          sleepTimerRemainingLabel={formatSleepTimerRemaining(ttsSleepRemainingSeconds)}
+          providerAvailability={ttsProviderAvailability}
+          ttsRate={ttsConfig.rate}
           showBackToTtsLocation={showBackToTtsLocation}
           onPlayPause={handleTtsToggle}
           onBackToTtsLocation={handleBackToTtsLocation}
@@ -817,7 +809,8 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
           onPrevSentence={handleTtsPrevSentence}
           onNextSentence={handleTtsNextSentence}
           onNextParagraph={handleTtsNext}
-          onSleepTimerChange={handleTtsSleepTimerChange}
+          onProviderChange={handleTtsProviderChange}
+          onRateChange={handleTtsRateChange}
           onStop={handleTtsStop}
         />
       )}
