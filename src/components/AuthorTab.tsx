@@ -12,7 +12,7 @@ interface AuthorTabProps {
 }
 
 export function AuthorTab({ book, youtubeApiKey, onOpenSettings }: AuthorTabProps) {
-  const requestKey = `${book.author}::${youtubeApiKey}`
+  const requestKey = `${book.id ?? 'new'}::${book.author}::${youtubeApiKey}`
   const [authorState, setAuthorState] = useState<{
     key: string
     loading: boolean
@@ -22,13 +22,13 @@ export function AuthorTab({ book, youtubeApiKey, onOpenSettings }: AuthorTabProp
   useEffect(() => {
     let cancelled = false
 
-    void getAuthorData(book.author, youtubeApiKey || undefined).then((data) => {
+    void getAuthorData(book.author, book.id, youtubeApiKey || undefined).then((data) => {
       if (cancelled) return
       setAuthorState({ key: requestKey, loading: false, data })
     })
 
     return () => { cancelled = true }
-  }, [book.author, requestKey, youtubeApiKey])
+  }, [book.author, book.id, requestKey, youtubeApiKey])
 
   const loading = authorState.key !== requestKey || authorState.loading
   const authorData = authorState.key === requestKey ? authorState.data : null

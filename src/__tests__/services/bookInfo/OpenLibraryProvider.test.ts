@@ -1,15 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { BookInfoService, OpenLibraryProvider } from '@/services/bookInfo'
 import { OpenLibraryService } from '@/services/OpenLibraryService'
-import type { ResolvedBookInfo } from '@/types/bookInfo'
+import { BOOK_INFO_SCHEMA_VERSION, type ResolvedBookInfo } from '@/types/bookInfo'
 
 function makeContext(patch: Partial<ResolvedBookInfo> = {}): ResolvedBookInfo {
   return {
+    metadataSchemaVersion: BOOK_INFO_SCHEMA_VERSION,
     category: null,
     rating: null,
     synopsis: null,
     pageCount: null,
     publishedDate: null,
+    publisher: null,
+    language: null,
+    isbn10: null,
+    isbn13: null,
+    subtitle: null,
+    series: null,
+    edition: null,
     universalIdentifier: null,
     reviews: null,
     lookupHints: {
@@ -54,8 +62,13 @@ describe('OpenLibraryProvider', () => {
     const fetchImpl = makeFetch({
       'ISBN:9780132350884': {
         title: 'Clean Code',
+        subtitle: 'A Handbook of Agile Software Craftsmanship',
         authors: [{ name: 'Robert C. Martin' }],
+        publishers: [{ name: 'Prentice Hall' }],
+        languages: [{ key: '/languages/eng' }],
         publish_date: 'August 1, 2008',
+        edition_name: '1st edition',
+        series: ['Robert C. Martin Series'],
         number_of_pages: 464,
         subjects: [
           { name: 'Software engineering' },
@@ -110,6 +123,13 @@ describe('OpenLibraryProvider', () => {
       source: 'open-library',
       confidence: 'medium',
     })
+    expect(info.publisher?.value).toBe('Prentice Hall')
+    expect(info.language?.value).toBe('eng')
+    expect(info.subtitle?.value).toBe('A Handbook of Agile Software Craftsmanship')
+    expect(info.series?.value).toBe('Robert C. Martin Series')
+    expect(info.edition?.value).toBe('1st edition')
+    expect(info.isbn10?.value.value).toBe('0132350882')
+    expect(info.isbn13?.value.value).toBe('9780132350884')
     expect(info.universalIdentifier).toEqual({
       value: { kind: 'ISBN_13', value: '9780132350884', raw: '9780132350884' },
       source: 'open-library',

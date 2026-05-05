@@ -37,6 +37,13 @@ export class OpenLibraryProvider implements BookInfoProvider {
       synopsis: bookData ? this.extractSynopsis(bookData) : null,
       pageCount: bookData ? this.extractPageCount(bookData) : null,
       publishedDate: bookData ? this.extractPublishedDate(bookData) : null,
+      publisher: bookData ? this.extractPublisher(bookData) : null,
+      language: bookData ? this.extractLanguage(bookData) : null,
+      isbn10: this.extractIdentifierByKind(identifiers, 'ISBN_10'),
+      isbn13: this.extractIdentifierByKind(identifiers, 'ISBN_13'),
+      subtitle: bookData ? this.extractTextValue(bookData.subtitle, 'medium') : null,
+      series: bookData ? this.extractSeries(bookData) : null,
+      edition: bookData ? this.extractTextValue(bookData.edition_name, 'medium') : null,
       universalIdentifier: this.extractUniversalIdentifier(identifiers),
       lookupHints: {
         title: context?.lookupHints.title ?? this.cleanText(bookData?.title),
@@ -142,6 +149,48 @@ export class OpenLibraryProvider implements BookInfoProvider {
   private extractPublishedDate(bookData: OpenLibraryBookData): BookInfoValue<string> | null {
     const publishedDate = this.cleanText(bookData.publish_date)
     return publishedDate ? this.fromOpenLibrary(publishedDate, 'medium') : null
+  }
+
+  private extractPublisher(bookData: OpenLibraryBookData): BookInfoValue<string> | null {
+    const publisher = bookData.publishers
+      ?.map((item) => typeof item === 'string' ? item : item.name)
+      .map((item) => this.cleanText(item))
+      .find(Boolean)
+
+    return publisher ? this.fromOpenLibrary(publisher, 'medium') : null
+  }
+
+  private extractLanguage(bookData: OpenLibraryBookData): BookInfoValue<string> | null {
+    const language = bookData.languages
+      ?.map((item) => {
+        if (typeof item === 'string') return item
+        return item.name ?? item.key?.replace(/^\/languages\//, '')
+      })
+      .map((item) => this.cleanText(item))
+      .find(Boolean)
+
+    return language ? this.fromOpenLibrary(language, 'medium') : null
+  }
+
+  private extractTextValue(
+    value: string | undefined,
+    confidence: BookInfoValue<string>['confidence'],
+  ): BookInfoValue<string> | null {
+    const cleaned = this.cleanText(value)
+    return cleaned ? this.fromOpenLibrary(cleaned, confidence) : null
+  }
+
+  private extractSeries(bookData: OpenLibraryBookData): BookInfoValue<string> | null {
+    const series = this.toArray(bookData.series).find(Boolean)
+    return series ? this.fromOpenLibrary(series, 'medium') : null
+  }
+
+  private extractIdentifierByKind(
+    identifiers: BookIdentifier[],
+    kind: 'ISBN_10' | 'ISBN_13',
+  ): BookInfoValue<BookIdentifier> | null {
+    const identifier = identifiers.find((candidate) => candidate.kind === kind)
+    return identifier ? this.fromOpenLibrary(identifier, 'high') : null
   }
 
   private extractUniversalIdentifier(identifiers: BookIdentifier[]): BookInfoValue<BookIdentifier> | null {

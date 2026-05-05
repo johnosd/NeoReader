@@ -21,6 +21,7 @@ export interface AuthorData {
 
 export interface AuthorCacheRecord {
   authorName: string  // primary key — nome exato vindo do metadado do livro
+  bookIds: number[]   // livros locais que consultaram/usam este autor
   data: AuthorData
   fetchedAt: Date
 }

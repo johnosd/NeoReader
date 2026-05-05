@@ -1,5 +1,5 @@
 import { db } from './database'
-import type { ResolvedBookInfo, StoredBookInfo } from '../types/bookInfo'
+import { BOOK_INFO_SCHEMA_VERSION, type ResolvedBookInfo, type StoredBookInfo } from '../types/bookInfo'
 
 export type BookInfoPatch = Partial<Omit<ResolvedBookInfo, 'lookupHints'>> & {
   lookupHints?: Partial<ResolvedBookInfo['lookupHints']>
@@ -12,11 +12,19 @@ const EMPTY_LOOKUP_HINTS: ResolvedBookInfo['lookupHints'] = {
 }
 
 const EMPTY_RESOLVED_BOOK_INFO: ResolvedBookInfo = {
+  metadataSchemaVersion: BOOK_INFO_SCHEMA_VERSION,
   category: null,
   rating: null,
   synopsis: null,
   pageCount: null,
   publishedDate: null,
+  publisher: null,
+  language: null,
+  isbn10: null,
+  isbn13: null,
+  subtitle: null,
+  series: null,
+  edition: null,
   universalIdentifier: null,
   reviews: null,
   lookupHints: EMPTY_LOOKUP_HINTS,
@@ -67,11 +75,19 @@ export async function deleteStoredBookInfo(bookId: number): Promise<void> {
 
 function normalizeResolvedBookInfo(info: ResolvedBookInfo): ResolvedBookInfo {
   return {
+    metadataSchemaVersion: info.metadataSchemaVersion ?? BOOK_INFO_SCHEMA_VERSION,
     category: info.category ?? null,
     rating: info.rating ?? null,
     synopsis: info.synopsis ?? null,
     pageCount: info.pageCount ?? null,
     publishedDate: info.publishedDate ?? null,
+    publisher: info.publisher ?? null,
+    language: info.language ?? null,
+    isbn10: info.isbn10 ?? null,
+    isbn13: info.isbn13 ?? null,
+    subtitle: info.subtitle ?? null,
+    series: info.series ?? null,
+    edition: info.edition ?? null,
     universalIdentifier: info.universalIdentifier ?? null,
     reviews: info.reviews ?? null,
     lookupHints: {

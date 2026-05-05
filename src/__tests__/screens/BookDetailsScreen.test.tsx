@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { BookDetailsScreen } from '@/screens/BookDetailsScreen'
 import type { Book, BookSettings, ReadingProgress } from '@/types/book'
-import type { StoredBookInfo } from '@/types/bookInfo'
+import { BOOK_INFO_SCHEMA_VERSION, type StoredBookInfo } from '@/types/bookInfo'
 
 const mocks = vi.hoisted(() => ({
   liveQueryIndex: 0,
@@ -173,11 +173,19 @@ function emptyBookInfo(): StoredBookInfo {
     bookId: 1,
     createdAt: new Date('2026-05-01T00:00:00.000Z'),
     updatedAt: new Date('2026-05-01T00:00:00.000Z'),
+    metadataSchemaVersion: BOOK_INFO_SCHEMA_VERSION,
     category: null,
     rating: null,
     synopsis: null,
     pageCount: null,
     publishedDate: null,
+    publisher: null,
+    language: null,
+    isbn10: null,
+    isbn13: null,
+    subtitle: null,
+    series: null,
+    edition: null,
     universalIdentifier: null,
     reviews: null,
     lookupHints: {
@@ -433,6 +441,51 @@ describe('BookDetailsScreen chapters', () => {
         source: 'google-books',
         confidence: 'medium',
       },
+      publisher: {
+        value: 'Prentice Hall',
+        source: 'google-books',
+        confidence: 'medium',
+      },
+      language: {
+        value: 'en',
+        source: 'epub-metadata',
+        confidence: 'high',
+      },
+      pageCount: {
+        value: 464,
+        source: 'google-books',
+        confidence: 'medium',
+      },
+      isbn10: {
+        value: { kind: 'ISBN_10', value: '0132350882', raw: '0132350882' },
+        source: 'google-books',
+        confidence: 'high',
+      },
+      isbn13: {
+        value: { kind: 'ISBN_13', value: '9780132350884', raw: '9780132350884' },
+        source: 'google-books',
+        confidence: 'high',
+      },
+      category: {
+        value: [{ label: 'Computers / Software Development' }],
+        source: 'google-books',
+        confidence: 'medium',
+      },
+      subtitle: {
+        value: 'A Handbook of Agile Software Craftsmanship',
+        source: 'google-books',
+        confidence: 'medium',
+      },
+      series: {
+        value: 'Robert C. Martin Series',
+        source: 'epub-metadata',
+        confidence: 'medium',
+      },
+      edition: {
+        value: '1st edition',
+        source: 'open-library',
+        confidence: 'medium',
+      },
       reviews: {
         value: [{
           title: 'Review em video',
@@ -467,6 +520,22 @@ describe('BookDetailsScreen chapters', () => {
     expect(screen.getByRole('button', { name: 'Mostrar menos' })).toBeTruthy()
     expect(screen.getByText('4.4/5 (18)')).toBeTruthy()
     expect(screen.queryByText('Review em video')).toBeNull()
+    expect(screen.getByText('Editora')).toBeTruthy()
+    expect(screen.getByText('Prentice Hall')).toBeTruthy()
+    expect(screen.getAllByText('Idioma').length).toBeGreaterThan(0)
+    expect(screen.getByText('en')).toBeTruthy()
+    expect(screen.getByText('ISBN-10')).toBeTruthy()
+    expect(screen.getByText('0132350882')).toBeTruthy()
+    expect(screen.getByText('ISBN-13')).toBeTruthy()
+    expect(screen.getByText('9780132350884')).toBeTruthy()
+    expect(screen.getByText('Genero/Categoria')).toBeTruthy()
+    expect(screen.getByText('Computers / Software Development')).toBeTruthy()
+    expect(screen.getByText('Subtitulo')).toBeTruthy()
+    expect(screen.getByText('A Handbook of Agile Software Craftsmanship')).toBeTruthy()
+    expect(screen.getByText('Serie')).toBeTruthy()
+    expect(screen.getByText('Robert C. Martin Series')).toBeTruthy()
+    expect(screen.getByText('Edicao')).toBeTruthy()
+    expect(screen.getByText('1st edition')).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: /Reviews/ }))
 
@@ -557,6 +626,49 @@ describe('BookDetailsScreen chapters', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Detalhes' }))
 
     expect(await screen.findByText('320')).toBeTruthy()
+    expect(mocks.collectBookInfo).toHaveBeenCalledWith(book.fileBlob, {
+      lookupHints: {
+        title: 'Livro de teste',
+        author: 'Autor',
+        identifiers: [],
+      },
+    })
+  })
+
+  it('recoleta quando o schema de metadados salvo esta desatualizado', async () => {
+    const staleStored: StoredBookInfo = {
+      ...emptyBookInfo(),
+      metadataSchemaVersion: 1,
+      rating: {
+        value: { average: 4.1, scale: 5 },
+        source: 'google-books',
+        confidence: 'medium',
+      },
+    }
+    const collected = {
+      ...emptyBookInfo(),
+      publisher: {
+        value: 'Editora nova',
+        source: 'google-books' as const,
+        confidence: 'medium' as const,
+      },
+    }
+    mocks.getStoredBookInfo.mockResolvedValue(staleStored)
+    mocks.collectBookInfo.mockResolvedValue(collected)
+    mocks.saveBookInfo.mockResolvedValue(collected)
+
+    render(
+      <BookDetailsScreen
+        book={book}
+        onBack={vi.fn()}
+        onRead={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Detalhes' }))
+
+    expect(await screen.findByText('Editora nova')).toBeTruthy()
     expect(mocks.collectBookInfo).toHaveBeenCalledWith(book.fileBlob, {
       lookupHints: {
         title: 'Livro de teste',

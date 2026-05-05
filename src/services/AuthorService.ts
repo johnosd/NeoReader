@@ -73,9 +73,10 @@ async function fetchWikipediaBio(authorName: string): Promise<string | null> {
 
 export async function getAuthorData(
   authorName: string,
+  bookId?: number,
   youtubeApiKey?: string,
 ): Promise<AuthorData | null> {
-  const cached = await getCachedAuthor(authorName)
+  const cached = await getCachedAuthor(authorName, bookId)
 
   if (cached) {
     // Cache existe mas sem vídeos e agora temos key → busca vídeos e atualiza cache
@@ -84,7 +85,7 @@ export async function getAuthorData(
       const videos = await fetchYoutubeVideos(authorName, youtubeApiKey)
       if (videos.length > 0) {
         const updated = { ...cached, videos }
-        void setCachedAuthor(authorName, updated)
+        void setCachedAuthor(authorName, updated, bookId)
         return updated
       }
     }
@@ -129,7 +130,7 @@ export async function getAuthorData(
   }
 
   // Fire-and-forget: não bloqueia o retorno
-  void setCachedAuthor(authorName, data)
+  void setCachedAuthor(authorName, data, bookId)
 
   return data
 }

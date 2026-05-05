@@ -1484,25 +1484,25 @@ function BookInfoDetails({
   }
 
   const rows: BookInfoDetailRow[] = []
+  if (info.subtitle) {
+    rows.push({
+      title: 'Subtitulo',
+      meta: info.subtitle.value,
+      source: info.subtitle,
+    })
+  }
   if (info.category) {
     rows.push({
-      title: 'Categoria',
+      title: 'Genero/Categoria',
       meta: info.category.value.map((item) => item.label).join(', '),
       source: info.category,
     })
   }
-  if (info.rating) {
+  if (info.publisher) {
     rows.push({
-      title: 'Rating',
-      meta: formatBookRating(info.rating.value.average, info.rating.value.count),
-      source: info.rating,
-    })
-  }
-  if (info.pageCount) {
-    rows.push({
-      title: 'Paginas',
-      meta: String(info.pageCount.value),
-      source: info.pageCount,
+      title: 'Editora',
+      meta: info.publisher.value,
+      source: info.publisher,
     })
   }
   if (info.publishedDate) {
@@ -1512,7 +1512,56 @@ function BookInfoDetails({
       source: info.publishedDate,
     })
   }
-  if (info.universalIdentifier) {
+  if (info.language) {
+    rows.push({
+      title: 'Idioma',
+      meta: info.language.value,
+      source: info.language,
+    })
+  }
+  if (info.pageCount) {
+    rows.push({
+      title: 'Paginas',
+      meta: String(info.pageCount.value),
+      source: info.pageCount,
+    })
+  }
+  if (info.isbn10) {
+    rows.push({
+      title: 'ISBN-10',
+      meta: info.isbn10.value.value,
+      source: info.isbn10,
+    })
+  }
+  if (info.isbn13) {
+    rows.push({
+      title: 'ISBN-13',
+      meta: info.isbn13.value.value,
+      source: info.isbn13,
+    })
+  }
+  if (info.series) {
+    rows.push({
+      title: 'Serie',
+      meta: info.series.value,
+      source: info.series,
+    })
+  }
+  if (info.edition) {
+    rows.push({
+      title: 'Edicao',
+      meta: info.edition.value,
+      source: info.edition,
+    })
+  }
+  if (info.rating) {
+    rows.push({
+      title: 'Rating',
+      meta: formatBookRating(info.rating.value.average, info.rating.value.count),
+      source: info.rating,
+    })
+  }
+  if (info.universalIdentifier && shouldShowUniversalIdentifier(info)) {
     rows.push({
       title: 'Identificador',
       meta: `${info.universalIdentifier.value.kind}: ${info.universalIdentifier.value.value}`,
@@ -1559,6 +1608,15 @@ function BookInfoDetails({
 
     </div>
   )
+}
+
+function shouldShowUniversalIdentifier(info: StoredBookInfo): boolean {
+  const identifier = info.universalIdentifier?.value
+  if (!identifier) return false
+  if (identifier.kind !== 'ISBN_10' && identifier.kind !== 'ISBN_13') return true
+
+  const matchingIsbn = identifier.kind === 'ISBN_10' ? info.isbn10 : info.isbn13
+  return matchingIsbn?.value.value !== identifier.value
 }
 
 function BookInfoEmptyState({

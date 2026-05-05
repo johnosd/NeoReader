@@ -67,7 +67,12 @@ describe('EpubBookInfoProvider', () => {
       'OPS/package.opf',
       makeOpf(`
         <dc:identifier id="book-id">urn:isbn:9780132350884</dc:identifier>
+        <dc:identifier>urn:isbn:0132350882</dc:identifier>
         <dc:identifier>urn:uuid:550e8400-e29b-41d4-a716-446655440000</dc:identifier>
+        <dc:publisher>Prentice Hall</dc:publisher>
+        <dc:language>en</dc:language>
+        <dc:title id="subtitle-title">A Handbook of Agile Software Craftsmanship</dc:title>
+        <meta refines="#subtitle-title" property="title-type">subtitle</meta>
         <dc:subject id="subject-1">COMPUTERS / Software Development</dc:subject>
         <meta refines="#subject-1" property="authority">BISAC</meta>
         <meta refines="#subject-1" property="term">COM051230</meta>
@@ -76,6 +81,8 @@ describe('EpubBookInfoProvider', () => {
         <meta property="schema:numberOfPages">464</meta>
         <meta property="schema:ratingValue">4.7</meta>
         <meta property="schema:ratingCount">2500</meta>
+        <meta property="belongs-to-collection">Robert C. Martin Series</meta>
+        <meta property="schema:bookEdition">1st edition</meta>
         <meta property="schema:review">Review editorial incluida no EPUB.</meta>
         <link rel="review" href="https://example.com/reviews/clean-code" title="Review externa" />
       `),
@@ -88,6 +95,7 @@ describe('EpubBookInfoProvider', () => {
       author: 'Robert C. Martin',
       identifiers: [
         { kind: 'ISBN_13', value: '9780132350884', raw: 'urn:isbn:9780132350884' },
+        { kind: 'ISBN_10', value: '0132350882', raw: 'urn:isbn:0132350882' },
         {
           kind: 'UUID',
           value: '550e8400-e29b-41d4-a716-446655440000',
@@ -111,6 +119,13 @@ describe('EpubBookInfoProvider', () => {
     expect(info.synopsis?.value).toBe("Um guia pratico para escrever codigo melhor. Readers can't stop talking about it.")
     expect(info.pageCount?.value).toBe(464)
     expect(info.publishedDate?.value).toBe('2008-08-01')
+    expect(info.publisher?.value).toBe('Prentice Hall')
+    expect(info.language?.value).toBe('en')
+    expect(info.subtitle?.value).toBe('A Handbook of Agile Software Craftsmanship')
+    expect(info.series?.value).toBe('Robert C. Martin Series')
+    expect(info.edition?.value).toBe('1st edition')
+    expect(info.isbn10?.value.value).toBe('0132350882')
+    expect(info.isbn13?.value.value).toBe('9780132350884')
     expect(info.reviews?.value).toEqual([
       {
         title: 'Review',

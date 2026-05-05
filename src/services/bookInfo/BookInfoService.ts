@@ -1,4 +1,4 @@
-import type { BookInfoProvider, BookInfoProviderAttemptDiagnostic, ResolvedBookInfo } from '../../types/bookInfo'
+import { BOOK_INFO_SCHEMA_VERSION, type BookInfoProvider, type BookInfoProviderAttemptDiagnostic, type ResolvedBookInfo } from '../../types/bookInfo'
 import { EpubBookInfoProvider } from './EpubBookInfoProvider'
 import { GoogleBooksProvider } from './GoogleBooksProvider'
 import { OpenLibraryProvider } from './OpenLibraryProvider'
@@ -9,11 +9,19 @@ interface BookInfoServiceOptions {
 }
 
 const EMPTY_BOOK_INFO: ResolvedBookInfo = {
+  metadataSchemaVersion: BOOK_INFO_SCHEMA_VERSION,
   category: null,
   rating: null,
   synopsis: null,
   pageCount: null,
   publishedDate: null,
+  publisher: null,
+  language: null,
+  isbn10: null,
+  isbn13: null,
+  subtitle: null,
+  series: null,
+  edition: null,
   universalIdentifier: null,
   reviews: null,
   lookupHints: {
@@ -78,11 +86,22 @@ export class BookInfoService {
     next: Partial<ResolvedBookInfo>,
   ): ResolvedBookInfo {
     return {
+      metadataSchemaVersion: Math.max(
+        current.metadataSchemaVersion ?? BOOK_INFO_SCHEMA_VERSION,
+        next.metadataSchemaVersion ?? BOOK_INFO_SCHEMA_VERSION,
+      ),
       category: current.category ?? next.category ?? null,
       rating: current.rating ?? next.rating ?? null,
       synopsis: current.synopsis ?? next.synopsis ?? null,
       pageCount: current.pageCount ?? next.pageCount ?? null,
       publishedDate: current.publishedDate ?? next.publishedDate ?? null,
+      publisher: current.publisher ?? next.publisher ?? null,
+      language: current.language ?? next.language ?? null,
+      isbn10: current.isbn10 ?? next.isbn10 ?? null,
+      isbn13: current.isbn13 ?? next.isbn13 ?? null,
+      subtitle: current.subtitle ?? next.subtitle ?? null,
+      series: current.series ?? next.series ?? null,
+      edition: current.edition ?? next.edition ?? null,
       universalIdentifier: current.universalIdentifier ?? next.universalIdentifier ?? null,
       reviews: this.mergeReviews(current.reviews, next.reviews ?? null),
       lookupHints: {
@@ -139,6 +158,13 @@ export class BookInfoService {
     if (info.synopsis) fields.push('sinopse')
     if (info.pageCount) fields.push('paginas')
     if (info.publishedDate) fields.push('publicacao')
+    if (info.publisher) fields.push('editora')
+    if (info.language) fields.push('idioma')
+    if (info.isbn10) fields.push('isbn-10')
+    if (info.isbn13) fields.push('isbn-13')
+    if (info.subtitle) fields.push('subtitulo')
+    if (info.series) fields.push('serie')
+    if (info.edition) fields.push('edicao')
     if (info.universalIdentifier) fields.push('identificador')
     if (info.reviews?.value.length) fields.push('reviews')
     return fields

@@ -57,6 +57,13 @@ export class EpubBookInfoProvider implements BookInfoProvider {
       synopsis: this.extractSynopsis(epubPackage.opfDoc),
       pageCount: this.extractPageCount(epubPackage),
       publishedDate: this.extractPublishedDate(epubPackage.opfDoc),
+      publisher: this.extractTextValue(epubPackage.opfDoc, 'publisher', 'high'),
+      language: this.extractTextValue(epubPackage.opfDoc, 'language', 'high'),
+      isbn10: this.extractIdentifierByKind(identifiers, 'ISBN_10'),
+      isbn13: this.extractIdentifierByKind(identifiers, 'ISBN_13'),
+      subtitle: this.extractSubtitle(epubPackage.opfDoc),
+      series: this.extractSeries(epubPackage.opfDoc),
+      edition: this.extractEdition(epubPackage.opfDoc),
       universalIdentifier: this.extractUniversalIdentifier(epubPackage.opfDoc, identifiers),
       reviews: this.extractReviews(epubPackage.opfDoc),
       lookupHints,
@@ -180,6 +187,58 @@ export class EpubBookInfoProvider implements BookInfoProvider {
       ?? this.metaValue(opfDoc, 'issued')
 
     return value ? this.fromEpub(value, 'high') : null
+  }
+
+  private extractTextValue(
+    opfDoc: Document,
+    localName: string,
+    confidence: BookInfoValue<string>['confidence'],
+  ): BookInfoValue<string> | null {
+    const value = this.firstText(opfDoc, localName)
+    return value ? this.fromEpub(value, confidence) : null
+  }
+
+  private extractIdentifierByKind(
+    identifiers: BookIdentifier[],
+    kind: 'ISBN_10' | 'ISBN_13',
+  ): BookInfoValue<BookIdentifier> | null {
+    const identifier = identifiers.find((candidate) => candidate.kind === kind)
+    return identifier ? this.fromEpub(identifier, 'high') : null
+  }
+
+  private extractSubtitle(opfDoc: Document): BookInfoValue<string> | null {
+    const refinements = this.extractRefinements(opfDoc)
+    const subtitle = this.elements(opfDoc, 'title')
+      .map((element) => {
+        const id = element.getAttribute('id')
+        const titleType = id ? refinements.get(id)?.['title-type'] : undefined
+        return titleType?.toLowerCase() === 'subtitle'
+          ? this.cleanText(element.textContent)
+          : null
+      })
+      .find(Boolean)
+      ?? this.metaValue(opfDoc, 'subtitle')
+      ?? this.metaValue(opfDoc, 'schema:subtitle')
+      ?? this.namedMetaValue(opfDoc, 'calibre:subtitle')
+
+    return subtitle ? this.fromEpub(subtitle, 'high') : null
+  }
+
+  private extractSeries(opfDoc: Document): BookInfoValue<string> | null {
+    const series = this.metaValue(opfDoc, 'belongs-to-collection')
+      ?? this.metaValue(opfDoc, 'schema:series')
+      ?? this.namedMetaValue(opfDoc, 'calibre:series')
+
+    return series ? this.fromEpub(series, 'medium') : null
+  }
+
+  private extractEdition(opfDoc: Document): BookInfoValue<string> | null {
+    const edition = this.metaValue(opfDoc, 'schema:bookEdition')
+      ?? this.metaValue(opfDoc, 'bookEdition')
+      ?? this.metaValue(opfDoc, 'edition')
+      ?? this.namedMetaValue(opfDoc, 'calibre:edition')
+
+    return edition ? this.fromEpub(edition, 'medium') : null
   }
 
   private extractUniversalIdentifier(

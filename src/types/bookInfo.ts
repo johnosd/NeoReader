@@ -8,6 +8,8 @@ export type BookInfoSource =
 
 export type BookInfoConfidence = 'high' | 'medium' | 'low'
 
+export const BOOK_INFO_SCHEMA_VERSION = 2
+
 export interface BookInfoValue<T> {
   value: T
   source: BookInfoSource
@@ -50,11 +52,19 @@ export interface BookInfoLookupHints {
 }
 
 export interface ResolvedBookInfo {
+  metadataSchemaVersion: number
   category: BookInfoValue<BookCategory[]> | null
   rating: BookInfoValue<BookRating> | null
   synopsis: BookInfoValue<string> | null
   pageCount: BookInfoValue<number> | null
   publishedDate: BookInfoValue<string> | null
+  publisher: BookInfoValue<string> | null
+  language: BookInfoValue<string> | null
+  isbn10: BookInfoValue<BookIdentifier> | null
+  isbn13: BookInfoValue<BookIdentifier> | null
+  subtitle: BookInfoValue<string> | null
+  series: BookInfoValue<string> | null
+  edition: BookInfoValue<string> | null
   universalIdentifier: BookInfoValue<BookIdentifier> | null
   reviews: BookInfoValue<BookReview[]> | null
   lookupHints: BookInfoLookupHints
