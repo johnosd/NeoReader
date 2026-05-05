@@ -290,11 +290,11 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     },
   })
 
-  function getTtsChunks() {
+  const getTtsChunks = useCallback(() => {
     return viewerRef.current?.getSentenceChunks() ?? []
-  }
+  }, [])
 
-  function startPlay(chunks: ReturnType<typeof getTtsChunks>, idx: number) {
+  const startPlay = useCallback((chunks: ReturnType<typeof getTtsChunks>, idx: number) => {
     ttsAdvancePendingRef.current = false
     ttsAutoAdvanceSkipCountRef.current = 0
     setTtsFinished(false)
@@ -304,17 +304,19 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     setShowBackToTtsLocation(false)
     viewerRef.current?.resetTtsScroll()
     void tts.play(chunks, idx)
-  }
+  }, [tts])
 
   useEffect(() => {
     const restartIdx = pendingTtsConfigRestartRef.current
     if (restartIdx == null) return
 
     pendingTtsConfigRestartRef.current = null
-    const chunks = getTtsChunks()
-    if (chunks.length === 0) return
-    startPlay(chunks, Math.min(restartIdx, chunks.length - 1))
-  }, [ttsConfig.provider, ttsConfig.rate])
+    void Promise.resolve().then(() => {
+      const chunks = getTtsChunks()
+      if (chunks.length === 0) return
+      startPlay(chunks, Math.min(restartIdx, chunks.length - 1))
+    })
+  }, [getTtsChunks, startPlay, ttsConfig.provider, ttsConfig.rate])
 
   function scheduleTtsConfigRestartIfPlaying() {
     if (!tts.isPlaying) return

@@ -77,6 +77,7 @@ function resolveTtsProviderFromAvailability(
 }
 
 export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
+  const [readySource, setReadySource] = useState<{ bookId: Book['id']; fileBlob: Book['fileBlob'] } | null>(null)
   const [fontSize, setFontSize] = useState<FontSize>('md')
   const [lineHeight, setLineHeight] = useState<ReaderLineHeight>('comfortable')
   const [readerTheme, setReaderTheme] = useState<ReaderTheme>('dark')
@@ -85,7 +86,6 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
   const [overrideBookColors, setOverrideBookColors] = useState(true)
   const [bookLanguage, setBookLanguage] = useState('en')
   const [translationTargetLang, setTranslationTargetLang] = useState('pt-BR')
-  const [isReady, setIsReady] = useState(false)
   const [ttsConfig, setTtsConfig] = useState<TtsPlaybackConfig>({
     provider: 'native',
     language: 'en',
@@ -101,7 +101,6 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
   // Carrega preferências: configuração por livro (override) > global > padrão
   useEffect(() => {
     let cancelled = false
-    setIsReady(false)
 
     void Promise.all([
       getSettings(),
@@ -133,13 +132,15 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
       })
       setTtsProviderAvailability(providerAvailability)
       setTtsEngine(resolveTtsProvider(selectedProvider, s.appSettings))
-      setIsReady(true)
+      setReadySource({ bookId: book.id, fileBlob: book.fileBlob })
     })
 
     return () => {
       cancelled = true
     }
   }, [book.fileBlob, book.id])
+
+  const isReady = readySource?.bookId === book.id && readySource?.fileBlob === book.fileBlob
 
   function applyAppearancePatch(patch: AppearancePatch) {
     if (patch.fontSize) setFontSize(patch.fontSize)
