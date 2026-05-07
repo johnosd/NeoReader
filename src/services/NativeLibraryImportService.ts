@@ -24,7 +24,13 @@ const NeoReaderLibrary = registerPlugin<NeoReaderLibraryPlugin>('NeoReaderLibrar
 export async function selectNativeEpubFolder(): Promise<{ folderName: string; folderUri: string; files: NativeFolderFile[] } | null> {
   if (!Capacitor.isNativePlatform()) return null
 
-  const result = await NeoReaderLibrary.selectEpubFolder()
+  let result: NativeFolderResult
+  try {
+    result = await NeoReaderLibrary.selectEpubFolder()
+  } catch (error) {
+    if (isFolderSelectionCanceled(error)) throw new DOMException('Selecao de pasta cancelada.', 'AbortError')
+    throw error
+  }
 
   return {
     folderName: result.folderName,
@@ -37,6 +43,11 @@ export async function readNativeFolderFile(file: NativeFolderFile): Promise<File
   const result = file.base64 ? file : await NeoReaderLibrary.readFile(file)
   if (!result.base64) throw new Error('Arquivo da pasta sem conteudo.')
   return base64ToFile(result.base64, result.name, result.path)
+}
+
+function isFolderSelectionCanceled(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.toLowerCase().includes('cancelad')
 }
 
 function base64ToFile(base64: string, fileName: string, relativePath?: string): File {

@@ -142,6 +142,7 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
         tagName: result.folderName,
       })
     } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return
       setImportError(error instanceof Error ? error.message : 'Erro ao selecionar pasta.')
     } finally {
       setImporting(false)
@@ -152,6 +153,11 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
     setImporting(true)
     try {
       const files = await resolveImportFiles(options)
+      if (files.length === 0) {
+        setImportFlow({ ...options, files })
+        setImportError('Nenhum EPUB encontrado nesta pasta.')
+        return
+      }
       const preview = await BookImportService.buildImportPreview(files)
       setImportFlow({ ...options, files, step: 'preview', preview, selectedTagIds: [] })
     } catch (error) {
