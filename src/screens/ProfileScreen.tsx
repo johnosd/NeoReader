@@ -23,6 +23,7 @@ import type { AuthUser } from '../types/auth'
 interface ProfileScreenProps {
   authUser: AuthUser
   onBack: () => void
+  onOpenHome?: () => void
   onOpenLibrary: () => void
   onOpenDiscover: () => void
   onOpenSettings: () => void
@@ -37,7 +38,7 @@ const PROFILE_TABS: { id: ProfileTab; label: string }[] = [
   { id: 'following', label: 'Seguindo' },
 ]
 
-export function ProfileScreen({ authUser, onBack, onOpenLibrary, onOpenDiscover, onOpenSettings, onSignOut }: ProfileScreenProps) {
+export function ProfileScreen({ authUser, onBack, onOpenHome, onOpenLibrary, onOpenDiscover, onOpenSettings, onSignOut }: ProfileScreenProps) {
   const summary = useProfileSummary()
   const { heroBook } = useLibraryGroups()
   const [activeTab, setActiveTab] = useState<ProfileTab>('history')
@@ -168,7 +169,8 @@ export function ProfileScreen({ authUser, onBack, onOpenLibrary, onOpenDiscover,
       <BottomNav
         activeTab="profile"
         onTabChange={(tab) => {
-          if (tab === 'home' || tab === 'biblioteca') onOpenLibrary()
+          if (tab === 'home') (onOpenHome ?? onOpenLibrary)()
+          if (tab === 'biblioteca') onOpenLibrary()
           if (tab === 'discover') onOpenDiscover()
         }}
       />

@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   collectBookInfo: vi.fn(),
   invalidateExtrasCache: vi.fn(),
   transaction: vi.fn(),
+  booksToArray: vi.fn(),
 }))
 
 vi.mock('@/db/books', () => ({
@@ -24,7 +25,7 @@ vi.mock('@/db/bookInfo', () => ({
 
 vi.mock('@/db/database', () => ({
   db: {
-    books: { name: 'books' },
+    books: { name: 'books', toArray: mocks.booksToArray },
     bookCovers: { name: 'bookCovers' },
     transaction: mocks.transaction,
   },
@@ -56,6 +57,8 @@ describe('BookImportService', () => {
     mocks.collectBookInfo.mockReset()
     mocks.invalidateExtrasCache.mockReset()
     mocks.transaction.mockReset()
+    mocks.booksToArray.mockReset()
+    mocks.booksToArray.mockResolvedValue([])
     mocks.transaction.mockImplementation((...args: unknown[]) => {
       const scope = args.at(-1)
       if (typeof scope !== 'function') throw new Error('transaction scope ausente')
@@ -163,6 +166,30 @@ describe('BookImportService', () => {
 
     expect(hasCover).toBe(true)
     expect(mocks.saveBookCover).toHaveBeenCalledWith(9, coverBlob, 'epub-extracted')
+  })
+
+  it('bloqueia importacao individual quando o livro ja existe', async () => {
+    const file = new File(['epub'], 'book.epub', { type: 'application/epub+zip' })
+
+    mocks.parseMetadata.mockResolvedValue({
+      title: 'Livro duplicado',
+      author: 'Autor',
+      coverBlob: null,
+    })
+    mocks.booksToArray.mockResolvedValue([
+      {
+        id: 1,
+        title: 'Outro titulo',
+        author: 'Outro autor',
+        fileName: 'book.epub',
+        fileSize: file.size,
+      },
+    ])
+
+    await expect(BookImportService.importEpub(file)).rejects.toThrow('Este livro ja esta na biblioteca.')
+
+    expect(mocks.addBook).not.toHaveBeenCalled()
+    expect(mocks.saveBookCover).not.toHaveBeenCalled()
   })
 
   it('marca capas manuais com a origem correta', async () => {

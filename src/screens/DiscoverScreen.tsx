@@ -19,11 +19,12 @@ const CHILDREN_LISTS = [
 
 interface DiscoverScreenProps {
   onBack: () => void
+  onOpenHome?: () => void
   onOpenLibrary: () => void
   onOpenProfile: () => void
 }
 
-export function DiscoverScreen({ onBack, onOpenLibrary, onOpenProfile }: DiscoverScreenProps) {
+export function DiscoverScreen({ onBack, onOpenHome, onOpenLibrary, onOpenProfile }: DiscoverScreenProps) {
   useEffect(() => {
     const listenerPromise = CapApp.addListener('backButton', onBack)
     return () => { void listenerPromise.then((l) => l.remove()) }
@@ -86,7 +87,8 @@ export function DiscoverScreen({ onBack, onOpenLibrary, onOpenProfile }: Discove
       <BottomNav
         activeTab="discover"
         onTabChange={(tab) => {
-          if (tab === 'home' || tab === 'biblioteca') onOpenLibrary()
+          if (tab === 'home') (onOpenHome ?? onOpenLibrary)()
+          if (tab === 'biblioteca') onOpenLibrary()
           if (tab === 'profile') onOpenProfile()
         }}
       />
