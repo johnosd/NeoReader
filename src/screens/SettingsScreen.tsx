@@ -11,6 +11,7 @@ import {
   ReaderThemeControl,
   type ReaderStyleMode,
 } from '../components/reader/ReaderAppearanceControls'
+import { db } from '../db/database'
 import { getSettings, updateAppSettings, updateReaderDefaults } from '../db/settings'
 import { ElevenLabsService } from '../services/ElevenLabsService'
 import { SpeechifyService } from '../services/SpeechifyService'
@@ -30,6 +31,25 @@ interface KeyValidationState {
 }
 
 const IDLE_KEY_STATE: KeyValidationState = { status: 'idle' }
+
+async function logSavedElevenLabsVoiceSelections() {
+  if (!import.meta.env.DEV) return
+
+  const rows = await db.bookSettings.toArray()
+  const savedSelections = rows
+    .filter((row) => row.ttsElevenLabsVoiceId)
+    .map((row) => ({
+      bookId: row.bookId,
+      voiceId: row.ttsElevenLabsVoiceId,
+      voiceLabel: row.ttsElevenLabsVoiceLabel,
+      updatedAt: row.updatedAt,
+    }))
+
+  console.debug('[ElevenLabs:settings:saved-voices]', {
+    count: savedSelections.length,
+    selections: savedSelections.slice(0, 20),
+  })
+}
 
 function ValidationBadge({ state, emptyLabel }: { state: KeyValidationState; emptyLabel: string }) {
   if (state.status === 'validating') {
@@ -128,6 +148,7 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
     if (result.isValid) {
       if (persistOnSuccess) {
         await saveAppSettings({ elevenLabsApiKey: trimmedKey })
+        await logSavedElevenLabsVoiceSelections()
       }
       setElevenLabsKeyInput(trimmedKey)
       setElevenLabsValidation({ status: 'valid', message: result.message })

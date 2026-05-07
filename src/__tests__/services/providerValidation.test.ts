@@ -163,6 +163,176 @@ describe('provider API key validation', () => {
     ])
   })
 
+  it('preserva type e message do erro HTTP da ElevenLabs', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        voice_id: 'voice-pt',
+        name: 'Luna',
+        verified_languages: [
+          { language: 'pt', model_id: 'eleven_multilingual_v2', locale: 'pt-BR' },
+        ],
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        detail: {
+          type: 'invalid_unicode',
+          message: 'Request body contains invalid UTF-8 encoding.',
+        },
+      }), {
+        status: 422,
+        headers: { 'content-type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        detail: {
+          type: 'invalid_unicode',
+          message: 'Request body contains invalid UTF-8 encoding.',
+        },
+      }), {
+        status: 422,
+        headers: { 'content-type': 'application/json' },
+      }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const promise = ElevenLabsService.synthesize('Olá mundo', {
+      apiKey: 'valid-key',
+      language: 'pt-BR',
+      rate: 1,
+      voiceId: 'voice-pt',
+    })
+
+    await expect(promise).rejects.toMatchObject({
+      status: 422,
+      type: 'invalid_unicode',
+      voiceId: 'voice-pt',
+      modelId: 'eleven_multilingual_v2',
+    })
+    await expect(promise).rejects.toThrow('Request body contains invalid UTF-8 encoding.')
+  })
+
+  it('resolve uma voz compativel quando a voz salva nao existe na conta atual', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        detail: {
+          type: 'voice_not_found',
+          message: 'Voice not found.',
+        },
+      }), { status: 404 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        voices: [
+          {
+            voice_id: 'free-voice',
+            name: 'Free Voice',
+            verified_languages: [
+              { language: 'pt', model_id: 'eleven_multilingual_v2', locale: 'pt-BR' },
+            ],
+          },
+        ],
+        has_more: false,
+        next_page_token: null,
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        voice_id: 'free-voice',
+        name: 'Free Voice',
+        verified_languages: [
+          { language: 'pt', model_id: 'eleven_multilingual_v2', locale: 'pt-BR' },
+        ],
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        audio_base64: 'YQ==',
+        normalized_alignment: makeElevenLabsAlignment('Olá mundo'),
+      }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await ElevenLabsService.synthesize('Olá mundo', {
+      apiKey: 'free-key',
+      language: 'pt-BR',
+      rate: 1,
+      voiceId: 'paid-voice',
+    })
+
+    expect(result.audioBlob).toBeInstanceOf(Blob)
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/v1/voices/paid-voice')
+    expect(String(fetchMock.mock.calls[1][0])).toContain('/v2/voices')
+    expect(String(fetchMock.mock.calls[2][0])).toContain('/v1/voices/free-voice')
+    expect(String(fetchMock.mock.calls[3][0])).toContain('/v1/text-to-speech/free-voice/with-timestamps')
+  })
+
+  it('cai para o endpoint simples quando with-timestamps falha', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        voice_id: 'voice-pt',
+        name: 'Luna',
+        verified_languages: [
+          { language: 'pt', model_id: 'eleven_multilingual_v2', locale: 'pt-BR' },
+        ],
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        detail: {
+          type: 'unprocessable_entity',
+          message: 'Timestamps not available for this request.',
+        },
+      }), { status: 422 }))
+      .mockResolvedValueOnce(new Response('mp3-bytes', {
+        status: 200,
+        headers: { 'content-type': 'audio/mpeg' },
+      }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await ElevenLabsService.synthesize('Olá mundo', {
+      apiKey: 'free-key',
+      language: 'pt-BR',
+      rate: 1,
+      voiceId: 'voice-pt',
+    })
+
+    expect(result.audioBlob).toBeInstanceOf(Blob)
+    expect(result.audioBlob.type).toBe('audio/mpeg')
+    expect(result.speechMarks).toEqual([])
+    expect(String(fetchMock.mock.calls[1][0])).toContain('/v1/text-to-speech/voice-pt/with-timestamps')
+    expect(String(fetchMock.mock.calls[2][0])).toBe('https://api.elevenlabs.io/v1/text-to-speech/voice-pt')
+    expect((fetchMock.mock.calls[2][1] as RequestInit).headers).toMatchObject({
+      Accept: 'audio/mpeg',
+      'Content-Type': 'application/json; charset=utf-8',
+    })
+    expect(JSON.parse(String((fetchMock.mock.calls[2][1] as RequestInit).body))).toEqual({
+      text: 'Olá mundo',
+      model_id: 'eleven_multilingual_v2',
+    })
+  })
+
+  it('cai para o endpoint simples quando with-timestamps retorna 402 de assinatura', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        voice_id: 'voice-pt',
+        name: 'Luna',
+        verified_languages: [
+          { language: 'pt', model_id: 'eleven_multilingual_v2', locale: 'pt-BR' },
+        ],
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        detail: {
+          type: 'quota_exceeded',
+          message: 'This endpoint requires an active subscription.',
+        },
+      }), { status: 402 }))
+      .mockResolvedValueOnce(new Response('mp3-bytes', {
+        status: 200,
+        headers: { 'content-type': 'audio/mpeg' },
+      }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await ElevenLabsService.synthesize('Olá mundo', {
+      apiKey: 'free-key',
+      language: 'pt-BR',
+      rate: 1,
+      voiceId: 'voice-pt',
+    })
+
+    expect(result.audioBlob.type).toBe('audio/mpeg')
+    expect(result.speechMarks).toEqual([])
+    expect(String(fetchMock.mock.calls[1][0])).toContain('/v1/text-to-speech/voice-pt/with-timestamps')
+    expect(String(fetchMock.mock.calls[2][0])).toBe('https://api.elevenlabs.io/v1/text-to-speech/voice-pt')
+  })
+
   it('usa cache persistido da Speechify sem chamar a rede', async () => {
     mockGetCachedTtsVoiceOptions.mockResolvedValue([
       {
