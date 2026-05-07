@@ -20,7 +20,7 @@ export async function deleteBook(id: number): Promise<void> {
   // Sem isso, progresso, marcadores, vocabulário e assets ficam órfãos no IndexedDB.
   await db.transaction(
     'rw',
-    [db.books, db.bookCovers, db.progress, db.bookmarks, db.vocabulary, db.bookSettings, db.bookInfo, db.authors],
+    [db.books, db.bookCovers, db.progress, db.bookmarks, db.vocabulary, db.bookSettings, db.bookInfo, db.epubExtras, db.authors],
     async () => {
       await db.books.delete(id)
       await db.bookCovers.delete(id)
@@ -29,6 +29,7 @@ export async function deleteBook(id: number): Promise<void> {
       await db.vocabulary.where('bookId').equals(id).delete()
       await db.bookSettings.where('bookId').equals(id).delete()
       await db.bookInfo.delete(id)
+      await db.epubExtras.delete(id)
       await unlinkBookFromAuthors(id)
     },
   )

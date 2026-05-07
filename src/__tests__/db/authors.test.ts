@@ -59,7 +59,7 @@ describe('author cache db helpers', () => {
       authorName: 'Robert C. Martin',
       bookIds: [10],
       data: { name: 'Robert C. Martin', otherBooks: [], videos: [] },
-      fetchedAt: new Date(),
+      fetchedAt: new Date('2026-01-01T00:00:00.000Z'),
     })
 
     await expect(getCachedAuthor('Robert C. Martin', 10)).resolves.toEqual({
@@ -70,6 +70,22 @@ describe('author cache db helpers', () => {
     await getCachedAuthor('Robert C. Martin', 11)
 
     expect(mocks.rows.get('Robert C. Martin')?.bookIds).toEqual([10, 11])
+  })
+
+  it('mantem dados estaveis do autor mesmo com fetchedAt antigo', async () => {
+    mocks.rows.set('Old Author', {
+      authorName: 'Old Author',
+      bookIds: [1],
+      data: { name: 'Old Author', bio: 'Bio antiga', otherBooks: [], videos: [] },
+      fetchedAt: new Date('2024-01-01T00:00:00.000Z'),
+    })
+
+    await expect(getCachedAuthor('Old Author', 1)).resolves.toEqual({
+      name: 'Old Author',
+      bio: 'Bio antiga',
+      otherBooks: [],
+      videos: [],
+    })
   })
 
   it('normaliza cache legado sem bookIds', async () => {
@@ -83,6 +99,7 @@ describe('author cache db helpers', () => {
     await getCachedAuthor('Legacy Author', 7)
 
     expect(mocks.rows.get('Legacy Author')?.bookIds).toEqual([7])
+    expect(mocks.rows.get('Legacy Author')?.videosFetchedAt).toBeNull()
   })
 
   it('remove o vínculo do livro sem apagar o cache do autor', async () => {

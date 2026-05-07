@@ -1,4 +1,5 @@
 import { unzip } from 'fflate'
+import { deleteStoredEpubExtras, getStoredEpubExtras, saveEpubExtras } from '../db/epubExtras'
 import { decodeHtmlEntities, htmlToPlainText, normalizePlainText } from '../utils/textSanitizer'
 
 export interface EpubMetadata {
@@ -50,6 +51,11 @@ export interface EpubExtras {
   styleDiagnostics: EpubStyleDiagnostic[]
 }
 
+export interface StoredEpubExtras extends EpubExtras {
+  bookId: number
+  updatedAt: Date
+}
+
 const EMPTY_EPUB_EXTRAS: EpubExtras = {
   description: null,
   language: null,
@@ -67,6 +73,7 @@ export class EpubService {
 
   static invalidateExtrasCache(bookId: number): void {
     EpubService.extrasCache.delete(bookId)
+    void deleteStoredEpubExtras(bookId).catch(() => {})
   }
 
   static async parseMetadata(file: File): Promise<EpubMetadata> {
@@ -109,12 +116,31 @@ export class EpubService {
     if (bookId !== undefined) {
       let cached = EpubService.extrasCache.get(bookId)
       if (!cached) {
-        cached = EpubService._parseExtrasInternal(fileBlob)
+        cached = EpubService.loadOrParseExtras(fileBlob, bookId)
         EpubService.extrasCache.set(bookId, cached)
       }
       return cached
     }
     return EpubService._parseExtrasInternal(fileBlob)
+  }
+
+  private static async loadOrParseExtras(fileBlob: Blob, bookId: number): Promise<EpubExtras> {
+    const stored = await getStoredEpubExtras(bookId).catch(() => undefined)
+    if (stored) return EpubService.toEpubExtras(stored)
+
+    const extras = await EpubService._parseExtrasInternal(fileBlob)
+    await saveEpubExtras(bookId, extras).catch(() => undefined)
+    return extras
+  }
+
+  private static toEpubExtras(stored: StoredEpubExtras): EpubExtras {
+    return {
+      description: stored.description,
+      language: stored.language,
+      toc: stored.toc,
+      previewText: stored.previewText,
+      styleDiagnostics: stored.styleDiagnostics,
+    }
   }
 
   private static async _parseExtrasInternal(fileBlob: Blob): Promise<EpubExtras> {

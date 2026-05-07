@@ -1,7 +1,9 @@
 import { db } from './database'
 import type { AuthorCacheRecord, AuthorData } from '../types/author'
 
-const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000  // 7 dias
+interface SetCachedAuthorOptions {
+  videosFetchedAt?: Date | null
+}
 
 function mergeBookIds(existing: number[] | undefined, bookId?: number): number[] {
   const ids = Array.isArray(existing) ? existing : []
@@ -18,27 +20,41 @@ async function linkAuthorToBook(record: AuthorCacheRecord, bookId?: number): Pro
 }
 
 export async function getCachedAuthor(authorName: string, bookId?: number): Promise<AuthorData | null> {
+  const record = await getCachedAuthorRecord(authorName, bookId)
+  return record?.data ?? null
+}
+
+export async function getCachedAuthorRecord(authorName: string, bookId?: number): Promise<AuthorCacheRecord | null> {
   const record = await db.authors.get(authorName)
   if (!record) return null
 
-  const isStale = Date.now() - record.fetchedAt.getTime() > CACHE_TTL_MS
-  if (isStale) return null
-
-  await linkAuthorToBook({
+  const normalizedRecord: AuthorCacheRecord = {
     ...record,
     bookIds: mergeBookIds(record.bookIds),
-  }, bookId)
+    videosFetchedAt: record.videosFetchedAt ?? null,
+  }
 
-  return record.data
+  await linkAuthorToBook(normalizedRecord, bookId)
+
+  return {
+    ...normalizedRecord,
+    bookIds: mergeBookIds(normalizedRecord.bookIds, bookId),
+  }
 }
 
-export async function setCachedAuthor(authorName: string, data: AuthorData, bookId?: number): Promise<void> {
+export async function setCachedAuthor(
+  authorName: string,
+  data: AuthorData,
+  bookId?: number,
+  options: SetCachedAuthorOptions = {},
+): Promise<void> {
   const existing = await db.authors.get(authorName)
   await db.authors.put({
     authorName,
     bookIds: mergeBookIds(existing?.bookIds, bookId),
     data,
     fetchedAt: new Date(),
+    videosFetchedAt: options.videosFetchedAt ?? existing?.videosFetchedAt ?? null,
   })
 }
 

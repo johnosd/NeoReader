@@ -24,4 +24,5 @@ export interface AuthorCacheRecord {
   bookIds: number[]   // livros locais que consultaram/usam este autor
   data: AuthorData
   fetchedAt: Date
+  videosFetchedAt?: Date | null
 }

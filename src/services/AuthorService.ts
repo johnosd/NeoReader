@@ -1,6 +1,8 @@
-import { getCachedAuthor, setCachedAuthor } from '../db/authors'
+import { getCachedAuthorRecord, setCachedAuthor } from '../db/authors'
 import type { AuthorData, AuthorBook, AuthorVideo } from '../types/author'
 import { fetchWithTimeout } from './http'
+
+const AUTHOR_VIDEOS_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
 // Open Library: busca OLID (identificador interno) pelo nome do autor
 async function fetchOlid(authorName: string): Promise<string | null> {
@@ -76,18 +78,16 @@ export async function getAuthorData(
   bookId?: number,
   youtubeApiKey?: string,
 ): Promise<AuthorData | null> {
-  const cached = await getCachedAuthor(authorName, bookId)
+  const cachedRecord = await getCachedAuthorRecord(authorName, bookId)
 
-  if (cached) {
-    // Cache existe mas sem vídeos e agora temos key → busca vídeos e atualiza cache
-    // Isso resolve o caso onde o usuário adicionou a key depois da primeira carga
-    if (cached.videos.length === 0 && youtubeApiKey) {
+  if (cachedRecord) {
+    const cached = cachedRecord.data
+    // Dados estaveis do autor nao expiram; apenas videos seguem TTL curto.
+    if (youtubeApiKey && shouldRefreshVideos(cachedRecord.videosFetchedAt)) {
       const videos = await fetchYoutubeVideos(authorName, youtubeApiKey)
-      if (videos.length > 0) {
-        const updated = { ...cached, videos }
-        void setCachedAuthor(authorName, updated, bookId)
-        return updated
-      }
+      const updated = { ...cached, videos }
+      void setCachedAuthor(authorName, updated, bookId, { videosFetchedAt: new Date() })
+      return updated
     }
     return cached
   }
@@ -117,6 +117,7 @@ export async function getAuthorData(
   const videos: AuthorVideo[] = youtubeApiKey
     ? await fetchYoutubeVideos(authorName, youtubeApiKey)
     : []
+  const videosFetchedAt = youtubeApiKey ? new Date() : null
 
   // Se não encontramos nada relevante, retorna null para mostrar EmptyState
   if (!bio && !photoUrl && otherBooks.length === 0) return null
@@ -130,7 +131,7 @@ export async function getAuthorData(
   }
 
   // Fire-and-forget: não bloqueia o retorno
-  void setCachedAuthor(authorName, data, bookId)
+  void setCachedAuthor(authorName, data, bookId, { videosFetchedAt })
 
   return data
 }
@@ -166,4 +167,9 @@ export async function fetchYoutubeVideos(
   } catch {
     return []
   }
+}
+
+function shouldRefreshVideos(videosFetchedAt?: Date | null): boolean {
+  if (!videosFetchedAt) return true
+  return Date.now() - new Date(videosFetchedAt).getTime() > AUTHOR_VIDEOS_TTL_MS
 }

@@ -192,6 +192,73 @@ describe('provider API key validation', () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
+  it('usa cache persistido da ElevenLabs sem chamar a rede', async () => {
+    mockGetCachedTtsVoiceOptions.mockResolvedValue([
+      {
+        id: 'eleven-cached',
+        label: 'Eleven Cached',
+        locale: 'pt-BR',
+        provider: 'elevenlabs',
+        previewUrl: null,
+        meta: 'BR',
+      },
+    ])
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await ElevenLabsService.listCompatibleVoices('pt-BR', 'eleven-key')
+
+    expect(result).toEqual([
+      {
+        id: 'eleven-cached',
+        label: 'Eleven Cached',
+        locale: 'pt-BR',
+        provider: 'elevenlabs',
+        previewUrl: null,
+        meta: 'BR',
+      },
+    ])
+    expect(mockGetCachedTtsVoiceOptions).toHaveBeenCalledWith(12345, 24 * 60 * 60 * 1000)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('salva vozes compativeis da ElevenLabs no cache persistido', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      voices: [
+        {
+          voice_id: 'voice-pt',
+          name: 'Luna',
+          labels: { accent: 'BR', gender: 'female' },
+          preview_url: 'https://cdn.example/luna.mp3',
+          verified_languages: [
+            { language: 'pt', model_id: 'eleven_multilingual_v2', locale: 'pt-BR' },
+          ],
+        },
+      ],
+      has_more: false,
+      next_page_token: null,
+    }), { status: 200 })))
+
+    const result = await ElevenLabsService.listCompatibleVoices('pt-BR', 'eleven-key')
+
+    expect(result).toEqual([
+      {
+        id: 'voice-pt',
+        label: 'Luna',
+        locale: 'pt-BR',
+        provider: 'elevenlabs',
+        previewUrl: 'https://cdn.example/luna.mp3',
+        meta: 'BR · female',
+      },
+    ])
+    expect(mockSetCachedTtsVoiceOptions).toHaveBeenCalledWith({
+      cacheKey: 12345,
+      provider: 'elevenlabs',
+      language: 'pt-BR',
+      voices: result,
+    })
+  })
+
   it('normaliza vozes da Speechify em snake_case para a UI', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify([
       {

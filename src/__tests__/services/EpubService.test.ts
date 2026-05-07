@@ -4,6 +4,19 @@ const fflateState = vi.hoisted(() => ({
   files: {} as Record<string, Uint8Array>,
 }))
 
+const epubExtrasDb = vi.hoisted(() => ({
+  rows: new Map<number, unknown>(),
+  getStoredEpubExtras: vi.fn(async (bookId: number) => epubExtrasDb.rows.get(bookId)),
+  saveEpubExtras: vi.fn(async (bookId: number, extras: unknown) => {
+    const record = { ...(extras as object), bookId, updatedAt: new Date() }
+    epubExtrasDb.rows.set(bookId, record)
+    return record
+  }),
+  deleteStoredEpubExtras: vi.fn(async (bookId: number) => {
+    epubExtrasDb.rows.delete(bookId)
+  }),
+}))
+
 vi.mock('fflate', async () => {
   const actual = await vi.importActual<typeof import('fflate')>('fflate')
 
@@ -14,6 +27,12 @@ vi.mock('fflate', async () => {
     },
   }
 })
+
+vi.mock('@/db/epubExtras', () => ({
+  getStoredEpubExtras: epubExtrasDb.getStoredEpubExtras,
+  saveEpubExtras: epubExtrasDb.saveEpubExtras,
+  deleteStoredEpubExtras: epubExtrasDb.deleteStoredEpubExtras,
+}))
 
 import { EpubService } from '@/services/EpubService'
 
@@ -552,6 +571,10 @@ describe('EpubService.parseExtras - cache de sessão', () => {
 
   beforeEach(() => {
     fflateState.files = MINIMAL_EPUB
+    epubExtrasDb.rows.clear()
+    epubExtrasDb.getStoredEpubExtras.mockClear()
+    epubExtrasDb.saveEpubExtras.mockClear()
+    epubExtrasDb.deleteStoredEpubExtras.mockClear()
   })
 
   it('retorna o mesmo resultado sem reprocessar o ZIP na segunda chamada', async () => {
@@ -566,6 +589,30 @@ describe('EpubService.parseExtras - cache de sessão', () => {
 
     // arrayBuffer é chamado apenas na primeira — segunda vem do cache
     expect(arrayBuffer).toHaveBeenCalledTimes(1)
+    expect(epubExtrasDb.saveEpubExtras).toHaveBeenCalledWith(bookId, expect.any(Object))
+  })
+
+  it('usa extras persistidos sem reprocessar o ZIP', async () => {
+    const bookId = 9006
+    EpubService.invalidateExtrasCache(bookId)
+    epubExtrasDb.deleteStoredEpubExtras.mockClear()
+    epubExtrasDb.rows.set(bookId, {
+      bookId,
+      description: 'Persistido',
+      language: 'pt-BR',
+      toc: [{ label: 'Capitulo', href: 'chapter.xhtml' }],
+      previewText: 'Trecho',
+      styleDiagnostics: [],
+      updatedAt: new Date(),
+    })
+    const arrayBuffer = vi.fn().mockResolvedValue(new ArrayBuffer(0))
+    const blob = { arrayBuffer } as unknown as Blob
+
+    const extras = await EpubService.parseExtras(blob, bookId)
+
+    expect(extras.description).toBe('Persistido')
+    expect(arrayBuffer).not.toHaveBeenCalled()
+    expect(epubExtrasDb.saveEpubExtras).not.toHaveBeenCalled()
   })
 
   it('processa o ZIP separadamente para bookIds diferentes', async () => {

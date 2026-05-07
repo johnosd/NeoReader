@@ -41,7 +41,7 @@ preferencias, vocabulario, metadados, autores e caches locais.
   `VITE_NYT_API_KEY` esta configurada.
 - Secoes atuais: `advice-how-to-and-miscellaneous`, `hardcover-fiction` e
   `business-books`.
-- Cache em `localStorage` por lista para reduzir chamadas repetidas.
+- Cache em `localStorage` por lista por 12h para reduzir chamadas repetidas.
 - Cards NYT com capa, ranking, descricao e link externo.
 
 ### Perfil
@@ -352,7 +352,7 @@ cd android
 ## Persistencia local
 
 O banco local usa Dexie em `NeoReaderDB`. O schema atual e versionado; a versao
-11 adiciona o vinculo `bookIds` ao cache de autores.
+12 separa o TTL dos videos de autores e persiste extras estaveis do EPUB.
 
 | Tabela | Conteudo |
 |---|---|
@@ -367,6 +367,7 @@ O banco local usa Dexie em `NeoReaderDB`. O schema atual e versionado; a versao
 | `ttsVoiceCaches` | Cache de vozes TTS compativeis |
 | `authors` | Cache de dados de autores, com `bookIds` vinculados |
 | `bookInfo` | Ficha bibliografica enriquecida por livro |
+| `epubExtras` | Descricao, idioma, TOC, preview e diagnosticos extraidos do EPUB |
 
 Relacionamentos principais:
 
@@ -378,9 +379,18 @@ books.id
   -> vocabulary.bookId
   -> bookSettings.bookId
   -> bookInfo.bookId
+  -> epubExtras.bookId
 
 authors.bookIds[] -> books.id
 ```
+
+Politica de TTL:
+
+- Autores: bio, foto e outros livros persistem sem TTL automatico; videos do
+  YouTube expiram em 7 dias.
+- Vozes compativeis Speechify e ElevenLabs expiram em 24h.
+- Listas NYT em `localStorage` expiram em 12h.
+- `bookInfo`, traducoes cacheadas e `epubExtras` nao expiram automaticamente.
 
 Tambem existem valores persistidos fora do Dexie:
 

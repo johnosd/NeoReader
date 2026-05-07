@@ -17,6 +17,7 @@ memory by design.
 - `ttsVoiceCaches`: compatible TTS voice option caches.
 - `authors`: author data cache, linked to local books through `bookIds`.
 - `bookInfo`: enriched bibliographic metadata with value, source and confidence.
+- `epubExtras`: stable EPUB details extracted from the local file.
 
 ## IndexedDB schema diagram
 
@@ -125,6 +126,17 @@ erDiagram
     number_array bookIds FK
     object data
     Date fetchedAt
+    Date videosFetchedAt
+  }
+
+  EPUB_EXTRAS {
+    number bookId PK,FK
+    string description
+    string language
+    array toc
+    string previewText
+    array styleDiagnostics
+    Date updatedAt
   }
 
   BOOK_INFO {
@@ -155,24 +167,30 @@ erDiagram
   BOOKS ||--o{ VOCABULARY : "has saved terms"
   BOOKS ||--o| BOOK_SETTINGS : "has overrides"
   BOOKS ||--o| BOOK_INFO : "has metadata"
+  BOOKS ||--o| EPUB_EXTRAS : "has extracted extras"
   AUTHORS }o..o{ BOOKS : "linked by bookIds array"
 ```
 
 Notes:
 
 - Dexie indexes are declared in `src/db/database.ts`; the current schema is
-  version 11.
+  version 12.
 - `authors.bookIds` is a multi-entry index, not a physical join table.
+- Stable author fields do not expire automatically; only `authors.data.videos`
+  uses `videosFetchedAt` with a 7-day TTL.
 - `bookInfo` stores each bibliographic field as an object containing `value`,
   `source` and `confidence`.
-- `settings`, `ttsVoiceCaches`, `authors.data` and `bookInfo` contain nested
-  objects that are persisted as IndexedDB values, even when only top-level
-  fields are indexed.
+- `ttsVoiceCaches` keeps compatible Speechify and ElevenLabs voices for 24h.
+- `epubExtras` persists description, language, TOC, preview text and style
+  diagnostics until the local book is deleted or the extras cache is invalidated.
+- `settings`, `ttsVoiceCaches`, `authors.data`, `bookInfo` and `epubExtras`
+  contain nested objects that are persisted as IndexedDB values, even when only
+  top-level fields are indexed.
 
 ## Persisted outside IndexedDB
 
 - `localStorage`: `neoreader:welcome-seen`.
-- `localStorage`: NYT trending list cache entries.
+- `localStorage`: NYT trending list cache entries, with a 12-hour TTL.
 - Firebase/Auth SDK persistence: signed-in session state.
 
 ## Not persisted by design
@@ -182,7 +200,6 @@ Notes:
 - Loading, validation and error states.
 - Settings form input while the user is editing but has not saved.
 - Book details diagnostics, refresh token, optimistic state and voice preview state.
-- EPUB extras cache: description, language, TOC, preview text and style diagnostics.
 - Live reader state in Zustand: current CFI, percentage, chapter label and TOC.
 - Debounced progress that has not flushed yet.
 - Reader chrome visibility and auto-hide timers.
@@ -195,7 +212,8 @@ Notes:
 
 ## Current decision
 
-Only durable reading data, user preferences, saved vocabulary, caches and
-bibliographic metadata are persisted. UI state, reader runtime state, generated
-audio, temporary highlights and unsaved translations remain temporary so the app
-does not restore stale interaction state after restart.
+Durable reading data, user preferences, saved vocabulary, stable author data,
+EPUB extras, caches and bibliographic metadata are persisted. UI state, reader
+runtime state, generated audio, temporary highlights and unsaved translations
+remain temporary so the app does not restore stale interaction state after
+restart.

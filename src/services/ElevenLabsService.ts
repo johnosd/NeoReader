@@ -1,4 +1,5 @@
 import { getSettings } from '../db/settings'
+import { buildTtsVoiceCacheKey, getCachedTtsVoiceOptions, setCachedTtsVoiceOptions } from '../db/ttsVoiceCaches'
 import type { TtsSpeechMark, TtsVoiceOption } from '../types/tts'
 import { clampTtsRate, getBaseLanguage, isLanguageCompatible, normalizeLanguageTag } from '../utils/language'
 
@@ -8,6 +9,7 @@ const API_URL = 'https://api.elevenlabs.io/v1/text-to-speech'
 const MAX_CHARS = 2400
 const VOICES_PAGE_SIZE = 20
 const TARGET_COMPATIBLE_VOICES = 24
+const VOICE_CACHE_TTL_MS = 24 * 60 * 60 * 1000
 
 interface ElevenLabsVoiceLanguage {
   language: string
@@ -301,6 +303,10 @@ export const ElevenLabsService = {
     const resolvedApiKey = apiKey ?? await this.getApiKey()
     if (!resolvedApiKey) return []
 
+    const cacheKey = buildTtsVoiceCacheKey('elevenlabs', normalizedLanguage, resolvedApiKey)
+    const cached = await getCachedTtsVoiceOptions(cacheKey, VOICE_CACHE_TTL_MS)
+    if (cached) return cached
+
     const compatibleVoices: TtsVoiceOption[] = []
     let nextPageToken: string | null | undefined
 
@@ -316,7 +322,14 @@ export const ElevenLabsService = {
         : null
     } while (nextPageToken)
 
-    return compatibleVoices.sort((left, right) => left.label.localeCompare(right.label))
+    const sortedVoices = compatibleVoices.sort((left, right) => left.label.localeCompare(right.label))
+    await setCachedTtsVoiceOptions({
+      cacheKey,
+      provider: 'elevenlabs',
+      language: normalizedLanguage,
+      voices: sortedVoices,
+    })
+    return sortedVoices
   },
 
   async getVoice(apiKey: string, voiceId: string): Promise<ElevenLabsVoice> {
