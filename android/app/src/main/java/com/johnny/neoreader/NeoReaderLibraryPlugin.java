@@ -30,6 +30,28 @@ public class NeoReaderLibraryPlugin extends Plugin {
         startActivityForResult(call, intent, "folderSelected");
     }
 
+    @PluginMethod
+    public void readFile(PluginCall call) {
+        String uriValue = call.getString("uri");
+        if (uriValue == null || uriValue.isEmpty()) {
+            call.reject("Arquivo invalido.");
+            return;
+        }
+
+        try {
+            Uri uri = Uri.parse(uriValue);
+            JSObject response = new JSObject();
+            response.put("name", call.getString("name", "livro.epub"));
+            response.put("uri", uriValue);
+            response.put("path", call.getString("path"));
+            response.put("size", call.getLong("size", 0L));
+            response.put("base64", readFileAsBase64(uri));
+            call.resolve(response);
+        } catch (Exception error) {
+            call.reject("Erro ao ler arquivo da pasta selecionada.", error);
+        }
+    }
+
     @ActivityCallback
     private void folderSelected(PluginCall call, ActivityResult result) {
         if (call == null) return;
@@ -92,7 +114,6 @@ public class NeoReaderLibraryPlugin extends Plugin {
             file.put("uri", child.getUri().toString());
             file.put("path", childPath);
             file.put("size", child.length());
-            file.put("base64", readFileAsBase64(child.getUri()));
             files.put(file);
         }
     }

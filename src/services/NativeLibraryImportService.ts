@@ -1,11 +1,11 @@
 import { Capacitor, registerPlugin } from '@capacitor/core'
 
-interface NativeFolderFile {
+export interface NativeFolderFile {
   name: string
   uri: string
   path?: string
   size: number
-  base64: string
+  base64?: string
 }
 
 interface NativeFolderResult {
@@ -16,21 +16,27 @@ interface NativeFolderResult {
 
 interface NeoReaderLibraryPlugin {
   selectEpubFolder(): Promise<NativeFolderResult>
+  readFile(file: NativeFolderFile): Promise<NativeFolderFile & { base64: string }>
 }
 
 const NeoReaderLibrary = registerPlugin<NeoReaderLibraryPlugin>('NeoReaderLibrary')
 
-export async function selectNativeEpubFolder(): Promise<{ folderName: string; folderUri: string; files: File[] } | null> {
+export async function selectNativeEpubFolder(): Promise<{ folderName: string; folderUri: string; files: NativeFolderFile[] } | null> {
   if (!Capacitor.isNativePlatform()) return null
 
   const result = await NeoReaderLibrary.selectEpubFolder()
-  const files = result.files.map((file) => base64ToFile(file.base64, file.name, file.path))
 
   return {
     folderName: result.folderName,
     folderUri: result.folderUri,
-    files,
+    files: result.files,
   }
+}
+
+export async function readNativeFolderFile(file: NativeFolderFile): Promise<File> {
+  const result = file.base64 ? file : await NeoReaderLibrary.readFile(file)
+  if (!result.base64) throw new Error('Arquivo da pasta sem conteudo.')
+  return base64ToFile(result.base64, result.name, result.path)
 }
 
 function base64ToFile(base64: string, fileName: string, relativePath?: string): File {

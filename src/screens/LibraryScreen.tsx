@@ -3,12 +3,12 @@ import { App as CapApp } from '@capacitor/app'
 import { ArrowUpDown, BookOpen, Check, FileText, FolderOpen, MoreVertical, Plus, Search, Tag, X } from 'lucide-react'
 import { BottomNav } from '../components/BottomNav'
 import { QuickBookActionsSheet } from '../components/QuickBookActionsSheet'
-import { BottomSheet, Button, Checkbox, EmptyState, Input, Skeleton, Toast } from '../components/ui'
+import { BottomSheet, Button, Checkbox, EmptyState, Input, Skeleton, Spinner, Toast } from '../components/ui'
 import { createTag } from '../db/tags'
 import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
 import { useLibraryCatalog, type LibraryBook, type LibraryFilter, type LibrarySort } from '../hooks/useLibraryCatalog'
 import { BookImportService, type FolderImportOptions, type ImportPreviewItem, type ImportProgress, type ImportSummary } from '../services/BookImportService'
-import { selectNativeEpubFolder } from '../services/NativeLibraryImportService'
+import { readNativeFolderFile, selectNativeEpubFolder, type NativeFolderFile } from '../services/NativeLibraryImportService'
 import type { Book, BookTag } from '../types/book'
 
 interface LibraryScreenProps {
@@ -120,16 +120,20 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
   }
 
   async function chooseFolder() {
+    setImporting(true)
+    setImportError(null)
     try {
       const result = await selectNativeEpubFolder()
       if (!result) {
+        setImporting(false)
         folderInputRef.current?.click()
         return
       }
 
       setImportFlow({
         step: 'options',
-        files: result.files,
+        files: [],
+        nativeFiles: result.files,
         folderName: result.folderName,
         folderUri: result.folderUri,
         includeSubfolders: true,
@@ -139,22 +143,40 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
       })
     } catch (error) {
       setImportError(error instanceof Error ? error.message : 'Erro ao selecionar pasta.')
+    } finally {
+      setImporting(false)
     }
   }
 
   async function buildPreview(options: ImportOptionsState) {
     setImporting(true)
     try {
-      const files = options.includeSubfolders
-        ? options.files
-        : options.files.filter((file) => !isInSubfolder(file))
+      const files = await resolveImportFiles(options)
       const preview = await BookImportService.buildImportPreview(files)
-      setImportFlow({ ...options, step: 'preview', preview, selectedTagIds: [] })
+      setImportFlow({ ...options, files, step: 'preview', preview, selectedTagIds: [] })
     } catch (error) {
       setImportError(error instanceof Error ? error.message : 'Erro ao escanear arquivos.')
     } finally {
       setImporting(false)
     }
+  }
+
+  async function resolveImportFiles(options: ImportOptionsState): Promise<File[]> {
+    if (!options.nativeFiles) {
+      return options.includeSubfolders
+        ? options.files
+        : options.files.filter((file) => !isInSubfolder(file))
+    }
+
+    const nativeFiles = options.includeSubfolders
+      ? options.nativeFiles
+      : options.nativeFiles.filter((file) => !isNativeInSubfolder(file))
+    const files: File[] = []
+    for (const nativeFile of nativeFiles) {
+      files.push(await readNativeFolderFile(nativeFile))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+    return files
   }
 
   async function confirmImport() {
@@ -360,6 +382,7 @@ type ImportFlowState =
 interface ImportOptionsState {
   step: 'options'
   files: File[]
+  nativeFiles?: NativeFolderFile[]
   folderName: string
   folderUri: string
   includeSubfolders: boolean
@@ -518,21 +541,35 @@ function ImportFlowSheet({
           <p className="text-sm leading-relaxed text-text-secondary">
             Escolha uma pasta com seus livros. O NeoReader acessará apenas a pasta selecionada.
           </p>
-          <Button onClick={onChooseFolder} leftIcon={<FolderOpen size={18} />}>Escolher pasta</Button>
+          {importing && (
+            <div className="flex items-center gap-3 rounded-md border border-purple-primary/25 bg-purple-primary/10 px-4 py-3 text-sm text-text-secondary" role="status" aria-live="polite">
+              <Spinner size={18} label="Lendo pasta" />
+              <span>Processando a pasta selecionada...</span>
+            </div>
+          )}
+          <Button disabled={importing} onClick={onChooseFolder} leftIcon={<FolderOpen size={18} />}>
+            {importing ? 'Lendo pasta...' : 'Escolher pasta'}
+          </Button>
         </div>
       )}
 
       {state.step === 'options' && (
         <div className="space-y-4">
-          <p className="text-sm text-text-secondary">{state.files.length} arquivos encontrados em {state.folderName}.</p>
+          <p className="text-sm text-text-secondary">{getImportFileCount(state)} arquivos encontrados em {state.folderName}.</p>
           <Checkbox checked={state.includeSubfolders} onChange={(value) => onOptionsChange({ ...state, includeSubfolders: value })} label="Incluir subpastas" />
           <Checkbox checked={state.autoImportEnabled} onChange={(value) => onOptionsChange({ ...state, autoImportEnabled: value })} label="Detectar novos livros automaticamente" />
           <Checkbox checked={state.applyFolderTag} onChange={(value) => onOptionsChange({ ...state, applyFolderTag: value })} label="Aplicar tag automática com nome da pasta" />
           {state.applyFolderTag && (
             <Input value={state.tagName} onChange={(e) => onOptionsChange({ ...state, tagName: e.target.value })} label="Tag sugerida" />
           )}
+          {importing && (
+            <div className="flex items-center gap-3 rounded-md border border-purple-primary/25 bg-purple-primary/10 px-4 py-3 text-sm text-text-secondary" role="status" aria-live="polite">
+              <Spinner size={18} label="Lendo arquivos" />
+              <span>Lendo arquivos e preparando o preview...</span>
+            </div>
+          )}
           <Button disabled={importing} onClick={() => void onBuildPreview(state)}>
-            {importing ? 'Escaneando...' : 'Continuar'}
+            {importing ? 'Preparando preview...' : 'Continuar'}
           </Button>
         </div>
       )}
@@ -734,6 +771,15 @@ function getFolderName(files: File[]): string {
 function isInSubfolder(file: File): boolean {
   const parts = file.webkitRelativePath.split('/').filter(Boolean)
   return parts.length > 2
+}
+
+function isNativeInSubfolder(file: NativeFolderFile): boolean {
+  const parts = (file.path ?? '').split('/').filter(Boolean)
+  return parts.length > 2
+}
+
+function getImportFileCount(state: ImportOptionsState): number {
+  return state.nativeFiles?.length ?? state.files.length
 }
 
 function formatDate(date: Date): string {
