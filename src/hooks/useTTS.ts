@@ -359,11 +359,16 @@ export function useTTS(options: UseTTSOptions) {
     const config = configRef.current
     const apiKey = await ElevenLabsService.getApiKey()
     if (!apiKey) throw new Error('ElevenLabs not configured')
-    const voiceId = config.elevenLabsVoiceId
-    if (!voiceId) throw new Error('ElevenLabs voice missing')
+    if (import.meta.env.DEV) {
+      console.debug('[ElevenLabs:reader:selected]', {
+        language: config.language,
+        rate: config.rate,
+        voiceId: config.elevenLabsVoiceId,
+      })
+    }
     const result = await ElevenLabsService.synthesize(text, {
       apiKey,
-      voiceId,
+      voiceId: config.elevenLabsVoiceId,
       language: config.language,
       rate: config.rate,
     })

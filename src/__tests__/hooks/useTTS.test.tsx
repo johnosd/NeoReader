@@ -328,6 +328,43 @@ describe('useTTS', () => {
     expect(callbacks.onFinished).toHaveBeenCalledOnce()
   })
 
+  it('permite ElevenLabs com voz padrao sem exigir voiceId salvo no livro', async () => {
+    elevenLabsMock.getApiKey.mockResolvedValue('eleven-key')
+    elevenLabsMock.isConfigured.mockResolvedValue(true)
+
+    const callbacks = createCallbacks()
+    const { result } = renderHook(() => useTTS({
+      ...callbacks,
+      provider: 'elevenlabs',
+      language: 'pt-BR',
+      rate: 1,
+      elevenLabsVoiceId: null,
+    }))
+    const chunks: TtsChunk[] = [
+      { text: 'Primeiro paragrafo.', paraIdx: 0, offsetInPara: 0 },
+    ]
+
+    let playPromise: Promise<void> | undefined
+    await act(async () => {
+      playPromise = result.current.play(chunks, 0)
+    })
+    await flushMicrotasks()
+
+    expect(elevenLabsMock.synthesize).toHaveBeenCalledWith('Primeiro paragrafo.', {
+      apiKey: 'eleven-key',
+      language: 'pt-BR',
+      rate: 1,
+      voiceId: null,
+    })
+    expect(textToSpeechMock.speak).not.toHaveBeenCalled()
+    expect(callbacks.onProviderFallback).not.toHaveBeenCalled()
+
+    await act(async () => {
+      FakeAudio.instances[0]?.finish()
+      await playPromise
+    })
+  })
+
   it('normaliza speech marks em segundos antes de destacar palavras premium', async () => {
     vi.useFakeTimers()
     try {
