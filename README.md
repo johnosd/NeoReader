@@ -39,12 +39,15 @@ preferencias, vocabulario, metadados, autores e caches locais.
 
 - Tela "Descubra" com listas atuais do NYT Best Sellers quando
   `VITE_NYT_API_KEY` esta configurada.
-- Secoes gerais: `advice-how-to-and-miscellaneous`, `hardcover-fiction` e
+- Secao "Tendencias no Mundo": `advice-how-to-and-miscellaneous`,
+  `hardcover-fiction` e
   `business-books`.
-- Secao infantil: `childrens-middle-grade-hardcover`, `series-books` e
+- Secao "O que as criancas estao lendo agora":
+  `childrens-middle-grade-hardcover`, `series-books` e
   `graphic-books-and-manga`.
+- As duas secoes usam o mesmo layout horizontal, estados de loading/erro e
+  cards NYT com capa, ranking, descricao e link externo.
 - Cache em `localStorage` por lista por 12h para reduzir chamadas repetidas.
-- Cards NYT com capa, ranking, descricao e link externo.
 
 ### Perfil
 
@@ -273,7 +276,7 @@ VITE_NYT_API_KEY=
 | `VITE_SPEECHIFY_API_KEY` | Vozes neurais e speech marks da Speechify | Nao |
 | `VITE_ELEVENLABS_API_KEY` | Vozes premium e alinhamento temporal da ElevenLabs | Nao |
 | `VITE_GOOGLE_BOOKS_API_KEY` | Metadados editoriais via Google Books com menor risco de quota publica | Nao |
-| `VITE_NYT_API_KEY` | Listas atuais do NYT Best Sellers na tela Descubra | Nao |
+| `VITE_NYT_API_KEY` | Listas gerais e infantis do NYT Best Sellers na tela Descubra | Nao |
 
 A chave do YouTube e persistida pela tela de configuracoes do app; o codigo atual
 nao le uma variavel `VITE_` para ela.
@@ -297,9 +300,7 @@ Pre-requisitos:
 - USB debugging ativo quando usar device fisico.
 
 ```bash
-npm run build
-npx cap sync android
-npx cap run android
+npm run build && npx cap sync android && npx cap run android
 ```
 
 Atalho:
@@ -391,13 +392,13 @@ Politica de TTL:
 - Autores: bio, foto e outros livros persistem sem TTL automatico; videos do
   YouTube expiram em 7 dias.
 - Vozes compativeis Speechify e ElevenLabs expiram em 24h.
-- Listas NYT em `localStorage` expiram em 12h.
+- Listas NYT da tela Descubra em `localStorage` expiram em 12h por lista.
 - `bookInfo`, traducoes cacheadas e `epubExtras` nao expiram automaticamente.
 
 Tambem existem valores persistidos fora do Dexie:
 
 - `localStorage`: `neoreader:welcome-seen`.
-- `localStorage`: cache das listas NYT.
+- `localStorage`: cache das listas NYT da tela Descubra.
 - Firebase/Auth SDK: sessao autenticada.
 
 Estados de UI, leitor e TTS continuam temporarios por design. A lista completa

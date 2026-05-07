@@ -218,6 +218,28 @@
 
 ---
 
+## TC-12 - Descubra: listas NYT gerais e infantis
+
+**Pre-condicao:** Build com `VITE_NYT_API_KEY` configurada e conexao ativa.
+
+**Passos:**
+1. Abrir a aba Descubra
+2. Conferir a secao "Tendencias no Mundo"
+3. Conferir a secao "O que as criancas estao lendo agora"
+4. Desativar/remover temporariamente `VITE_NYT_API_KEY` e recarregar a tela
+
+**Resultado esperado:**
+- A secao "Tendencias no Mundo" exibe as listas `advice-how-to-and-miscellaneous`, `hardcover-fiction` e `business-books`
+- A secao "O que as criancas estao lendo agora" aparece abaixo com `childrens-middle-grade-hardcover`, `series-books` e `graphic-books-and-manga`
+- As listas infantis usam o mesmo layout horizontal, loading, erro e cache visual das listas existentes
+- Sem `VITE_NYT_API_KEY`, a tela mantem o estado vazio esperado para NYT
+
+**Resultado obtido:** ______
+
+**Status:** ✅ / ❌
+
+---
+
 ## Resumo de resultados
 
 | TC | Descrição | Status |
@@ -233,5 +255,6 @@
 | TC-09 | Seleção múltipla limpa anterior | |
 | TC-10 | Navegação pelo TOC | |
 | TC-11 | Retomar leitura (posição salva) | |
+| TC-12 | Descubra: listas NYT gerais e infantis | |
 
-**Total ✅:** _____ / 11
+**Total ✅:** _____ / 12

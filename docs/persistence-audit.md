@@ -190,7 +190,7 @@ Notes:
 ## Persisted outside IndexedDB
 
 - `localStorage`: `neoreader:welcome-seen`.
-- `localStorage`: NYT trending list cache entries, with a 12-hour TTL.
+- `localStorage`: NYT Discover list cache entries, with a 12-hour TTL per list.
 - Firebase/Auth SDK persistence: signed-in session state.
 
 ## Not persisted by design
