@@ -20,7 +20,7 @@ const NATIVE_RANGE_FALLBACK_DELAY_MS = 180
 interface UseTTSOptions extends TtsPlaybackConfig {
   onWordHighlight: (paraIdx: number, start: number, end: number) => void
   onParagraphChange: (paraIdx: number) => void
-  onProviderFallback?: (payload: { provider: TtsProvider; fallbackProvider: 'native' }) => void
+  onProviderFallback?: (payload: { provider: TtsProvider; fallbackProvider: 'native'; reason: string }) => void
   onStop: () => void
   onFinished?: () => void
 }
@@ -60,6 +60,65 @@ function logPremiumTtsFallback(provider: TtsProvider, error: unknown) {
 
 function logTtsPlaybackError(error: unknown) {
   console.warn('TTS playback failed.', error)
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof DOMException) return error.message || error.name
+  if (error instanceof Error) return error.message
+  return String(error)
+}
+
+function getHttpStatusFromError(message: string): number | null {
+  const match = message.match(/(?:error|status)[:\s]+(\d{3})/i)
+  if (!match) return null
+
+  const status = Number(match[1])
+  return Number.isFinite(status) ? status : null
+}
+
+function getProviderLabel(provider: TtsProvider): string {
+  if (provider === 'speechify') return 'Speechify'
+  if (provider === 'elevenlabs') return 'ElevenLabs'
+  return 'TTS nativo'
+}
+
+function getPremiumFallbackReason(provider: TtsProvider, error: unknown): string {
+  const providerLabel = getProviderLabel(provider)
+  const message = getErrorMessage(error)
+  const normalized = message.toLowerCase()
+  const status = getHttpStatusFromError(message)
+
+  if (normalized.includes('not configured')) {
+    return `${providerLabel} não está configurado. Confira a API key nas configurações.`
+  }
+  if (normalized.includes('empty input')) {
+    return 'O trecho selecionado não tem texto suficiente para gerar áudio.'
+  }
+  if (normalized.includes('compatible voice missing')) {
+    return `${providerLabel} não encontrou uma voz compatível com o idioma do livro.`
+  }
+  if (normalized.includes('voice missing')) {
+    return `${providerLabel} não tem uma voz selecionada para este livro.`
+  }
+  if (normalized.includes('aborted') || normalized.includes('aborterror')) {
+    return `${providerLabel} demorou para responder e a requisição expirou.`
+  }
+  if (normalized.includes('failed to fetch') || normalized.includes('networkerror')) {
+    return `Falha de rede ao conectar com ${providerLabel}.`
+  }
+
+  if (status === 400) return `${providerLabel} recusou a requisição. Verifique voz, idioma e texto selecionados.`
+  if (status === 401 || status === 403) return `API key do ${providerLabel} inválida, expirada ou sem permissão.`
+  if (status === 402) return `${providerLabel} recusou por falta de créditos ou assinatura.`
+  if (status === 404) return `A voz selecionada no ${providerLabel} não foi encontrada.`
+  if (status === 408) return `${providerLabel} demorou para responder e a requisição expirou.`
+  if (status === 409) return `${providerLabel} recusou a voz ou o modelo selecionado para este idioma.`
+  if (status === 413) return 'O trecho enviado ao TTS ficou grande demais para o provedor.'
+  if (status === 422) return `${providerLabel} não conseguiu processar esse texto, voz ou idioma.`
+  if (status === 429) return `${providerLabel} atingiu limite de uso ou muitas requisições.`
+  if (status && status >= 500) return `${providerLabel} está indisponível no momento.`
+
+  return `${providerLabel} falhou por um erro inesperado.`
 }
 
 function getAudioDurationMs(audio: HTMLAudioElement): number | null {
@@ -366,7 +425,7 @@ export function useTTS(options: UseTTSOptions) {
     offsetInPara: number,
     session: number,
     trackPlaybackState: boolean,
-    onFallback: (p: TtsProvider) => void,
+    onFallback: (provider: TtsProvider, error: unknown) => void,
   ): Promise<{ sessionEnded: boolean; usedProvider: TtsProvider }> {
     if (provider === 'speechify') {
       activeProviderRef.current = 'speechify'
@@ -378,7 +437,7 @@ export function useTTS(options: UseTTSOptions) {
           return { sessionEnded: true, usedProvider: 'speechify' }
         }
         logPremiumTtsFallback('speechify', error)
-        onFallback('speechify')
+        onFallback('speechify', error)
         await fallbackToNative(text, session, nativeParaIdx, offsetInPara)
         return { sessionEnded: false, usedProvider: 'native' }
       }
@@ -394,7 +453,7 @@ export function useTTS(options: UseTTSOptions) {
           return { sessionEnded: true, usedProvider: 'elevenlabs' }
         }
         logPremiumTtsFallback('elevenlabs', error)
-        onFallback('elevenlabs')
+        onFallback('elevenlabs', error)
         await fallbackToNative(text, session, nativeParaIdx, offsetInPara)
         return { sessionEnded: false, usedProvider: 'native' }
       }
@@ -426,10 +485,14 @@ export function useTTS(options: UseTTSOptions) {
     let playbackError: unknown = null
     let providerFallbackNotified = false
 
-    const notifyProviderFallback = (provider: TtsProvider) => {
+    const notifyProviderFallback = (provider: TtsProvider, error: unknown) => {
       if (providerFallbackNotified) return
       providerFallbackNotified = true
-      callbacksRef.current.onProviderFallback?.({ provider, fallbackProvider: 'native' })
+      callbacksRef.current.onProviderFallback?.({
+        provider,
+        fallbackProvider: 'native',
+        reason: getPremiumFallbackReason(provider, error),
+      })
     }
 
     if (resolvedProvider === 'native') {
@@ -554,10 +617,14 @@ export function useTTS(options: UseTTSOptions) {
     let speakOneError: unknown = null
     let providerFallbackNotified = false
 
-    const notifyProviderFallback = (provider: TtsProvider) => {
+    const notifyProviderFallback = (provider: TtsProvider, error: unknown) => {
       if (providerFallbackNotified) return
       providerFallbackNotified = true
-      callbacksRef.current.onProviderFallback?.({ provider, fallbackProvider: 'native' })
+      callbacksRef.current.onProviderFallback?.({
+        provider,
+        fallbackProvider: 'native',
+        reason: getPremiumFallbackReason(provider, error),
+      })
     }
 
     let nativeHandle: Awaited<ReturnType<typeof TextToSpeech.addListener>> | null = null

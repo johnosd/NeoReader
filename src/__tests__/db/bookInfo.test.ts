@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { StoredBookInfo } from '@/types/bookInfo'
+import { BOOK_INFO_SCHEMA_VERSION, type StoredBookInfo } from '@/types/bookInfo'
 
 const mocks = vi.hoisted(() => {
   const rows = new Map<number, StoredBookInfo>()
@@ -37,6 +37,7 @@ describe('book info db helpers', () => {
 
   it('salva metadados enriquecidos com timestamps e fonte por campo', async () => {
     const record = await saveBookInfo(10, {
+      metadataSchemaVersion: BOOK_INFO_SCHEMA_VERSION,
       category: {
         value: [{ label: 'Fiction' }],
         source: 'epub-metadata',
@@ -50,6 +51,13 @@ describe('book info db helpers', () => {
       },
       pageCount: null,
       publishedDate: null,
+      publisher: null,
+      language: null,
+      isbn10: null,
+      isbn13: null,
+      subtitle: null,
+      series: null,
+      edition: null,
       universalIdentifier: {
         value: { kind: 'ISBN_13', value: '9780132350884', raw: 'urn:isbn:9780132350884' },
         source: 'epub-metadata',
@@ -85,6 +93,7 @@ describe('book info db helpers', () => {
       bookId: 10,
       createdAt,
       updatedAt: createdAt,
+      metadataSchemaVersion: BOOK_INFO_SCHEMA_VERSION,
       category: null,
       rating: null,
       synopsis: {
@@ -94,6 +103,13 @@ describe('book info db helpers', () => {
       },
       pageCount: null,
       publishedDate: null,
+      publisher: null,
+      language: null,
+      isbn10: null,
+      isbn13: null,
+      subtitle: null,
+      series: null,
+      edition: null,
       universalIdentifier: null,
       reviews: null,
       lookupHints: {
@@ -134,11 +150,19 @@ describe('book info db helpers', () => {
       bookId: 10,
       createdAt: new Date(),
       updatedAt: new Date(),
+      metadataSchemaVersion: BOOK_INFO_SCHEMA_VERSION,
       category: null,
       rating: null,
       synopsis: null,
       pageCount: null,
       publishedDate: null,
+      publisher: null,
+      language: null,
+      isbn10: null,
+      isbn13: null,
+      subtitle: null,
+      series: null,
+      edition: null,
       universalIdentifier: null,
       reviews: null,
       lookupHints: {

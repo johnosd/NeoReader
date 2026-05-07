@@ -18,7 +18,13 @@ export type AppearancePatch = {
   overrideBookColors?: boolean
 }
 
+export type TtsConfigPatch = {
+  provider?: TtsProvider
+  rate?: number
+}
+
 export interface UseReaderAppearanceResult {
+  isReady: boolean
   fontSize: FontSize
   lineHeight: ReaderLineHeight
   readerTheme: ReaderTheme
@@ -29,7 +35,10 @@ export interface UseReaderAppearanceResult {
   translationTargetLang: string
   ttsConfig: TtsPlaybackConfig
   ttsEngine: TtsProvider
+  ttsProviderAvailability: Record<TtsProvider, boolean>
   applyAppearancePatch: (patch: AppearancePatch) => void
+  applyTtsConfigPatch: (patch: TtsConfigPatch) => void
+  switchToNativeTts: () => void
   handleReaderStyleModeChange: (mode: ReaderStyleMode) => void
 }
 
@@ -50,7 +59,25 @@ function resolveTtsProvider(
   return 'native'
 }
 
+function getTtsProviderAvailability(
+  settings: Awaited<ReturnType<typeof getSettings>>['appSettings'],
+): Record<TtsProvider, boolean> {
+  return {
+    native: true,
+    speechify: Boolean(settings.speechifyApiKey),
+    elevenlabs: Boolean(settings.elevenLabsApiKey),
+  }
+}
+
+function resolveTtsProviderFromAvailability(
+  selectedProvider: TtsProvider,
+  availability: Record<TtsProvider, boolean>,
+): TtsProvider {
+  return availability[selectedProvider] ? selectedProvider : 'native'
+}
+
 export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
+  const [readySource, setReadySource] = useState<{ bookId: Book['id']; fileBlob: Book['fileBlob'] } | null>(null)
   const [fontSize, setFontSize] = useState<FontSize>('md')
   const [lineHeight, setLineHeight] = useState<ReaderLineHeight>('comfortable')
   const [readerTheme, setReaderTheme] = useState<ReaderTheme>('dark')
@@ -65,17 +92,27 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
     rate: 1,
   })
   const [ttsEngine, setTtsEngine] = useState<TtsProvider>('native')
+  const [ttsProviderAvailability, setTtsProviderAvailability] = useState<Record<TtsProvider, boolean>>({
+    native: true,
+    speechify: false,
+    elevenlabs: false,
+  })
 
   // Carrega preferências: configuração por livro (override) > global > padrão
   useEffect(() => {
+    let cancelled = false
+
     void Promise.all([
       getSettings(),
       getBookSettings(book.id!),
       EpubService.parseExtras(book.fileBlob, book.id),
     ]).then(([s, bs, extras]) => {
+      if (cancelled) return
+
       const resolvedBookLanguage = resolveBookLanguage(bs.bookLanguage ?? extras.language)
       const selectedProvider = bs.ttsProvider ?? 'speechify'
       const resolvedFontFamily = bs.fontFamily ?? s.readerDefaults.fontFamily
+      const providerAvailability = getTtsProviderAvailability(s.appSettings)
 
       setFontSize(bs.fontSize ?? s.readerDefaults.defaultFontSize)
       setLineHeight(bs.lineHeight ?? s.readerDefaults.lineHeight)
@@ -93,9 +130,17 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
         elevenLabsVoiceId: bs.ttsElevenLabsVoiceId,
         nativeVoiceKey: bs.ttsNativeVoiceKey,
       })
+      setTtsProviderAvailability(providerAvailability)
       setTtsEngine(resolveTtsProvider(selectedProvider, s.appSettings))
+      setReadySource({ bookId: book.id, fileBlob: book.fileBlob })
     })
+
+    return () => {
+      cancelled = true
+    }
   }, [book.fileBlob, book.id])
+
+  const isReady = readySource?.bookId === book.id && readySource?.fileBlob === book.fileBlob
 
   function applyAppearancePatch(patch: AppearancePatch) {
     if (patch.fontSize) setFontSize(patch.fontSize)
@@ -105,6 +150,42 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
     if (patch.overrideBookFont !== undefined) setOverrideBookFont(patch.overrideBookFont)
     if (patch.overrideBookColors !== undefined) setOverrideBookColors(patch.overrideBookColors)
     void updateBookSettings(book.id!, patch)
+  }
+
+  function applyTtsConfigPatch(patch: TtsConfigPatch) {
+    const settingsPatch: { ttsProvider?: TtsProvider; ttsRate?: number } = {}
+    let nextProvider: TtsProvider | undefined
+    let nextRate: number | undefined
+
+    if (patch.provider !== undefined && ttsProviderAvailability[patch.provider]) {
+      nextProvider = patch.provider
+      settingsPatch.ttsProvider = patch.provider
+    }
+
+    if (patch.rate !== undefined) {
+      nextRate = clampTtsRate(patch.rate)
+      settingsPatch.ttsRate = nextRate
+    }
+
+    if (nextProvider === undefined && nextRate === undefined) return
+
+    setTtsConfig((current) => ({
+      ...current,
+      ...(nextProvider !== undefined ? { provider: nextProvider } : {}),
+      ...(nextRate !== undefined ? { rate: nextRate } : {}),
+    }))
+
+    if (nextProvider !== undefined) {
+      setTtsEngine(resolveTtsProviderFromAvailability(nextProvider, ttsProviderAvailability))
+    }
+
+    void updateBookSettings(book.id!, settingsPatch)
+  }
+
+  function switchToNativeTts() {
+    setTtsConfig((current) => ({ ...current, provider: 'native' }))
+    setTtsEngine('native')
+    void updateBookSettings(book.id!, { ttsProvider: 'native' })
   }
 
   function handleReaderStyleModeChange(mode: ReaderStyleMode) {
@@ -120,6 +201,7 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
   }
 
   return {
+    isReady,
     fontSize,
     lineHeight,
     readerTheme,
@@ -130,7 +212,10 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
     translationTargetLang,
     ttsConfig,
     ttsEngine,
+    ttsProviderAvailability,
     applyAppearancePatch,
+    applyTtsConfigPatch,
+    switchToNativeTts,
     handleReaderStyleModeChange,
   }
 }

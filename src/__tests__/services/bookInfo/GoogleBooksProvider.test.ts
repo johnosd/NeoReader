@@ -2,15 +2,23 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { BookInfoService, GoogleBooksProvider, OpenLibraryProvider } from '@/services/bookInfo'
 import { GoogleBooksService } from '@/services/GoogleBooksService'
 import { OpenLibraryService } from '@/services/OpenLibraryService'
-import type { ResolvedBookInfo } from '@/types/bookInfo'
+import { BOOK_INFO_SCHEMA_VERSION, type ResolvedBookInfo } from '@/types/bookInfo'
 
 function makeContext(patch: Partial<ResolvedBookInfo> = {}): ResolvedBookInfo {
   return {
+    metadataSchemaVersion: BOOK_INFO_SCHEMA_VERSION,
     category: null,
     rating: null,
     synopsis: null,
     pageCount: null,
     publishedDate: null,
+    publisher: null,
+    language: null,
+    isbn10: null,
+    isbn13: null,
+    subtitle: null,
+    series: null,
+    edition: null,
     universalIdentifier: null,
     reviews: null,
     lookupHints: {
@@ -59,7 +67,10 @@ describe('GoogleBooksProvider', () => {
         id: 'google-volume-id',
         volumeInfo: {
           title: 'Clean Code',
+          subtitle: 'A Handbook of Agile Software Craftsmanship',
           authors: ['Robert C. Martin'],
+          publisher: 'Prentice Hall',
+          language: 'en',
           mainCategory: 'Computers',
           categories: ['Computers / Software Development', 'Computers'],
           averageRating: 4.7,
@@ -107,6 +118,11 @@ describe('GoogleBooksProvider', () => {
     expect(info.synopsis?.value).toBe("Um guia & pratico para escrever codigo melhor. Readers can't stop talking about it.")
     expect(info.pageCount?.value).toBe(464)
     expect(info.publishedDate?.value).toBe('2008-08-01')
+    expect(info.publisher?.value).toBe('Prentice Hall')
+    expect(info.language?.value).toBe('en')
+    expect(info.subtitle?.value).toBe('A Handbook of Agile Software Craftsmanship')
+    expect(info.isbn10?.value.value).toBe('0132350882')
+    expect(info.isbn13?.value.value).toBe('9780132350884')
     expect(info.universalIdentifier).toEqual({
       value: { kind: 'ISBN_13', value: '9780132350884', raw: '9780132350884' },
       source: 'google-books',

@@ -7,9 +7,12 @@ export interface GoogleBooksIndustryIdentifier {
 
 export interface GoogleBooksVolumeInfo {
   title?: string
+  subtitle?: string
   authors?: string[]
   description?: string
+  publisher?: string
   publishedDate?: string
+  language?: string
   pageCount?: number
   averageRating?: number
   ratingsCount?: number

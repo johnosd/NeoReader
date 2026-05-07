@@ -494,6 +494,7 @@ describe('useTTS', () => {
     expect(callbacks.onProviderFallback).toHaveBeenCalledWith({
       provider: 'speechify',
       fallbackProvider: 'native',
+      reason: 'Speechify está indisponível no momento.',
     })
     expect(callbacks.onFinished).toHaveBeenCalledOnce()
     expect(callbacks.onStop).toHaveBeenCalledOnce()

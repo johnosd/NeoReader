@@ -4,14 +4,15 @@ import { ReaderScreen } from '@/screens/ReaderScreen'
 import type { Book } from '@/types/book'
 import type { TtsChunk } from '@/components/reader/EpubViewer'
 import type { TtsProvider } from '@/types/tts'
-import { getBookSettings } from '@/db/bookSettings'
+import { getBookSettings, updateBookSettings } from '@/db/bookSettings'
+import { getSettings } from '@/db/settings'
 import { translate } from '@/services/TranslationService'
 import { addVocabItem } from '@/db/vocabulary'
 
 type MockTtsOptions = {
   onFinished?: () => void
   onParagraphChange?: (paraIdx: number) => void
-  onProviderFallback?: (payload: { provider: TtsProvider; fallbackProvider: 'native' }) => void
+  onProviderFallback?: (payload: { provider: TtsProvider; fallbackProvider: 'native'; reason: string }) => void
 }
 
 const mocks = vi.hoisted(() => {
@@ -186,24 +187,28 @@ vi.mock('@/components/reader/TtsMiniPlayer', () => ({
   TtsMiniPlayer: ({
     activeProvider,
     fallbackFromProvider,
+    providerAvailability,
+    ttsRate,
     onPrevParagraph,
     onPrevSentence,
     onNextSentence,
     onNextParagraph,
-    onSleepTimerChange,
-    sleepTimerRemainingLabel,
+    onProviderChange,
+    onRateChange,
     showBackToTtsLocation,
     onBackToTtsLocation,
     onStop,
   }: {
     activeProvider: TtsProvider
     fallbackFromProvider?: TtsProvider | null
+    providerAvailability: Record<TtsProvider, boolean>
+    ttsRate: number
     onPrevParagraph: () => void
     onPrevSentence: () => void
     onNextSentence: () => void
     onNextParagraph: () => void
-    onSleepTimerChange: (value: string) => void
-    sleepTimerRemainingLabel: string | null
+    onProviderChange: (provider: TtsProvider) => void
+    onRateChange: (rate: number) => void
     showBackToTtsLocation: boolean
     onBackToTtsLocation: () => void
     onStop: () => void
@@ -211,7 +216,9 @@ vi.mock('@/components/reader/TtsMiniPlayer', () => ({
     <div data-testid="tts-mini-player">
       <span>{`provider:${activeProvider}`}</span>
       <span>{fallbackFromProvider ? `fallback:${fallbackFromProvider}` : 'fallback:none'}</span>
-      <span>{sleepTimerRemainingLabel ? `timer:${sleepTimerRemainingLabel}` : 'timer:off'}</span>
+      <span>{`rate:${ttsRate.toFixed(1)}`}</span>
+      <span>{providerAvailability.speechify ? 'speechify:enabled' : 'speechify:disabled'}</span>
+      <span>{providerAvailability.elevenlabs ? 'elevenlabs:enabled' : 'elevenlabs:disabled'}</span>
       {showBackToTtsLocation && (
         <button type="button" onClick={onBackToTtsLocation}>back-to-tts</button>
       )}
@@ -219,8 +226,10 @@ vi.mock('@/components/reader/TtsMiniPlayer', () => ({
       <button type="button" onClick={onPrevSentence}>prev-sentence</button>
       <button type="button" onClick={onNextSentence}>next-sentence</button>
       <button type="button" onClick={onNextParagraph}>next</button>
-      <button type="button" onClick={() => onSleepTimerChange('60')}>timer-1</button>
-      <button type="button" onClick={() => onSleepTimerChange('off')}>timer-off</button>
+      <button type="button" onClick={() => onProviderChange('native')}>provider-native</button>
+      <button type="button" onClick={() => onProviderChange('speechify')}>provider-speechify</button>
+      <button type="button" onClick={() => onProviderChange('elevenlabs')}>provider-elevenlabs</button>
+      <button type="button" onClick={() => onRateChange(1.1)}>speed-1.1</button>
       <button type="button" onClick={onStop}>stop</button>
     </div>
   ),
@@ -244,6 +253,26 @@ const book: Book = {
   fileBlob: new Blob(['epub'], { type: 'application/epub+zip' }),
   addedAt: new Date(),
   lastOpenedAt: null,
+}
+
+function makeSettings(overrides: Partial<Awaited<ReturnType<typeof getSettings>>> = {}) {
+  return {
+    appSettings: {
+      speechifyApiKey: '',
+      elevenLabsApiKey: '',
+      translationTargetLang: 'pt-BR',
+    },
+    readerDefaults: {
+      defaultFontSize: 'md' as const,
+      lineHeight: 'comfortable' as const,
+      readerTheme: 'dark' as const,
+      fontFamily: 'classic' as const,
+      overrideBookFont: true,
+      overrideBookColors: true,
+    },
+    updatedAt: new Date(),
+    ...overrides,
+  }
 }
 
 async function flushAsyncWork() {
@@ -287,6 +316,8 @@ describe('ReaderScreen', () => {
     mocks.viewerHandle.scrollToParagraph.mockClear()
     vi.mocked(translate).mockClear()
     vi.mocked(addVocabItem).mockClear()
+    vi.mocked(updateBookSettings).mockClear()
+    vi.mocked(getSettings).mockResolvedValue(makeSettings())
     vi.mocked(getBookSettings).mockResolvedValue({})
   })
 
@@ -562,41 +593,121 @@ describe('ReaderScreen', () => {
     expect(mocks.tts.play).toHaveBeenLastCalledWith(nextSectionChunks, 0)
   })
 
-  it('encerra o audiobook quando o sleep timer expira', async () => {
-    vi.useFakeTimers()
-    try {
-      mocks.viewerHandle.getSentenceChunks.mockReturnValue([
-        { text: 'Long running paragraph.', paraIdx: 0, offsetInPara: 0 },
-      ])
+  it('mostra disponibilidade dos providers e velocidade no mini player', async () => {
+    vi.mocked(getSettings).mockResolvedValue(makeSettings({
+      appSettings: {
+        speechifyApiKey: 'speechify-key',
+        elevenLabsApiKey: '',
+        translationTargetLang: 'pt-BR',
+      },
+    }))
+    vi.mocked(getBookSettings).mockResolvedValue({
+      ttsProvider: 'speechify',
+      ttsRate: 1.1,
+    })
+    mocks.viewerHandle.getSentenceChunks.mockReturnValue([
+      { text: 'Long running paragraph.', paraIdx: 0, offsetInPara: 0 },
+    ])
 
-      render(
-        <ReaderScreen
-          book={book}
-          onBack={vi.fn()}
-          onOpenVocabulary={vi.fn()}
-        />,
-      )
+    render(
+      <ReaderScreen
+        book={book}
+        onBack={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
 
-      await flushAsyncWork()
+    await flushAsyncWork()
 
-      fireEvent.click(screen.getByText('toggle-tts'))
-      fireEvent.click(screen.getByText('timer-1'))
+    fireEvent.click(screen.getByText('toggle-tts'))
 
-      expect(screen.getByText('timer:1:00')).toBeTruthy()
+    expect(screen.getByText('provider:speechify')).toBeTruthy()
+    expect(screen.getByText('rate:1.1')).toBeTruthy()
+    expect(screen.getByText('speechify:enabled')).toBeTruthy()
+    expect(screen.getByText('elevenlabs:disabled')).toBeTruthy()
+  })
 
-      await act(async () => {
-        vi.advanceTimersByTime(60_000)
-        await Promise.resolve()
+  it('troca velocidade durante reproducao e reinicia do chunk atual', async () => {
+    const chunks = [
+      { text: 'First paragraph.', paraIdx: 0, offsetInPara: 0 },
+      { text: 'Current paragraph.', paraIdx: 1, offsetInPara: 0 },
+    ]
+    mocks.viewerHandle.getSentenceChunks.mockReturnValue(chunks)
+
+    render(
+      <ReaderScreen
+        book={book}
+        onBack={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+
+    await flushAsyncWork()
+
+    fireEvent.click(screen.getByText('toggle-tts'))
+    mocks.tts.isPlaying = true
+    mocks.tts.lastChunkIdx.current = 1
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('speed-1.1'))
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(updateBookSettings).toHaveBeenCalledWith(book.id, { ttsRate: 1.1 })
+    expect(mocks.tts.stop).toHaveBeenCalledTimes(1)
+    expect(mocks.tts.play).toHaveBeenLastCalledWith(chunks, 1)
+  })
+
+  it('troca provider durante reproducao, limpa fallback e reinicia do chunk atual', async () => {
+    vi.mocked(getSettings).mockResolvedValue(makeSettings({
+      appSettings: {
+        speechifyApiKey: 'speechify-key',
+        elevenLabsApiKey: '',
+        translationTargetLang: 'pt-BR',
+      },
+    }))
+    vi.mocked(getBookSettings).mockResolvedValue({ ttsProvider: 'native' })
+    const chunks = [
+      { text: 'First paragraph.', paraIdx: 0, offsetInPara: 0 },
+      { text: 'Current paragraph.', paraIdx: 1, offsetInPara: 0 },
+    ]
+    mocks.viewerHandle.getSentenceChunks.mockReturnValue(chunks)
+
+    render(
+      <ReaderScreen
+        book={book}
+        onBack={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+
+    await flushAsyncWork()
+
+    fireEvent.click(screen.getByText('toggle-tts'))
+    mocks.tts.isPlaying = true
+    mocks.tts.lastChunkIdx.current = 1
+
+    await act(async () => {
+      mocks.ttsOptions?.onProviderFallback?.({
+        provider: 'speechify',
+        fallbackProvider: 'native',
+        reason: 'Falha de rede ao conectar com Speechify.',
       })
+      await Promise.resolve()
+    })
+    expect(screen.getByText('fallback:speechify')).toBeTruthy()
 
-      expect(mocks.tts.stop).toHaveBeenCalledTimes(1)
-      expect(mocks.tts.resetPosition).toHaveBeenCalledTimes(1)
-      expect(screen.queryByTestId('tts-mini-player')).toBeNull()
-      expect(screen.queryByText(/Fim do cap/i)).toBeNull()
-    } finally {
-      vi.clearAllTimers()
-      vi.useRealTimers()
-    }
+    await act(async () => {
+      fireEvent.click(screen.getByText('provider-speechify'))
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(updateBookSettings).toHaveBeenCalledWith(book.id, { ttsProvider: 'speechify' })
+    expect(mocks.tts.stop).toHaveBeenCalledTimes(1)
+    expect(mocks.tts.play).toHaveBeenLastCalledWith(chunks, 1)
+    expect(screen.getByText('fallback:none')).toBeTruthy()
   })
 
   it('mostra atalho para voltar ao trecho do TTS apos scroll manual', async () => {
@@ -651,18 +762,66 @@ describe('ReaderScreen', () => {
     fireEvent.click(screen.getByText('toggle-tts'))
 
     await act(async () => {
-      mocks.ttsOptions?.onProviderFallback?.({ provider: 'speechify', fallbackProvider: 'native' })
+      mocks.ttsOptions?.onProviderFallback?.({
+        provider: 'speechify',
+        fallbackProvider: 'native',
+        reason: 'API key do Speechify inválida, expirada ou sem permissão.',
+      })
       await Promise.resolve()
     })
 
     expect(screen.getByText('TTS alternado')).toBeTruthy()
     expect(screen.getByText(/Speechify.*TTS nativo/i)).toBeTruthy()
+    expect(screen.getByText('API key do Speechify inválida, expirada ou sem permissão.')).toBeTruthy()
     expect(screen.getByText('provider:native')).toBeTruthy()
     expect(screen.getByText('fallback:speechify')).toBeTruthy()
+    expect(updateBookSettings).toHaveBeenCalledWith(book.id, {
+      ttsProvider: 'native',
+    })
 
     fireEvent.pointerUp(screen.getByText('OK'))
 
     expect(screen.queryByText('TTS alternado')).toBeNull()
+  })
+
+  it('mostra o aviso de fallback TTS apenas uma vez por provider', async () => {
+    render(
+      <ReaderScreen
+        book={book}
+        onBack={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+
+    await flushAsyncWork()
+
+    await act(async () => {
+      mocks.ttsOptions?.onProviderFallback?.({
+        provider: 'speechify',
+        fallbackProvider: 'native',
+        reason: 'API key do Speechify inválida, expirada ou sem permissão.',
+      })
+      await Promise.resolve()
+    })
+
+    expect(screen.getByText('TTS alternado')).toBeTruthy()
+    fireEvent.pointerUp(screen.getByText('OK'))
+    expect(screen.queryByText('TTS alternado')).toBeNull()
+
+    await act(async () => {
+      mocks.ttsOptions?.onProviderFallback?.({
+        provider: 'speechify',
+        fallbackProvider: 'native',
+        reason: 'Falha de rede ao conectar com Speechify.',
+      })
+      await Promise.resolve()
+    })
+
+    expect(screen.queryByText('TTS alternado')).toBeNull()
+    expect(updateBookSettings).toHaveBeenCalledTimes(1)
+    expect(updateBookSettings).toHaveBeenLastCalledWith(book.id, {
+      ttsProvider: 'native',
+    })
   })
 
   it('aplica defaults de leitura e usa o idioma efetivo do livro na traducao e no vocabulario', async () => {
@@ -696,6 +855,43 @@ describe('ReaderScreen', () => {
       sourceLang: 'fr',
       targetLang: 'pt-BR',
     }))
+  })
+
+  it('não monta o viewer nem traduz antes das preferências do leitor carregarem', async () => {
+    let resolveSettings: ((value: Awaited<ReturnType<typeof getSettings>>) => void) | null = null
+    vi.mocked(getSettings).mockImplementationOnce(() => new Promise((resolve) => {
+      resolveSettings = resolve
+    }))
+
+    render(
+      <ReaderScreen
+        book={book}
+        onBack={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(screen.getByTestId('reader-loading')).toBeTruthy()
+    expect(mocks.epubViewerProps).toBeNull()
+    expect(translate).not.toHaveBeenCalled()
+
+    await act(async () => {
+      resolveSettings?.(makeSettings())
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(mocks.epubViewerProps).not.toBeNull()
+
+    await act(async () => {
+      await (mocks.epubViewerProps?.onTranslate as (text: string) => Promise<void>)('Bonjour')
+    })
+
+    expect(translate).toHaveBeenCalledWith('Bonjour', 'fr', 'pt-BR')
   })
 
   it('usa o idioma de tradução configurado no livro quando houver override', async () => {

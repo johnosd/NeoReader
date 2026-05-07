@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Book } from '@/types/book'
-import type { ResolvedBookInfo } from '@/types/bookInfo'
+import { BOOK_INFO_SCHEMA_VERSION, type ResolvedBookInfo } from '@/types/bookInfo'
 
 const mocks = vi.hoisted(() => ({
   collect: vi.fn(),
@@ -67,11 +67,19 @@ describe('BookInfoRefreshService', () => {
 
   it('collects fresh book info with saved app settings and persists it', async () => {
     const collected: ResolvedBookInfo = {
+      metadataSchemaVersion: BOOK_INFO_SCHEMA_VERSION,
       category: null,
       rating: null,
       synopsis: null,
       pageCount: null,
       publishedDate: null,
+      publisher: null,
+      language: null,
+      isbn10: null,
+      isbn13: null,
+      subtitle: null,
+      series: null,
+      edition: null,
       universalIdentifier: null,
       reviews: null,
       lookupHints: {

@@ -5,8 +5,10 @@ import type { UserSettings } from '../types/settings'
 import type { TtsVoiceCacheRecord } from '../types/tts'
 import type { AuthorCacheRecord } from '../types/author'
 import type { StoredBookInfo } from '../types/bookInfo'
+import type { StoredEpubExtras } from '../services/EpubService'
 
 type LegacyBookRecord = Book & { coverBlob?: Blob | null }
+type LegacyAuthorCacheRecord = AuthorCacheRecord & { bookIds?: number[] }
 
 // Dexie é um wrapper do IndexedDB — pensa nele como SQLite no browser.
 // Cada `Table<T>` é como uma tabela com schema declarado.
@@ -22,6 +24,7 @@ class NeoReaderDB extends Dexie {
   ttsVoiceCaches!: Table<TtsVoiceCacheRecord>
   authors!: Table<AuthorCacheRecord>
   bookInfo!: Table<StoredBookInfo, number>
+  epubExtras!: Table<StoredEpubExtras, number>
 
   constructor() {
     super('NeoReaderDB')
@@ -156,6 +159,50 @@ class NeoReaderDB extends Dexie {
       ttsVoiceCaches:'++id, &cacheKey, provider, language, updatedAt',
       authors:       '&authorName, fetchedAt',
       bookInfo:      '&bookId, updatedAt',
+    })
+
+    // v11: vincula cache de autores aos livros locais que usam aquele autor.
+    this.version(11).stores({
+      books:         '++id, title, author, addedAt, lastOpenedAt',
+      bookCovers:    'bookId, updatedAt, source',
+      progress:      '++id, bookId, updatedAt',
+      bookmarks:     '++id, bookId, createdAt, updatedAt, deletedAt',
+      vocabulary:    '++id, bookId, createdAt',
+      translations:  '++id, textHash, createdAt',
+      settings:      '++id',
+      bookSettings:  '++id, bookId',
+      ttsVoiceCaches:'++id, &cacheKey, provider, language, updatedAt',
+      authors:       '&authorName, *bookIds, fetchedAt',
+      bookInfo:      '&bookId, updatedAt',
+    }).upgrade(async (tx) => {
+      const authorsTable = tx.table('authors') as Table<LegacyAuthorCacheRecord>
+
+      await authorsTable.toCollection().modify((record) => {
+        record.bookIds = Array.isArray(record.bookIds) ? record.bookIds : []
+      })
+    })
+
+    // v12: separa TTL de vídeos do cache de autores e persiste extras estáveis do EPUB.
+    this.version(12).stores({
+      books:         '++id, title, author, addedAt, lastOpenedAt',
+      bookCovers:    'bookId, updatedAt, source',
+      progress:      '++id, bookId, updatedAt',
+      bookmarks:     '++id, bookId, createdAt, updatedAt, deletedAt',
+      vocabulary:    '++id, bookId, createdAt',
+      translations:  '++id, textHash, createdAt',
+      settings:      '++id',
+      bookSettings:  '++id, bookId',
+      ttsVoiceCaches:'++id, &cacheKey, provider, language, updatedAt',
+      authors:       '&authorName, *bookIds, fetchedAt, videosFetchedAt',
+      bookInfo:      '&bookId, updatedAt',
+      epubExtras:    '&bookId, updatedAt',
+    }).upgrade(async (tx) => {
+      const authorsTable = tx.table('authors') as Table<LegacyAuthorCacheRecord & { videosFetchedAt?: Date | null }>
+
+      await authorsTable.toCollection().modify((record) => {
+        record.bookIds = Array.isArray(record.bookIds) ? record.bookIds : []
+        record.videosFetchedAt = record.data?.videos?.length ? record.fetchedAt : null
+      })
     })
   }
 }

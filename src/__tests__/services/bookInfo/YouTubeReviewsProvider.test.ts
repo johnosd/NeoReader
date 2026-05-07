@@ -1,14 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { BookInfoService, YouTubeReviewsProvider } from '@/services/bookInfo'
-import type { ResolvedBookInfo } from '@/types/bookInfo'
+import { BOOK_INFO_SCHEMA_VERSION, type ResolvedBookInfo } from '@/types/bookInfo'
 
 function makeContext(patch: Partial<ResolvedBookInfo> = {}): ResolvedBookInfo {
   return {
+    metadataSchemaVersion: BOOK_INFO_SCHEMA_VERSION,
     category: null,
     rating: null,
     synopsis: null,
     pageCount: null,
     publishedDate: null,
+    publisher: null,
+    language: null,
+    isbn10: null,
+    isbn13: null,
+    subtitle: null,
+    series: null,
+    edition: null,
     universalIdentifier: null,
     reviews: null,
     lookupHints: {

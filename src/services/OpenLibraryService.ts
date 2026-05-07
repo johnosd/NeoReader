@@ -2,8 +2,13 @@ import { fetchWithTimeout, getDefaultFetch } from './http'
 
 export interface OpenLibraryBookData {
   title?: string
+  subtitle?: string
   authors?: Array<{ name?: string }>
+  publishers?: Array<{ name?: string } | string>
+  languages?: Array<{ key?: string; name?: string } | string>
   publish_date?: string
+  edition_name?: string
+  series?: string[] | string
   number_of_pages?: number
   pagination?: string
   subjects?: Array<{ name?: string } | string>

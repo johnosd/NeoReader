@@ -39,6 +39,13 @@ export class GoogleBooksProvider implements BookInfoProvider {
       synopsis: this.extractSynopsis(volume.volumeInfo),
       pageCount: this.extractPageCount(volume.volumeInfo),
       publishedDate: this.extractPublishedDate(volume.volumeInfo),
+      publisher: this.extractTextValue(volume.volumeInfo.publisher, 'medium'),
+      language: this.extractTextValue(volume.volumeInfo.language, 'medium'),
+      isbn10: this.extractIdentifierByKind(identifiers, 'ISBN_10'),
+      isbn13: this.extractIdentifierByKind(identifiers, 'ISBN_13'),
+      subtitle: this.extractTextValue(volume.volumeInfo.subtitle, 'medium'),
+      series: null,
+      edition: null,
       universalIdentifier: this.extractUniversalIdentifier(identifiers),
       lookupHints: {
         title: context?.lookupHints.title ?? this.cleanText(volume.volumeInfo.title),
@@ -188,6 +195,22 @@ export class GoogleBooksProvider implements BookInfoProvider {
   private extractPublishedDate(volumeInfo: GoogleBooksVolumeInfo): BookInfoValue<string> | null {
     const publishedDate = this.cleanText(volumeInfo.publishedDate)
     return publishedDate ? this.fromGoogle(publishedDate, 'medium') : null
+  }
+
+  private extractTextValue(
+    value: string | undefined,
+    confidence: BookInfoValue<string>['confidence'],
+  ): BookInfoValue<string> | null {
+    const cleaned = this.cleanText(value)
+    return cleaned ? this.fromGoogle(cleaned, confidence) : null
+  }
+
+  private extractIdentifierByKind(
+    identifiers: BookIdentifier[],
+    kind: 'ISBN_10' | 'ISBN_13',
+  ): BookInfoValue<BookIdentifier> | null {
+    const identifier = identifiers.find((candidate) => candidate.kind === kind)
+    return identifier ? this.fromGoogle(identifier, 'high') : null
   }
 
   private extractUniversalIdentifier(identifiers: BookIdentifier[]): BookInfoValue<BookIdentifier> | null {

@@ -7,7 +7,7 @@ import { getReaderFontFamilyValue, getReaderLineHeightValue, getReaderThemePalet
 import { getSentenceAt, escapeHtml } from '../../utils/readerUtils'
 import { areCfisEquivalent, normalizeCfi } from '../../utils/cfi'
 import { areTocHrefDocumentSuffixesEqual, normalizeTocHref } from '../../utils/toc'
-import { fractionToPercentage } from '../../utils/progress'
+import { clampPercentage, fractionToPercentage } from '../../utils/progress'
 import { splitParagraphIntoTtsChunks } from '../../utils/ttsChunking'
 
 export type { FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from '../../types/settings'
@@ -41,12 +41,30 @@ const SCRIPTABLE_EPUB_DOCUMENT_TYPES = new Set([
 
 const TRANSLATION_ICON = {
   bot: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="7" width="16" height="11" rx="4"></rect><path d="M12 3v4"></path><path d="M9 13h.01"></path><path d="M15 13h.01"></path><path d="M9 18v2"></path><path d="M15 18v2"></path></svg>',
+  next: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path><path d="M5 18l6-6-6-6"></path></svg>',
   speak: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"></path><path d="M15.5 8.5a5 5 0 0 1 0 7"></path><path d="M18 6a9 9 0 0 1 0 12"></path></svg>',
   bookmark: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4z"></path></svg>',
   save: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.75 5.57 6.15.89-4.45 4.33 1.05 6.16L12 17.77l-5.5 2.91 1.05-6.16L3.1 9.46l6.15-.89z"></path></svg>',
 } as const
 
-function renderTranslationAction(action: 'speak' | 'bookmark' | 'save', label: string, icon: string, variant: 'default' | 'primary' = 'default'): string {
+type TranslationAction = 'next' | 'speak' | 'bookmark' | 'save'
+
+function splitParagraphIntoTranslationUnits(text: string): Array<{ sentence: string; offset: number }> {
+  const units = [...text.matchAll(/[^.!?。！？…]+(?:[.!?。！？…]+["'”’»)]*|$)/g)]
+    .map((match) => {
+      const raw = match[0]
+      const sentence = raw.trim()
+      return {
+        sentence,
+        offset: (match.index ?? 0) + raw.indexOf(sentence),
+      }
+    })
+    .filter((unit) => unit.sentence.length > 0)
+
+  return units.length > 0 ? units : [{ sentence: text.trim(), offset: 0 }].filter((unit) => unit.sentence.length > 0)
+}
+
+function renderTranslationAction(action: TranslationAction, label: string, icon: string, variant: 'default' | 'primary' = 'default'): string {
   return `
     <button type="button" data-nr-action="${action}" class="nr-tr-action nr-tr-action-${action}${variant === 'primary' ? ' is-primary' : ''}">
       <span class="nr-tr-action-tile">
@@ -213,6 +231,16 @@ type NavigableSection = FoliateSection & {
   id?: string
 }
 
+type RelocateTocItem = {
+  label: string
+  href?: string
+}
+
+type FlattenedProgressTocItem = {
+  item: TocItem
+  index: number
+}
+
 function splitHrefTarget(target: string): { documentHref: string; fragment: string | null } {
   const normalized = normalizeTocHref(target)
   const [documentHref, fragment] = normalized.split('#', 2)
@@ -221,6 +249,143 @@ function splitHrefTarget(target: string): { documentHref: string; fragment: stri
     documentHref: documentHref.toLocaleLowerCase(),
     fragment: fragment || null,
   }
+}
+
+function hrefHasFragment(target?: string | null): boolean {
+  return Boolean(target && splitHrefTarget(target).fragment)
+}
+
+function flattenProgressToc(items: TocItem[]): FlattenedProgressTocItem[] {
+  const flattened: FlattenedProgressTocItem[] = []
+
+  function visit(nextItems: TocItem[]) {
+    for (const item of nextItems) {
+      flattened.push({ item, index: flattened.length })
+      if (Array.isArray(item.subitems) && item.subitems.length > 0) visit(item.subitems)
+    }
+  }
+
+  visit(items)
+  return flattened
+}
+
+function normalizeTocProgressLabel(label?: string | null): string {
+  return label?.replace(/\s+/g, ' ').trim().toLocaleLowerCase() ?? ''
+}
+
+function scoreProgressTocItem(item: TocItem, current: RelocateTocItem): number {
+  const currentHref = current.href
+  const labelMatches = Boolean(
+    normalizeTocProgressLabel(current.label) &&
+    normalizeTocProgressLabel(current.label) === normalizeTocProgressLabel(item.label),
+  )
+  const exactHrefMatches = Boolean(
+    currentHref &&
+    normalizeTocHref(item.href).toLocaleLowerCase() === normalizeTocHref(currentHref).toLocaleLowerCase(),
+  )
+  const documentMatches = Boolean(
+    currentHref &&
+    areTocHrefDocumentSuffixesEqual(item.href, currentHref),
+  )
+
+  if (exactHrefMatches && labelMatches) return 120
+  if (exactHrefMatches) return 110
+  if (documentMatches && labelMatches) return 100
+  if (documentMatches) return 80
+  if (labelMatches) return 40
+  return 0
+}
+
+function findProgressTocItem(toc: TocItem[], current?: RelocateTocItem): FlattenedProgressTocItem | null {
+  if (!current?.href) return null
+
+  let best: { entry: FlattenedProgressTocItem; score: number } | null = null
+  for (const entry of flattenProgressToc(toc)) {
+    const score = scoreProgressTocItem(entry.item, current)
+    if (score === 0) continue
+    if (!best || score > best.score) best = { entry, score }
+  }
+
+  return best?.entry ?? null
+}
+
+function resolveSectionIndexForTocHref(
+  sections: NavigableSection[] | undefined,
+  target?: string | null,
+): number | null {
+  if (!sections?.length || !target) return null
+  return buildHrefNavigationTarget(sections, target)?.index ?? null
+}
+
+function getPercentageWithinFractionRange(
+  fraction: number | undefined,
+  start: number | undefined,
+  end: number | undefined,
+): number | undefined {
+  if (
+    typeof fraction !== 'number' ||
+    typeof start !== 'number' ||
+    typeof end !== 'number' ||
+    !Number.isFinite(fraction) ||
+    !Number.isFinite(start) ||
+    !Number.isFinite(end) ||
+    end <= start
+  ) {
+    return undefined
+  }
+
+  return clampPercentage(((fraction - start) / (end - start)) * 100)
+}
+
+function getSectionProgressPercentage(
+  fractions: number[],
+  fraction: number | undefined,
+  sectionIndex: number,
+): number | undefined {
+  const sectionStart = fractions[sectionIndex]
+  const sectionEnd = fractions[sectionIndex + 1] ?? 1
+  return getPercentageWithinFractionRange(fraction, sectionStart, sectionEnd)
+}
+
+function getChapterProgressPercentage(
+  view: View,
+  fraction: number | undefined,
+  sectionIndex: number,
+  currentTocItem?: RelocateTocItem,
+): number | undefined {
+  const fractions = view.getSectionFractions()
+  const toc = view.book?.toc ?? []
+  if (toc.length === 0 || !currentTocItem?.href) return undefined
+
+  const currentEntry = findProgressTocItem(toc, currentTocItem)
+  if (!currentEntry) return undefined
+
+  const sections = view.book?.sections as NavigableSection[] | undefined
+  const currentHref = currentEntry.item.href
+  const currentSectionIndex = resolveSectionIndexForTocHref(sections, currentHref)
+  if (currentSectionIndex == null) return undefined
+  if (hrefHasFragment(currentHref)) return getSectionProgressPercentage(fractions, fraction, sectionIndex)
+
+  const flattenedToc = flattenProgressToc(toc)
+  const nextEntry = flattenedToc[currentEntry.index + 1]
+  if (!nextEntry) {
+    return getPercentageWithinFractionRange(fraction, fractions[currentSectionIndex], 1)
+  }
+
+  if (hrefHasFragment(nextEntry.item.href)) {
+    return getSectionProgressPercentage(fractions, fraction, sectionIndex)
+  }
+
+  const nextSectionIndex = resolveSectionIndexForTocHref(sections, nextEntry.item.href)
+  if (nextSectionIndex == null || nextSectionIndex <= currentSectionIndex) {
+    return getSectionProgressPercentage(fractions, fraction, sectionIndex)
+  }
+
+  return getPercentageWithinFractionRange(
+    fraction,
+    fractions[currentSectionIndex],
+    fractions[nextSectionIndex],
+  )
 }
 
 function getSectionHrefCandidates(section: NavigableSection): string[] {
@@ -402,6 +567,9 @@ function buildReaderCSS(
   const actionDisabledTile = palette.isDark ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.08)'
   const actionDisabledBorder = palette.isDark ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.14)'
   const actionLabelColor = palette.isDark ? '#cbd5e1' : palette.text
+  const actionNextColor = palette.isDark ? '#7dd3fc' : '#0284c7'
+  const actionNextBackground = palette.isDark ? 'rgba(14, 165, 233, 0.08)' : 'rgba(14, 165, 233, 0.07)'
+  const actionNextBorder = palette.isDark ? 'rgba(56, 189, 248, 0.22)' : 'rgba(2, 132, 199, 0.18)'
   const actionSpeakColor = palette.isDark ? '#ff8aa0' : '#dc2659'
   const actionSpeakBackground = palette.isDark ? 'rgba(255, 23, 68, 0.08)' : 'rgba(255, 23, 68, 0.06)'
   const actionSpeakBorder = palette.isDark ? 'rgba(255, 77, 109, 0.22)' : 'rgba(220, 38, 89, 0.18)'
@@ -541,7 +709,7 @@ function buildReaderCSS(
     @keyframes nr-spin { to { transform: rotate(360deg); } }
     .nr-tr-actions {
       display: grid !important;
-      grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+      grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
       gap: 6px !important;
       margin-top: 12px !important;
       position: relative !important;
@@ -614,6 +782,9 @@ function buildReaderCSS(
       transform: scale(0.94) !important;
       background: ${actionPressedBackground} !important;
     }
+    .nr-tr-action-next {
+      color: ${actionNextColor} !important;
+    }
     .nr-tr-action-speak {
       color: ${actionSpeakColor} !important;
     }
@@ -622,6 +793,11 @@ function buildReaderCSS(
     }
     .nr-tr-action-save {
       color: ${actionSaveColor} !important;
+    }
+    .nr-tr-action-next .nr-tr-action-tile {
+      background: ${actionNextBackground} !important;
+      border-color: ${actionNextBorder} !important;
+      box-shadow: inset 0 0 15px rgba(14, 165, 233, 0.10), ${actionTileBaseShadow} !important;
     }
     .nr-tr-action-speak .nr-tr-action-tile {
       background: ${actionSpeakBackground} !important;
@@ -727,6 +903,7 @@ export interface VisibleReadingLocation {
   sectionHref?: string
   fraction?: number
   percentage?: number
+  chapterPercentage?: number
 }
 
 export interface ReaderRelocatePayload extends VisibleReadingLocation {
@@ -813,6 +990,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     // Texto original e traduzido da frase ativa — usados pelos botões Ouvir/Salvar no iframe
     const activeSourceTextRef = useRef<string>('')
     const activeTranslatedTextRef = useRef<string>('')
+    const activeTranslationIdSeqRef = useRef(0)
     // Lock: bloqueia nova seleção enquanto a tradução HTTP anterior ainda está em voo.
     // Evita que dois parágrafos fiquem simultaneamente marcados com data-nr-active.
     const translationInProgressRef = useRef(false)
@@ -851,6 +1029,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const finalizedSectionVersionRef = useRef(0)
     const finalizeSectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const initialInteractiveReadyRef = useRef(false)
+    const pendingInlineNextTranslationRef = useRef(false)
     const renderBookmarkMarkersRef = useRef<((doc?: Document | null) => void) | null>(null)
     const syncActiveTranslationBookmarkActionRef = useRef<((doc?: Document | null) => void) | null>(null)
     const BLOCK = 'p, li, blockquote, h1, h2, h3, h4, h5, h6'
@@ -938,11 +1117,15 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     function getParagraphsFromDocument(doc: Document): Element[] {
       return Array.from(doc.querySelectorAll(BLOCK))
         .filter((el) => !el.closest('#nr-translation-block'))
+        .filter((el) => (el as HTMLElement).id !== 'nr-para-remainder')
         .filter((el) => (el.textContent?.trim().length ?? 0) > 2)
     }
 
     function isReadableBlock(el: Element | null): el is HTMLElement {
-      return !!el && !el.closest('#nr-translation-block') && (el.textContent?.trim().length ?? 0) > 2
+      return !!el &&
+        !el.closest('#nr-translation-block') &&
+        (el as HTMLElement).id !== 'nr-para-remainder' &&
+        (el.textContent?.trim().length ?? 0) > 2
     }
 
     function findClosestReadableBlock(doc: Document, clientX: number, clientY: number): HTMLElement | null {
@@ -1010,6 +1193,147 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
       const block = doc.getElementById('nr-translation-block')
       return !!block && isPointInsideElement(block, clientX, clientY)
+    }
+
+    function getOrCreateTranslationId(para: Element): string {
+      const paraEl = para as HTMLElement
+      if (!paraEl.dataset.nrTranslationId) {
+        activeTranslationIdSeqRef.current += 1
+        paraEl.dataset.nrTranslationId = String(activeTranslationIdSeqRef.current)
+      }
+      return paraEl.dataset.nrTranslationId
+    }
+
+    function getTranslationBlockForParagraph(para: Element): HTMLElement | null {
+      const block = para.ownerDocument?.getElementById('nr-translation-block') as HTMLElement | null
+      if (!block) return null
+
+      const translationId = (para as HTMLElement).dataset.nrTranslationId
+      if (translationId && block.dataset.nrTranslationFor && block.dataset.nrTranslationFor !== translationId) {
+        return null
+      }
+
+      return block
+    }
+
+    function getTranslationRemainderForParagraph(para: Element): HTMLElement | null {
+      const translationId = (para as HTMLElement).dataset.nrTranslationId
+      const remainders = Array.from(para.ownerDocument?.querySelectorAll<HTMLElement>('#nr-para-remainder') ?? [])
+
+      return remainders.find((remainder) => (
+        !translationId ||
+        !remainder.dataset.nrRemainderFor ||
+        remainder.dataset.nrRemainderFor === translationId
+      )) ?? null
+    }
+
+    function unwrapTranslationSentence(para: Element): void {
+      const sentSpan = para.querySelector('.nr-hl-sentence')
+      if (!sentSpan) return
+
+      const parent = sentSpan.parentNode!
+      while (sentSpan.firstChild) parent.insertBefore(sentSpan.firstChild, sentSpan)
+      sentSpan.remove()
+      parent.normalize()
+    }
+
+    function clearTranslationForParagraph(para: Element, clearActiveRefs = false): void {
+      const remainder = getTranslationRemainderForParagraph(para)
+      if (remainder) {
+        while (remainder.firstChild) para.appendChild(remainder.firstChild)
+        remainder.remove()
+      }
+
+      getTranslationBlockForParagraph(para)?.remove()
+      para.removeAttribute('data-nr-active')
+      para.classList.remove('nr-hl')
+      unwrapTranslationSentence(para)
+      delete (para as HTMLElement).dataset.nrTranslationId
+
+      if (clearActiveRefs) {
+        activeSourceTextRef.current = ''
+        activeTranslatedTextRef.current = ''
+        activeTranslationParaRef.current = null
+      }
+    }
+
+    function clearActiveTranslation(releaseLock = false): void {
+      if (releaseLock) translationInProgressRef.current = false
+
+      const para = activeTranslationParaRef.current
+      if (!para) {
+        activeSourceTextRef.current = ''
+        activeTranslatedTextRef.current = ''
+        return
+      }
+
+      clearTranslationForParagraph(para, true)
+    }
+
+    function getTranslationUnitsForParagraph(para: Element): Array<{ sentence: string; offset: number }> {
+      const text = para.textContent?.trim() ?? ''
+      if (!text) return []
+      return splitParagraphIntoTranslationUnits(text)
+    }
+
+    function selectTextForInlineTranslation(para: Element, sourceText: string): boolean {
+      sourceText = sourceText.trim()
+      if (!sourceText) return false
+
+      const prevPara = activeTranslationParaRef.current
+      if (prevPara && prevPara !== para) {
+        clearTranslationForParagraph(prevPara)
+      }
+
+      getOrCreateTranslationId(para)
+      para.setAttribute('data-nr-active', '1')
+      highlightSentenceInParagraph(para, sourceText)
+      activeTranslationParaRef.current = para
+      activeSourceTextRef.current = sourceText
+      activeTranslatedTextRef.current = ''
+      translationInProgressRef.current = false
+      onTranslateRef.current(sourceText)
+      return true
+    }
+
+    function selectFirstTranslationUnitInParagraph(para: Element): boolean {
+      const firstUnit = getTranslationUnitsForParagraph(para)[0]
+      const sourceText = firstUnit?.sentence ?? para.textContent?.trim() ?? ''
+      return selectTextForInlineTranslation(para, sourceText)
+    }
+
+    function selectFirstParagraphForPendingInlineNext(doc: Document): boolean {
+      const firstPara = getParagraphsFromDocument(doc)[0]
+      if (!firstPara) return false
+      return selectFirstTranslationUnitInParagraph(firstPara)
+    }
+
+    function translateNextParagraphFromActive(): void {
+      const activePara = activeTranslationParaRef.current
+      const doc = activePara?.ownerDocument ?? currentDocRef.current
+      if (!doc) return
+
+      if (activePara) {
+        const activeSourceText = activeSourceTextRef.current.trim()
+        clearTranslationForParagraph(activePara)
+
+        const units = getTranslationUnitsForParagraph(activePara)
+        const currentUnitIndex = units.findIndex((unit) => unit.sentence.trim() === activeSourceText)
+        const nextUnit = currentUnitIndex >= 0 ? units[currentUnitIndex + 1] : null
+        if (nextUnit && selectTextForInlineTranslation(activePara, nextUnit.sentence)) return
+
+        const paragraphs = getParagraphsFromDocument(doc)
+        const currentIndex = paragraphs.indexOf(activePara)
+        const nextPara = currentIndex >= 0 ? paragraphs[currentIndex + 1] : null
+        if (nextPara && selectFirstTranslationUnitInParagraph(nextPara)) return
+      }
+
+      pendingInlineNextTranslationRef.current = true
+      clearActiveTranslation(true)
+      autoSkipChapterStubDirectionRef.current = 1
+      autoSkipChapterStubCountRef.current = 0
+      const moved = goToAdjacentSection(1, () => 0)
+      if (!moved) pendingInlineNextTranslationRef.current = false
     }
 
     function unwrapElementPreservingChildren(el: Element): void {
@@ -1428,6 +1752,14 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         onLoad()
       }
       onSectionReadyRef.current?.(index, getSectionHref(index))
+
+      if (pendingInlineNextTranslationRef.current) {
+        if (selectFirstParagraphForPendingInlineNext(doc)) {
+          pendingInlineNextTranslationRef.current = false
+        } else if (!hasNextSection || !goToAdjacentSection(1, () => 0)) {
+          pendingInlineNextTranslationRef.current = false
+        }
+      }
     }
 
     function clearBookmarkMarkers(doc?: Document | null): void {
@@ -1545,17 +1877,20 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
         const fraction = location.fraction
         const percentage = fractionToPercentage(fraction)
+        const sectionIndex = location.index ?? currentSectionIdxRef.current
 
         const { para } = getVisibleParagraphInternal()
         if (!para) {
           const sectionHref = location.tocItem?.href
-            ?? getSectionHref(location.index ?? currentSectionIdxRef.current)
+            ?? getSectionHref(sectionIndex)
+          const chapterPercentage = getChapterProgressPercentage(view, fraction, sectionIndex, location.tocItem)
           return {
             cfi: location.cfi,
             tocLabel: location.tocItem?.label,
             sectionHref,
             fraction,
             percentage,
+            ...(chapterPercentage !== undefined ? { chapterPercentage } : {}),
           }
         }
 
@@ -1569,6 +1904,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         const sectionHref = progress.tocItem?.href
           ?? location.tocItem?.href
           ?? getSectionHref(currentSectionIdxRef.current)
+        const tocItem = progress.tocItem?.href ? progress.tocItem : location.tocItem
+        const chapterPercentage = getChapterProgressPercentage(view, fraction, currentSectionIdxRef.current, tocItem)
 
         return {
           cfi,
@@ -1576,6 +1913,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           sectionHref,
           fraction,
           percentage,
+          ...(chapterPercentage !== undefined ? { chapterPercentage } : {}),
         }
       },
 
@@ -1663,11 +2001,13 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         const para = activeTranslationParaRef.current
         if (!para) return
         translationInProgressRef.current = true
+        const translationId = getOrCreateTranslationId(para)
         const doc = para.ownerDocument!
         doc.getElementById('nr-translation-block')?.remove()
         const block = doc.createElement('div')
         block.id = 'nr-translation-block'
         block.className = 'nr-translation-block'
+        block.dataset.nrTranslationFor = translationId
         block.innerHTML = `
           <div class="nr-tr-panel">
             <div class="nr-tr-loading">
@@ -1689,6 +2029,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             const remainder = doc.createElement('p')
             remainder.id = 'nr-para-remainder'
             remainder.className = para.className
+            remainder.dataset.nrRemainderFor = translationId
             const styleAttr = para.getAttribute('style')
             if (styleAttr) remainder.setAttribute('style', styleAttr)
             remainder.appendChild(extracted)
@@ -1714,6 +2055,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             <p class="nr-tr-text">${escapeHtml(translatedText)}</p>
           </div>
           <div class="nr-tr-actions">
+            ${renderTranslationAction('next', 'Next', TRANSLATION_ICON.next)}
             ${renderTranslationAction('speak', 'Ouvir', TRANSLATION_ICON.speak)}
             ${renderTranslationAction('bookmark', 'Marcar', TRANSLATION_ICON.bookmark, 'primary')}
             ${renderTranslationAction('save', 'Salvar', TRANSLATION_ICON.save)}
@@ -1722,27 +2064,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       },
 
       clearTranslation: () => {
-        translationInProgressRef.current = false
-        const para = activeTranslationParaRef.current
-        if (!para) return
-        // Reintegra o texto extraído de volta ao parágrafo original antes de remover o bloco
-        const remainder = para.ownerDocument?.getElementById('nr-para-remainder')
-        if (remainder) {
-          while (remainder.firstChild) para.appendChild(remainder.firstChild)
-          remainder.remove()
-        }
-        para.ownerDocument?.getElementById('nr-translation-block')?.remove()
-        para.removeAttribute('data-nr-active')
-        para.classList.remove('nr-hl')
-        const sentSpan = para.querySelector('.nr-hl-sentence')
-        if (sentSpan) {
-          const parent = sentSpan.parentNode!
-          while (sentSpan.firstChild) parent.insertBefore(sentSpan.firstChild, sentSpan)
-          sentSpan.remove()
-        }
-        activeSourceTextRef.current = ''
-        activeTranslatedTextRef.current = ''
-        activeTranslationParaRef.current = null
+        clearActiveTranslation(true)
       },
     }))
 
@@ -1782,6 +2104,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       activeSourceTextRef.current = ''
       activeTranslatedTextRef.current = ''
       translationInProgressRef.current = false
+      pendingInlineNextTranslationRef.current = false
       initialInteractiveReadyRef.current = false
       scrollToBottomOnLoadRef.current = false
 
@@ -1818,10 +2141,12 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           lastRelocateRef.current = { ...e.detail, index: sIdx }
           const activeSection = activateSection(sIdx)
           const sectionHref = tocItem?.href ?? getSectionHref(sIdx)
+          const chapterPercentage = view ? getChapterProgressPercentage(view, fraction, sIdx, tocItem) : undefined
           onRelocate({
             cfi,
             fraction,
             percentage: fractionToPercentage(fraction),
+            ...(chapterPercentage !== undefined ? { chapterPercentage } : {}),
             tocLabel: tocItem?.label,
             sectionHref,
             sectionIndex: sIdx,
@@ -1896,7 +2221,9 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               ev.preventDefault()
               ev.stopPropagation()
               const action = actionBtn.dataset.nrAction
-              if (action === 'speak') {
+              if (action === 'next') {
+                translateNextParagraphFromActive()
+              } else if (action === 'speak') {
                 onSpeakOneRef.current(activeSourceTextRef.current)
               } else if (action === 'bookmark') {
                 if (actionBtn.dataset.nrPending === '1') return
@@ -1971,43 +2298,26 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               return
             }
 
+            // Bloqueia qualquer nova seleção/toggle enquanto o spinner está ativo.
+            if (translationInProgressRef.current) return
+
             // Toggle off: parágrafo já destacado → limpa highlight e bloco de tradução inline
             if (para.hasAttribute('data-nr-active')) {
-              para.ownerDocument?.getElementById('nr-translation-block')?.remove()
-              para.removeAttribute('data-nr-active')
-              para.classList.remove('nr-hl')
-              const sentSpan = para.querySelector('.nr-hl-sentence')
-              if (sentSpan) {
-                const parent = sentSpan.parentNode!
-                while (sentSpan.firstChild) parent.insertBefore(sentSpan.firstChild, sentSpan)
-                sentSpan.remove()
-              }
-              activeTranslationParaRef.current = null
-              activeSourceTextRef.current = ''
-              activeTranslatedTextRef.current = ''
+              clearActiveTranslation()
               return
             }
 
-            // Bloqueia nova seleção enquanto a tradução anterior ainda está em voo
-            if (translationInProgressRef.current) return
+            const sourceText = getSentenceFromClick(ev, para)
 
             // Limpa parágrafo anterior se o tap foi em um parágrafo diferente
             const prevPara = activeTranslationParaRef.current
             if (prevPara && prevPara !== para) {
-              prevPara.ownerDocument?.getElementById('nr-translation-block')?.remove()
-              prevPara.removeAttribute('data-nr-active')
-              prevPara.classList.remove('nr-hl')
-              const prevSpan = prevPara.querySelector('.nr-hl-sentence')
-              if (prevSpan) {
-                const parent = prevSpan.parentNode!
-                while (prevSpan.firstChild) parent.insertBefore(prevSpan.firstChild, prevSpan)
-                prevSpan.remove()
-              }
+              clearTranslationForParagraph(prevPara)
             }
 
             // Toggle on: detecta a frase clicada, destaca no iframe e emite para o ReaderScreen.
             // O ReaderScreen injeta o bloco de tradução diretamente no iframe via showTranslationLoading/injectTranslation.
-            const sourceText = getSentenceFromClick(ev, para)
+            getOrCreateTranslationId(para)
             para.setAttribute('data-nr-active', '1')
             highlightSentenceInParagraph(para, sourceText)
             activeTranslationParaRef.current = para
@@ -2097,6 +2407,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         activeSourceTextRef.current = ''
         activeTranslatedTextRef.current = ''
         translationInProgressRef.current = false
+        pendingInlineNextTranslationRef.current = false
         initialInteractiveReadyRef.current = false
         scrollToBottomOnLoadRef.current = false
         autoSkipChapterStubDirectionRef.current = 0

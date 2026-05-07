@@ -13,6 +13,7 @@ import type {
   ResolvedBookInfo,
   StoredBookInfo,
 } from '../types/bookInfo'
+import { BOOK_INFO_SCHEMA_VERSION as CURRENT_BOOK_INFO_SCHEMA_VERSION } from '../types/bookInfo'
 
 interface UseBookInfoOptions {
   book: Book
@@ -64,7 +65,8 @@ export function useBookInfo({
         if (cancelled) return
 
         let nextInfo = stored ?? null
-        const needsBaseCollection = !stored || !hasDisplayableBookInfo(stored) || refreshToken > 0
+        const isOutdated = (stored?.metadataSchemaVersion ?? 1) < CURRENT_BOOK_INFO_SCHEMA_VERSION
+        const needsBaseCollection = !stored || isOutdated || !hasDisplayableBookInfo(stored) || refreshToken > 0
         const needsYoutubeReviews = Boolean(youtubeApiKey)
           && !stored?.reviews?.value.some((review) => review.provider === 'youtube')
 
@@ -145,6 +147,13 @@ function hasDisplayableBookInfo(info: ResolvedBookInfo | null | undefined): bool
     || info?.rating
     || info?.pageCount
     || info?.publishedDate
+    || info?.publisher
+    || info?.language
+    || info?.isbn10
+    || info?.isbn13
+    || info?.subtitle
+    || info?.series
+    || info?.edition
     || info?.universalIdentifier
     || (info?.reviews?.value.length ?? 0) > 0,
   )

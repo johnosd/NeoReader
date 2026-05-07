@@ -13,6 +13,15 @@ import { SpeechifyService } from '@/services/SpeechifyService'
 const mockGetCachedTtsVoiceOptions = vi.mocked(getCachedTtsVoiceOptions)
 const mockSetCachedTtsVoiceOptions = vi.mocked(setCachedTtsVoiceOptions)
 
+function makeElevenLabsAlignment(text: string) {
+  const characters = Array.from(text)
+  return {
+    characters,
+    character_start_times_seconds: characters.map((_, index) => index * 0.1),
+    character_end_times_seconds: characters.map((_, index) => (index + 1) * 0.1),
+  }
+}
+
 describe('provider API key validation', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
@@ -94,6 +103,66 @@ describe('provider API key validation', () => {
     expect(String(fetchMock.mock.calls[2][0])).toContain('/v1/text-to-speech/voice-pt/with-timestamps')
   })
 
+  it('usa alignment original da ElevenLabs antes do normalized_alignment para offsets de karaoke', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        voice_id: 'voice-en',
+        name: 'Luna',
+        high_quality_base_model_ids: ['eleven_multilingual_v2'],
+        verified_languages: [
+          { language: 'en', model_id: 'eleven_multilingual_v2', locale: 'en-US' },
+        ],
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        audio_base64: 'YQ==',
+        alignment: makeElevenLabsAlignment('Hi 2 you'),
+        normalized_alignment: makeElevenLabsAlignment('Hi two you'),
+      }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await ElevenLabsService.synthesize('Hi 2 you', {
+      apiKey: 'valid-key',
+      language: 'en-US',
+      rate: 1,
+      voiceId: 'voice-en',
+    })
+
+    expect(result.speechMarks.map(({ value, start, end }) => ({ value, start, end }))).toEqual([
+      { value: 'Hi', start: 0, end: 2 },
+      { value: '2', start: 3, end: 4 },
+      { value: 'you', start: 5, end: 8 },
+    ])
+  })
+
+  it('reancora normalized_alignment da ElevenLabs no texto original quando alignment nao vem na resposta', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        voice_id: 'voice-en',
+        name: 'Luna',
+        high_quality_base_model_ids: ['eleven_multilingual_v2'],
+        verified_languages: [
+          { language: 'en', model_id: 'eleven_multilingual_v2', locale: 'en-US' },
+        ],
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        audio_base64: 'YQ==',
+        normalized_alignment: makeElevenLabsAlignment('don\u2019t stop'),
+      }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await ElevenLabsService.synthesize("don't stop", {
+      apiKey: 'valid-key',
+      language: 'en-US',
+      rate: 1,
+      voiceId: 'voice-en',
+    })
+
+    expect(result.speechMarks.map(({ value, start, end }) => ({ value, start, end }))).toEqual([
+      { value: 'don\u2019t', start: 0, end: 5 },
+      { value: 'stop', start: 6, end: 10 },
+    ])
+  })
+
   it('usa cache persistido da Speechify sem chamar a rede', async () => {
     mockGetCachedTtsVoiceOptions.mockResolvedValue([
       {
@@ -121,6 +190,73 @@ describe('provider API key validation', () => {
       },
     ])
     expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('usa cache persistido da ElevenLabs sem chamar a rede', async () => {
+    mockGetCachedTtsVoiceOptions.mockResolvedValue([
+      {
+        id: 'eleven-cached',
+        label: 'Eleven Cached',
+        locale: 'pt-BR',
+        provider: 'elevenlabs',
+        previewUrl: null,
+        meta: 'BR',
+      },
+    ])
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await ElevenLabsService.listCompatibleVoices('pt-BR', 'eleven-key')
+
+    expect(result).toEqual([
+      {
+        id: 'eleven-cached',
+        label: 'Eleven Cached',
+        locale: 'pt-BR',
+        provider: 'elevenlabs',
+        previewUrl: null,
+        meta: 'BR',
+      },
+    ])
+    expect(mockGetCachedTtsVoiceOptions).toHaveBeenCalledWith(12345, 24 * 60 * 60 * 1000)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('salva vozes compativeis da ElevenLabs no cache persistido', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      voices: [
+        {
+          voice_id: 'voice-pt',
+          name: 'Luna',
+          labels: { accent: 'BR', gender: 'female' },
+          preview_url: 'https://cdn.example/luna.mp3',
+          verified_languages: [
+            { language: 'pt', model_id: 'eleven_multilingual_v2', locale: 'pt-BR' },
+          ],
+        },
+      ],
+      has_more: false,
+      next_page_token: null,
+    }), { status: 200 })))
+
+    const result = await ElevenLabsService.listCompatibleVoices('pt-BR', 'eleven-key')
+
+    expect(result).toEqual([
+      {
+        id: 'voice-pt',
+        label: 'Luna',
+        locale: 'pt-BR',
+        provider: 'elevenlabs',
+        previewUrl: 'https://cdn.example/luna.mp3',
+        meta: 'BR · female',
+      },
+    ])
+    expect(mockSetCachedTtsVoiceOptions).toHaveBeenCalledWith({
+      cacheKey: 12345,
+      provider: 'elevenlabs',
+      language: 'pt-BR',
+      voices: result,
+    })
   })
 
   it('normaliza vozes da Speechify em snake_case para a UI', async () => {
