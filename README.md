@@ -39,8 +39,10 @@ preferencias, vocabulario, metadados, autores e caches locais.
 
 - Tela "Descubra" com listas atuais do NYT Best Sellers quando
   `VITE_NYT_API_KEY` esta configurada.
-- Secoes atuais: `advice-how-to-and-miscellaneous`, `hardcover-fiction` e
+- Secoes gerais: `advice-how-to-and-miscellaneous`, `hardcover-fiction` e
   `business-books`.
+- Secao infantil: `childrens-middle-grade-hardcover`, `series-books` e
+  `graphic-books-and-manga`.
 - Cache em `localStorage` por lista por 12h para reduzir chamadas repetidas.
 - Cards NYT com capa, ranking, descricao e link externo.
 

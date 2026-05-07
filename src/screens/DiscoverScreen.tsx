@@ -6,6 +6,16 @@ import { NytBooksRow } from '../components/NytBooksRow'
 import { EmptyState } from '../components/ui'
 
 const NYT_API_KEY = import.meta.env.VITE_NYT_API_KEY as string | undefined
+const TRENDING_LISTS = [
+  'advice-how-to-and-miscellaneous',
+  'hardcover-fiction',
+  'business-books',
+]
+const CHILDREN_LISTS = [
+  'childrens-middle-grade-hardcover',
+  'series-books',
+  'graphic-books-and-manga',
+]
 
 interface DiscoverScreenProps {
   onBack: () => void
@@ -47,9 +57,20 @@ export function DiscoverScreen({ onBack, onOpenLibrary, onOpenProfile }: Discove
               </p>
             </div>
 
-            <NytBooksRow listName="advice-how-to-and-miscellaneous" />
-            <NytBooksRow listName="hardcover-fiction" />
-            <NytBooksRow listName="business-books" />
+            {TRENDING_LISTS.map((listName) => (
+              <NytBooksRow key={listName} listName={listName} />
+            ))}
+
+            <div className="px-5 mt-8">
+              <p className="text-[16px] font-semibold text-text-primary">O que as crianças estão lendo agora</p>
+              <p className="text-[11px] mt-[2px]" style={{ color: 'rgba(100,116,139,0.8)' }}>
+                Best Sellers infantis e juvenis em destaque no NYT
+              </p>
+            </div>
+
+            {CHILDREN_LISTS.map((listName) => (
+              <NytBooksRow key={listName} listName={listName} />
+            ))}
 
             <div className="h-4" />
           </>
