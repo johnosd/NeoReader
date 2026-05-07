@@ -2,13 +2,14 @@ package com.johnny.neoreader;
 
 import android.app.Activity;
 import android.content.ContentResolver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.net.Uri;
 import android.provider.DocumentsContract;
 import android.util.Base64;
 
-import androidx.activity.result.ActivityResult;
 import androidx.documentfile.provider.DocumentFile;
 
 import com.getcapacitor.JSArray;
@@ -16,7 +17,6 @@ import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
-import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import java.io.ByteArrayOutputStream;
@@ -24,17 +24,57 @@ import java.io.InputStream;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-@CapacitorPlugin(name = "NeoReaderLibrary")
+@CapacitorPlugin(name = "NeoReaderLibrary", requestCodes = { 4701 })
 public class NeoReaderLibraryPlugin extends Plugin {
+    static final int SELECT_FOLDER_REQUEST_CODE = 4701;
+    private static final String PREFS_NAME = "NeoReaderLibraryPlugin";
+    private static final String PENDING_FOLDER_RESULT_KEY = "pendingFolderResult";
+    private static final String SELECTED_FOLDER_FILES_KEY = "selectedFolderFiles";
+    private static final int FILE_PAGE_SIZE = 100;
+
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
 
+    @SuppressWarnings("deprecation")
     @PluginMethod
     public void selectEpubFolder(PluginCall call) {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         intent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
         intent.addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
-        startActivityForResult(call, intent, "folderSelected");
+        saveCall(call);
+        startActivityForResult(call, intent, SELECT_FOLDER_REQUEST_CODE);
+    }
+
+    @PluginMethod
+    public void consumePendingFolderSelection(PluginCall call) {
+        String pendingResult = getPreferences().getString(PENDING_FOLDER_RESULT_KEY, null);
+        if (pendingResult == null) {
+            call.resolve(new JSObject());
+            return;
+        }
+
+        getPreferences().edit().remove(PENDING_FOLDER_RESULT_KEY).apply();
+
+        try {
+            call.resolve(new JSObject(pendingResult));
+        } catch (Exception error) {
+            call.reject("Erro ao restaurar a pasta selecionada.", error);
+        }
+    }
+
+    @PluginMethod
+    public void listSelectedFolderFiles(PluginCall call) {
+        int offset = call.getInt("offset", 0);
+        int limit = call.getInt("limit", FILE_PAGE_SIZE);
+
+        ioExecutor.execute(() -> {
+            try {
+                JSArray files = getStoredSelectedFolderFiles();
+                call.resolve(buildFilesPageResponse(files, offset, limit));
+            } catch (Exception error) {
+                call.reject("Erro ao listar arquivos selecionados.", error);
+            }
+        });
     }
 
     @PluginMethod
@@ -61,18 +101,26 @@ public class NeoReaderLibraryPlugin extends Plugin {
         });
     }
 
-    @ActivityCallback
-    private void folderSelected(PluginCall call, ActivityResult result) {
-        if (call == null) return;
+    @Override
+    @SuppressWarnings("deprecation")
+    protected void handleOnActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode != SELECT_FOLDER_REQUEST_CODE) return;
 
-        if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null) {
-            call.reject("Selecao de pasta cancelada.");
+        PluginCall call = getSavedCall();
+        handleFolderSelected(call, resultCode, data);
+    }
+
+    private void handleFolderSelected(PluginCall call, int resultCode, Intent data) {
+        if (resultCode != Activity.RESULT_OK || data == null) {
+            if (call != null) call.reject("Selecao de pasta cancelada.");
+            freeSavedCallSafely();
             return;
         }
 
-        Uri treeUri = result.getData().getData();
+        Uri treeUri = data.getData();
         if (treeUri == null) {
-            call.reject("Pasta invalida.");
+            if (call != null) call.reject("Pasta invalida.");
+            freeSavedCallSafely();
             return;
         }
 
@@ -95,14 +143,17 @@ public class NeoReaderLibraryPlugin extends Plugin {
             try {
                 JSArray files = new JSArray();
                 collectEpubFiles(treeUri, root, files);
+                getPreferences().edit().putString(SELECTED_FOLDER_FILES_KEY, files.toString()).apply();
 
-                JSObject response = new JSObject();
+                JSObject response = buildFilesPageResponse(files, 0, FILE_PAGE_SIZE);
                 response.put("folderName", responseFolderName(root));
                 response.put("folderUri", treeUri.toString());
-                response.put("files", files);
-                call.resolve(response);
+                getPreferences().edit().putString(PENDING_FOLDER_RESULT_KEY, response.toString()).apply();
+                if (call != null) call.resolve(response);
+                freeSavedCallSafely();
             } catch (Exception error) {
-                call.reject("Erro ao ler a pasta selecionada.", error);
+                if (call != null) call.reject("Erro ao ler a pasta selecionada.", error);
+                freeSavedCallSafely();
             }
         });
     }
@@ -114,6 +165,30 @@ public class NeoReaderLibraryPlugin extends Plugin {
         } catch (Exception resolverError) {
             collectEpubFilesWithDocumentFile(root, files, responseFolderName(root));
         }
+    }
+
+    private JSObject buildFilesPageResponse(JSArray files, int rawOffset, int rawLimit) throws Exception {
+        int offset = Math.max(0, rawOffset);
+        int limit = Math.max(1, Math.min(rawLimit, FILE_PAGE_SIZE));
+        int total = files.length();
+        int end = Math.min(total, offset + limit);
+        JSArray page = new JSArray();
+
+        for (int index = offset; index < end; index += 1) {
+            page.put(files.get(index));
+        }
+
+        JSObject response = new JSObject();
+        response.put("files", page);
+        response.put("fileCount", total);
+        response.put("nextOffset", end);
+        response.put("hasMoreFiles", end < total);
+        return response;
+    }
+
+    private JSArray getStoredSelectedFolderFiles() throws Exception {
+        String storedFiles = getPreferences().getString(SELECTED_FOLDER_FILES_KEY, "[]");
+        return new JSArray(storedFiles);
     }
 
     private void collectEpubFilesWithResolver(Uri treeUri, String parentDocumentId, String currentPath, JSArray files) throws Exception {
@@ -203,5 +278,20 @@ public class NeoReaderLibraryPlugin extends Plugin {
     protected void handleOnDestroy() {
         ioExecutor.shutdownNow();
         super.handleOnDestroy();
+    }
+
+    private SharedPreferences getPreferences() {
+        return getContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+    }
+
+    @SuppressWarnings("deprecation")
+    private void freeSavedCallSafely() {
+        try {
+            if (getSavedCall() != null) {
+                freeSavedCall();
+            }
+        } catch (Exception ignored) {
+            saveCall(null);
+        }
     }
 }

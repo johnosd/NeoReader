@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { App as CapApp } from '@capacitor/app'
 import { ArrowUpDown, BookOpen, Check, FileText, FolderOpen, MoreVertical, Plus, Search, Tag, X } from 'lucide-react'
 import { BottomNav } from '../components/BottomNav'
@@ -8,7 +8,7 @@ import { createTag } from '../db/tags'
 import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
 import { useLibraryCatalog, type LibraryBook, type LibraryFilter, type LibrarySort } from '../hooks/useLibraryCatalog'
 import { BookImportService, type FolderImportOptions, type ImportPreviewItem, type ImportProgress, type ImportSummary } from '../services/BookImportService'
-import { readNativeFolderFile, selectNativeEpubFolder, type NativeFolderFile } from '../services/NativeLibraryImportService'
+import { consumePendingNativeFolderSelection, readNativeFolderFile, selectNativeEpubFolder, type NativeFolderFile } from '../services/NativeLibraryImportService'
 import type { Book, BookTag } from '../types/book'
 
 interface LibraryScreenProps {
@@ -60,10 +60,35 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
   const folderInputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  const openNativeFolderResult = useCallback((result: { folderName: string; folderUri: string; files: NativeFolderFile[] }) => {
+    setImportFlow({
+      step: 'options',
+      files: [],
+      nativeFiles: result.files,
+      folderName: result.folderName,
+      folderUri: result.folderUri,
+      includeSubfolders: true,
+      autoImportEnabled: false,
+      applyFolderTag: true,
+      tagName: result.folderName,
+    })
+  }, [])
+
   useEffect(() => {
     folderInputRef.current?.setAttribute('webkitdirectory', '')
     folderInputRef.current?.setAttribute('directory', '')
   }, [])
+
+  useEffect(() => {
+    let active = true
+    void consumePendingNativeFolderSelection().then((result) => {
+      if (!active || !result) return
+      setActionSheetOpen(false)
+      setImportError(null)
+      openNativeFolderResult(result)
+    }).catch(() => undefined)
+    return () => { active = false }
+  }, [openNativeFolderResult])
 
   useEffect(() => {
     const listenerPromise = CapApp.addListener('backButton', () => {
@@ -130,17 +155,7 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
         return
       }
 
-      setImportFlow({
-        step: 'options',
-        files: [],
-        nativeFiles: result.files,
-        folderName: result.folderName,
-        folderUri: result.folderUri,
-        includeSubfolders: true,
-        autoImportEnabled: false,
-        applyFolderTag: true,
-        tagName: result.folderName,
-      })
+      openNativeFolderResult(result)
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return
       setImportError(error instanceof Error ? error.message : 'Erro ao selecionar pasta.')

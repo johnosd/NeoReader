@@ -12,14 +12,27 @@ interface NativeFolderResult {
   folderName: string
   folderUri: string
   files: NativeFolderFile[]
+  fileCount?: number
+  nextOffset?: number
+  hasMoreFiles?: boolean
+}
+
+interface NativeFolderFilesPage {
+  files: NativeFolderFile[]
+  fileCount?: number
+  nextOffset?: number
+  hasMoreFiles?: boolean
 }
 
 interface NeoReaderLibraryPlugin {
   selectEpubFolder(): Promise<NativeFolderResult>
+  consumePendingFolderSelection(): Promise<Partial<NativeFolderResult>>
+  listSelectedFolderFiles(options: { offset: number; limit: number }): Promise<NativeFolderFilesPage>
   readFile(file: NativeFolderFile): Promise<NativeFolderFile & { base64: string }>
 }
 
 const NeoReaderLibrary = registerPlugin<NeoReaderLibraryPlugin>('NeoReaderLibrary')
+const FOLDER_FILE_PAGE_SIZE = 100
 
 export async function selectNativeEpubFolder(): Promise<{ folderName: string; folderUri: string; files: NativeFolderFile[] } | null> {
   if (!Capacitor.isNativePlatform()) return null
@@ -31,11 +44,27 @@ export async function selectNativeEpubFolder(): Promise<{ folderName: string; fo
     if (isFolderSelectionCanceled(error)) throw new DOMException('Selecao de pasta cancelada.', 'AbortError')
     throw error
   }
+  const files = await loadAllSelectedFolderFiles(result)
+  await NeoReaderLibrary.consumePendingFolderSelection().catch(() => undefined)
 
   return {
     folderName: result.folderName,
     folderUri: result.folderUri,
-    files: result.files,
+    files,
+  }
+}
+
+export async function consumePendingNativeFolderSelection(): Promise<{ folderName: string; folderUri: string; files: NativeFolderFile[] } | null> {
+  if (!Capacitor.isNativePlatform()) return null
+
+  const result = await NeoReaderLibrary.consumePendingFolderSelection()
+  if (!result.folderName || !result.folderUri || !Array.isArray(result.files)) return null
+  const files = await loadAllSelectedFolderFiles(result)
+
+  return {
+    folderName: result.folderName,
+    folderUri: result.folderUri,
+    files,
   }
 }
 
@@ -48,6 +77,25 @@ export async function readNativeFolderFile(file: NativeFolderFile): Promise<File
 function isFolderSelectionCanceled(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error)
   return message.toLowerCase().includes('cancelad')
+}
+
+async function loadAllSelectedFolderFiles(initialPage: Partial<NativeFolderResult>): Promise<NativeFolderFile[]> {
+  const files = [...(initialPage.files ?? [])]
+  let nextOffset = initialPage.nextOffset ?? files.length
+  let hasMore = initialPage.hasMoreFiles === true
+
+  while (hasMore) {
+    const page = await NeoReaderLibrary.listSelectedFolderFiles({
+      offset: nextOffset,
+      limit: FOLDER_FILE_PAGE_SIZE,
+    })
+    files.push(...page.files)
+    nextOffset = page.nextOffset ?? files.length
+    hasMore = page.hasMoreFiles === true
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  }
+
+  return files
 }
 
 function base64ToFile(base64: string, fileName: string, relativePath?: string): File {
