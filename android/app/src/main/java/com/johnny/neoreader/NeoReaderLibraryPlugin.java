@@ -7,6 +7,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.ParcelFileDescriptor;
 import android.provider.DocumentsContract;
 import android.util.Base64;
 
@@ -20,7 +21,10 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import java.io.ByteArrayOutputStream;
+import java.io.FileInputStream;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -33,6 +37,8 @@ public class NeoReaderLibraryPlugin extends Plugin {
     private static final String PENDING_FILE_RESULT_KEY = "pendingFileResult";
     private static final String SELECTED_FOLDER_FILES_KEY = "selectedFolderFiles";
     private static final int FILE_PAGE_SIZE = 100;
+    private static final int DEFAULT_FILE_CHUNK_SIZE = 256 * 1024;
+    private static final int MAX_FILE_CHUNK_SIZE = 512 * 1024;
 
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
 
@@ -132,6 +138,33 @@ public class NeoReaderLibraryPlugin extends Plugin {
                 call.resolve(response);
             } catch (Exception error) {
                 call.reject("Erro ao ler arquivo da pasta selecionada.", error);
+            }
+        });
+    }
+
+    @PluginMethod
+    public void readFileChunk(PluginCall call) {
+        String uriValue = call.getString("uri");
+        if (uriValue == null || uriValue.isEmpty()) {
+            call.reject("Arquivo invalido.");
+            return;
+        }
+
+        long offset = call.getLong("offset", 0L);
+        if (offset < 0L) {
+            call.reject("Offset invalido.");
+            return;
+        }
+
+        int requestedLength = call.getInt("length", DEFAULT_FILE_CHUNK_SIZE);
+        int length = Math.max(1, Math.min(requestedLength, MAX_FILE_CHUNK_SIZE));
+
+        ioExecutor.execute(() -> {
+            try {
+                Uri uri = Uri.parse(uriValue);
+                call.resolve(readFileChunkAsBase64(uri, offset, length));
+            } catch (Exception error) {
+                call.reject("Erro ao ler trecho do arquivo selecionado.", error);
             }
         });
     }
@@ -373,6 +406,80 @@ public class NeoReaderLibraryPlugin extends Plugin {
             }
 
             return Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP);
+        }
+    }
+
+    private JSObject readFileChunkAsBase64(Uri uri, long offset, int length) throws Exception {
+        try {
+            return readFileChunkWithFileChannel(uri, offset, length);
+        } catch (Exception fileDescriptorError) {
+            return readFileChunkWithInputStream(uri, offset, length);
+        }
+    }
+
+    private JSObject readFileChunkWithFileChannel(Uri uri, long offset, int length) throws Exception {
+        try (ParcelFileDescriptor descriptor = getContext().getContentResolver().openFileDescriptor(uri, "r");
+             FileInputStream input = descriptor != null ? new FileInputStream(descriptor.getFileDescriptor()) : null;
+             FileChannel channel = input != null ? input.getChannel() : null;
+             ByteArrayOutputStream output = new ByteArrayOutputStream(length)) {
+            if (channel == null) throw new IllegalStateException("Arquivo inacessivel.");
+
+            channel.position(offset);
+            byte[] buffer = new byte[Math.min(8192, length)];
+            int totalRead = 0;
+            while (totalRead < length) {
+                ByteBuffer byteBuffer = ByteBuffer.wrap(buffer, 0, Math.min(buffer.length, length - totalRead));
+                int read = channel.read(byteBuffer);
+                if (read == -1) break;
+                if (read == 0) continue;
+                output.write(buffer, 0, read);
+                totalRead += read;
+            }
+
+            return buildChunkResponse(output, offset, totalRead, length);
+        }
+    }
+
+    private JSObject readFileChunkWithInputStream(Uri uri, long offset, int length) throws Exception {
+        try (InputStream input = getContext().getContentResolver().openInputStream(uri);
+             ByteArrayOutputStream output = new ByteArrayOutputStream(length)) {
+            if (input == null) throw new IllegalStateException("Arquivo inacessivel.");
+
+            skipFully(input, offset);
+
+            byte[] buffer = new byte[Math.min(8192, length)];
+            int totalRead = 0;
+            while (totalRead < length) {
+                int read = input.read(buffer, 0, Math.min(buffer.length, length - totalRead));
+                if (read == -1) break;
+                output.write(buffer, 0, read);
+                totalRead += read;
+            }
+
+            return buildChunkResponse(output, offset, totalRead, length);
+        }
+    }
+
+    private JSObject buildChunkResponse(ByteArrayOutputStream output, long offset, int totalRead, int length) {
+        JSObject response = new JSObject();
+        response.put("base64", Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP));
+        response.put("bytesRead", totalRead);
+        response.put("offset", offset);
+        response.put("done", totalRead < length);
+        return response;
+    }
+
+    private void skipFully(InputStream input, long bytesToSkip) throws Exception {
+        long remaining = bytesToSkip;
+        while (remaining > 0L) {
+            long skipped = input.skip(remaining);
+            if (skipped > 0L) {
+                remaining -= skipped;
+                continue;
+            }
+
+            if (input.read() == -1) return;
+            remaining -= 1L;
         }
     }
 

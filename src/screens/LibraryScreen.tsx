@@ -37,6 +37,8 @@ const SORT_OPTIONS: Array<{ id: LibrarySort; label: string }> = [
   { id: 'fileName', label: 'Nome do arquivo' },
 ]
 
+const EPUB_FILE_PATTERN = /\.epub$/i
+
 export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenProfile }: LibraryScreenProps) {
   const {
     isLoading,
@@ -124,13 +126,20 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
   const isFilterEmpty = !isLoading && books.length > 0 && !search.trim() && activeFilter !== 'all' && filteredBooks.length === 0
 
   async function handleFolderChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files ?? [])
+    const selectedFiles = Array.from(e.target.files ?? [])
     e.target.value = ''
-    if (files.length === 0) return
+    if (selectedFiles.length === 0) return
 
-    const folderName = getFolderName(files)
+    const folderName = getFolderName(selectedFiles)
+    const files = filterEpubFiles(selectedFiles)
     setActionSheetOpen(false)
     setImportError(null)
+
+    if (files.length === 0) {
+      setImportError('Nenhum EPUB encontrado nesta pasta.')
+      return
+    }
+
     setImportFlow({
       step: 'options',
       files,
@@ -144,9 +153,12 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
   }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files ?? [])
+    const files = filterEpubFiles(Array.from(e.target.files ?? []))
     e.target.value = ''
-    if (files.length === 0) return
+    if (files.length === 0) {
+      setImportError('Nenhum EPUB selecionado.')
+      return
+    }
 
     setActionSheetOpen(false)
     setImportError(null)
@@ -225,9 +237,10 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
   }
 
   async function resolveImportFiles(options: ImportOptionsState): Promise<File[]> {
-    return options.includeSubfolders
+    const files = options.includeSubfolders
       ? options.files
       : options.files.filter((file) => !isInSubfolder(file))
+    return filterEpubFiles(files)
   }
 
   function resolveNativeImportFiles(options: ImportOptionsState): NativeFolderFile[] | null {
@@ -274,7 +287,7 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
 
   return (
     <div className="min-h-screen bg-bg-base pb-[90px] text-text-primary">
-      <input ref={folderInputRef} type="file" multiple className="hidden" onChange={handleFolderChange} />
+      <input ref={folderInputRef} type="file" multiple accept=".epub,application/epub+zip" className="hidden" onChange={handleFolderChange} />
       <input ref={fileInputRef} type="file" multiple accept=".epub,application/epub+zip" className="hidden" onChange={handleFileChange} />
 
       {importError && <Toast tone="error" onDismiss={() => setImportError(null)}>{importError}</Toast>}
@@ -837,7 +850,20 @@ function isNativeInSubfolder(file: NativeFolderFile): boolean {
 }
 
 function getImportFileCount(state: ImportOptionsState): number {
-  return state.nativeFiles?.length ?? state.files.length
+  if (state.nativeFiles) {
+    return state.includeSubfolders
+      ? state.nativeFiles.length
+      : state.nativeFiles.filter((file) => !isNativeInSubfolder(file)).length
+  }
+
+  const files = state.includeSubfolders
+    ? state.files
+    : state.files.filter((file) => !isInSubfolder(file))
+  return filterEpubFiles(files).length
+}
+
+function filterEpubFiles(files: File[]): File[] {
+  return files.filter((file) => EPUB_FILE_PATTERN.test(file.name))
 }
 
 function formatDate(date: Date): string {

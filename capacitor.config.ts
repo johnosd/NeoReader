@@ -6,6 +6,9 @@ const config: CapacitorConfig = {
   appId: 'com.johnny.neoreader',
   appName: 'NeoReader',
   webDir: 'dist',
+  android: {
+    loggingBehavior: 'none',
+  },
   plugins: {
     FirebaseAuthentication: {
       providers: ['google.com'],
