@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { App as CapApp } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
-import { ArrowUpDown, BookOpen, Check, FileText, FolderOpen, MoreVertical, Plus, Search, Tag, X } from 'lucide-react'
+import { ArrowUpDown, BookOpen, Check, FileText, FolderOpen, MoreVertical, Plus, Search, Star, Tag, Trash2, X } from 'lucide-react'
 import { BottomNav } from '../components/BottomNav'
 import { QuickBookActionsSheet } from '../components/QuickBookActionsSheet'
 import { BottomSheet, Button, Checkbox, EmptyState, Input, Skeleton, Spinner, Toast } from '../components/ui'
-import { createTag } from '../db/tags'
+import { setBookTags, toggleFavorite } from '../db/books'
+import { createTag, deleteTag } from '../db/tags'
 import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
 import { useLibraryCatalog, type LibraryBook, type LibraryFilter, type LibrarySort } from '../hooks/useLibraryCatalog'
 import { BookImportService, type FolderImportOptions, type ImportPreviewItem, type ImportProgress, type ImportSummary } from '../services/BookImportService'
@@ -55,6 +56,7 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
   const [actionSheetOpen, setActionSheetOpen] = useState(false)
   const [sortSheetOpen, setSortSheetOpen] = useState(false)
   const [optionsBook, setOptionsBook] = useState<LibraryBook | null>(null)
+  const [tagEditorBook, setTagEditorBook] = useState<LibraryBook | null>(null)
   const [importFlow, setImportFlow] = useState<ImportFlowState>({ step: 'closed' })
   const [importSummary, setImportSummary] = useState<ImportSummary | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
@@ -112,6 +114,7 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
 
   useEffect(() => {
     const listenerPromise = CapApp.addListener('backButton', () => {
+      if (tagEditorBook) { setTagEditorBook(null); return }
       if (optionsBook) { setOptionsBook(null); return }
       if (sortSheetOpen) { setSortSheetOpen(false); return }
       if (actionSheetOpen) { setActionSheetOpen(false); return }
@@ -119,11 +122,15 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
       onOpenHome()
     })
     return () => { void listenerPromise.then((listener) => listener.remove()) }
-  }, [actionSheetOpen, importFlow.step, onOpenHome, optionsBook, sortSheetOpen])
+  }, [actionSheetOpen, importFlow.step, onOpenHome, optionsBook, sortSheetOpen, tagEditorBook])
 
   const subtitle = formatBookCount(books.length)
   const isSearchEmpty = !isLoading && books.length > 0 && search.trim() && filteredBooks.length === 0
   const isFilterEmpty = !isLoading && books.length > 0 && !search.trim() && activeFilter !== 'all' && filteredBooks.length === 0
+  const liveTagEditorBook = useMemo(() => {
+    if (!tagEditorBook?.id) return tagEditorBook
+    return books.find((book) => book.id === tagEditorBook.id) ?? tagEditorBook
+  }, [books, tagEditorBook])
 
   async function handleFolderChange(e: React.ChangeEvent<HTMLInputElement>) {
     const selectedFiles = Array.from(e.target.files ?? [])
@@ -403,6 +410,7 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
                 book={book}
                 onOpenBook={onOpenBook}
                 onOpenOptions={setOptionsBook}
+                onOpenTags={setTagEditorBook}
               />
             ))}
           </div>
@@ -429,6 +437,15 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
       />
       <SortSheet open={sortSheetOpen} sort={sort} onClose={() => setSortSheetOpen(false)} onChange={setSort} />
       <QuickBookActionsSheet book={optionsBook} onClose={() => setOptionsBook(null)} />
+      <LibraryTagSheet
+        book={liveTagEditorBook}
+        tags={tags}
+        books={books}
+        onClose={() => setTagEditorBook(null)}
+        onTagDeleted={(tagId) => {
+          if (activeFilter === `tag:${tagId}`) setActiveFilter('all')
+        }}
+      />
       <ImportFlowSheet
         state={importFlow}
         tags={tags}
@@ -483,31 +500,42 @@ function FilterChip({ active, label, onClick }: { active: boolean; label: string
   )
 }
 
-function LibraryBookRow({ book, onOpenBook, onOpenOptions }: {
+function LibraryBookRow({ book, onOpenBook, onOpenOptions, onOpenTags }: {
   book: LibraryBook
   onOpenBook: (book: Book) => void
   onOpenOptions: (book: LibraryBook) => void
+  onOpenTags: (book: LibraryBook) => void
 }) {
   const coverUrl = useBookCoverUrl(book.id)
   const author = book.author?.trim() || 'Autor desconhecido'
+  const isFavorite = Boolean(book.isFavorite)
+
+  async function handleToggleFavorite() {
+    if (book.id === undefined) return
+    await toggleFavorite(book.id)
+  }
 
   return (
     <article className="flex gap-3 px-5 py-3">
       <button
         type="button"
         onClick={() => onOpenBook(book)}
-        className="flex min-w-0 flex-1 gap-3 text-left active:opacity-80"
+        className="h-[92px] w-[62px] shrink-0 overflow-hidden rounded-md border border-white/10 bg-bg-surface-2 active:opacity-80"
       >
-        <div className="h-[92px] w-[62px] shrink-0 overflow-hidden rounded-md border border-white/10 bg-bg-surface-2">
-          {coverUrl ? (
-            <img src={coverUrl} alt="" className="h-full w-full object-cover" />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center text-white/30">
-              <BookOpen size={24} />
-            </div>
-          )}
-        </div>
-        <div className="min-w-0 flex-1 pt-0.5">
+        {coverUrl ? (
+          <img src={coverUrl} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center text-white/30">
+            <BookOpen size={24} />
+          </div>
+        )}
+      </button>
+      <div className="min-w-0 flex-1 pt-0.5">
+        <button
+          type="button"
+          onClick={() => onOpenBook(book)}
+          className="block w-full text-left active:opacity-80"
+        >
           <h2 className="truncate text-[15px] font-bold text-text-primary">{book.title}</h2>
           <p className="mt-1 truncate text-sm text-text-secondary">{author}</p>
           <p className="mt-2 text-xs font-semibold text-text-muted">
@@ -516,17 +544,45 @@ function LibraryBookRow({ book, onOpenBook, onOpenOptions }: {
           {book.lastOpenedAt && (
             <p className="mt-1 text-[11px] text-text-muted">Aberto em {formatDate(book.lastOpenedAt)}</p>
           )}
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {book.tagRecords.length > 0 ? book.tagRecords.map((tag) => (
-              <span key={tag.id} className="rounded-sm bg-purple-primary/15 px-2 py-1 text-[10px] font-semibold text-purple-light">
-                #{tag.name}
-              </span>
-            )) : (
-              <span className="rounded-sm bg-white/5 px-2 py-1 text-[10px] font-semibold text-text-muted">Sem tag</span>
-            )}
-          </div>
+        </button>
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {book.tagRecords.length > 0 ? book.tagRecords.map((tag) => (
+            <button
+              key={tag.id}
+              type="button"
+              onClick={() => onOpenTags(book)}
+              aria-label={`Editar tags de ${book.title}`}
+              className="rounded-sm bg-purple-primary/15 px-2 py-1 text-[10px] font-semibold text-purple-light active:bg-purple-primary/25"
+            >
+              #{tag.name}
+            </button>
+          )) : (
+            <button
+              type="button"
+              onClick={() => onOpenTags(book)}
+              aria-label={`Adicionar tag em ${book.title}`}
+              className="rounded-sm bg-white/5 px-2 py-1 text-[10px] font-semibold text-text-muted active:bg-white/10"
+            >
+              Sem tag
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => void handleToggleFavorite()}
+            disabled={book.id === undefined}
+            aria-label={isFavorite ? 'Remover dos favoritos' : 'Favoritar'}
+            aria-pressed={isFavorite}
+            className={[
+              'inline-flex h-6 w-6 items-center justify-center rounded-sm border transition-colors active:scale-95 disabled:opacity-40',
+              isFavorite
+                ? 'border-purple-light/60 bg-purple-primary/20 text-purple-light'
+                : 'border-white/10 bg-white/5 text-text-muted active:text-purple-light',
+            ].join(' ')}
+          >
+            <Star size={13} strokeWidth={2.4} className={isFavorite ? 'fill-purple-light' : ''} />
+          </button>
         </div>
-      </button>
+      </div>
       <button
         type="button"
         onClick={() => onOpenOptions(book)}
@@ -536,6 +592,164 @@ function LibraryBookRow({ book, onOpenBook, onOpenOptions }: {
         <MoreVertical size={18} />
       </button>
     </article>
+  )
+}
+
+function LibraryTagSheet({ book, tags, books, onClose, onTagDeleted }: {
+  book: LibraryBook | null
+  tags: BookTag[]
+  books: LibraryBook[]
+  onClose: () => void
+  onTagDeleted: (tagId: number) => void
+}) {
+  const [newTagName, setNewTagName] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [pendingDeleteTag, setPendingDeleteTag] = useState<BookTag | null>(null)
+
+  useEffect(() => {
+    if (!book) return
+    setNewTagName('')
+    setError(null)
+    setPendingDeleteTag(null)
+  }, [book])
+
+  async function runTagAction(task: () => Promise<void>) {
+    if (!book?.id || saving) return
+    setSaving(true)
+    setError(null)
+    try {
+      await task()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao atualizar tags.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleToggleTag(tag: BookTag, checked: boolean) {
+    if (tag.id === undefined || !book?.id) return
+    await runTagAction(async () => {
+      const nextTags = new Set(book.tags ?? [])
+      if (checked) nextTags.add(tag.id!)
+      else nextTags.delete(tag.id!)
+      await setBookTags(book.id!, [...nextTags])
+    })
+  }
+
+  async function handleCreateTag() {
+    const tagName = newTagName.trim()
+    if (!tagName || !book?.id) return
+
+    await runTagAction(async () => {
+      const tagId = await createTag(tagName)
+      const nextTags = new Set(book.tags ?? [])
+      nextTags.add(tagId)
+      await setBookTags(book.id!, [...nextTags])
+      setNewTagName('')
+    })
+  }
+
+  async function handleDeleteTag() {
+    if (pendingDeleteTag?.id === undefined) return
+    const tagId = pendingDeleteTag.id
+
+    await runTagAction(async () => {
+      await deleteTag(tagId)
+      onTagDeleted(tagId)
+      setPendingDeleteTag(null)
+    })
+  }
+
+  function getTagUsageCount(tag: BookTag): number {
+    if (tag.id === undefined) return 0
+    return books.filter((libraryBook) => (libraryBook.tags ?? []).includes(tag.id!)).length
+  }
+
+  return (
+    <BottomSheet open={book !== null} onClose={saving ? () => {} : onClose} title="Editar tags">
+      {book && (
+        <div className="space-y-4">
+          <p className="-mt-2 truncate text-xs text-text-muted">{book.title}</p>
+
+          <div className="rounded-md border border-border bg-white/5 p-3">
+            <div className="space-y-2">
+              {tags.length > 0 ? tags.map((tag) => (
+                <div
+                  key={tag.id ?? tag.name}
+                  className="flex items-center gap-2"
+                >
+                  <div className="min-w-0 flex-1">
+                    <Checkbox
+                      checked={tag.id !== undefined && (book.tags ?? []).includes(tag.id)}
+                      disabled={saving || tag.id === undefined}
+                      onChange={(checked) => void handleToggleTag(tag, checked)}
+                      label={tag.name}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setPendingDeleteTag(tag)}
+                    disabled={saving || tag.id === undefined}
+                    aria-label={`Deletar tag ${tag.name}`}
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors active:bg-error/15 active:text-error disabled:opacity-40"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              )) : (
+                <p className="text-xs text-text-muted">Nenhuma tag criada ainda.</p>
+              )}
+            </div>
+          </div>
+
+          <div className="flex gap-2">
+            <input
+              value={newTagName}
+              onChange={(e) => setNewTagName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void handleCreateTag()
+              }}
+              placeholder="Nova tag"
+              disabled={saving}
+              className="h-10 min-w-0 flex-1 rounded-md border border-border bg-bg-base px-3 text-sm text-text-primary outline-none focus:border-purple-primary disabled:opacity-50"
+            />
+            <button
+              type="button"
+              onClick={() => void handleCreateTag()}
+              disabled={saving || !newTagName.trim()}
+              className="h-10 rounded-md bg-purple-primary px-3 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              Criar
+            </button>
+          </div>
+
+          {saving && (
+            <div className="flex justify-center py-1">
+              <Spinner size={18} label="Salvando" />
+            </div>
+          )}
+          {error && <p className="text-center text-sm text-error">{error}</p>}
+
+          {pendingDeleteTag && (
+            <div className="rounded-md border border-error/30 bg-error/15 px-4 py-3">
+              <p className="text-sm font-semibold text-error">Apagar tag "{pendingDeleteTag.name}"?</p>
+              <p className="mt-1 text-xs text-error/75">
+                {formatTagDeleteMessage(getTagUsageCount(pendingDeleteTag))}
+              </p>
+              <div className="mt-3 flex gap-2">
+                <Button variant="ghost" size="sm" onClick={() => setPendingDeleteTag(null)} disabled={saving}>
+                  Cancelar
+                </Button>
+                <Button variant="danger" size="sm" onClick={() => void handleDeleteTag()} disabled={saving}>
+                  {saving ? 'Apagando...' : 'Apagar tag'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </BottomSheet>
   )
 }
 
@@ -832,6 +1046,12 @@ function formatImportSummary(summary: ImportSummary): string {
     return `${summary.imported} livros importados. ${summary.duplicate} livros já estavam na biblioteca e foram ignorados.`
   }
   return `${summary.imported} livros importados.`
+}
+
+function formatTagDeleteMessage(usageCount: number): string {
+  if (usageCount === 0) return 'Esta tag sera apagada da biblioteca.'
+  if (usageCount === 1) return 'Esta tag sera removida de 1 livro e apagada da biblioteca.'
+  return `Esta tag sera removida de ${usageCount} livros e apagada da biblioteca.`
 }
 
 function getFolderName(files: File[]): string {
