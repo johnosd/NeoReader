@@ -1,7 +1,9 @@
 import { useRef, useState } from 'react'
+import { Capacitor } from '@capacitor/core'
 import { Plus } from 'lucide-react'
 import { Toast } from './ui'
 import { BookImportService } from '../services/BookImportService'
+import { selectNativeEpubFile } from '../services/NativeLibraryImportService'
 
 // NOTA: atualmente o FAB fica dentro do BottomNav; este componente é mantido
 // como alternativa autônoma (FAB solto no canto) caso seja reutilizado.
@@ -26,6 +28,26 @@ export function AddBookButton() {
     }
   }
 
+  async function handleAddBook() {
+    if (!Capacitor.isNativePlatform()) {
+      inputRef.current?.click()
+      return
+    }
+
+    setImporting(true)
+    setError(null)
+    try {
+      const nativeFile = await selectNativeEpubFile()
+      if (nativeFile) await BookImportService.importNativeEpub(nativeFile)
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+      const message = err instanceof Error ? err.message : 'Erro ao importar o arquivo'
+      setError(message)
+    } finally {
+      setImporting(false)
+    }
+  }
+
   return (
     <>
       <input
@@ -37,7 +59,7 @@ export function AddBookButton() {
       />
 
       <button
-        onClick={() => inputRef.current?.click()}
+        onClick={handleAddBook}
         disabled={importing}
         aria-label="Adicionar livro"
         className="fixed bottom-6 right-6 w-14 h-14 rounded-full flex items-center justify-center

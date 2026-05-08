@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { App as CapApp } from '@capacitor/app'
+import { Capacitor } from '@capacitor/core'
 import { ArrowUpDown, BookOpen, Check, FileText, FolderOpen, MoreVertical, Plus, Search, Tag, X } from 'lucide-react'
 import { BottomNav } from '../components/BottomNav'
 import { QuickBookActionsSheet } from '../components/QuickBookActionsSheet'
@@ -8,7 +9,7 @@ import { createTag } from '../db/tags'
 import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
 import { useLibraryCatalog, type LibraryBook, type LibraryFilter, type LibrarySort } from '../hooks/useLibraryCatalog'
 import { BookImportService, type FolderImportOptions, type ImportPreviewItem, type ImportProgress, type ImportSummary } from '../services/BookImportService'
-import { consumePendingNativeFolderSelection, readNativeFolderFile, selectNativeEpubFolder, type NativeFolderFile } from '../services/NativeLibraryImportService'
+import { consumePendingNativeFileSelection, consumePendingNativeFolderSelection, selectNativeEpubFile, selectNativeEpubFolder, type NativeFolderFile } from '../services/NativeLibraryImportService'
 import type { Book, BookTag } from '../types/book'
 
 interface LibraryScreenProps {
@@ -91,6 +92,23 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
   }, [openNativeFolderResult])
 
   useEffect(() => {
+    let active = true
+    void consumePendingNativeFileSelection().then(async (nativeFile) => {
+      if (!active || !nativeFile) return
+      setImporting(true)
+      setImportError(null)
+      try {
+        await BookImportService.importNativeEpub(nativeFile)
+      } catch (error) {
+        setImportError(error instanceof Error ? error.message : 'Erro ao importar arquivo.')
+      } finally {
+        if (active) setImporting(false)
+      }
+    }).catch(() => undefined)
+    return () => { active = false }
+  }, [])
+
+  useEffect(() => {
     const listenerPromise = CapApp.addListener('backButton', () => {
       if (optionsBook) { setOptionsBook(null); return }
       if (sortSheetOpen) { setSortSheetOpen(false); return }
@@ -164,17 +182,41 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
     }
   }
 
+  async function importFilesAction() {
+    if (!Capacitor.isNativePlatform()) {
+      fileInputRef.current?.click()
+      return
+    }
+
+    setActionSheetOpen(false)
+    setImporting(true)
+    setImportError(null)
+    try {
+      const nativeFile = await selectNativeEpubFile()
+      if (nativeFile) await BookImportService.importNativeEpub(nativeFile)
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return
+      setImportError(error instanceof Error ? error.message : 'Erro ao importar arquivo.')
+    } finally {
+      setImporting(false)
+    }
+  }
+
   async function buildPreview(options: ImportOptionsState) {
     setImporting(true)
     try {
-      const files = await resolveImportFiles(options)
-      if (files.length === 0) {
-        setImportFlow({ ...options, files })
+      const nativeFiles = resolveNativeImportFiles(options)
+      const files = nativeFiles ? [] : await resolveImportFiles(options)
+      const itemCount = nativeFiles?.length ?? files.length
+      if (itemCount === 0) {
+        setImportFlow({ ...options, files, nativeFiles: nativeFiles ?? undefined })
         setImportError('Nenhum EPUB encontrado nesta pasta.')
         return
       }
-      const preview = await BookImportService.buildImportPreview(files)
-      setImportFlow({ ...options, files, step: 'preview', preview, selectedTagIds: [] })
+      const preview = nativeFiles
+        ? await BookImportService.buildNativeImportPreview(nativeFiles)
+        : await BookImportService.buildImportPreview(files)
+      setImportFlow({ ...options, files, nativeFiles: nativeFiles ?? undefined, step: 'preview', preview, selectedTagIds: [] })
     } catch (error) {
       setImportError(error instanceof Error ? error.message : 'Erro ao escanear arquivos.')
     } finally {
@@ -183,21 +225,16 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
   }
 
   async function resolveImportFiles(options: ImportOptionsState): Promise<File[]> {
-    if (!options.nativeFiles) {
-      return options.includeSubfolders
-        ? options.files
-        : options.files.filter((file) => !isInSubfolder(file))
-    }
+    return options.includeSubfolders
+      ? options.files
+      : options.files.filter((file) => !isInSubfolder(file))
+  }
 
-    const nativeFiles = options.includeSubfolders
+  function resolveNativeImportFiles(options: ImportOptionsState): NativeFolderFile[] | null {
+    if (!options.nativeFiles) return null
+    return options.includeSubfolders
       ? options.nativeFiles
       : options.nativeFiles.filter((file) => !isNativeInSubfolder(file))
-    const files: File[] = []
-    for (const nativeFile of nativeFiles) {
-      files.push(await readNativeFolderFile(nativeFile))
-      await new Promise((resolve) => setTimeout(resolve, 0))
-    }
-    return files
   }
 
   async function confirmImport() {
@@ -322,7 +359,7 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
             action={(
               <div className="flex w-full max-w-xs flex-col gap-2">
                 <Button onClick={() => setImportFlow({ step: 'intro' })} leftIcon={<FolderOpen size={18} />}>Importar pasta</Button>
-                <Button variant="secondary" onClick={() => fileInputRef.current?.click()} leftIcon={<FileText size={18} />}>Importar arquivos</Button>
+                <Button variant="secondary" onClick={() => void importFilesAction()} leftIcon={<FileText size={18} />}>Importar arquivos</Button>
               </div>
             )}
           />
@@ -375,7 +412,7 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
           setActionSheetOpen(false)
           setImportFlow({ step: 'intro' })
         }}
-        onImportFiles={() => fileInputRef.current?.click()}
+        onImportFiles={() => void importFilesAction()}
       />
       <SortSheet open={sortSheetOpen} sort={sort} onClose={() => setSortSheetOpen(false)} onChange={setSort} />
       <QuickBookActionsSheet book={optionsBook} onClose={() => setOptionsBook(null)} />

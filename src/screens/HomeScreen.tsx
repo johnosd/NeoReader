@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { App as CapApp } from '@capacitor/app'
+import { Capacitor } from '@capacitor/core'
 import { BookOpen, Plus, Settings } from 'lucide-react'
 import neoLogo from '../../docs/design-system/logo/neo-reader-header-logo.svg'
 import { HeroBanner } from '../components/HeroBanner'
@@ -9,6 +10,7 @@ import { BottomNav } from '../components/BottomNav'
 import { EmptyState, Skeleton, Toast } from '../components/ui'
 import { useLibraryGroups } from '../hooks/useLibraryGroups'
 import { BookImportService } from '../services/BookImportService'
+import { consumePendingNativeFileSelection, selectNativeEpubFile } from '../services/NativeLibraryImportService'
 import type { Book } from '../types/book'
 
 interface HomeScreenProps {
@@ -34,6 +36,23 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
     return () => { void listenerPromise.then((l) => l.remove()) }
   }, [optionsBook])
 
+  useEffect(() => {
+    let active = true
+    void consumePendingNativeFileSelection().then(async (nativeFile) => {
+      if (!active || !nativeFile) return
+      setImporting(true)
+      setImportError(null)
+      try {
+        await BookImportService.importNativeEpub(nativeFile)
+      } catch (err) {
+        setImportError(err instanceof Error ? err.message : 'Erro ao importar o arquivo')
+      } finally {
+        if (active) setImporting(false)
+      }
+    }).catch(() => undefined)
+    return () => { active = false }
+  }, [])
+
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -46,6 +65,25 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
     } finally {
       setImporting(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  async function handleAddBook() {
+    if (!Capacitor.isNativePlatform()) {
+      fileInputRef.current?.click()
+      return
+    }
+
+    setImporting(true)
+    setImportError(null)
+    try {
+      const nativeFile = await selectNativeEpubFile()
+      if (nativeFile) await BookImportService.importNativeEpub(nativeFile)
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+      setImportError(err instanceof Error ? err.message : 'Erro ao importar o arquivo')
+    } finally {
+      setImporting(false)
     }
   }
 
@@ -107,7 +145,7 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
 
       {/* FAB de importar — flutua acima do nav bar */}
       <button
-        onClick={() => fileInputRef.current?.click()}
+        onClick={handleAddBook}
         disabled={importing}
         aria-label="Adicionar livro"
         className="fixed right-4 z-50 w-[52px] h-[52px] rounded-full flex items-center justify-center

@@ -24,11 +24,13 @@ import java.io.InputStream;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-@CapacitorPlugin(name = "NeoReaderLibrary", requestCodes = { 4701 })
+@CapacitorPlugin(name = "NeoReaderLibrary", requestCodes = { 4701, 4702 })
 public class NeoReaderLibraryPlugin extends Plugin {
     static final int SELECT_FOLDER_REQUEST_CODE = 4701;
+    static final int SELECT_FILE_REQUEST_CODE = 4702;
     private static final String PREFS_NAME = "NeoReaderLibraryPlugin";
     private static final String PENDING_FOLDER_RESULT_KEY = "pendingFolderResult";
+    private static final String PENDING_FILE_RESULT_KEY = "pendingFileResult";
     private static final String SELECTED_FOLDER_FILES_KEY = "selectedFolderFiles";
     private static final int FILE_PAGE_SIZE = 100;
 
@@ -45,6 +47,22 @@ public class NeoReaderLibraryPlugin extends Plugin {
         startActivityForResult(call, intent, SELECT_FOLDER_REQUEST_CODE);
     }
 
+    @SuppressWarnings("deprecation")
+    @PluginMethod
+    public void selectEpubFile(PluginCall call) {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[] {
+            "application/epub+zip",
+            "application/octet-stream"
+        });
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        intent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        saveCall(call);
+        startActivityForResult(call, intent, SELECT_FILE_REQUEST_CODE);
+    }
+
     @PluginMethod
     public void consumePendingFolderSelection(PluginCall call) {
         String pendingResult = getPreferences().getString(PENDING_FOLDER_RESULT_KEY, null);
@@ -59,6 +77,23 @@ public class NeoReaderLibraryPlugin extends Plugin {
             call.resolve(new JSObject(pendingResult));
         } catch (Exception error) {
             call.reject("Erro ao restaurar a pasta selecionada.", error);
+        }
+    }
+
+    @PluginMethod
+    public void consumePendingFileSelection(PluginCall call) {
+        String pendingResult = getPreferences().getString(PENDING_FILE_RESULT_KEY, null);
+        if (pendingResult == null) {
+            call.resolve(new JSObject());
+            return;
+        }
+
+        getPreferences().edit().remove(PENDING_FILE_RESULT_KEY).apply();
+
+        try {
+            call.resolve(new JSObject(pendingResult));
+        } catch (Exception error) {
+            call.reject("Erro ao restaurar o arquivo selecionado.", error);
         }
     }
 
@@ -104,10 +139,51 @@ public class NeoReaderLibraryPlugin extends Plugin {
     @Override
     @SuppressWarnings("deprecation")
     protected void handleOnActivityResult(int requestCode, int resultCode, Intent data) {
-        if (requestCode != SELECT_FOLDER_REQUEST_CODE) return;
+        if (requestCode != SELECT_FOLDER_REQUEST_CODE && requestCode != SELECT_FILE_REQUEST_CODE) return;
 
         PluginCall call = getSavedCall();
-        handleFolderSelected(call, resultCode, data);
+        if (requestCode == SELECT_FOLDER_REQUEST_CODE) {
+            handleFolderSelected(call, resultCode, data);
+            return;
+        }
+
+        handleFileSelected(call, resultCode, data);
+    }
+
+    private void handleFileSelected(PluginCall call, int resultCode, Intent data) {
+        if (resultCode != Activity.RESULT_OK || data == null) {
+            if (call != null) call.reject("Selecao de arquivo cancelada.");
+            freeSavedCallSafely();
+            return;
+        }
+
+        Uri fileUri = data.getData();
+        if (fileUri == null) {
+            if (call != null) call.reject("Arquivo invalido.");
+            freeSavedCallSafely();
+            return;
+        }
+
+        ioExecutor.execute(() -> {
+            try {
+                try {
+                    getContext().getContentResolver().takePersistableUriPermission(
+                        fileUri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    );
+                } catch (SecurityException ignored) {
+                    // Some providers grant access for the current session only.
+                }
+
+                JSObject response = buildFileMetadata(fileUri);
+                getPreferences().edit().putString(PENDING_FILE_RESULT_KEY, response.toString()).apply();
+                if (call != null) call.resolve(response);
+                freeSavedCallSafely();
+            } catch (Exception error) {
+                if (call != null) call.reject("Erro ao selecionar arquivo.", error);
+                freeSavedCallSafely();
+            }
+        });
     }
 
     private void handleFolderSelected(PluginCall call, int resultCode, Intent data) {
@@ -136,7 +212,8 @@ public class NeoReaderLibraryPlugin extends Plugin {
 
             DocumentFile root = DocumentFile.fromTreeUri(getContext(), treeUri);
             if (root == null || !root.isDirectory()) {
-                call.reject("Pasta invalida.");
+                if (call != null) call.reject("Pasta invalida.");
+                freeSavedCallSafely();
                 return;
             }
 
@@ -253,6 +330,31 @@ public class NeoReaderLibraryPlugin extends Plugin {
             file.put("size", child.length());
             files.put(file);
         }
+    }
+
+    private JSObject buildFileMetadata(Uri uri) throws Exception {
+        String name = "livro.epub";
+        long size = 0L;
+        String[] projection = new String[] {
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_SIZE
+        };
+
+        try (Cursor cursor = getContext().getContentResolver().query(uri, projection, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int nameIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME);
+                int sizeIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE);
+                if (nameIndex >= 0 && !cursor.isNull(nameIndex)) name = cursor.getString(nameIndex);
+                if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) size = cursor.getLong(sizeIndex);
+            }
+        }
+
+        JSObject file = new JSObject();
+        file.put("name", name);
+        file.put("uri", uri.toString());
+        file.put("path", name);
+        file.put("size", size);
+        return file;
     }
 
     private String responseFolderName(DocumentFile root) {

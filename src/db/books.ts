@@ -4,10 +4,12 @@ import type { Book, ReadingStatus } from '../types/book'
 
 // Salva um livro novo no IndexedDB. Retorna o id gerado.
 export async function addBook(book: Omit<Book, 'id'>): Promise<number> {
+  const storageMode = book.storageMode ?? (book.fileBlob ? 'embedded' : 'external')
   return db.books.add({
     ...book,
+    storageMode,
     fileName: book.fileName ?? `${book.title || 'book'}.epub`,
-    fileSize: book.fileSize ?? book.fileBlob.size,
+    fileSize: book.fileSize ?? book.fileBlob?.size ?? 0,
     format: book.format ?? 'EPUB',
     importedAt: book.importedAt ?? book.addedAt ?? new Date(),
     tags: Array.isArray(book.tags) ? book.tags : [],

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { getSettings } from '../db/settings'
 import { getBookSettings, updateBookSettings } from '../db/bookSettings'
 import { EpubService } from '../services/EpubService'
+import { BookFileResolver } from '../services/BookFileResolver'
 import { clampTtsRate, normalizeLanguageTag } from '../utils/language'
 import type { Book } from '../types/book'
 import type { FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from '../types/settings'
@@ -77,7 +78,7 @@ function resolveTtsProviderFromAvailability(
 }
 
 export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
-  const [readySource, setReadySource] = useState<{ bookId: Book['id']; fileBlob: Book['fileBlob'] } | null>(null)
+  const [readySource, setReadySource] = useState<{ bookId: Book['id']; source: string } | null>(null)
   const [fontSize, setFontSize] = useState<FontSize>('md')
   const [lineHeight, setLineHeight] = useState<ReaderLineHeight>('comfortable')
   const [readerTheme, setReaderTheme] = useState<ReaderTheme>('dark')
@@ -102,10 +103,12 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
   useEffect(() => {
     let cancelled = false
 
+    const source = resolveBookSourceKey(book)
+
     void Promise.all([
       getSettings(),
       getBookSettings(book.id!),
-      EpubService.parseExtras(book.fileBlob, book.id),
+      BookFileResolver.resolveFile(book).then((file) => EpubService.parseExtras(file, book.id)),
     ]).then(([s, bs, extras]) => {
       if (cancelled) return
 
@@ -132,15 +135,18 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
       })
       setTtsProviderAvailability(providerAvailability)
       setTtsEngine(resolveTtsProvider(selectedProvider, s.appSettings))
-      setReadySource({ bookId: book.id, fileBlob: book.fileBlob })
+      setReadySource({ bookId: book.id, source })
+    }).catch(() => {
+      if (cancelled) return
+      setReadySource({ bookId: book.id, source })
     })
 
     return () => {
       cancelled = true
     }
-  }, [book.fileBlob, book.id])
+  }, [book, book.fileBlob, book.id, book.storageMode, book.uri])
 
-  const isReady = readySource?.bookId === book.id && readySource?.fileBlob === book.fileBlob
+  const isReady = readySource?.bookId === book.id && readySource?.source === resolveBookSourceKey(book)
 
   function applyAppearancePatch(patch: AppearancePatch) {
     if (patch.fontSize) setFontSize(patch.fontSize)
@@ -218,4 +224,10 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
     switchToNativeTts,
     handleReaderStyleModeChange,
   }
+}
+
+function resolveBookSourceKey(book: Book): string {
+  return book.storageMode === 'external'
+    ? `external:${book.uri ?? ''}`
+    : `embedded:${book.fileName ?? book.id ?? ''}`
 }

@@ -5,6 +5,8 @@ import { addBook } from '../db/books'
 import { saveSourceFolder } from '../db/sourceFolders'
 import { EpubService, type EpubMetadata } from './EpubService'
 import { BookInfoService } from './bookInfo'
+import { BookFileResolver } from './BookFileResolver'
+import { readNativeFolderFile, type NativeFolderFile } from './NativeLibraryImportService'
 import type { Book, SourceFolder } from '../types/book'
 
 export interface FolderImportOptions {
@@ -16,7 +18,8 @@ export interface FolderImportOptions {
 
 export interface ImportPreviewItem {
   id: string
-  file: File
+  file?: File
+  nativeFile?: NativeFolderFile
   fileName: string
   fileSize: number
   format: 'EPUB' | 'UNSUPPORTED'
@@ -53,6 +56,7 @@ interface ImportSingleEpubOptions {
   tags?: number[]
   sourceFolderId?: number | null
   uri?: string | null
+  storageMode?: 'embedded' | 'external'
 }
 
 export class BookImportService {
@@ -77,6 +81,37 @@ export class BookImportService {
       tags: [],
       sourceFolderId: null,
       uri: null,
+      storageMode: 'embedded',
+    })
+  }
+
+  static async importNativeEpub(nativeFile: NativeFolderFile): Promise<number> {
+    const file = await readNativeFolderFile(nativeFile)
+    const metadata = await EpubService.parseMetadata(file)
+    const fileHash = await this.hashFile(file)
+    const fileSize = nativeFile.size || file.size
+    const duplicate = await this.findDuplicateBook({
+      fileHash,
+      fileName: nativeFile.name,
+      fileSize,
+      title: metadata.title,
+      author: metadata.author,
+      uri: nativeFile.uri,
+    })
+
+    if (duplicate) {
+      throw new Error('Este livro ja esta na biblioteca.')
+    }
+
+    return this.importSingleEpubRecord(file, {
+      metadata,
+      fileHash,
+      fileName: nativeFile.name,
+      fileSize,
+      tags: [],
+      sourceFolderId: null,
+      uri: nativeFile.uri,
+      storageMode: 'external',
     })
   }
 
@@ -110,6 +145,32 @@ export class BookImportService {
     }
 
     return items
+  }
+
+  static async buildNativeImportPreview(files: NativeFolderFile[]): Promise<ImportPreviewItem[]> {
+    const existingBooks = await db.books.toArray()
+    const existingUris = new Set(existingBooks.map((book) => book.uri).filter(Boolean))
+    const existingNameAndSize = new Set(existingBooks.map((book) => this.fileNameSizeKey(book.fileName, book.fileSize)))
+
+    return files.map((file) => {
+      const supported = /\.epub$/i.test(file.name)
+      const duplicate = supported && (
+        existingUris.has(file.uri) ||
+        existingNameAndSize.has(this.fileNameSizeKey(file.name, file.size))
+      )
+
+      return {
+        id: `${file.uri}-${file.size}`,
+        nativeFile: file,
+        fileName: file.name,
+        fileSize: file.size,
+        format: supported ? 'EPUB' : 'UNSUPPORTED',
+        supported,
+        duplicate,
+        selected: supported && !duplicate,
+        reason: supported ? (duplicate ? 'Ja importado' : undefined) : 'Formato nao suportado',
+      }
+    })
   }
 
   static async importSelectedBooks(params: {
@@ -158,13 +219,17 @@ export class BookImportService {
       }
 
       try {
-        const metadata = await EpubService.parseMetadata(item.file)
+        const file = item.file ?? (item.nativeFile ? await readNativeFolderFile(item.nativeFile) : null)
+        if (!file) throw new Error('Arquivo invalido.')
+        const metadata = await EpubService.parseMetadata(file)
+        const fileHash = item.fileHash ?? await this.hashFile(file)
         const duplicate = await this.findDuplicateBook({
-          fileHash: item.fileHash,
+          fileHash,
           fileName: item.fileName,
           fileSize: item.fileSize,
           title: metadata.title,
           author: metadata.author,
+          uri: item.nativeFile?.uri,
         })
 
         if (duplicate) {
@@ -180,14 +245,15 @@ export class BookImportService {
           continue
         }
 
-        await this.importSingleEpubRecord(item.file, {
+        await this.importSingleEpubRecord(file, {
           metadata,
-          fileHash: item.fileHash,
+          fileHash,
           fileName: item.fileName,
-          fileSize: item.fileSize,
+          fileSize: item.fileSize || file.size,
           tags: params.tagIds,
           sourceFolderId,
-          uri: item.file.webkitRelativePath || item.fileName,
+          uri: item.nativeFile?.uri ?? item.file?.webkitRelativePath ?? item.fileName,
+          storageMode: item.nativeFile ? 'external' : 'embedded',
         })
         summary.imported += 1
       } catch (error) {
@@ -215,10 +281,10 @@ export class BookImportService {
     return summary
   }
 
-  static async reextractCover(book: Pick<Book, 'id' | 'title' | 'fileBlob'>): Promise<boolean> {
+  static async reextractCover(book: Book): Promise<boolean> {
     if (book.id === undefined) throw new Error('Livro sem id para reextrair capa.')
 
-    const metadata = await EpubService.parseMetadata(this.toStoredFile(book))
+    const metadata = await EpubService.parseMetadata(await BookFileResolver.resolveEpubFile(book))
     if (!metadata.coverBlob) return false
 
     await saveBookCover(book.id, metadata.coverBlob, 'epub-extracted')
@@ -263,7 +329,8 @@ export class BookImportService {
       const bookId = await addBook({
         title: metadata.title,
         author: metadata.author,
-        fileBlob: file,
+        fileBlob: options.storageMode === 'external' ? undefined : file,
+        storageMode: options.storageMode ?? 'embedded',
         fileName: options.fileName ?? file.name,
         fileSize: options.fileSize ?? file.size,
         fileHash,
@@ -290,12 +357,6 @@ export class BookImportService {
     return bookId
   }
 
-  private static toStoredFile(book: Pick<Book, 'title' | 'fileBlob'>): File {
-    return new File([book.fileBlob], `${book.title}.epub`, {
-      type: 'application/epub+zip',
-    })
-  }
-
   private static async saveImportSource(folder: FolderImportOptions): Promise<number> {
     const now = new Date()
     const sourceFolder: Omit<SourceFolder, 'id'> = {
@@ -315,12 +376,14 @@ export class BookImportService {
     fileSize?: number
     title: string
     author: string
+    uri?: string
   }): Promise<Book | undefined> {
     const books = await db.books.toArray()
     const titleAuthorKey = this.titleAuthorKey(candidate.title, candidate.author)
     const nameSizeKey = this.fileNameSizeKey(candidate.fileName, candidate.fileSize)
 
     return books.find((book) => (
+      (!!candidate.uri && book.uri === candidate.uri) ||
       (!!candidate.fileHash && book.fileHash === candidate.fileHash) ||
       this.fileNameSizeKey(book.fileName, book.fileSize) === nameSizeKey ||
       this.titleAuthorKey(book.title, book.author) === titleAuthorKey

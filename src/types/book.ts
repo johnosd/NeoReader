@@ -4,13 +4,15 @@ import type { TtsProvider } from './tts'
 export type ReadingStatus = 'unread' | 'reading' | 'finished'
 export type BookFormat = 'EPUB'
 export type BookCoverSource = 'epub-extracted' | 'manual-upload' | 'legacy-inline'
+export type BookStorageMode = 'embedded' | 'external'
 
 // Representa um livro armazenado no IndexedDB
 export interface Book {
   id?: number          // auto-increment pelo Dexie
   title: string
   author: string
-  fileBlob: Blob          // arquivo .epub completo
+  fileBlob?: Blob          // arquivo .epub completo (livros antigos/fallback web)
+  storageMode?: BookStorageMode
   fileName?: string
   filePath?: string
   uri?: string

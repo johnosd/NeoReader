@@ -13,6 +13,7 @@ import { getSettings } from '../db/settings'
 import { useBookDetailsTtsVoices } from '../hooks/useBookDetailsTtsVoices'
 import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
 import { useBookInfo } from '../hooks/useBookInfo'
+import { BookFileResolver } from '../services/BookFileResolver'
 import { EpubService, type EpubExtras } from '../services/EpubService'
 import { ElevenLabsService } from '../services/ElevenLabsService'
 import { NativeTtsService } from '../services/NativeTtsService'
@@ -179,12 +180,19 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
   }, [book.id, storedBookSettingsRow?.updatedAt])
 
   useEffect(() => {
+    let cancelled = false
     setExtrasLoading(true)
-    EpubService.parseExtras(liveBook.fileBlob, liveBook.id).then((result) => {
+    BookFileResolver.resolveFile(liveBook).then((file) => EpubService.parseExtras(file, liveBook.id)).then((result) => {
+      if (cancelled) return
       setExtras(result)
       setExtrasLoading(false)
+    }).catch(() => {
+      if (cancelled) return
+      setExtras(null)
+      setExtrasLoading(false)
     })
-  }, [liveBook.fileBlob, liveBook.id])
+    return () => { cancelled = true }
+  }, [liveBook, liveBook.fileBlob, liveBook.id, liveBook.storageMode, liveBook.uri])
 
   useEffect(() => {
     const listener = CapApp.addListener('backButton', onBack)
@@ -999,7 +1007,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
                   <ListItem
                     leading={<HardDrive size={18} />}
                     title="Tamanho"
-                    meta={formatFileSize(liveBook.fileBlob.size)}
+                    meta={formatFileSize(liveBook.fileSize ?? liveBook.fileBlob?.size ?? 0)}
                     divider={false}
                   />
                 </div>

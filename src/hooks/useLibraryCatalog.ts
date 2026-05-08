@@ -77,7 +77,7 @@ export function useLibraryCatalog() {
         ...book,
         format: book.format ?? 'EPUB',
         fileName: book.fileName ?? `${book.title}.epub`,
-        fileSize: book.fileSize ?? book.fileBlob.size,
+        fileSize: book.fileSize ?? book.fileBlob?.size ?? 0,
         importedAt: book.importedAt ?? book.addedAt,
         tags: book.tags ?? [],
         missingFile: book.missingFile ?? false,

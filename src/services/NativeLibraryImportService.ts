@@ -26,7 +26,9 @@ interface NativeFolderFilesPage {
 
 interface NeoReaderLibraryPlugin {
   selectEpubFolder(): Promise<NativeFolderResult>
+  selectEpubFile(): Promise<NativeFolderFile>
   consumePendingFolderSelection(): Promise<Partial<NativeFolderResult>>
+  consumePendingFileSelection(): Promise<Partial<NativeFolderFile>>
   listSelectedFolderFiles(options: { offset: number; limit: number }): Promise<NativeFolderFilesPage>
   readFile(file: NativeFolderFile): Promise<NativeFolderFile & { base64: string }>
 }
@@ -68,6 +70,30 @@ export async function consumePendingNativeFolderSelection(): Promise<{ folderNam
   }
 }
 
+export async function selectNativeEpubFile(): Promise<NativeFolderFile | null> {
+  if (!Capacitor.isNativePlatform()) return null
+
+  try {
+    return await NeoReaderLibrary.selectEpubFile()
+  } catch (error) {
+    if (isFileSelectionCanceled(error)) throw new DOMException('Selecao de arquivo cancelada.', 'AbortError')
+    throw error
+  }
+}
+
+export async function consumePendingNativeFileSelection(): Promise<NativeFolderFile | null> {
+  if (!Capacitor.isNativePlatform()) return null
+
+  const result = await NeoReaderLibrary.consumePendingFileSelection()
+  if (!result.name || !result.uri) return null
+  return {
+    name: result.name,
+    uri: result.uri,
+    path: result.path,
+    size: result.size ?? 0,
+  }
+}
+
 export async function readNativeFolderFile(file: NativeFolderFile): Promise<File> {
   const result = file.base64 ? file : await NeoReaderLibrary.readFile(file)
   if (!result.base64) throw new Error('Arquivo da pasta sem conteudo.')
@@ -75,6 +101,11 @@ export async function readNativeFolderFile(file: NativeFolderFile): Promise<File
 }
 
 function isFolderSelectionCanceled(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.toLowerCase().includes('cancelad')
+}
+
+function isFileSelectionCanceled(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error)
   return message.toLowerCase().includes('cancelad')
 }
