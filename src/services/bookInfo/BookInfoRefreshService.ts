@@ -1,5 +1,6 @@
 import { saveBookInfo } from '../../db/bookInfo'
 import { getSettings } from '../../db/settings'
+import { BookFileResolver } from '../BookFileResolver'
 import type { Book } from '../../types/book'
 import type { BookInfoProviderAttemptDiagnostic, StoredBookInfo } from '../../types/bookInfo'
 import { BookInfoService } from './BookInfoService'
@@ -20,12 +21,13 @@ export class BookInfoRefreshService {
     if (!book.id) throw new Error('Livro sem identificador local.')
 
     const settings = await getSettings()
+    const file = await BookFileResolver.resolveFile(book)
     const collected = await new BookInfoService([
       new EpubBookInfoProvider(),
       new GoogleBooksProvider(),
       new OpenLibraryProvider(),
       new YouTubeReviewsProvider({ apiKey: settings.appSettings.youtubeApiKey }),
-    ], options).collect(book.fileBlob, {
+    ], options).collect(file, {
       lookupHints: {
         title: book.title,
         author: book.author,

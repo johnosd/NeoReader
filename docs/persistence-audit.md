@@ -6,7 +6,9 @@ memory by design.
 
 ## Persisted in IndexedDB
 
-- `books`: book metadata and the imported EPUB `fileBlob`.
+- `books`: book metadata, imported EPUB `fileBlob`, file/import metadata and tag links.
+- `tags`: user-created library tags.
+- `sourceFolders`: folders selected as import sources.
 - `bookCovers`: extracted or manually uploaded cover blobs.
 - `progress`: current reading CFI, percentage, fraction and section metadata.
 - `bookmarks`: user bookmarks, including soft-deleted rows.
@@ -28,10 +30,38 @@ erDiagram
     string title
     string author
     Blob fileBlob
+    string fileName
+    string filePath
+    string uri
+    number fileSize
+    string fileHash
+    string format
     Date addedAt
+    Date importedAt
     Date lastOpenedAt
     string readingStatus
     boolean isFavorite
+    number_array tags FK
+    number sourceFolderId FK
+    boolean missingFile
+  }
+
+  TAGS {
+    number id PK
+    string name UK
+    string color
+    Date createdAt
+    Date updatedAt
+  }
+
+  SOURCE_FOLDERS {
+    number id PK
+    string name
+    string uri
+    boolean includeSubfolders
+    boolean autoImportEnabled
+    Date createdAt
+    Date lastScannedAt
   }
 
   BOOK_COVERS {
@@ -162,6 +192,8 @@ erDiagram
   }
 
   BOOKS ||--o| BOOK_COVERS : "has cover"
+  SOURCE_FOLDERS ||--o{ BOOKS : "is import source"
+  TAGS }o..o{ BOOKS : "linked by tag ids"
   BOOKS ||--o| PROGRESS : "has progress"
   BOOKS ||--o{ BOOKMARKS : "has bookmarks"
   BOOKS ||--o{ VOCABULARY : "has saved terms"
@@ -174,8 +206,9 @@ erDiagram
 Notes:
 
 - Dexie indexes are declared in `src/db/database.ts`; the current schema is
-  version 12.
-- `authors.bookIds` is a multi-entry index, not a physical join table.
+  version 13.
+- `authors.bookIds` and `books.tags` are multi-entry indexes, not physical join
+  tables.
 - Stable author fields do not expire automatically; only `authors.data.videos`
   uses `videosFetchedAt` with a 7-day TTL.
 - `bookInfo` stores each bibliographic field as an object containing `value`,

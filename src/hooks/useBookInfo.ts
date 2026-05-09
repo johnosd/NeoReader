@@ -7,6 +7,7 @@ import {
   OpenLibraryProvider,
   YouTubeReviewsProvider,
 } from '../services/bookInfo'
+import { BookFileResolver } from '../services/BookFileResolver'
 import type { Book } from '../types/book'
 import type {
   BookInfoProviderAttemptDiagnostic,
@@ -69,6 +70,8 @@ export function useBookInfo({
         const needsBaseCollection = !stored || isOutdated || !hasDisplayableBookInfo(stored) || refreshToken > 0
         const needsYoutubeReviews = Boolean(youtubeApiKey)
           && !stored?.reviews?.value.some((review) => review.provider === 'youtube')
+        const needsCollection = needsBaseCollection || needsYoutubeReviews
+        const file = needsCollection ? await BookFileResolver.resolveFile(book) : null
 
         if (needsBaseCollection) {
           const collected = await new BookInfoService([
@@ -76,7 +79,7 @@ export function useBookInfo({
             new GoogleBooksProvider(),
             new OpenLibraryProvider(),
             new YouTubeReviewsProvider({ apiKey: youtubeApiKey }),
-          ], { onProviderAttempt: recordDiagnostic }).collect(book.fileBlob, {
+          ], { onProviderAttempt: recordDiagnostic }).collect(file!, {
             lookupHints: {
               title: book.title,
               author: book.author,
@@ -87,7 +90,7 @@ export function useBookInfo({
         } else if (needsYoutubeReviews) {
           const collected = await new BookInfoService([
             new YouTubeReviewsProvider({ apiKey: youtubeApiKey }),
-          ], { onProviderAttempt: recordDiagnostic }).collect(book.fileBlob, stored)
+          ], { onProviderAttempt: recordDiagnostic }).collect(file!, stored)
 
           if (collected.reviews) {
             nextInfo = await patchBookInfo(book.id!, {
@@ -131,7 +134,7 @@ export function useBookInfo({
     return () => {
       cancelled = true
     }
-  }, [book.author, book.fileBlob, book.id, book.title, enabled, requestKey, refreshToken, youtubeApiKey])
+  }, [book, book.author, book.fileBlob, book.id, book.storageMode, book.title, book.uri, enabled, requestKey, refreshToken, youtubeApiKey])
 
   return {
     info: state.key === requestKey ? state.info : null,

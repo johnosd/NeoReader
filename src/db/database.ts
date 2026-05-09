@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie'
-import type { Book, BookCover, ReadingProgress, Bookmark, BookSettings } from '../types/book'
+import type { Book, BookCover, ReadingProgress, Bookmark, BookSettings, BookTag, SourceFolder } from '../types/book'
 import type { VocabItem, TranslationCache } from '../types/vocabulary'
 import type { UserSettings } from '../types/settings'
 import type { TtsVoiceCacheRecord } from '../types/tts'
@@ -25,6 +25,8 @@ class NeoReaderDB extends Dexie {
   authors!: Table<AuthorCacheRecord>
   bookInfo!: Table<StoredBookInfo, number>
   epubExtras!: Table<StoredEpubExtras, number>
+  tags!: Table<BookTag, number>
+  sourceFolders!: Table<SourceFolder, number>
 
   constructor() {
     super('NeoReaderDB')
@@ -202,6 +204,63 @@ class NeoReaderDB extends Dexie {
       await authorsTable.toCollection().modify((record) => {
         record.bookIds = Array.isArray(record.bookIds) ? record.bookIds : []
         record.videosFetchedAt = record.data?.videos?.length ? record.fetchedAt : null
+      })
+    })
+
+    // v13: biblioteca estruturada com tags, origem por pasta e metadados de arquivo.
+    this.version(13).stores({
+      books:         '++id, title, author, addedAt, importedAt, lastOpenedAt, fileName, fileSize, fileHash, format, readingStatus, isFavorite, *tags, sourceFolderId, missingFile',
+      bookCovers:    'bookId, updatedAt, source',
+      progress:      '++id, bookId, updatedAt',
+      bookmarks:     '++id, bookId, createdAt, updatedAt, deletedAt',
+      vocabulary:    '++id, bookId, createdAt',
+      translations:  '++id, textHash, createdAt',
+      settings:      '++id',
+      bookSettings:  '++id, bookId',
+      ttsVoiceCaches:'++id, &cacheKey, provider, language, updatedAt',
+      authors:       '&authorName, *bookIds, fetchedAt, videosFetchedAt',
+      bookInfo:      '&bookId, updatedAt',
+      epubExtras:    '&bookId, updatedAt',
+      tags:          '++id, &name, createdAt, updatedAt',
+      sourceFolders: '++id, name, uri, createdAt, lastScannedAt',
+    }).upgrade(async (tx) => {
+      const booksTable = tx.table('books') as Table<Book, number>
+
+      await booksTable.toCollection().modify((book) => {
+        const now = book.addedAt ?? new Date()
+        book.fileName = book.fileName ?? `${book.title || 'book'}.epub`
+        book.fileSize = book.fileSize ?? book.fileBlob?.size ?? 0
+        book.format = book.format ?? 'EPUB'
+        book.importedAt = book.importedAt ?? now
+        book.tags = Array.isArray(book.tags) ? book.tags : []
+        book.sourceFolderId = book.sourceFolderId ?? null
+        book.missingFile = book.missingFile ?? false
+      })
+    })
+
+    // v14: novas importacoes Android podem referenciar o arquivo externo em vez de
+    // persistir o EPUB inteiro no IndexedDB.
+    this.version(14).stores({
+      books:         '++id, title, author, addedAt, importedAt, lastOpenedAt, fileName, fileSize, fileHash, format, readingStatus, isFavorite, *tags, sourceFolderId, missingFile, storageMode',
+      bookCovers:    'bookId, updatedAt, source',
+      progress:      '++id, bookId, updatedAt',
+      bookmarks:     '++id, bookId, createdAt, updatedAt, deletedAt',
+      vocabulary:    '++id, bookId, createdAt',
+      translations:  '++id, textHash, createdAt',
+      settings:      '++id',
+      bookSettings:  '++id, bookId',
+      ttsVoiceCaches:'++id, &cacheKey, provider, language, updatedAt',
+      authors:       '&authorName, *bookIds, fetchedAt, videosFetchedAt',
+      bookInfo:      '&bookId, updatedAt',
+      epubExtras:    '&bookId, updatedAt',
+      tags:          '++id, &name, createdAt, updatedAt',
+      sourceFolders: '++id, name, uri, createdAt, lastScannedAt',
+    }).upgrade(async (tx) => {
+      const booksTable = tx.table('books') as Table<Book, number>
+
+      await booksTable.toCollection().modify((book) => {
+        book.storageMode = book.storageMode ?? (book.fileBlob ? 'embedded' : 'external')
+        book.fileSize = book.fileSize ?? book.fileBlob?.size ?? 0
       })
     })
   }

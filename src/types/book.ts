@@ -2,18 +2,31 @@ import type { FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from '
 import type { TtsProvider } from './tts'
 
 export type ReadingStatus = 'unread' | 'reading' | 'finished'
+export type BookFormat = 'EPUB'
 export type BookCoverSource = 'epub-extracted' | 'manual-upload' | 'legacy-inline'
+export type BookStorageMode = 'embedded' | 'external'
 
 // Representa um livro armazenado no IndexedDB
 export interface Book {
   id?: number          // auto-increment pelo Dexie
   title: string
   author: string
-  fileBlob: Blob          // arquivo .epub completo
+  fileBlob?: Blob          // arquivo .epub completo (livros antigos/fallback web)
+  storageMode?: BookStorageMode
+  fileName?: string
+  filePath?: string
+  uri?: string
+  fileSize?: number
+  fileHash?: string
+  format?: BookFormat
   addedAt: Date
+  importedAt?: Date
   lastOpenedAt: Date | null
   readingStatus?: ReadingStatus
   isFavorite?: boolean    // marcado pelo usuÃ¡rio na tela de detalhes
+  tags?: number[]
+  sourceFolderId?: number | null
+  missingFile?: boolean
 }
 
 export interface BookCover {
@@ -21,6 +34,24 @@ export interface BookCover {
   blob: Blob
   source: BookCoverSource
   updatedAt: Date
+}
+
+export interface BookTag {
+  id?: number
+  name: string
+  color?: string | null
+  createdAt: Date
+  updatedAt: Date
+}
+
+export interface SourceFolder {
+  id?: number
+  name: string
+  uri: string
+  includeSubfolders: boolean
+  autoImportEnabled: boolean
+  createdAt: Date
+  lastScannedAt: Date | null
 }
 
 // Configurações específicas de leitura por livro

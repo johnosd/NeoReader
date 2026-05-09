@@ -9,6 +9,7 @@ import { areCfisEquivalent, normalizeCfi } from '../../utils/cfi'
 import { areTocHrefDocumentSuffixesEqual, normalizeTocHref } from '../../utils/toc'
 import { clampPercentage, fractionToPercentage } from '../../utils/progress'
 import { splitParagraphIntoTtsChunks } from '../../utils/ttsChunking'
+import { BookFileResolver } from '../../services/BookFileResolver'
 
 export type { FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from '../../types/settings'
 
@@ -2338,7 +2339,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         }, 8_000)
 
         try {
-          await view.open(book.fileBlob)
+          await view.open(await BookFileResolver.resolveFile(book))
           if (cancelled) { clearTimeout(loadTimeout!); return }
           cleanupPassiveEpubContentTransform = installPassiveEpubContentTransform(view)
 

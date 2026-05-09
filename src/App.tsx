@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { HomeScreen } from './screens/HomeScreen'
 import { LibraryScreen } from './screens/LibraryScreen'
 import { BookDetailsScreen } from './screens/BookDetailsScreen'
 import { ReaderScreen } from './screens/ReaderScreen'
@@ -13,6 +14,7 @@ import { useAuth } from './hooks/useAuth'
 import type { Book } from './types/book'
 
 type Route =
+  | { name: 'home' }
   | { name: 'library' }
   | { name: 'book-details'; book: Book }
   | { name: 'reader'; book: Book; startHref?: string }
@@ -44,14 +46,15 @@ function App() {
   const [authScreen, setAuthScreen] = useState<'welcome' | 'login'>(() => (
     getWelcomeSeen() ? 'login' : 'welcome'
   ))
-  const [stack, setStack] = useState<Route[]>([{ name: 'library' }])
+  const [stack, setStack] = useState<Route[]>([{ name: 'home' }])
   const current = stack[stack.length - 1]
 
   const push = (route: Route) => setStack((prev) => [...prev, route])
   const pop = () => setStack((prev) => (prev.length > 1 ? prev.slice(0, -1) : prev))
-  const openLibrary = () => setStack([{ name: 'library' }])
-  const openDiscover = () => setStack([{ name: 'library' }, { name: 'discover' }])
-  const openProfile = () => setStack([{ name: 'library' }, { name: 'profile' }])
+  const openHome = () => setStack([{ name: 'home' }])
+  const openLibrary = () => setStack([{ name: 'home' }, { name: 'library' }])
+  const openDiscover = () => setStack([{ name: 'home' }, { name: 'discover' }])
+  const openProfile = () => setStack([{ name: 'home' }, { name: 'profile' }])
 
   function completeWelcome() {
     setWelcomeSeen()
@@ -123,6 +126,7 @@ function App() {
         <ErrorBoundary key="discover">
           <DiscoverScreen
             onBack={pop}
+            onOpenHome={openHome}
             onOpenLibrary={openLibrary}
             onOpenProfile={openProfile}
           />
@@ -135,6 +139,7 @@ function App() {
           <ProfileScreen
             authUser={auth.state.user}
             onBack={pop}
+            onOpenHome={openHome}
             onOpenLibrary={openLibrary}
             onOpenDiscover={openDiscover}
             onOpenSettings={() => push({ name: 'settings' })}
@@ -152,11 +157,24 @@ function App() {
         </ErrorBoundary>
       )
 
-    default:
+    case 'library':
       return (
         <ErrorBoundary key="library">
           <LibraryScreen
             onOpenBook={(book) => push({ name: 'book-details', book })}
+            onOpenHome={openHome}
+            onOpenDiscover={openDiscover}
+            onOpenProfile={openProfile}
+          />
+        </ErrorBoundary>
+      )
+
+    default:
+      return (
+        <ErrorBoundary key="home">
+          <HomeScreen
+            onOpenBook={(book) => push({ name: 'book-details', book })}
+            onOpenBiblioteca={openLibrary}
             onOpenDiscover={openDiscover}
             onOpenProfile={openProfile}
             onOpenSettings={() => push({ name: 'settings' })}

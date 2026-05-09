@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { Book } from '@/types/book'
 
 const mocks = vi.hoisted(() => ({
+  homeProps: null as Record<string, unknown> | null,
   libraryProps: null as Record<string, unknown> | null,
   bookDetailsProps: null as Record<string, unknown> | null,
   readerProps: null as Record<string, unknown> | null,
@@ -33,13 +34,16 @@ const testBook: Book = {
   lastOpenedAt: null,
 }
 
-vi.mock('@/screens/LibraryScreen', () => ({
-  LibraryScreen: (props: Record<string, unknown>) => {
-    mocks.libraryProps = props
+vi.mock('@/screens/HomeScreen', () => ({
+  HomeScreen: (props: Record<string, unknown>) => {
+    mocks.homeProps = props
     return (
-      <div data-testid="library">
+      <div data-testid="home">
         <button data-testid="open-book" onClick={() => (props.onOpenBook as (b: Book) => void)(testBook)}>
           Abrir livro
+        </button>
+        <button data-testid="open-library" onClick={() => (props.onOpenBiblioteca as () => void)()}>
+          Biblioteca
         </button>
         <button data-testid="open-discover" onClick={() => (props.onOpenDiscover as () => void)()}>
           Descubra
@@ -49,6 +53,22 @@ vi.mock('@/screens/LibraryScreen', () => ({
         </button>
         <button data-testid="open-settings" onClick={() => (props.onOpenSettings as () => void)()}>
           Configuracoes
+        </button>
+      </div>
+    )
+  },
+}))
+
+vi.mock('@/screens/LibraryScreen', () => ({
+  LibraryScreen: (props: Record<string, unknown>) => {
+    mocks.libraryProps = props
+    return (
+      <div data-testid="library">
+        <button data-testid="library-open-book" onClick={() => (props.onOpenBook as (b: Book) => void)(testBook)}>
+          Abrir livro
+        </button>
+        <button data-testid="library-open-home" onClick={() => (props.onOpenHome as () => void)()}>
+          Inicio
         </button>
       </div>
     )
@@ -181,6 +201,7 @@ function assertNoScreen(testId: string) {
 
 describe('App navigation and auth gate', () => {
   beforeEach(() => {
+    mocks.homeProps = null
     mocks.libraryProps = null
     mocks.bookDetailsProps = null
     mocks.readerProps = null
@@ -203,15 +224,24 @@ describe('App navigation and auth gate', () => {
     window.localStorage.clear()
   })
 
-  it('comeca na biblioteca quando autenticado', () => {
+  it('comeca na home quando autenticado', () => {
     render(<App />)
 
-    assertScreen('library')
+    assertScreen('home')
     assertNoScreen('book-details')
     assertNoScreen('reader')
   })
 
-  it('Library -> BookDetails -> Reader', () => {
+  it('abre a pagina Biblioteca a partir da home', () => {
+    render(<App />)
+
+    fireEvent.click(screen.getByTestId('open-library'))
+
+    assertScreen('library')
+    assertNoScreen('home')
+  })
+
+  it('Home -> BookDetails -> Reader', () => {
     render(<App />)
 
     fireEvent.click(screen.getByTestId('open-book'))
@@ -234,25 +264,25 @@ describe('App navigation and auth gate', () => {
     assertNoScreen('reader')
   })
 
-  it('BookDetails -> Back -> Library', () => {
+  it('BookDetails -> Back -> Home', () => {
     render(<App />)
 
     fireEvent.click(screen.getByTestId('open-book'))
     assertScreen('book-details')
 
     fireEvent.click(screen.getByTestId('back'))
-    assertScreen('library')
+    assertScreen('home')
     assertNoScreen('book-details')
   })
 
-  it('Library -> Discover -> Back -> Library', () => {
+  it('Home -> Discover -> Back -> Home', () => {
     render(<App />)
 
     fireEvent.click(screen.getByTestId('open-discover'))
     assertScreen('discover')
 
     fireEvent.click(screen.getByTestId('back'))
-    assertScreen('library')
+    assertScreen('home')
     assertNoScreen('discover')
   })
 
@@ -269,14 +299,14 @@ describe('App navigation and auth gate', () => {
     assertNoScreen('vocabulary')
   })
 
-  it('Library -> Profile -> Back -> Library', () => {
+  it('Home -> Profile -> Back -> Home', () => {
     render(<App />)
 
     fireEvent.click(screen.getByTestId('open-profile'))
     assertScreen('profile')
 
     fireEvent.click(screen.getByTestId('back'))
-    assertScreen('library')
+    assertScreen('home')
   })
 
   it('Profile -> Settings -> Back -> Profile', () => {
@@ -290,14 +320,14 @@ describe('App navigation and auth gate', () => {
     assertScreen('profile')
   })
 
-  it('Library -> Settings -> Back -> Library', () => {
+  it('Home -> Settings -> Back -> Home', () => {
     render(<App />)
 
     fireEvent.click(screen.getByTestId('open-settings'))
     assertScreen('settings')
 
     fireEvent.click(screen.getByTestId('back'))
-    assertScreen('library')
+    assertScreen('home')
   })
 
   it('BookDetails -> Settings -> Back -> BookDetails', () => {
@@ -309,7 +339,7 @@ describe('App navigation and auth gate', () => {
 
     fireEvent.click(screen.getByTestId('back'))
     assertScreen('book-details')
-    assertNoScreen('library')
+    assertNoScreen('home')
   })
 
   it('passa o livro correto para ReaderScreen', () => {
