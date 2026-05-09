@@ -468,6 +468,44 @@ describe('provider API key validation', () => {
     expect(mockSetCachedTtsVoiceOptions).toHaveBeenCalledOnce()
   })
 
+  it('refaz a busca da Speechify depois de uma falha de rede', async () => {
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce(new Response(JSON.stringify([
+        {
+          id: 'retry-voice',
+          display_name: 'Retry Voice',
+          locale: 'pt-BR',
+          gender: 'female',
+          models: [
+            {
+              name: 'simba-multilingual',
+              languages: [{ locale: 'pt-BR' }],
+            },
+          ],
+        },
+      ]), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(SpeechifyService.listCompatibleVoices('pt-BR', 'speechify-retry-key')).rejects.toThrow('boom')
+
+    const result = await SpeechifyService.listCompatibleVoices('pt-BR', 'speechify-retry-key')
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(result).toEqual([
+      {
+        id: 'retry-voice',
+        label: 'Retry Voice',
+        locale: 'pt-BR',
+        provider: 'speechify',
+        previewUrl: null,
+        avatarUrl: null,
+        meta: 'female',
+      },
+    ])
+    expect(mockSetCachedTtsVoiceOptions).toHaveBeenCalledOnce()
+  })
+
   it('normaliza o texto antes de sintetizar com Speechify', async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       audio_data: 'YQ==',

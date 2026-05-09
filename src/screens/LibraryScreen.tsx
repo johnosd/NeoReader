@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { App as CapApp } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
 import { ArrowUpDown, BookOpen, Check, FileText, FolderOpen, MoreVertical, Plus, Search, Star, Tag, Trash2, X } from 'lucide-react'
 import { BottomNav } from '../components/BottomNav'
@@ -8,6 +7,7 @@ import { BottomSheet, Button, Checkbox, EmptyState, Input, Skeleton, Spinner, To
 import { setBookTags, toggleFavorite } from '../db/books'
 import { createTag, deleteTag } from '../db/tags'
 import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
+import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
 import { useLibraryCatalog, type LibraryBook, type LibraryFilter, type LibrarySort } from '../hooks/useLibraryCatalog'
 import { BookImportService, type FolderImportOptions, type ImportPreviewItem, type ImportProgress, type ImportSummary } from '../services/BookImportService'
 import { consumePendingNativeFileSelection, consumePendingNativeFolderSelection, selectNativeEpubFile, selectNativeEpubFolder, type NativeFolderFile } from '../services/NativeLibraryImportService'
@@ -112,17 +112,14 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
     return () => { active = false }
   }, [])
 
-  useEffect(() => {
-    const listenerPromise = CapApp.addListener('backButton', () => {
-      if (tagEditorBook) { setTagEditorBook(null); return }
-      if (optionsBook) { setOptionsBook(null); return }
-      if (sortSheetOpen) { setSortSheetOpen(false); return }
-      if (actionSheetOpen) { setActionSheetOpen(false); return }
-      if (importFlow.step !== 'closed') { setImportFlow({ step: 'closed' }); return }
-      onOpenHome()
-    })
-    return () => { void listenerPromise.then((listener) => listener.remove()) }
-  }, [actionSheetOpen, importFlow.step, onOpenHome, optionsBook, sortSheetOpen, tagEditorBook])
+  useCapacitorBackButton(() => {
+    if (tagEditorBook) { setTagEditorBook(null); return }
+    if (optionsBook) { setOptionsBook(null); return }
+    if (sortSheetOpen) { setSortSheetOpen(false); return }
+    if (actionSheetOpen) { setActionSheetOpen(false); return }
+    if (importFlow.step !== 'closed') { setImportFlow({ step: 'closed' }); return }
+    onOpenHome()
+  })
 
   const subtitle = formatBookCount(books.length)
   const isSearchEmpty = !isLoading && books.length > 0 && search.trim() && filteredBooks.length === 0

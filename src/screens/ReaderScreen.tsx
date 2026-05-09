@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { App as CapApp } from '@capacitor/app'
 import {
   EpubViewer,
   type EpubViewerHandle,
@@ -15,6 +14,7 @@ import { BottomSheet } from '../components/ui'
 import { useReaderProgress } from '../hooks/useReaderProgress'
 import { useReaderStore } from '../store/readerStore'
 import { useReaderAppearance } from '../hooks/useReaderAppearance'
+import { useCapacitorAppStateChange, useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
 import { useChromeAutoHide } from '../hooks/useChromeAutoHide'
 import type { ProgressSavePayload } from '../db/progress'
 import { updateLastOpened } from '../db/books'
@@ -598,21 +598,18 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   }, [flushCurrentProgress, onBack])
 
   // Intercepta o botão Back físico do Android (via plugin Capacitor)
-  useEffect(() => {
-    const listenerPromise = CapApp.addListener('backButton', () => {
-      if (bookmarkSheetOpen) { setBookmarkSheetOpen(false); return }
-      if (appearanceSheetOpen) { setAppearanceSheetOpen(false); return }
-      if (tocOpen) { setTocOpen(false); return }
-      handleBack()
-    })
-    return () => { void listenerPromise.then((l) => l.remove()) }
-  }, [tocOpen, bookmarkSheetOpen, appearanceSheetOpen, handleBack])
+  useCapacitorBackButton(() => {
+    if (bookmarkSheetOpen) { setBookmarkSheetOpen(false); return }
+    if (appearanceSheetOpen) { setAppearanceSheetOpen(false); return }
+    if (tocOpen) { setTocOpen(false); return }
+    handleBack()
+  })
+
+  useCapacitorAppStateChange(({ isActive }) => {
+    if (!isActive) void flushCurrentProgress()
+  })
 
   useEffect(() => {
-    const appStateListenerPromise = CapApp.addListener('appStateChange', ({ isActive }) => {
-      if (!isActive) void flushCurrentProgress()
-    })
-
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden') void flushCurrentProgress()
     }
@@ -625,7 +622,6 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     window.addEventListener('pagehide', handlePageHide)
 
     return () => {
-      void appStateListenerPromise.then((listener) => listener.remove())
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       window.removeEventListener('pagehide', handlePageHide)
       void flushCurrentProgress()

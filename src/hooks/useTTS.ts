@@ -290,22 +290,33 @@ export function useTTS(options: UseTTSOptions) {
         )
     }
 
-    return new Promise<void>((resolve) => {
-      let resolved = false
+    return new Promise<void>((resolve, reject) => {
+      let settled = false
 
-      const cleanup = () => {
-        if (resolved) return
-        resolved = true
+      const finish = (error?: unknown) => {
+        if (settled) return
+        settled = true
         clearTimers()
+        audio.removeEventListener('play', handlePlay)
+        audio.removeEventListener('loadedmetadata', handleMetadata)
+        audio.removeEventListener('durationchange', handleMetadata)
+        audio.removeEventListener('ended', cleanup)
+        audio.removeEventListener('pause', handlePause)
+        audio.removeEventListener('error', handleAudioError)
         URL.revokeObjectURL(url)
         if (audioRef.current === audio) audioRef.current = null
         if (stopPremiumPlaybackRef.current === cleanup) stopPremiumPlaybackRef.current = null
-        resolve()
+        if (error) reject(error)
+        else resolve()
+      }
+
+      function cleanup() {
+        finish()
       }
 
       stopPremiumPlaybackRef.current = cleanup
 
-      const handlePause = () => {
+      function handlePause() {
         clearTimers()
         if (shouldStopRef.current || playSessionRef.current !== session || audio.ended) {
           cleanup()
@@ -317,7 +328,7 @@ export function useTTS(options: UseTTSOptions) {
         }
       }
 
-      const handlePlay = () => {
+      function handlePlay() {
         if (shouldStopRef.current || playSessionRef.current !== session) return
         if (trackPlaybackState) {
           updatePaused(false)
@@ -326,9 +337,13 @@ export function useTTS(options: UseTTSOptions) {
         scheduleMarks()
       }
 
-      const handleMetadata = () => {
+      function handleMetadata() {
         if (shouldStopRef.current || playSessionRef.current !== session || audio.paused) return
         scheduleMarks()
+      }
+
+      function handleAudioError() {
+        finish(audio.error ?? new Error('Audio playback failed'))
       }
 
       audio.addEventListener('play', handlePlay)
@@ -336,9 +351,9 @@ export function useTTS(options: UseTTSOptions) {
       audio.addEventListener('durationchange', handleMetadata)
       audio.addEventListener('ended', cleanup, { once: true })
       audio.addEventListener('pause', handlePause)
-      audio.addEventListener('error', cleanup, { once: true })
+      audio.addEventListener('error', handleAudioError, { once: true })
       scheduleMarks()
-      void audio.play()
+      void audio.play().catch(finish)
     })
   }
 

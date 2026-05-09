@@ -1,10 +1,10 @@
 import { Trash2, Star, Search, ArrowLeft } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useMemo, useState } from 'react'
-import { App as CapApp } from '@capacitor/app'
+import { useMemo, useState } from 'react'
 import { EmptyState, Input, Spinner } from '../components/ui'
 import { db } from '../db/database'
 import { deleteVocabItem } from '../db/vocabulary'
+import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
 
 interface VocabularyScreenProps {
   onBack: () => void
@@ -18,10 +18,7 @@ export function VocabularyScreen({ onBack }: VocabularyScreenProps) {
   )
   const [query, setQuery] = useState('')
 
-  useEffect(() => {
-    const listenerPromise = CapApp.addListener('backButton', onBack)
-    return () => { void listenerPromise.then((l) => l.remove()) }
-  }, [onBack])
+  useCapacitorBackButton(onBack)
 
   // Filtro cliente — aceita match em texto original, tradução ou livro.
   const filtered = useMemo(() => {

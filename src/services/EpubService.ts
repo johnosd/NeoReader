@@ -116,12 +116,20 @@ export class EpubService {
     if (bookId !== undefined) {
       let cached = EpubService.extrasCache.get(bookId)
       if (!cached) {
-        cached = EpubService.loadOrParseExtras(fileBlob, bookId)
+        cached = EpubService.loadOrParseExtras(fileBlob, bookId).catch((error) => {
+          EpubService.extrasCache.delete(bookId)
+          throw error
+        })
         EpubService.extrasCache.set(bookId, cached)
       }
-      return cached
+      return cached.catch(() => EMPTY_EPUB_EXTRAS)
     }
-    return EpubService._parseExtrasInternal(fileBlob)
+
+    try {
+      return await EpubService._parseExtrasInternal(fileBlob)
+    } catch {
+      return EMPTY_EPUB_EXTRAS
+    }
   }
 
   private static async loadOrParseExtras(fileBlob: Blob, bookId: number): Promise<EpubExtras> {
@@ -144,36 +152,32 @@ export class EpubService {
   }
 
   private static async _parseExtrasInternal(fileBlob: Blob): Promise<EpubExtras> {
-    try {
-      const buffer = await fileBlob.arrayBuffer()
-      const uint8 = new Uint8Array(buffer)
-      const files = await new Promise<Record<string, Uint8Array>>((resolve, reject) => {
-        unzip(uint8, (err, data) => err ? reject(err) : resolve(data))
-      })
+    const buffer = await fileBlob.arrayBuffer()
+    const uint8 = new Uint8Array(buffer)
+    const files = await new Promise<Record<string, Uint8Array>>((resolve, reject) => {
+      unzip(uint8, (err, data) => err ? reject(err) : resolve(data))
+    })
 
-      const containerXml = this.readFileAsText(files, 'META-INF/container.xml')
-      if (!containerXml) return EMPTY_EPUB_EXTRAS
+    const containerXml = this.readFileAsText(files, 'META-INF/container.xml')
+    if (!containerXml) return EMPTY_EPUB_EXTRAS
 
-      const opfPath = this.extractOpfPath(containerXml)
-      if (!opfPath) return EMPTY_EPUB_EXTRAS
+    const opfPath = this.extractOpfPath(containerXml)
+    if (!opfPath) return EMPTY_EPUB_EXTRAS
 
-      const opfXml = this.readFileAsText(files, opfPath)
-      if (!opfXml) return EMPTY_EPUB_EXTRAS
+    const opfXml = this.readFileAsText(files, opfPath)
+    if (!opfXml) return EMPTY_EPUB_EXTRAS
 
-      const description = this.extractXmlTextByLocalName(opfXml, 'description', { html: true })
-      const language = this.extractLanguage(opfXml, opfPath, files)
-      const toc = this.parseToc(opfXml, opfPath, files)
-      const readingPreview = this.extractReadingPreview(opfXml, opfPath, files)
+    const description = this.extractXmlTextByLocalName(opfXml, 'description', { html: true })
+    const language = this.extractLanguage(opfXml, opfPath, files)
+    const toc = this.parseToc(opfXml, opfPath, files)
+    const readingPreview = this.extractReadingPreview(opfXml, opfPath, files)
 
-      return {
-        description,
-        language,
-        toc,
-        previewText: readingPreview.previewText,
-        styleDiagnostics: readingPreview.styleDiagnostics,
-      }
-    } catch {
-      return EMPTY_EPUB_EXTRAS
+    return {
+      description,
+      language,
+      toc,
+      previewText: readingPreview.previewText,
+      styleDiagnostics: readingPreview.styleDiagnostics,
     }
   }
 

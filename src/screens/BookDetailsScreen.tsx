@@ -2,7 +2,6 @@
 import { useCallback } from 'react'
 import { ArrowLeft, Star, ChevronRight, ChevronDown, Globe, Calendar, HardDrive, Sparkles, BookOpen, Bookmark, X, Check, Volume2, Mic2, Gauge, Search, Play, Loader2 } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { App as CapApp } from '@capacitor/app'
 import { Badge, BottomSheet, Button, EmptyState, ListItem, Spinner } from '../components/ui'
 import { AuthorTab } from '../components/AuthorTab'
 import { db } from '../db/database'
@@ -12,6 +11,7 @@ import { getBookSettings, updateBookSettings } from '../db/bookSettings'
 import { getSettings } from '../db/settings'
 import { useBookDetailsTtsVoices } from '../hooks/useBookDetailsTtsVoices'
 import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
+import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
 import { useBookInfo } from '../hooks/useBookInfo'
 import { BookFileResolver } from '../services/BookFileResolver'
 import { EpubService, type EpubExtras } from '../services/EpubService'
@@ -194,10 +194,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
     return () => { cancelled = true }
   }, [liveBook, liveBook.fileBlob, liveBook.id, liveBook.storageMode, liveBook.uri])
 
-  useEffect(() => {
-    const listener = CapApp.addListener('backButton', onBack)
-    return () => { void listener.then((value) => value.remove()) }
-  }, [onBack])
+  useCapacitorBackButton(onBack)
 
   useEffect(() => {
     setExpandedChapterPaths(new Set(getTocAncestorPaths(currentChapterPath)))

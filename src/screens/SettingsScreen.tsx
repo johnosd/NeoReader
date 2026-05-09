@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowLeft, Check, ChevronDown, ChevronRight, Eye, EyeOff, Globe, Info, KeyRound, Mic2, Palette, PlayCircle, Volume2 } from 'lucide-react'
-import { App as CapApp } from '@capacitor/app'
 import { Badge, BottomSheet, Input, ListItem, Spinner } from '../components/ui'
 import {
   ReaderFontControl,
@@ -15,6 +14,7 @@ import { db } from '../db/database'
 import { getSettings, updateAppSettings, updateReaderDefaults } from '../db/settings'
 import { ElevenLabsService } from '../services/ElevenLabsService'
 import { SpeechifyService } from '../services/SpeechifyService'
+import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
 import type { AppSettings, ReaderDefaults, UserSettings } from '../types/settings'
 import { getLanguageLabel, TRANSLATION_LANGUAGE_OPTIONS } from '../utils/languageOptions'
 
@@ -84,10 +84,7 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
   const speechifyValidationSeqRef = useRef(0)
   const elevenLabsValidationSeqRef = useRef(0)
 
-  useEffect(() => {
-    const listener = CapApp.addListener('backButton', onBack)
-    return () => { void listener.then((value) => value.remove()) }
-  }, [onBack])
+  useCapacitorBackButton(onBack)
 
   const saveAppSettings = useCallback(async (patch: Partial<AppSettings>) => {
     await updateAppSettings(patch)
