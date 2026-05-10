@@ -329,6 +329,15 @@ function pickVerifiedLanguage(voice: ElevenLabsVoice, language: string) {
   ) ?? null
 }
 
+function getModelPriority(modelId: string): number {
+  // Extrai versão do model_id, ex: "eleven_multilingual_v3" → 3.0, "eleven_turbo_v2_5" → 2.5
+  const match = modelId.match(/_v(\d+)(?:_(\d+))?/)
+  if (!match) return 0
+  const major = parseInt(match[1], 10)
+  const minor = match[2] ? parseInt(match[2], 10) / 10 : 0
+  return major + minor
+}
+
 function toCompatibleVoiceOption(voice: ElevenLabsVoice, normalizedLanguage: string): TtsVoiceOption | null {
   const verifiedLanguage = pickVerifiedLanguage(voice, normalizedLanguage)
   if (!verifiedLanguage) return null
@@ -340,6 +349,7 @@ function toCompatibleVoiceOption(voice: ElevenLabsVoice, normalizedLanguage: str
     provider: 'elevenlabs' as const,
     previewUrl: verifiedLanguage.preview_url ?? voice.preview_url,
     meta: buildVoiceMeta(voice),
+    modelId: verifiedLanguage.model_id,
   }
 }
 
@@ -505,7 +515,10 @@ export const ElevenLabsService = {
         : null
     } while (nextPageToken)
 
-    const sortedVoices = compatibleVoices.sort((left, right) => left.label.localeCompare(right.label))
+    const sortedVoices = compatibleVoices.sort((left, right) => {
+      const priorityDiff = getModelPriority(right.modelId ?? '') - getModelPriority(left.modelId ?? '')
+      return priorityDiff !== 0 ? priorityDiff : left.label.localeCompare(right.label)
+    })
     await setCachedTtsVoiceOptions({
       cacheKey,
       provider: 'elevenlabs',
