@@ -338,6 +338,16 @@ function getModelPriority(modelId: string): number {
   return major + minor
 }
 
+// verified_languages.model_id frequentemente indica v2 mesmo que a voz suporte v3.
+// high_quality_base_model_ids lista todos os modelos HQ disponíveis — usamos o melhor.
+function pickBestModelId(verifiedModelId: string, highQualityModelIds?: string[] | null): string {
+  if (!highQualityModelIds?.length) return verifiedModelId
+  const candidates = [verifiedModelId, ...highQualityModelIds]
+  return candidates.reduce((best, modelId) =>
+    getModelPriority(modelId) > getModelPriority(best) ? modelId : best,
+  )
+}
+
 function toCompatibleVoiceOption(voice: ElevenLabsVoice, normalizedLanguage: string): TtsVoiceOption | null {
   const verifiedLanguage = pickVerifiedLanguage(voice, normalizedLanguage)
   if (!verifiedLanguage) return null
@@ -349,7 +359,7 @@ function toCompatibleVoiceOption(voice: ElevenLabsVoice, normalizedLanguage: str
     provider: 'elevenlabs' as const,
     previewUrl: verifiedLanguage.preview_url ?? voice.preview_url,
     meta: buildVoiceMeta(voice),
-    modelId: verifiedLanguage.model_id,
+    modelId: pickBestModelId(verifiedLanguage.model_id, voice.high_quality_base_model_ids),
   }
 }
 
@@ -382,8 +392,9 @@ async function resolveVoiceId(apiKey: string, language: string, voiceId?: string
   return fallbackVoiceId
 }
 
-function getSelectedModelId(verifiedLanguage: ElevenLabsVoiceLanguage | null) {
-  return verifiedLanguage?.model_id ?? DEFAULT_MODEL_ID
+function getSelectedModelId(verifiedLanguage: ElevenLabsVoiceLanguage | null, highQualityModelIds?: string[] | null) {
+  const baseModelId = verifiedLanguage?.model_id ?? DEFAULT_MODEL_ID
+  return pickBestModelId(baseModelId, highQualityModelIds)
 }
 
 function buildSpeechRequestBody(
@@ -551,7 +562,7 @@ export const ElevenLabsService = {
       options.voiceId,
     )
     const verifiedLanguage = pickVerifiedLanguage(voice, normalizedLanguage)
-    const selectedModelId = getSelectedModelId(verifiedLanguage)
+    const selectedModelId = getSelectedModelId(verifiedLanguage, voice.high_quality_base_model_ids)
     const timestampsEndpoint = `${API_URL}/${resolvedVoiceId}/with-timestamps`
     const timestampsRequestBody = {
       ...buildSpeechRequestBody(
