@@ -10,9 +10,18 @@ const MAX_CHARS = 2400
 const VOICES_PAGE_SIZE = 20
 const TARGET_COMPATIBLE_VOICES = 24
 const VOICE_CACHE_TTL_MS = 24 * 60 * 60 * 1000
-const DEFAULT_MODEL_ID = 'eleven_multilingual_v2'
+const DEFAULT_MODEL_ID = 'eleven_v3'
 const DEFAULT_OUTPUT_FORMAT = 'mp3_44100_128'
 const FALLBACK_TTS_STATUSES = new Set([400, 401, 402, 403, 404, 409, 422])
+
+const SUPPORTED_MODELS = new Set([
+  'eleven_multilingual_v2',
+  'eleven_turbo_v2',
+  'eleven_turbo_v2_5',
+  'eleven_flash_v2',
+  'eleven_flash_v2_5',
+  'eleven_v3',
+])
 
 interface ElevenLabsVoiceLanguage {
   language: string
@@ -342,24 +351,49 @@ function getModelPriority(modelId: string): number {
 // high_quality_base_model_ids lista todos os modelos HQ disponíveis — usamos o melhor.
 function pickBestModelId(verifiedModelId: string, highQualityModelIds?: string[] | null): string {
   if (!highQualityModelIds?.length) return verifiedModelId
-  const candidates = [verifiedModelId, ...highQualityModelIds]
+  const candidates = [verifiedModelId, ...highQualityModelIds.filter((id) => SUPPORTED_MODELS.has(id))]
   return candidates.reduce((best, modelId) =>
+    getModelPriority(modelId) > getModelPriority(best) ? modelId : best,
+  )
+}
+
+// Retorna o melhor modelo suportado dentre os high_quality_base_model_ids, ou null se nenhum.
+function pickBestSupportedModelId(highQualityModelIds?: string[] | null): string | null {
+  const supported = highQualityModelIds?.filter((id) => SUPPORTED_MODELS.has(id)) ?? []
+  if (!supported.length) return null
+  return supported.reduce((best, modelId) =>
     getModelPriority(modelId) > getModelPriority(best) ? modelId : best,
   )
 }
 
 function toCompatibleVoiceOption(voice: ElevenLabsVoice, normalizedLanguage: string): TtsVoiceOption | null {
   const verifiedLanguage = pickVerifiedLanguage(voice, normalizedLanguage)
-  if (!verifiedLanguage) return null
+
+  if (verifiedLanguage) {
+    return {
+      id: voice.voice_id,
+      label: voice.name,
+      locale: verifiedLanguage.locale ?? normalizedLanguage,
+      provider: 'elevenlabs' as const,
+      previewUrl: verifiedLanguage.preview_url ?? voice.preview_url,
+      meta: buildVoiceMeta(voice),
+      modelId: pickBestModelId(verifiedLanguage.model_id, voice.high_quality_base_model_ids),
+    }
+  }
+
+  // Fallback: voz sem verified_languages para este idioma mas com eleven_v3
+  // em high_quality_base_model_ids (eleven_v3 suporta 70+ idiomas nativamente)
+  const bestModel = pickBestSupportedModelId(voice.high_quality_base_model_ids)
+  if (!bestModel) return null
 
   return {
     id: voice.voice_id,
     label: voice.name,
-    locale: verifiedLanguage.locale ?? normalizedLanguage,
+    locale: normalizedLanguage,
     provider: 'elevenlabs' as const,
-    previewUrl: verifiedLanguage.preview_url ?? voice.preview_url,
+    previewUrl: voice.preview_url,
     meta: buildVoiceMeta(voice),
-    modelId: pickBestModelId(verifiedLanguage.model_id, voice.high_quality_base_model_ids),
+    modelId: bestModel,
   }
 }
 
