@@ -8,7 +8,7 @@ const VOICE_URL = 'https://api.elevenlabs.io/v1/voices'
 const API_URL = 'https://api.elevenlabs.io/v1/text-to-speech'
 const MAX_CHARS = 2400
 const VOICES_PAGE_SIZE = 20
-const TARGET_COMPATIBLE_VOICES = 24
+const MAX_VOICE_PAGES = 3
 const VOICE_CACHE_TTL_MS = 24 * 60 * 60 * 1000
 const DEFAULT_MODEL_ID = 'eleven_v3'
 const DEFAULT_OUTPUT_FORMAT = 'mp3_44100_128'
@@ -426,11 +426,6 @@ async function resolveVoiceId(apiKey: string, language: string, voiceId?: string
   return fallbackVoiceId
 }
 
-function getSelectedModelId(verifiedLanguage: ElevenLabsVoiceLanguage | null, highQualityModelIds?: string[] | null) {
-  const baseModelId = verifiedLanguage?.model_id ?? DEFAULT_MODEL_ID
-  return pickBestModelId(baseModelId, highQualityModelIds)
-}
-
 function buildSpeechRequestBody(
   text: string,
   normalizedLanguage: string,
@@ -446,6 +441,8 @@ function buildSpeechRequestBody(
       : getBaseLanguage(normalizedLanguage),
     voice_settings: {
       speed: clampTtsRate(rate),
+      stability: 0.71,        // narration preset: voz consistente (ElevenLabs docs)
+      similarity_boost: 0.75, // fidelidade à voz original com boa clareza
     },
   }
 }
@@ -520,22 +517,6 @@ export const ElevenLabsService = {
     }
   },
 
-  async listVoices(apiKey?: string): Promise<ElevenLabsVoice[]> {
-    const resolvedApiKey = apiKey ?? await this.getApiKey()
-    if (!resolvedApiKey) return []
-
-    const voices: ElevenLabsVoice[] = []
-    let nextPageToken: string | null | undefined
-
-    do {
-      const page = await fetchVoicesPage(resolvedApiKey, nextPageToken)
-      voices.push(...page.voices)
-      nextPageToken = page.has_more ? page.next_page_token : null
-    } while (nextPageToken)
-
-    return voices
-  },
-
   async listCompatibleVoices(language: string, apiKey?: string): Promise<TtsVoiceOption[]> {
     const normalizedLanguage = normalizeLanguageTag(language)
     const resolvedApiKey = apiKey ?? await this.getApiKey()
@@ -547,6 +528,7 @@ export const ElevenLabsService = {
 
     const compatibleVoices: TtsVoiceOption[] = []
     let nextPageToken: string | null | undefined
+    let pagesFetched = 0
 
     do {
       const page = await fetchVoicesPage(resolvedApiKey, nextPageToken)
@@ -555,7 +537,8 @@ export const ElevenLabsService = {
           .map((voice) => toCompatibleVoiceOption(voice, normalizedLanguage))
           .filter((voice): voice is TtsVoiceOption => Boolean(voice)),
       )
-      nextPageToken = page.has_more && compatibleVoices.length < TARGET_COMPATIBLE_VOICES
+      pagesFetched += 1
+      nextPageToken = page.has_more && pagesFetched < MAX_VOICE_PAGES
         ? page.next_page_token
         : null
     } while (nextPageToken)
@@ -596,7 +579,10 @@ export const ElevenLabsService = {
       options.voiceId,
     )
     const verifiedLanguage = pickVerifiedLanguage(voice, normalizedLanguage)
-    const selectedModelId = getSelectedModelId(verifiedLanguage, voice.high_quality_base_model_ids)
+    const selectedModelId = pickBestModelId(
+      verifiedLanguage?.model_id ?? DEFAULT_MODEL_ID,
+      voice.high_quality_base_model_ids,
+    )
     const timestampsEndpoint = `${API_URL}/${resolvedVoiceId}/with-timestamps`
     const timestampsRequestBody = {
       ...buildSpeechRequestBody(
