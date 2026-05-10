@@ -10,8 +10,11 @@ function hashCacheKey(input: string): number {
   return hash
 }
 
+// Incrementar quando o schema de TtsVoiceOption mudar, para invalidar caches antigos
+const VOICE_CACHE_VERSION = 2
+
 export function buildTtsVoiceCacheKey(provider: TtsProvider, language: string, apiKey: string): number {
-  return hashCacheKey(`${provider}::${language}::${apiKey}`)
+  return hashCacheKey(`v${VOICE_CACHE_VERSION}::${provider}::${language}::${apiKey}`)
 }
 
 export async function getCachedTtsVoiceOptions(cacheKey: number, maxAgeMs: number): Promise<TtsVoiceOption[] | null> {
