@@ -2,7 +2,6 @@
 import { useCallback } from 'react'
 import { ArrowLeft, Star, ChevronRight, ChevronDown, Globe, Calendar, HardDrive, Sparkles, BookOpen, Bookmark, X, Check, Volume2, Mic2, Gauge, Search, Play, Loader2 } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { App as CapApp } from '@capacitor/app'
 import { Badge, BottomSheet, Button, EmptyState, ListItem, Spinner } from '../components/ui'
 import { AuthorTab } from '../components/AuthorTab'
 import { db } from '../db/database'
@@ -12,6 +11,7 @@ import { getBookSettings, updateBookSettings } from '../db/bookSettings'
 import { getSettings } from '../db/settings'
 import { useBookDetailsTtsVoices } from '../hooks/useBookDetailsTtsVoices'
 import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
+import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
 import { useBookInfo } from '../hooks/useBookInfo'
 import { BookFileResolver } from '../services/BookFileResolver'
 import { EpubService, type EpubExtras } from '../services/EpubService'
@@ -194,10 +194,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
     return () => { cancelled = true }
   }, [liveBook, liveBook.fileBlob, liveBook.id, liveBook.storageMode, liveBook.uri])
 
-  useEffect(() => {
-    const listener = CapApp.addListener('backButton', onBack)
-    return () => { void listener.then((value) => value.remove()) }
-  }, [onBack])
+  useCapacitorBackButton(onBack)
 
   useEffect(() => {
     setExpandedChapterPaths(new Set(getTocAncestorPaths(currentChapterPath)))
@@ -1199,7 +1196,12 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
                       </div>
                     )}
                     title={voice.label}
-                    meta={[voice.locale, voice.meta].filter(Boolean).join(' - ')}
+                    meta={(
+                      <span className="flex items-center gap-1.5 flex-wrap">
+                        {voice.modelId && <VoiceModelBadge modelId={voice.modelId} />}
+                        <span>{[voice.locale, voice.meta].filter(Boolean).join(' · ')}</span>
+                      </span>
+                    )}
                     trailing={(
                       <div className="flex items-center gap-2">
                         <button
@@ -1767,6 +1769,33 @@ function formatTtsRate(rate: number): string {
 
 function formatTtsWordsPerMinute(rate: number): string {
   return `${Math.round(rate * 200)} wpm`
+}
+
+function getModelBadgeLabel(modelId: string): string {
+  const match = modelId.match(/_v(\d+)(?:_(\d+))?/)
+  if (!match) return modelId
+  const version = match[2] ? `v${match[1]}.${match[2]}` : `v${match[1]}`
+  if (modelId.includes('turbo')) return `turbo ${version}`
+  if (modelId.includes('flash')) return `flash ${version}`
+  return version
+}
+
+function VoiceModelBadge({ modelId }: { modelId: string }) {
+  const label = getModelBadgeLabel(modelId)
+  // v3+ fica verde, v2.x fica índigo, resto cinza
+  const match = modelId.match(/_v(\d+)(?:_(\d+))?/)
+  const version = match ? parseInt(match[1], 10) + (match[2] ? parseInt(match[2], 10) / 10 : 0) : 0
+  const colorClass = version >= 3
+    ? 'bg-emerald-500/20 text-emerald-400'
+    : version >= 2
+      ? 'bg-indigo-500/20 text-indigo-400'
+      : 'bg-white/10 text-text-muted'
+
+  return (
+    <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${colorClass}`}>
+      {label}
+    </span>
+  )
 }
 
 function PrimeVideoBadge({

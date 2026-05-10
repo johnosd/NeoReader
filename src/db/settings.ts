@@ -17,22 +17,24 @@ async function upsertSettings(patch: {
   appSettings?: Partial<AppSettings>
   readerDefaults?: Partial<ReaderDefaults>
 }): Promise<void> {
-  const existing = await db.settings.toCollection().first()
-  const normalized = normalizeUserSettings(existing)
-  const nextSettings: UserSettings = {
-    ...(existing?.id !== undefined ? { id: existing.id } : {}),
-    appSettings: {
-      ...normalized.appSettings,
-      ...patch.appSettings,
-    },
-    readerDefaults: {
-      ...normalized.readerDefaults,
-      ...patch.readerDefaults,
-    },
-    updatedAt: new Date(),
-  }
+  await db.transaction('rw', db.settings, async () => {
+    const existing = await db.settings.toCollection().first()
+    const normalized = normalizeUserSettings(existing)
+    const nextSettings: UserSettings = {
+      ...(existing?.id !== undefined ? { id: existing.id } : {}),
+      appSettings: {
+        ...normalized.appSettings,
+        ...patch.appSettings,
+      },
+      readerDefaults: {
+        ...normalized.readerDefaults,
+        ...patch.readerDefaults,
+      },
+      updatedAt: new Date(),
+    }
 
-  await db.settings.put(nextSettings)
+    await db.settings.put(nextSettings)
+  })
 }
 
 export async function updateAppSettings(patch: Partial<AppSettings>): Promise<void> {

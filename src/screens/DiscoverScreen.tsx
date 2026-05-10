@@ -1,9 +1,8 @@
-import { useEffect } from 'react'
-import { App as CapApp } from '@capacitor/app'
 import { Compass } from 'lucide-react'
 import { BottomNav } from '../components/BottomNav'
 import { NytBooksRow } from '../components/NytBooksRow'
 import { EmptyState } from '../components/ui'
+import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
 
 const NYT_API_KEY = import.meta.env.VITE_NYT_API_KEY as string | undefined
 const TRENDING_LISTS = [
@@ -25,10 +24,7 @@ interface DiscoverScreenProps {
 }
 
 export function DiscoverScreen({ onBack, onOpenHome, onOpenLibrary, onOpenProfile }: DiscoverScreenProps) {
-  useEffect(() => {
-    const listenerPromise = CapApp.addListener('backButton', onBack)
-    return () => { void listenerPromise.then((l) => l.remove()) }
-  }, [onBack])
+  useCapacitorBackButton(onBack)
 
   return (
     <div className="min-h-screen pb-[90px] bg-bg-base text-text-primary">

@@ -8,11 +8,20 @@ const VOICE_URL = 'https://api.elevenlabs.io/v1/voices'
 const API_URL = 'https://api.elevenlabs.io/v1/text-to-speech'
 const MAX_CHARS = 2400
 const VOICES_PAGE_SIZE = 20
-const TARGET_COMPATIBLE_VOICES = 24
+const MAX_VOICE_PAGES = 3
 const VOICE_CACHE_TTL_MS = 24 * 60 * 60 * 1000
-const DEFAULT_MODEL_ID = 'eleven_multilingual_v2'
+const DEFAULT_MODEL_ID = 'eleven_v3'
 const DEFAULT_OUTPUT_FORMAT = 'mp3_44100_128'
 const FALLBACK_TTS_STATUSES = new Set([400, 401, 402, 403, 404, 409, 422])
+
+const SUPPORTED_MODELS = new Set([
+  'eleven_multilingual_v2',
+  'eleven_turbo_v2',
+  'eleven_turbo_v2_5',
+  'eleven_flash_v2',
+  'eleven_flash_v2_5',
+  'eleven_v3',
+])
 
 interface ElevenLabsVoiceLanguage {
   language: string
@@ -329,17 +338,62 @@ function pickVerifiedLanguage(voice: ElevenLabsVoice, language: string) {
   ) ?? null
 }
 
+function getModelPriority(modelId: string): number {
+  // Extrai versão do model_id, ex: "eleven_multilingual_v3" → 3.0, "eleven_turbo_v2_5" → 2.5
+  const match = modelId.match(/_v(\d+)(?:_(\d+))?/)
+  if (!match) return 0
+  const major = parseInt(match[1], 10)
+  const minor = match[2] ? parseInt(match[2], 10) / 10 : 0
+  return major + minor
+}
+
+// verified_languages.model_id frequentemente indica v2 mesmo que a voz suporte v3.
+// high_quality_base_model_ids lista todos os modelos HQ disponíveis — usamos o melhor.
+function pickBestModelId(verifiedModelId: string, highQualityModelIds?: string[] | null): string {
+  if (!highQualityModelIds?.length) return verifiedModelId
+  const candidates = [verifiedModelId, ...highQualityModelIds.filter((id) => SUPPORTED_MODELS.has(id))]
+  return candidates.reduce((best, modelId) =>
+    getModelPriority(modelId) > getModelPriority(best) ? modelId : best,
+  )
+}
+
+// Retorna o melhor modelo suportado dentre os high_quality_base_model_ids, ou null se nenhum.
+function pickBestSupportedModelId(highQualityModelIds?: string[] | null): string | null {
+  const supported = highQualityModelIds?.filter((id) => SUPPORTED_MODELS.has(id)) ?? []
+  if (!supported.length) return null
+  return supported.reduce((best, modelId) =>
+    getModelPriority(modelId) > getModelPriority(best) ? modelId : best,
+  )
+}
+
 function toCompatibleVoiceOption(voice: ElevenLabsVoice, normalizedLanguage: string): TtsVoiceOption | null {
   const verifiedLanguage = pickVerifiedLanguage(voice, normalizedLanguage)
-  if (!verifiedLanguage) return null
+
+  if (verifiedLanguage) {
+    return {
+      id: voice.voice_id,
+      label: voice.name,
+      locale: verifiedLanguage.locale ?? normalizedLanguage,
+      provider: 'elevenlabs' as const,
+      previewUrl: verifiedLanguage.preview_url ?? voice.preview_url,
+      meta: buildVoiceMeta(voice),
+      modelId: pickBestModelId(verifiedLanguage.model_id, voice.high_quality_base_model_ids),
+    }
+  }
+
+  // Fallback: voz sem verified_languages para este idioma mas com eleven_v3
+  // em high_quality_base_model_ids (eleven_v3 suporta 70+ idiomas nativamente)
+  const bestModel = pickBestSupportedModelId(voice.high_quality_base_model_ids)
+  if (!bestModel) return null
 
   return {
     id: voice.voice_id,
     label: voice.name,
-    locale: verifiedLanguage.locale ?? normalizedLanguage,
+    locale: normalizedLanguage,
     provider: 'elevenlabs' as const,
-    previewUrl: verifiedLanguage.preview_url ?? voice.preview_url,
+    previewUrl: voice.preview_url,
     meta: buildVoiceMeta(voice),
+    modelId: bestModel,
   }
 }
 
@@ -372,10 +426,6 @@ async function resolveVoiceId(apiKey: string, language: string, voiceId?: string
   return fallbackVoiceId
 }
 
-function getSelectedModelId(verifiedLanguage: ElevenLabsVoiceLanguage | null) {
-  return verifiedLanguage?.model_id ?? DEFAULT_MODEL_ID
-}
-
 function buildSpeechRequestBody(
   text: string,
   normalizedLanguage: string,
@@ -391,6 +441,8 @@ function buildSpeechRequestBody(
       : getBaseLanguage(normalizedLanguage),
     voice_settings: {
       speed: clampTtsRate(rate),
+      stability: 0.71,        // narration preset: voz consistente (ElevenLabs docs)
+      similarity_boost: 0.75, // fidelidade à voz original com boa clareza
     },
   }
 }
@@ -465,22 +517,6 @@ export const ElevenLabsService = {
     }
   },
 
-  async listVoices(apiKey?: string): Promise<ElevenLabsVoice[]> {
-    const resolvedApiKey = apiKey ?? await this.getApiKey()
-    if (!resolvedApiKey) return []
-
-    const voices: ElevenLabsVoice[] = []
-    let nextPageToken: string | null | undefined
-
-    do {
-      const page = await fetchVoicesPage(resolvedApiKey, nextPageToken)
-      voices.push(...page.voices)
-      nextPageToken = page.has_more ? page.next_page_token : null
-    } while (nextPageToken)
-
-    return voices
-  },
-
   async listCompatibleVoices(language: string, apiKey?: string): Promise<TtsVoiceOption[]> {
     const normalizedLanguage = normalizeLanguageTag(language)
     const resolvedApiKey = apiKey ?? await this.getApiKey()
@@ -492,6 +528,7 @@ export const ElevenLabsService = {
 
     const compatibleVoices: TtsVoiceOption[] = []
     let nextPageToken: string | null | undefined
+    let pagesFetched = 0
 
     do {
       const page = await fetchVoicesPage(resolvedApiKey, nextPageToken)
@@ -500,12 +537,16 @@ export const ElevenLabsService = {
           .map((voice) => toCompatibleVoiceOption(voice, normalizedLanguage))
           .filter((voice): voice is TtsVoiceOption => Boolean(voice)),
       )
-      nextPageToken = page.has_more && compatibleVoices.length < TARGET_COMPATIBLE_VOICES
+      pagesFetched += 1
+      nextPageToken = page.has_more && pagesFetched < MAX_VOICE_PAGES
         ? page.next_page_token
         : null
     } while (nextPageToken)
 
-    const sortedVoices = compatibleVoices.sort((left, right) => left.label.localeCompare(right.label))
+    const sortedVoices = compatibleVoices.sort((left, right) => {
+      const priorityDiff = getModelPriority(right.modelId ?? '') - getModelPriority(left.modelId ?? '')
+      return priorityDiff !== 0 ? priorityDiff : left.label.localeCompare(right.label)
+    })
     await setCachedTtsVoiceOptions({
       cacheKey,
       provider: 'elevenlabs',
@@ -538,7 +579,10 @@ export const ElevenLabsService = {
       options.voiceId,
     )
     const verifiedLanguage = pickVerifiedLanguage(voice, normalizedLanguage)
-    const selectedModelId = getSelectedModelId(verifiedLanguage)
+    const selectedModelId = pickBestModelId(
+      verifiedLanguage?.model_id ?? DEFAULT_MODEL_ID,
+      voice.high_quality_base_model_ids,
+    )
     const timestampsEndpoint = `${API_URL}/${resolvedVoiceId}/with-timestamps`
     const timestampsRequestBody = {
       ...buildSpeechRequestBody(

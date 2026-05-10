@@ -8,6 +8,7 @@ import { BookRow } from '../components/BookRow'
 import { QuickBookActionsSheet } from '../components/QuickBookActionsSheet'
 import { BottomNav } from '../components/BottomNav'
 import { EmptyState, Skeleton, Toast } from '../components/ui'
+import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
 import { useLibraryGroups } from '../hooks/useLibraryGroups'
 import { BookImportService } from '../services/BookImportService'
 import { consumePendingNativeFileSelection, selectNativeEpubFile } from '../services/NativeLibraryImportService'
@@ -28,13 +29,10 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
   const [importError, setImportError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => {
-    const listenerPromise = CapApp.addListener('backButton', () => {
-      if (optionsBook) { setOptionsBook(null); return }
-      void CapApp.minimizeApp()
-    })
-    return () => { void listenerPromise.then((l) => l.remove()) }
-  }, [optionsBook])
+  useCapacitorBackButton(() => {
+    if (optionsBook) { setOptionsBook(null); return }
+    void CapApp.minimizeApp()
+  })
 
   useEffect(() => {
     let active = true

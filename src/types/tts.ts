@@ -8,6 +8,7 @@ export interface TtsVoiceOption {
   previewUrl?: string | null
   avatarUrl?: string | null
   meta?: string
+  modelId?: string
 }
 
 export interface TtsVoiceCacheRecord {

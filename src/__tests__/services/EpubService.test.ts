@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const fflateState = vi.hoisted(() => ({
   files: {} as Record<string, Uint8Array>,
+  error: null as Error | null,
 }))
 
 const epubExtrasDb = vi.hoisted(() => ({
@@ -23,7 +24,7 @@ vi.mock('fflate', async () => {
   return {
     ...actual,
     unzip: (_data: Uint8Array, cb: (err: Error | null, data: Record<string, Uint8Array>) => void) => {
-      cb(null, fflateState.files)
+      cb(fflateState.error, fflateState.files)
     },
   }
 })
@@ -106,6 +107,7 @@ async function blobText(blob: Blob | null): Promise<string> {
 describe('EpubService.parseMetadata - cover extraction', () => {
   beforeEach(() => {
     fflateState.files = {}
+    fflateState.error = null
   })
 
   it('resolves cover-image hrefs with ../ relative to the OPF', async () => {
@@ -279,6 +281,7 @@ describe('EpubService.parseMetadata - cover extraction', () => {
 describe('EpubService.parseExtras - toc extraction', () => {
   beforeEach(() => {
     fflateState.files = {}
+    fflateState.error = null
   })
 
   it('normalizes HTML markup and entities from EPUB descriptions', async () => {
@@ -571,6 +574,7 @@ describe('EpubService.parseExtras - cache de sessão', () => {
 
   beforeEach(() => {
     fflateState.files = MINIMAL_EPUB
+    fflateState.error = null
     epubExtrasDb.rows.clear()
     epubExtrasDb.getStoredEpubExtras.mockClear()
     epubExtrasDb.saveEpubExtras.mockClear()
@@ -666,5 +670,38 @@ describe('EpubService.parseExtras - cache de sessão', () => {
     ])
 
     expect(arrayBuffer).toHaveBeenCalledTimes(1)
+  })
+
+  it('nao cacheia nem persiste falha de parse e permite retry na mesma sessao', async () => {
+    const bookId = 9007
+    EpubService.invalidateExtrasCache(bookId)
+    epubExtrasDb.deleteStoredEpubExtras.mockClear()
+
+    const arrayBuffer = vi.fn().mockResolvedValue(new ArrayBuffer(0))
+    const blob = { arrayBuffer } as unknown as Blob
+
+    fflateState.error = new Error('zip quebrado')
+
+    const failedExtras = await EpubService.parseExtras(blob, bookId)
+
+    expect(failedExtras).toEqual({
+      description: null,
+      language: null,
+      toc: [],
+      previewText: null,
+      styleDiagnostics: [],
+    })
+    expect(epubExtrasDb.saveEpubExtras).not.toHaveBeenCalled()
+
+    fflateState.error = null
+    fflateState.files = MINIMAL_EPUB
+
+    const retryExtras = await EpubService.parseExtras(blob, bookId)
+
+    expect(arrayBuffer).toHaveBeenCalledTimes(2)
+    expect(retryExtras.language).toBe('en')
+    expect(epubExtrasDb.saveEpubExtras).toHaveBeenCalledWith(bookId, expect.objectContaining({
+      language: 'en',
+    }))
   })
 })

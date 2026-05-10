@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react'
-import { App as CapApp } from '@capacitor/app'
+import { useState } from 'react'
 import {
   ArrowLeft,
   BookOpen,
@@ -16,6 +15,7 @@ import {
 import { BottomNav } from '../components/BottomNav'
 import { EmptyState, Spinner } from '../components/ui'
 import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
+import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
 import { useLibraryGroups } from '../hooks/useLibraryGroups'
 import { useProfileSummary, type ProfileAchievement, type ProfileHistoryItem } from '../hooks/useProfileSummary'
 import type { AuthUser } from '../types/auth'
@@ -44,10 +44,7 @@ export function ProfileScreen({ authUser, onBack, onOpenHome, onOpenLibrary, onO
   const [activeTab, setActiveTab] = useState<ProfileTab>('history')
   const [signingOut, setSigningOut] = useState(false)
 
-  useEffect(() => {
-    const listenerPromise = CapApp.addListener('backButton', onBack)
-    return () => { void listenerPromise.then((listener) => listener.remove()) }
-  }, [onBack])
+  useCapacitorBackButton(onBack)
 
   async function handleSignOut() {
     if (signingOut) return

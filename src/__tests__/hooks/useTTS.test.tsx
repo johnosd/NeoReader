@@ -64,12 +64,18 @@ vi.mock('@/services/NativeTtsService', () => ({
 
 class FakeAudio extends EventTarget {
   static instances: FakeAudio[] = []
+  static nextPlayError: unknown = null
 
   currentTime = 0
   duration = 2
   ended = false
   paused = true
   play = vi.fn(async () => {
+    if (FakeAudio.nextPlayError) {
+      const error = FakeAudio.nextPlayError
+      FakeAudio.nextPlayError = null
+      throw error
+    }
     this.paused = false
     this.dispatchEvent(new Event('play'))
   })
@@ -92,6 +98,7 @@ class FakeAudio extends EventTarget {
 
   static reset() {
     FakeAudio.instances = []
+    FakeAudio.nextPlayError = null
   }
 }
 
@@ -218,6 +225,40 @@ describe('useTTS', () => {
 
     expect(callbacks.onStop).not.toHaveBeenCalled()
     expect(callbacks.onFinished).not.toHaveBeenCalled()
+  })
+
+  it('limpa audio premium e cai para nativo quando audio.play falha', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    speechifyMock.getApiKey.mockResolvedValue('speechify-key')
+    speechifyMock.isConfigured.mockResolvedValue(true)
+    FakeAudio.nextPlayError = new DOMException('Autoplay bloqueado', 'NotAllowedError')
+
+    const callbacks = createCallbacks()
+    const { result } = renderHook(() => useTTS({
+      ...callbacks,
+      provider: 'speechify',
+      language: 'en-US',
+      rate: 1,
+    }))
+    const chunks: TtsChunk[] = [
+      { text: 'Premium playback can fail.', paraIdx: 0, offsetInPara: 0 },
+    ]
+
+    await act(async () => {
+      await result.current.play(chunks, 0)
+    })
+
+    expect(FakeAudio.instances).toHaveLength(1)
+    expect(FakeAudio.instances[0]?.play).toHaveBeenCalledOnce()
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock')
+    expect(textToSpeechMock.speak).toHaveBeenCalledOnce()
+    expect(callbacks.onProviderFallback).toHaveBeenCalledWith({
+      provider: 'speechify',
+      fallbackProvider: 'native',
+      reason: 'Speechify falhou por um erro inesperado.',
+    })
+
+    warnSpy.mockRestore()
   })
 
   it('interrompe o audiobook atual antes de tocar um speakOne via Speechify', async () => {
