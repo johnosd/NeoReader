@@ -2,7 +2,7 @@ import { Capacitor, CapacitorHttp, type HttpResponse, type HttpResponseType } fr
 import { getSettings } from '../db/settings'
 import { buildTtsVoiceCacheKey, getCachedTtsVoiceOptions, setCachedTtsVoiceOptions } from '../db/ttsVoiceCaches'
 import type { TtsSpeechMark, TtsVoiceOption } from '../types/tts'
-import { clampTtsRate, isLanguageCompatible, normalizeLanguageTag } from '../utils/language'
+import { clampTtsRate, getBaseLanguage, isLanguageCompatible, normalizeLanguageTag } from '../utils/language'
 
 const API_BASE_URL = 'https://api.fish.audio'
 const DEV_PROXY_BASE_URL = '/fish-audio-api'
@@ -16,6 +16,7 @@ const MAX_CHARS = 1900
 const VOICE_PAGE_SIZE = 50
 const MAX_VOICE_PAGES = 2
 const VOICE_CACHE_TTL_MS = 24 * 60 * 60 * 1000
+const VOICE_CACHE_KEY_VERSION = 'base-language-v1'
 const TIMESTAMP_FALLBACK_STATUSES = new Set([400, 402, 404, 405, 409, 422])
 
 interface FishAudioModelSample {
@@ -484,9 +485,10 @@ async function fetchModels(apiKey: string, input: { selfOnly: boolean; language?
 }
 
 async function fetchFishAudioVoices(apiKey: string, language: string) {
+  const publicModelLanguage = getBaseLanguage(language)
   const [ownedModels, publicModels] = await Promise.all([
     fetchModels(apiKey, { selfOnly: true }),
-    fetchModels(apiKey, { selfOnly: false, language }),
+    fetchModels(apiKey, { selfOnly: false, language: publicModelLanguage }),
   ])
 
   const byId = new Map<string, FishAudioModel>()
@@ -647,7 +649,7 @@ export const FishAudioService = {
     const resolvedApiKey = apiKey ?? await this.getApiKey()
     if (!resolvedApiKey) return []
 
-    const cacheKey = buildTtsVoiceCacheKey('fishaudio', normalizedLanguage, resolvedApiKey)
+    const cacheKey = buildTtsVoiceCacheKey('fishaudio', `${normalizedLanguage}:${VOICE_CACHE_KEY_VERSION}`, resolvedApiKey)
     const cached = await getCachedTtsVoiceOptions(cacheKey, VOICE_CACHE_TTL_MS)
     if (cached) return cached
 

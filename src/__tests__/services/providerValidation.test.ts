@@ -596,6 +596,7 @@ describe('provider API key validation', () => {
     const result = await FishAudioService.listCompatibleVoices('pt-BR', 'fish-key')
 
     expect(result.map((voice) => voice.id)).toEqual(['fish-owned', 'fish-public'])
+    expect(new URL(String(fetchMock.mock.calls[1][0])).searchParams.get('language')).toBe('pt')
     expect(result[0]).toMatchObject({
       label: 'Minha Voz',
       provider: 'fishaudio',
