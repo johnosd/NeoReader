@@ -1,4 +1,5 @@
-export type TtsProvider = 'speechify' | 'elevenlabs' | 'native'
+export type TtsProvider = 'speechify' | 'elevenlabs' | 'fishaudio' | 'native'
+export type PremiumTtsProvider = Exclude<TtsProvider, 'native'>
 
 export interface TtsVoiceOption {
   id: string
@@ -10,6 +11,15 @@ export interface TtsVoiceOption {
   meta?: string
   modelId?: string
 }
+
+export interface TtsVoiceSelection {
+  id?: string | null
+  label?: string | null
+  avatarUrl?: string | null
+  modelId?: string | null
+}
+
+export type TtsVoiceSelections = Partial<Record<TtsProvider, TtsVoiceSelection>>
 
 export interface TtsVoiceCacheRecord {
   id?: number
@@ -27,6 +37,7 @@ export interface TtsPlaybackConfig {
   speechifyVoiceId?: string | null
   elevenLabsVoiceId?: string | null
   nativeVoiceKey?: string | null
+  voiceSelections?: TtsVoiceSelections
 }
 
 export interface TtsSpeechMark {

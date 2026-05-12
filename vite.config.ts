@@ -59,6 +59,15 @@ const hardenFoliateIframeSandbox = () => ({
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), hardenFoliateIframeSandbox(), copyFoliatePdfjsAssets()],
+  server: {
+    proxy: {
+      '/fish-audio-api': {
+        target: 'https://api.fish.audio',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/fish-audio-api/, ''),
+      },
+    },
+  },
   optimizeDeps: {
     // foliate-js is loaded lazily by the reader. Serving it as source in dev
     // avoids stale /node_modules/.vite/deps chunks after Vite re-optimizes deps.

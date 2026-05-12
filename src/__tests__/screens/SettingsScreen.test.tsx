@@ -39,6 +39,7 @@ function settingsFixture() {
     appSettings: {
       speechifyApiKey: '',
       elevenLabsApiKey: '',
+      fishAudioApiKey: '',
       translationTargetLang: 'pt-BR',
       youtubeApiKey: '',
     },

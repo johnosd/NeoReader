@@ -8,6 +8,7 @@ vi.mock('@/db/ttsVoiceCaches', () => ({
 
 import { getCachedTtsVoiceOptions, setCachedTtsVoiceOptions } from '@/db/ttsVoiceCaches'
 import { ElevenLabsService } from '@/services/ElevenLabsService'
+import { FishAudioService } from '@/services/FishAudioService'
 import { SpeechifyService } from '@/services/SpeechifyService'
 
 const mockGetCachedTtsVoiceOptions = vi.mocked(getCachedTtsVoiceOptions)
@@ -203,7 +204,7 @@ describe('provider API key validation', () => {
       status: 422,
       type: 'invalid_unicode',
       voiceId: 'voice-pt',
-      modelId: 'eleven_multilingual_v2',
+      modelId: 'eleven_v3',
     })
     await expect(promise).rejects.toThrow('Request body contains invalid UTF-8 encoding.')
   })
@@ -295,7 +296,7 @@ describe('provider API key validation', () => {
     })
     expect(JSON.parse(String((fetchMock.mock.calls[2][1] as RequestInit).body))).toEqual({
       text: 'Olá mundo',
-      model_id: 'eleven_multilingual_v2',
+      model_id: 'eleven_v3',
     })
   })
 
@@ -419,6 +420,7 @@ describe('provider API key validation', () => {
         provider: 'elevenlabs',
         previewUrl: 'https://cdn.example/luna.mp3',
         meta: 'BR · female',
+        modelId: 'eleven_multilingual_v2',
       },
     ])
     expect(mockSetCachedTtsVoiceOptions).toHaveBeenCalledWith({
@@ -522,5 +524,226 @@ describe('provider API key validation', () => {
     const init = fetchMock.mock.calls[0][1] as RequestInit
     const body = JSON.parse(String(init.body))
     expect(body.input).toBe('Hello world')
+  })
+
+  it('valida uma API key da Fish Audio pela lista de modelos do usuario', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ total: 0, items: [] }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await FishAudioService.validateApiKey('fish-key')
+
+    expect(result).toEqual({
+      isValid: true,
+      message: 'API key valida.',
+    })
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/model')
+    expect(String(fetchMock.mock.calls[0][0])).toContain('page_size=1')
+    expect(String(fetchMock.mock.calls[0][0])).toContain('self=true')
+    expect((fetchMock.mock.calls[0][1] as RequestInit).headers).toMatchObject({
+      Authorization: 'Bearer fish-key',
+    })
+  })
+
+  it('lista e cacheia modelos TTS compativeis da Fish Audio', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        total: 1,
+        has_more: false,
+        items: [
+          {
+            _id: 'fish-owned',
+            type: 'tts',
+            title: 'Minha Voz',
+            state: 'trained',
+            languages: ['pt-BR'],
+            tags: ['narration'],
+            cover_image: 'https://cdn.example/cover.webp',
+            samples: [{ audio: 'https://cdn.example/sample.mp3' }],
+          },
+        ],
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        total: 2,
+        has_more: false,
+        items: [
+          {
+            _id: 'fish-owned',
+            type: 'tts',
+            title: 'Minha Voz duplicada',
+            state: 'trained',
+            languages: ['pt-BR'],
+          },
+          {
+            _id: 'fish-public',
+            type: 'tts',
+            title: 'Public Voice',
+            state: 'trained',
+            languages: ['pt'],
+            task_count: 5000,
+          },
+          {
+            _id: 'fish-still-training',
+            type: 'tts',
+            title: 'Training Voice',
+            state: 'training',
+            languages: ['pt-BR'],
+          },
+        ],
+      }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await FishAudioService.listCompatibleVoices('pt-BR', 'fish-key')
+
+    expect(result.map((voice) => voice.id)).toEqual(['fish-owned', 'fish-public'])
+    expect(result[0]).toMatchObject({
+      label: 'Minha Voz',
+      provider: 'fishaudio',
+      locale: 'pt-BR',
+      previewUrl: 'https://cdn.example/sample.mp3',
+      avatarUrl: 'https://cdn.example/cover.webp',
+      modelId: 's2-pro',
+    })
+    expect(mockSetCachedTtsVoiceOptions).toHaveBeenCalledWith({
+      cacheKey: 12345,
+      provider: 'fishaudio',
+      language: 'pt-BR',
+      voices: result,
+    })
+  })
+
+  it('converte SSE da Fish Audio em audio e speech marks', async () => {
+    const sse = [
+      'data: {"audio_base64":"YQ==","content":"Hello world","alignment":{"audio_duration":1,"segments":[{"text":"Hello","start":0,"end":0.4},{"text":"world","start":0.5,"end":1}]},"chunk_seq":0,"chunk_audio_offset_sec":0}',
+      '',
+      '',
+    ].join('\n')
+    const fetchMock = vi.fn(async () => new Response(sse, {
+      status: 200,
+      headers: { 'content-type': 'text/event-stream' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await FishAudioService.synthesize('Hello world', {
+      apiKey: 'fish-key',
+      language: 'en-US',
+      rate: 1.1,
+      voiceId: 'fish-voice',
+    })
+
+    expect(await result.audioBlob.text()).toBe('a')
+    expect(result.speechMarks).toEqual([
+      { value: 'Hello', start: 0, end: 5, start_time: 0, end_time: 400 },
+      { value: 'world', start: 6, end: 11, start_time: 500, end_time: 1000 },
+    ])
+    expect(String(fetchMock.mock.calls[0][0])).toBe('https://api.fish.audio/v1/tts/stream/with-timestamp')
+    expect((fetchMock.mock.calls[0][1] as RequestInit).headers).toMatchObject({
+      Authorization: 'Bearer fish-key',
+      model: 's2-pro',
+    })
+    expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))).toMatchObject({
+      text: 'Hello world',
+      reference_id: 'fish-voice',
+      format: 'mp3',
+      prosody: { speed: 1.1 },
+    })
+  })
+
+  it('cai para /v1/tts quando timestamps da Fish Audio falham de forma recuperavel', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ status: 422, message: 'timestamps unavailable' }), {
+        status: 422,
+        headers: { 'content-type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response('mp3-bytes', {
+        status: 200,
+        headers: { 'content-type': 'audio/mpeg' },
+      }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await FishAudioService.synthesize('Ola mundo', {
+      apiKey: 'fish-key',
+      language: 'pt-BR',
+      rate: 1,
+      voiceId: 'fish-voice',
+    })
+
+    expect(result.audioBlob.type).toBe('audio/mpeg')
+    expect(await result.audioBlob.text()).toBe('mp3-bytes')
+    expect(result.speechMarks).toEqual([])
+    expect(String(fetchMock.mock.calls[0][0])).toBe('https://api.fish.audio/v1/tts/stream/with-timestamp')
+    expect(String(fetchMock.mock.calls[1][0])).toBe('https://api.fish.audio/v1/tts')
+  })
+
+  it('sintetiza Fish Audio com voz padrao sem resolver reference_id', async () => {
+    const fetchMock = vi.fn(async () => new Response('mp3-bytes', {
+      status: 200,
+      headers: { 'content-type': 'audio/mpeg' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await FishAudioService.synthesize('Hello! Welcome to Fish Audio.', {
+      apiKey: 'fish-key',
+      language: 'en-US',
+      rate: 1,
+    })
+
+    expect(await result.audioBlob.text()).toBe('mp3-bytes')
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(String(fetchMock.mock.calls[0][0])).not.toContain('/model')
+    expect((fetchMock.mock.calls[0][1] as RequestInit).headers).toMatchObject({
+      model: 's1',
+    })
+    expect(String(fetchMock.mock.calls[0][0])).toBe('https://api.fish.audio/v1/tts')
+    expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))).toEqual({
+      text: 'Hello! Welcome to Fish Audio.',
+      format: 'mp3',
+      sample_rate: 44100,
+      mp3_bitrate: 128,
+      latency: 'normal',
+      normalize: true,
+    })
+  })
+
+  it('cai para /v1/tts quando timestamps da Fish Audio falham por rede', async () => {
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(new Response('mp3-bytes', {
+        status: 200,
+        headers: { 'content-type': 'audio/mpeg' },
+      }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await FishAudioService.synthesize('Hello world', {
+      apiKey: 'fish-key',
+      language: 'en-US',
+      rate: 1,
+      voiceId: 'fish-voice',
+    })
+
+    expect(await result.audioBlob.text()).toBe('mp3-bytes')
+    expect(String(fetchMock.mock.calls[0][0])).toBe('https://api.fish.audio/v1/tts/stream/with-timestamp')
+    expect(String(fetchMock.mock.calls[1][0])).toBe('https://api.fish.audio/v1/tts')
+    expect((fetchMock.mock.calls[1][1] as RequestInit).headers).toMatchObject({
+      model: 's2-pro',
+    })
+  })
+
+  it('propaga erros Fish Audio nao recuperaveis para acionar fallback nativo', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ status: 429, message: 'rate limited' }), {
+      status: 429,
+      headers: { 'content-type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(FishAudioService.synthesize('Hello', {
+      apiKey: 'fish-key',
+      language: 'en-US',
+      rate: 1,
+      voiceId: 'fish-voice',
+    })).rejects.toMatchObject({
+      status: 429,
+      endpoint: 'https://api.fish.audio/v1/tts/stream/with-timestamp',
+    })
   })
 })

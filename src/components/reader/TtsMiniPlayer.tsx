@@ -1,7 +1,9 @@
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Gauge, LocateFixed, Pause, Play, Square } from 'lucide-react'
 import speechifyIcon from '../../assets/tts-providers/speechify.svg'
 import elevenLabsIcon from '../../assets/tts-providers/elevenlabs.svg'
+import fishAudioIcon from '../../assets/tts-providers/fishaudio.svg'
 import nativeTtsIcon from '../../assets/tts-providers/native-tts.svg'
+import { TTS_PROVIDER_ORDER, getTtsProviderLabel } from '../../services/TtsProviderRegistry'
 import type { TtsProvider } from '../../types/tts'
 
 interface TtsMiniPlayerProps {
@@ -22,10 +24,11 @@ interface TtsMiniPlayerProps {
   onStop: () => void
 }
 
-const TTS_PROVIDER_META: Record<TtsProvider, { label: string; icon: string }> = {
-  speechify: { label: 'Speechify', icon: speechifyIcon },
-  elevenlabs: { label: 'ElevenLabs', icon: elevenLabsIcon },
-  native: { label: 'TTS nativo', icon: nativeTtsIcon },
+const TTS_PROVIDER_ICONS: Record<TtsProvider, string> = {
+  speechify: speechifyIcon,
+  elevenlabs: elevenLabsIcon,
+  fishaudio: fishAudioIcon,
+  native: nativeTtsIcon,
 }
 
 const TTS_RATE_OPTIONS = [0.7, 0.8, 0.9, 1, 1.1, 1.2]
@@ -47,8 +50,8 @@ export function TtsMiniPlayer({
   onRateChange,
   onStop,
 }: TtsMiniPlayerProps) {
-  const activeMeta = TTS_PROVIDER_META[activeProvider]
-  const fallbackMeta = fallbackFromProvider ? TTS_PROVIDER_META[fallbackFromProvider] : null
+  const activeProviderLabel = getTtsProviderLabel(activeProvider)
+  const fallbackProviderLabel = fallbackFromProvider ? getTtsProviderLabel(fallbackFromProvider) : null
 
   return (
     <div
@@ -58,16 +61,16 @@ export function TtsMiniPlayer({
       <div className="rounded-xl border border-white/10 bg-[rgba(15,7,24,0.9)] px-2.5 py-2 shadow-nav backdrop-blur-xl">
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-full border border-white/8 bg-white/[0.04] px-2 py-1">
-            <img src={activeMeta.icon} alt="" className="h-4 w-4 shrink-0 object-contain" aria-hidden="true" />
+            <img src={TTS_PROVIDER_ICONS[activeProvider]} alt="" className="h-4 w-4 shrink-0 object-contain" aria-hidden="true" />
             <select
               value={activeProvider}
               onChange={(event) => onProviderChange(event.target.value as TtsProvider)}
               className="min-w-0 flex-1 rounded-md border border-white/8 bg-[rgba(15,7,24,0.92)] px-1 py-0.5 text-[11px] font-semibold text-text-primary outline-none"
               aria-label="Provedor TTS"
             >
-              {(Object.keys(TTS_PROVIDER_META) as TtsProvider[]).map((provider) => (
+              {TTS_PROVIDER_ORDER.map((provider) => (
                 <option key={provider} value={provider} disabled={!providerAvailability[provider]}>
-                  {TTS_PROVIDER_META[provider].label}
+                  {getTtsProviderLabel(provider)}
                 </option>
               ))}
             </select>
@@ -90,9 +93,9 @@ export function TtsMiniPlayer({
             </select>
           </div>
 
-          {fallbackMeta && (
+          {fallbackProviderLabel && (
             <span className="sr-only">
-              {fallbackMeta.label} indisponivel; usando {activeMeta.label}
+              {fallbackProviderLabel} indisponivel; usando {activeProviderLabel}
             </span>
           )}
 

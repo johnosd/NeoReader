@@ -114,6 +114,7 @@ vi.mock('@/db/settings', () => ({
     appSettings: {
       speechifyApiKey: '',
       elevenLabsApiKey: '',
+      fishAudioApiKey: '',
       translationTargetLang: 'pt-BR',
     },
     readerDefaults: {
@@ -260,6 +261,7 @@ function makeSettings(overrides: Partial<Awaited<ReturnType<typeof getSettings>>
     appSettings: {
       speechifyApiKey: '',
       elevenLabsApiKey: '',
+      fishAudioApiKey: '',
       translationTargetLang: 'pt-BR',
     },
     readerDefaults: {
@@ -598,6 +600,7 @@ describe('ReaderScreen', () => {
       appSettings: {
         speechifyApiKey: 'speechify-key',
         elevenLabsApiKey: '',
+        fishAudioApiKey: '',
         translationTargetLang: 'pt-BR',
       },
     }))
@@ -664,6 +667,7 @@ describe('ReaderScreen', () => {
       appSettings: {
         speechifyApiKey: 'speechify-key',
         elevenLabsApiKey: '',
+        fishAudioApiKey: '',
         translationTargetLang: 'pt-BR',
       },
     }))

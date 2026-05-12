@@ -1,11 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import { TextToSpeech } from '@capacitor-community/text-to-speech'
 import type { TtsChunk } from '../components/reader/EpubViewer'
-import { ElevenLabsService } from '../services/ElevenLabsService'
 import { NativeTtsService } from '../services/NativeTtsService'
-import { SpeechifyService } from '../services/SpeechifyService'
+import {
+  getPremiumTtsApiKey,
+  getTtsProviderLabel,
+  isPremiumTtsProvider,
+  resolveConfiguredTtsProvider,
+  synthesizePremiumTts,
+} from '../services/TtsProviderRegistry'
 import type { TtsPlaybackConfig, TtsProvider } from '../types/tts'
 import { clampTtsRate, normalizeLanguageTag } from '../utils/language'
+import { getPlaybackTtsVoiceId } from '../utils/ttsVoiceSelection'
 
 type AudioSpeechMark = {
   start_time: number
@@ -23,16 +29,6 @@ interface UseTTSOptions extends TtsPlaybackConfig {
   onProviderFallback?: (payload: { provider: TtsProvider; fallbackProvider: 'native'; reason: string }) => void
   onStop: () => void
   onFinished?: () => void
-}
-
-async function resolveConfiguredProvider(provider: TtsProvider): Promise<TtsProvider> {
-  if (provider === 'speechify') {
-    return await SpeechifyService.isConfigured() ? 'speechify' : 'native'
-  }
-  if (provider === 'elevenlabs') {
-    return await ElevenLabsService.isConfigured() ? 'elevenlabs' : 'native'
-  }
-  return 'native'
 }
 
 function replaceSpeechControlCharacters(text: string) {
@@ -76,14 +72,8 @@ function getHttpStatusFromError(message: string): number | null {
   return Number.isFinite(status) ? status : null
 }
 
-function getProviderLabel(provider: TtsProvider): string {
-  if (provider === 'speechify') return 'Speechify'
-  if (provider === 'elevenlabs') return 'ElevenLabs'
-  return 'TTS nativo'
-}
-
 function getPremiumFallbackReason(provider: TtsProvider, error: unknown): string {
-  const providerLabel = getProviderLabel(provider)
+  const providerLabel = getTtsProviderLabel(provider)
   const message = getErrorMessage(error)
   const normalized = message.toLowerCase()
   const status = getHttpStatusFromError(message)
@@ -194,6 +184,7 @@ export function useTTS(options: UseTTSOptions) {
     speechifyVoiceId: options.speechifyVoiceId,
     elevenLabsVoiceId: options.elevenLabsVoiceId,
     nativeVoiceKey: options.nativeVoiceKey,
+    voiceSelections: options.voiceSelections,
   })
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const activeProviderRef = useRef<TtsProvider>('native')
@@ -227,6 +218,7 @@ export function useTTS(options: UseTTSOptions) {
       speechifyVoiceId: options.speechifyVoiceId,
       elevenLabsVoiceId: options.elevenLabsVoiceId,
       nativeVoiceKey: options.nativeVoiceKey,
+      voiceSelections: options.voiceSelections,
     }
   }, [
     options.provider,
@@ -235,6 +227,7 @@ export function useTTS(options: UseTTSOptions) {
     options.speechifyVoiceId,
     options.elevenLabsVoiceId,
     options.nativeVoiceKey,
+    options.voiceSelections,
   ])
 
   useEffect(() => {
@@ -357,35 +350,22 @@ export function useTTS(options: UseTTSOptions) {
     })
   }
 
-  async function speakWithSpeechify(text: string, paraIdx: number, offsetInPara: number, session: number, trackPlaybackState = true) {
+  async function speakWithPremium(
+    provider: Exclude<TtsProvider, 'native'>,
+    text: string,
+    paraIdx: number,
+    offsetInPara: number,
+    session: number,
+    trackPlaybackState = true,
+  ) {
     const config = configRef.current
-    const apiKey = await SpeechifyService.getApiKey()
-    if (!apiKey) throw new Error('Speechify not configured')
-    const result = await SpeechifyService.synthesize(text, {
+    const apiKey = await getPremiumTtsApiKey(provider)
+    if (!apiKey) throw new Error(`${getTtsProviderLabel(provider)} not configured`)
+    const result = await synthesizePremiumTts(provider, text, {
       apiKey,
       language: config.language,
       rate: config.rate,
-      voiceId: config.speechifyVoiceId,
-    })
-    await playAudioBlob(text, result.audioBlob, result.speechMarks, paraIdx, offsetInPara, session, trackPlaybackState)
-  }
-
-  async function speakWithElevenLabs(text: string, paraIdx: number, offsetInPara: number, session: number, trackPlaybackState = true) {
-    const config = configRef.current
-    const apiKey = await ElevenLabsService.getApiKey()
-    if (!apiKey) throw new Error('ElevenLabs not configured')
-    if (import.meta.env.DEV) {
-      console.debug('[ElevenLabs:reader:selected]', {
-        language: config.language,
-        rate: config.rate,
-        voiceId: config.elevenLabsVoiceId,
-      })
-    }
-    const result = await ElevenLabsService.synthesize(text, {
-      apiKey,
-      voiceId: config.elevenLabsVoiceId,
-      language: config.language,
-      rate: config.rate,
+      voiceId: getPlaybackTtsVoiceId(config, provider),
     })
     await playAudioBlob(text, result.audioBlob, result.speechMarks, paraIdx, offsetInPara, session, trackPlaybackState)
   }
@@ -447,33 +427,17 @@ export function useTTS(options: UseTTSOptions) {
     trackPlaybackState: boolean,
     onFallback: (provider: TtsProvider, error: unknown) => void,
   ): Promise<{ sessionEnded: boolean; usedProvider: TtsProvider }> {
-    if (provider === 'speechify') {
-      activeProviderRef.current = 'speechify'
+    if (isPremiumTtsProvider(provider)) {
+      activeProviderRef.current = provider
       try {
-        await speakWithSpeechify(text, paraIdx, offsetInPara, session, trackPlaybackState)
-        return { sessionEnded: false, usedProvider: 'speechify' }
+        await speakWithPremium(provider, text, paraIdx, offsetInPara, session, trackPlaybackState)
+        return { sessionEnded: false, usedProvider: provider }
       } catch (error) {
         if (shouldStopRef.current || playSessionRef.current !== session) {
-          return { sessionEnded: true, usedProvider: 'speechify' }
+          return { sessionEnded: true, usedProvider: provider }
         }
-        logPremiumTtsFallback('speechify', error)
-        onFallback('speechify', error)
-        await fallbackToNative(text, session, nativeParaIdx, offsetInPara)
-        return { sessionEnded: false, usedProvider: 'native' }
-      }
-    }
-
-    if (provider === 'elevenlabs') {
-      activeProviderRef.current = 'elevenlabs'
-      try {
-        await speakWithElevenLabs(text, paraIdx, offsetInPara, session, trackPlaybackState)
-        return { sessionEnded: false, usedProvider: 'elevenlabs' }
-      } catch (error) {
-        if (shouldStopRef.current || playSessionRef.current !== session) {
-          return { sessionEnded: true, usedProvider: 'elevenlabs' }
-        }
-        logPremiumTtsFallback('elevenlabs', error)
-        onFallback('elevenlabs', error)
+        logPremiumTtsFallback(provider, error)
+        onFallback(provider, error)
         await fallbackToNative(text, session, nativeParaIdx, offsetInPara)
         return { sessionEnded: false, usedProvider: 'native' }
       }
@@ -497,7 +461,7 @@ export function useTTS(options: UseTTSOptions) {
     updatePaused(false)
     setIsPlaying(true)
 
-    const resolvedProvider = await resolveConfiguredProvider(configRef.current.provider).catch(() => 'native' as const)
+    const resolvedProvider = await resolveConfiguredTtsProvider(configRef.current.provider).catch(() => 'native' as const)
     let playbackProvider = resolvedProvider
     activeProviderRef.current = resolvedProvider
     const currentChunkRef = { current: chunks[startIdx] ?? chunks[0] }
@@ -631,7 +595,7 @@ export function useTTS(options: UseTTSOptions) {
     shouldStopRef.current = false
     nativeRangeEventSeenRef.current = false
     updatePaused(false)
-    const resolvedProvider = await resolveConfiguredProvider(configRef.current.provider).catch(() => 'native' as const)
+    const resolvedProvider = await resolveConfiguredTtsProvider(configRef.current.provider).catch(() => 'native' as const)
     activeProviderRef.current = resolvedProvider
     const normalizedText = normalizeChunkText(text)
     let speakOneError: unknown = null

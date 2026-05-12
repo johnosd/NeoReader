@@ -3,7 +3,12 @@ import { getSettings } from '../db/settings'
 import { getBookSettings, updateBookSettings } from '../db/bookSettings'
 import { EpubService } from '../services/EpubService'
 import { BookFileResolver } from '../services/BookFileResolver'
+import {
+  getTtsProviderAvailability,
+  resolveTtsProviderFromAvailability,
+} from '../services/TtsProviderRegistry'
 import { clampTtsRate, normalizeLanguageTag } from '../utils/language'
+import { getBookTtsVoiceSelections } from '../utils/ttsVoiceSelection'
 import type { Book } from '../types/book'
 import type { FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from '../types/settings'
 import type { TtsPlaybackConfig, TtsProvider } from '../types/tts'
@@ -47,36 +52,6 @@ function resolveBookLanguage(candidate?: string | null): string {
   return normalizeLanguageTag(candidate, 'en')
 }
 
-function resolveTtsProvider(
-  selectedProvider: TtsProvider,
-  settings: Awaited<ReturnType<typeof getSettings>>['appSettings'],
-): TtsProvider {
-  if (selectedProvider === 'speechify') {
-    return settings.speechifyApiKey ? 'speechify' : 'native'
-  }
-  if (selectedProvider === 'elevenlabs') {
-    return settings.elevenLabsApiKey ? 'elevenlabs' : 'native'
-  }
-  return 'native'
-}
-
-function getTtsProviderAvailability(
-  settings: Awaited<ReturnType<typeof getSettings>>['appSettings'],
-): Record<TtsProvider, boolean> {
-  return {
-    native: true,
-    speechify: Boolean(settings.speechifyApiKey),
-    elevenlabs: Boolean(settings.elevenLabsApiKey),
-  }
-}
-
-function resolveTtsProviderFromAvailability(
-  selectedProvider: TtsProvider,
-  availability: Record<TtsProvider, boolean>,
-): TtsProvider {
-  return availability[selectedProvider] ? selectedProvider : 'native'
-}
-
 export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
   const [readySource, setReadySource] = useState<{ bookId: Book['id']; source: string } | null>(null)
   const [fontSize, setFontSize] = useState<FontSize>('md')
@@ -97,6 +72,7 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
     native: true,
     speechify: false,
     elevenlabs: false,
+    fishaudio: false,
   })
 
   // Carrega preferências: configuração por livro (override) > global > padrão
@@ -116,6 +92,7 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
       const selectedProvider = bs.ttsProvider ?? 'speechify'
       const resolvedFontFamily = bs.fontFamily ?? s.readerDefaults.fontFamily
       const providerAvailability = getTtsProviderAvailability(s.appSettings)
+      const voiceSelections = getBookTtsVoiceSelections(bs)
 
       setFontSize(bs.fontSize ?? s.readerDefaults.defaultFontSize)
       setLineHeight(bs.lineHeight ?? s.readerDefaults.lineHeight)
@@ -132,9 +109,10 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
         speechifyVoiceId: bs.ttsSpeechifyVoiceId,
         elevenLabsVoiceId: bs.ttsElevenLabsVoiceId,
         nativeVoiceKey: bs.ttsNativeVoiceKey,
+        voiceSelections,
       })
       setTtsProviderAvailability(providerAvailability)
-      setTtsEngine(resolveTtsProvider(selectedProvider, s.appSettings))
+      setTtsEngine(resolveTtsProviderFromAvailability(selectedProvider, providerAvailability))
       setReadySource({ bookId: book.id, source })
     }).catch(() => {
       if (cancelled) return

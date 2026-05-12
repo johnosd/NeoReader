@@ -15,9 +15,17 @@ import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
 import { useBookInfo } from '../hooks/useBookInfo'
 import { BookFileResolver } from '../services/BookFileResolver'
 import { EpubService, type EpubExtras } from '../services/EpubService'
-import { ElevenLabsService } from '../services/ElevenLabsService'
 import { NativeTtsService } from '../services/NativeTtsService'
-import { SpeechifyService } from '../services/SpeechifyService'
+import {
+  TTS_PROVIDER_ORDER,
+  getTtsProviderApiKeyFromSettings,
+  getTtsProviderLabel,
+  isPremiumTtsProvider,
+  isTtsProviderConfigured,
+  resolveTtsProviderFromAvailability,
+  getTtsProviderAvailability,
+  synthesizePremiumTts,
+} from '../services/TtsProviderRegistry'
 import {
   ReaderFontControl,
   ReaderFontSizeControl,
@@ -40,6 +48,10 @@ import type { TtsProvider, TtsVoiceOption } from '../types/tts'
 import { clampTtsRate, normalizeLanguageTag } from '../utils/language'
 import { BOOK_LANGUAGE_OPTIONS, getLanguageLabel, TRANSLATION_LANGUAGE_OPTIONS } from '../utils/languageOptions'
 import { resolveReadingState } from '../utils/readingState'
+import {
+  buildBookTtsVoiceSelectionPatch,
+  getBookTtsVoiceSelection,
+} from '../utils/ttsVoiceSelection'
 import {
   findCurrentTocPath,
   flattenVisibleTocItems,
@@ -66,23 +78,16 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'details', label: 'Detalhes' },
 ]
 
-const TTS_PROVIDERS: Array<{ value: TtsProvider; label: string }> = [
-  { value: 'speechify', label: 'Speechify' },
-  { value: 'elevenlabs', label: 'ElevenLabs' },
-  { value: 'native', label: 'Nativo' },
-]
+const TTS_PROVIDERS: Array<{ value: TtsProvider; label: string }> = TTS_PROVIDER_ORDER.map((provider) => ({
+  value: provider,
+  label: provider === 'native' ? 'Nativo' : getTtsProviderLabel(provider),
+}))
 
 const TTS_RATE_OPTIONS = [0.8, 0.9, 1, 1.1, 1.2]
 const VOICE_PREVIEW_ERROR = 'Nao foi possivel tocar a amostra desta voz.'
 
-function isTtsProviderConfigured(provider: TtsProvider, settings: AppSettings) {
-  if (provider === 'speechify') return Boolean(settings.speechifyApiKey)
-  if (provider === 'elevenlabs') return Boolean(settings.elevenLabsApiKey)
-  return true
-}
-
 function resolveEffectiveTtsProvider(provider: TtsProvider, settings: AppSettings): TtsProvider {
-  return isTtsProviderConfigured(provider, settings) ? provider : 'native'
+  return resolveTtsProviderFromAvailability(provider, getTtsProviderAvailability(settings))
 }
 
 function getTtsVoicePreviewText(language: string) {
@@ -108,6 +113,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
   const [appSettings, setAppSettings] = useState<AppSettings>({
     speechifyApiKey: '',
     elevenLabsApiKey: '',
+    fishAudioApiKey: '',
     translationTargetLang: 'pt-BR',
     youtubeApiKey: '',
   })
@@ -222,16 +228,11 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
   const selectedProviderLabel = TTS_PROVIDERS.find((option) => option.value === selectedTtsProvider)?.label ?? selectedTtsProvider
   const effectiveProviderLabel = TTS_PROVIDERS.find((option) => option.value === effectiveTtsProvider)?.label ?? effectiveTtsProvider
   const providerInFallback = effectiveTtsProvider !== selectedTtsProvider
+  const selectedVoice = getBookTtsVoiceSelection(bookSettingsRow, effectiveTtsProvider)
   const selectedVoiceLabel = !providerConfigured
     ? `${selectedProviderLabel} indisponivel`
-    : effectiveTtsProvider === 'speechify'
-      ? (bookSettingsRow?.ttsSpeechifyVoiceLabel ?? 'Voz padrao do provider')
-      : effectiveTtsProvider === 'elevenlabs'
-        ? (bookSettingsRow?.ttsElevenLabsVoiceLabel ?? 'Voz padrao do provider')
-        : (bookSettingsRow?.ttsNativeVoiceLabel ?? 'Voz padrao do dispositivo')
-  const selectedVoiceAvatarUrl = providerConfigured && effectiveTtsProvider === 'speechify'
-    ? (bookSettingsRow?.ttsSpeechifyVoiceAvatarUrl ?? null)
-    : null
+    : (selectedVoice?.label ?? (effectiveTtsProvider === 'native' ? 'Voz padrao do dispositivo' : 'Voz padrao do provider'))
+  const selectedVoiceAvatarUrl = providerConfigured ? (selectedVoice?.avatarUrl ?? null) : null
   const selectedVoiceMeta = providerConfigured
     ? `${selectedVoiceLabel} - ${getLanguageLabel(effectiveBookLanguage) ?? effectiveBookLanguage}`
     : 'Abra as Configuracoes gerais para configurar a API key'
@@ -423,19 +424,11 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
     try {
       if (voice.previewUrl) {
         await playAudioPreview(new Audio(voice.previewUrl), session)
-      } else if (selectedTtsProvider === 'speechify') {
-        if (!appSettings.speechifyApiKey) throw new Error('Speechify API key missing')
-        const result = await SpeechifyService.synthesize(previewText, {
-          apiKey: appSettings.speechifyApiKey,
-          language: effectiveBookLanguage,
-          rate: 1,
-          voiceId: voice.id,
-        })
-        await playGeneratedVoicePreview(result.audioBlob, session)
-      } else if (selectedTtsProvider === 'elevenlabs') {
-        if (!appSettings.elevenLabsApiKey) throw new Error('ElevenLabs API key missing')
-        const result = await ElevenLabsService.synthesize(previewText, {
-          apiKey: appSettings.elevenLabsApiKey,
+      } else if (isPremiumTtsProvider(selectedTtsProvider)) {
+        const apiKey = getTtsProviderApiKeyFromSettings(appSettings, selectedTtsProvider)
+        if (!apiKey) throw new Error(`${getTtsProviderLabel(selectedTtsProvider)} API key missing`)
+        const result = await synthesizePremiumTts(selectedTtsProvider, previewText, {
+          apiKey,
           language: effectiveBookLanguage,
           rate: 1,
           voiceId: voice.id,
@@ -474,23 +467,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
   }
 
   function updateVoice(option: TtsVoiceOption | null) {
-    if (selectedTtsProvider === 'speechify') {
-      applyBookSettingsPatch({
-        ttsSpeechifyVoiceId: option?.id ?? null,
-        ttsSpeechifyVoiceLabel: option?.label ?? null,
-        ttsSpeechifyVoiceAvatarUrl: option?.avatarUrl ?? null,
-      })
-    } else if (selectedTtsProvider === 'elevenlabs') {
-      applyBookSettingsPatch({
-        ttsElevenLabsVoiceId: option?.id ?? null,
-        ttsElevenLabsVoiceLabel: option?.label ?? null,
-      })
-    } else {
-      applyBookSettingsPatch({
-        ttsNativeVoiceKey: option?.id ?? null,
-        ttsNativeVoiceLabel: option?.label ?? null,
-      })
-    }
+    applyBookSettingsPatch(buildBookTtsVoiceSelectionPatch(bookSettingsRow, selectedTtsProvider, option))
     closeTtsVoiceSheet()
   }
 
@@ -1097,11 +1074,9 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
         <div className="-mx-4">
           {TTS_PROVIDERS.map((option) => {
             const active = selectedTtsProvider === option.value
-            const meta = option.value === 'speechify'
-              ? (appSettings.speechifyApiKey ? 'Configurado' : 'API key pendente')
-              : option.value === 'elevenlabs'
-                ? (appSettings.elevenLabsApiKey ? 'Configurado' : 'API key pendente')
-                : 'Disponivel no dispositivo'
+            const meta = option.value === 'native'
+              ? 'Disponivel no dispositivo'
+              : (isTtsProviderConfigured(option.value, appSettings) ? 'Configurado' : 'API key pendente')
             return (
               <ListItem
                 key={option.value}
@@ -1165,9 +1140,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
                 title="Usar voz padrao"
                 meta={selectedTtsProvider === 'native' ? 'Voz padrao do dispositivo' : 'Definida automaticamente pelo provider'}
                 trailing={
-                  ((selectedTtsProvider === 'speechify' && !bookSettingsRow?.ttsSpeechifyVoiceId) ||
-                  (selectedTtsProvider === 'elevenlabs' && !bookSettingsRow?.ttsElevenLabsVoiceId) ||
-                  (selectedTtsProvider === 'native' && !bookSettingsRow?.ttsNativeVoiceKey))
+                  !getBookTtsVoiceSelection(bookSettingsRow, selectedTtsProvider)?.id
                     ? <Check size={18} className="text-purple-light" />
                     : undefined
                 }
@@ -1175,11 +1148,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
                 divider={visibleTtsVoiceOptions.length > 0}
               />
               {visibleTtsVoiceOptions.map((voice, index) => {
-                const active = selectedTtsProvider === 'speechify'
-                  ? bookSettingsRow?.ttsSpeechifyVoiceId === voice.id
-                  : selectedTtsProvider === 'elevenlabs'
-                    ? bookSettingsRow?.ttsElevenLabsVoiceId === voice.id
-                    : bookSettingsRow?.ttsNativeVoiceKey === voice.id
+                const active = getBookTtsVoiceSelection(bookSettingsRow, selectedTtsProvider)?.id === voice.id
                 const previewing = ttsVoicePreviewingId === voice.id
                 return (
                   <ListItem

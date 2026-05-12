@@ -33,6 +33,7 @@ const defaultSettings = {
   appSettings: {
     speechifyApiKey: 'key',
     elevenLabsApiKey: '',
+    fishAudioApiKey: '',
     youtubeApiKey: '',
     translationTargetLang: 'pt-BR',
   },
