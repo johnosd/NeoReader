@@ -10,6 +10,8 @@ const MAX_CHARS = 2400
 const VOICES_PAGE_SIZE = 20
 const MAX_VOICE_PAGES = 3
 const VOICE_CACHE_TTL_MS = 24 * 60 * 60 * 1000
+const VOICE_DETAIL_TIMEOUT_MS = 8_000
+const SYNTHESIZE_TIMEOUT_MS = 15_000
 const DEFAULT_MODEL_ID = 'eleven_v3'
 const DEFAULT_OUTPUT_FORMAT = 'mp3_44100_128'
 const FALLBACK_TTS_STATUSES = new Set([400, 401, 402, 403, 404, 409, 422])
@@ -135,6 +137,15 @@ function debugElevenLabs(label: string, payload: Record<string, unknown>) {
   if (import.meta.env.DEV && import.meta.env.MODE !== 'test') console.debug(label, payload)
 }
 
+function withTimeout(ms: number) {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), ms)
+  return {
+    signal: controller.signal,
+    clear: () => clearTimeout(timeoutId),
+  }
+}
+
 function readResponseText(response: Response) {
   return response.clone().text().catch(() => '')
 }
@@ -196,6 +207,7 @@ async function throwElevenLabsApiError(response: Response, input: {
 
 function shouldFallbackToSimpleTts(error: unknown) {
   if (error instanceof SyntaxError) return true
+  if (error instanceof DOMException && error.name === 'AbortError') return true
   return error instanceof ElevenLabsApiError && FALLBACK_TTS_STATUSES.has(error.status)
 }
 
@@ -558,15 +570,21 @@ export const ElevenLabsService = {
 
   async getVoice(apiKey: string, voiceId: string): Promise<ElevenLabsVoice> {
     const endpoint = `${VOICE_URL}/${voiceId}`
-    const response = await fetch(endpoint, {
-      method: 'GET',
-      headers: {
-        'xi-api-key': apiKey,
-      },
-    })
+    const timeout = withTimeout(VOICE_DETAIL_TIMEOUT_MS)
+    try {
+      const response = await fetch(endpoint, {
+        method: 'GET',
+        headers: {
+          'xi-api-key': apiKey,
+        },
+        signal: timeout.signal,
+      })
 
-    if (!response.ok) await throwElevenLabsApiError(response, { endpoint, voiceId })
-    return response.json() as Promise<ElevenLabsVoice>
+      if (!response.ok) await throwElevenLabsApiError(response, { endpoint, voiceId })
+      return response.json() as Promise<ElevenLabsVoice>
+    } finally {
+      timeout.clear()
+    }
   },
 
   async synthesize(text: string, options: ElevenLabsSpeechOptions): Promise<ElevenLabsResult> {
@@ -625,50 +643,54 @@ export const ElevenLabsService = {
     })
 
     try {
-      const response = await fetch(timestampsEndpoint, {
-        method: 'POST',
-        headers: {
-          'xi-api-key': options.apiKey,
-          'Content-Type': 'application/json; charset=utf-8',
-          Accept: 'application/json',
-        },
-        body: JSON.stringify(timestampsRequestBody),
-      })
-
-      const responseText = await readResponseText(response)
-      debugElevenLabs('[ElevenLabs:TTS:response]', {
-        requestId,
-        status: response.status,
-        ok: response.ok,
-        contentType: response.headers.get('content-type'),
-        requestIdHeader:
-          response.headers.get('request-id') ??
-          response.headers.get('x-request-id') ??
-          response.headers.get('eleven-request-id'),
-        responsePreview: responseText.slice(0, 1000),
-      })
-
-      if (!response.ok) {
-        await throwElevenLabsApiError(response, {
-          endpoint: timestampsEndpoint,
-          voiceId: resolvedVoiceId,
-          modelId: selectedModelId,
+      const timeout = withTimeout(SYNTHESIZE_TIMEOUT_MS)
+      try {
+        const response = await fetch(timestampsEndpoint, {
+          method: 'POST',
+          headers: {
+            'xi-api-key': options.apiKey,
+            'Content-Type': 'application/json; charset=utf-8',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify(timestampsRequestBody),
+          signal: timeout.signal,
         })
-      }
 
-      const data = await response.json() as {
-        audio_base64: string
-        alignment?: ElevenLabsAlignment | null
-        normalized_alignment?: ElevenLabsAlignment | null
-      }
+        debugElevenLabs('[ElevenLabs:TTS:response]', {
+          requestId,
+          status: response.status,
+          ok: response.ok,
+          contentType: response.headers.get('content-type'),
+          requestIdHeader:
+            response.headers.get('request-id') ??
+            response.headers.get('x-request-id') ??
+            response.headers.get('eleven-request-id'),
+        })
 
-      const originalSpeechMarks = alignmentToSpeechMarks(data.alignment, trimmedText)
+        if (!response.ok) {
+          await throwElevenLabsApiError(response, {
+            endpoint: timestampsEndpoint,
+            voiceId: resolvedVoiceId,
+            modelId: selectedModelId,
+          })
+        }
 
-      return {
-        audioBlob: decodeBase64ToBlob(data.audio_base64, 'audio/mpeg'),
-        speechMarks: originalSpeechMarks.length > 0
-          ? originalSpeechMarks
-          : alignmentToSpeechMarks(data.normalized_alignment, trimmedText),
+        const data = await response.json() as {
+          audio_base64: string
+          alignment?: ElevenLabsAlignment | null
+          normalized_alignment?: ElevenLabsAlignment | null
+        }
+
+        const originalSpeechMarks = alignmentToSpeechMarks(data.alignment, trimmedText)
+
+        return {
+          audioBlob: decodeBase64ToBlob(data.audio_base64, 'audio/mpeg'),
+          speechMarks: originalSpeechMarks.length > 0
+            ? originalSpeechMarks
+            : alignmentToSpeechMarks(data.normalized_alignment, trimmedText),
+        }
+      } finally {
+        timeout.clear()
       }
     } catch (error) {
       if (!shouldFallbackToSimpleTts(error)) throw error
@@ -683,53 +705,58 @@ export const ElevenLabsService = {
 
     const simpleEndpoint = `${API_URL}/${resolvedVoiceId}`
     const simpleRequestBody = buildSimpleSpeechRequestBody(trimmedText)
-    const simpleResponse = await fetch(simpleEndpoint, {
-      method: 'POST',
-      headers: {
-        'xi-api-key': options.apiKey,
-        'Content-Type': 'application/json; charset=utf-8',
-        Accept: 'audio/mpeg',
-      },
-      body: JSON.stringify(simpleRequestBody),
-    })
-
-    const simpleResponseText = await readResponseText(simpleResponse)
-    debugElevenLabs('[ElevenLabs:TTS:simple-response]', {
-      requestId,
-      status: simpleResponse.status,
-      ok: simpleResponse.ok,
-      contentType: simpleResponse.headers.get('content-type'),
-      requestIdHeader:
-        simpleResponse.headers.get('request-id') ??
-        simpleResponse.headers.get('x-request-id') ??
-        simpleResponse.headers.get('eleven-request-id'),
-      responsePreview: simpleResponseText.slice(0, 1000),
-    })
-
-    if (!simpleResponse.ok) {
-      await throwElevenLabsApiError(simpleResponse, {
-        endpoint: simpleEndpoint,
-        voiceId: resolvedVoiceId,
-        modelId: DEFAULT_MODEL_ID,
+    const simpleTimeout = withTimeout(SYNTHESIZE_TIMEOUT_MS)
+    try {
+      const simpleResponse = await fetch(simpleEndpoint, {
+        method: 'POST',
+        headers: {
+          'xi-api-key': options.apiKey,
+          'Content-Type': 'application/json; charset=utf-8',
+          Accept: 'audio/mpeg',
+        },
+        body: JSON.stringify(simpleRequestBody),
+        signal: simpleTimeout.signal,
       })
-    }
 
-    const simpleContentType = simpleResponse.headers.get('content-type') ?? ''
-    if (simpleContentType.includes('application/json')) {
-      throw new ElevenLabsApiError({
+      debugElevenLabs('[ElevenLabs:TTS:simple-response]', {
+        requestId,
         status: simpleResponse.status,
-        message: `ElevenLabs error: ${simpleResponse.status} expected audio but received JSON`,
-        endpoint: simpleEndpoint,
-        voiceId: resolvedVoiceId,
-        modelId: DEFAULT_MODEL_ID,
-        responseText: simpleResponseText,
+        ok: simpleResponse.ok,
+        contentType: simpleResponse.headers.get('content-type'),
+        requestIdHeader:
+          simpleResponse.headers.get('request-id') ??
+          simpleResponse.headers.get('x-request-id') ??
+          simpleResponse.headers.get('eleven-request-id'),
       })
-    }
 
-    const audioBuffer = await simpleResponse.arrayBuffer()
-    return {
-      audioBlob: new Blob([audioBuffer], { type: simpleContentType || 'audio/mpeg' }),
-      speechMarks: [],
+      if (!simpleResponse.ok) {
+        await throwElevenLabsApiError(simpleResponse, {
+          endpoint: simpleEndpoint,
+          voiceId: resolvedVoiceId,
+          modelId: DEFAULT_MODEL_ID,
+        })
+      }
+
+      const simpleContentType = simpleResponse.headers.get('content-type') ?? ''
+      if (simpleContentType.includes('application/json')) {
+        const simpleResponseText = await readResponseText(simpleResponse)
+        throw new ElevenLabsApiError({
+          status: simpleResponse.status,
+          message: `ElevenLabs error: ${simpleResponse.status} expected audio but received JSON`,
+          endpoint: simpleEndpoint,
+          voiceId: resolvedVoiceId,
+          modelId: DEFAULT_MODEL_ID,
+          responseText: simpleResponseText,
+        })
+      }
+
+      const audioBuffer = await simpleResponse.arrayBuffer()
+      return {
+        audioBlob: new Blob([audioBuffer], { type: simpleContentType || 'audio/mpeg' }),
+        speechMarks: [],
+      }
+    } finally {
+      simpleTimeout.clear()
     }
   },
 }

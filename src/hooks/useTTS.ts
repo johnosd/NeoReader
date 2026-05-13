@@ -370,14 +370,29 @@ export function useTTS(options: UseTTSOptions) {
     await playAudioBlob(text, result.audioBlob, result.speechMarks, paraIdx, offsetInPara, session, trackPlaybackState)
   }
 
-  function scheduleSyntheticWordHighlights(text: string, paraIdx: number, offsetInPara: number, session: number) {
+  function scheduleSyntheticWordHighlights(
+    text: string,
+    paraIdx: number,
+    offsetInPara: number,
+    session: number,
+    speechStartedAt: number,
+  ) {
     const estimatedDurationMs = Math.max(900, text.length * 55 / clampTtsRate(configRef.current.rate))
-    const timers = estimateSpeechMarks(text, estimatedDurationMs).map((mark) =>
-      setTimeout(() => {
-        if (shouldStopRef.current || playSessionRef.current !== session) return
-        callbacksRef.current.onWordHighlight(paraIdx, offsetInPara + mark.start, offsetInPara + mark.end)
-      }, mark.start_time + WORD_HIGHLIGHT_SYNC_DELAY_MS),
-    )
+    const timers = estimateSpeechMarks(text, estimatedDurationMs)
+      .map((mark) => {
+        const targetTime = mark.start_time + WORD_HIGHLIGHT_SYNC_DELAY_MS
+        const elapsedMs = Math.max(0, performance.now() - speechStartedAt)
+        return setTimeout(() => {
+          if (
+            nativeRangeEventSeenRef.current ||
+            shouldStopRef.current ||
+            playSessionRef.current !== session
+          ) {
+            return
+          }
+          callbacksRef.current.onWordHighlight(paraIdx, offsetInPara + mark.start, offsetInPara + mark.end)
+        }, Math.max(0, targetTime - elapsedMs))
+      })
 
     return () => timers.forEach(clearTimeout)
   }
@@ -388,11 +403,12 @@ export function useTTS(options: UseTTSOptions) {
     const rate = clampTtsRate(config.rate)
     const voice = await NativeTtsService.resolveVoiceIndex(config.nativeVoiceKey, language)
     let clearSyntheticHighlights = () => {}
+    const speechStartedAt = performance.now()
     const syntheticDelay = paraIdx === undefined
       ? null
       : setTimeout(() => {
           if (nativeRangeEventSeenRef.current || shouldStopRef.current || playSessionRef.current !== session) return
-          clearSyntheticHighlights = scheduleSyntheticWordHighlights(text, paraIdx, offsetInPara, session)
+          clearSyntheticHighlights = scheduleSyntheticWordHighlights(text, paraIdx, offsetInPara, session, speechStartedAt)
         }, NATIVE_RANGE_FALLBACK_DELAY_MS)
 
     try {

@@ -8,6 +8,8 @@ const VOICES_URL = 'https://api.speechify.ai/v1/voices'
 const MAX_CHARS = 1900
 const DEFAULT_VOICE_ID = 'carly'
 const VOICE_CACHE_TTL_MS = 24 * 60 * 60 * 1000
+const VOICE_PROMISE_CACHE_TTL_MS = 5 * 60 * 1000
+const VOICE_PROMISE_CACHE_MAX = 5
 
 interface SpeechifyVoiceLanguage {
   locale: string
@@ -76,7 +78,35 @@ export interface ApiKeyValidationResult {
   message: string
 }
 
-const voiceCache = new Map<string, Promise<SpeechifyVoice[]>>()
+const voiceCache = new Map<string, { promise: Promise<SpeechifyVoice[]>; createdAt: number }>()
+
+function getCachedVoicePromise(key: string) {
+  const entry = voiceCache.get(key)
+  if (!entry) return null
+
+  if (Date.now() - entry.createdAt > VOICE_PROMISE_CACHE_TTL_MS) {
+    voiceCache.delete(key)
+    return null
+  }
+
+  voiceCache.delete(key)
+  voiceCache.set(key, entry)
+  return entry.promise
+}
+
+function setCachedVoicePromise(key: string, promise: Promise<SpeechifyVoice[]>) {
+  if (voiceCache.has(key)) voiceCache.delete(key)
+  while (voiceCache.size >= VOICE_PROMISE_CACHE_MAX) {
+    const oldestKey = voiceCache.keys().next().value
+    if (oldestKey === undefined) break
+    voiceCache.delete(oldestKey)
+  }
+  voiceCache.set(key, { promise, createdAt: Date.now() })
+}
+
+function deleteCachedVoicePromise(key: string, promise: Promise<SpeechifyVoice[]>) {
+  if (voiceCache.get(key)?.promise === promise) voiceCache.delete(key)
+}
 
 function decodeBase64ToBlob(base64: string, type: string) {
   const binary = atob(base64)
@@ -213,15 +243,17 @@ export const SpeechifyService = {
     const resolvedApiKey = apiKey ?? await this.getApiKey()
     if (!resolvedApiKey) return []
 
-    const cached = voiceCache.get(resolvedApiKey)
+    const cached = getCachedVoicePromise(resolvedApiKey)
     if (cached) return cached
 
+    let cachedRequest: Promise<SpeechifyVoice[]> | null = null
     const request = fetchSpeechifyVoices(resolvedApiKey).catch((error) => {
-      voiceCache.delete(resolvedApiKey)
+      if (cachedRequest) deleteCachedVoicePromise(resolvedApiKey, cachedRequest)
       throw error
     })
+    cachedRequest = request
 
-    voiceCache.set(resolvedApiKey, request)
+    setCachedVoicePromise(resolvedApiKey, request)
     return request
   },
 

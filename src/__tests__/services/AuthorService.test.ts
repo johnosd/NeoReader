@@ -47,6 +47,8 @@ describe('AuthorService', () => {
   })
 
   it('usa dados estaveis persistidos sem buscar rede quando videos ainda estao frescos', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-05-05T00:00:00.000Z'))
     mocks.getCachedAuthorRecord.mockResolvedValue(cachedAuthor({
       videosFetchedAt: new Date('2026-05-01T00:00:00.000Z'),
     }))

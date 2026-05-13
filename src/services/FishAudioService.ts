@@ -17,6 +17,8 @@ const VOICE_PAGE_SIZE = 50
 const MAX_VOICE_PAGES = 2
 const VOICE_CACHE_TTL_MS = 24 * 60 * 60 * 1000
 const VOICE_CACHE_KEY_VERSION = 'base-language-v1'
+const VOICE_PROMISE_CACHE_TTL_MS = 5 * 60 * 1000
+const VOICE_PROMISE_CACHE_MAX = 5
 const TIMESTAMP_FALLBACK_STATUSES = new Set([400, 402, 404, 405, 409, 422])
 
 interface FishAudioModelSample {
@@ -109,7 +111,35 @@ export class FishAudioApiError extends Error {
   }
 }
 
-const voiceCache = new Map<string, Promise<FishAudioModel[]>>()
+const voiceCache = new Map<string, { promise: Promise<FishAudioModel[]>; createdAt: number }>()
+
+function getCachedVoicePromise(key: string) {
+  const entry = voiceCache.get(key)
+  if (!entry) return null
+
+  if (Date.now() - entry.createdAt > VOICE_PROMISE_CACHE_TTL_MS) {
+    voiceCache.delete(key)
+    return null
+  }
+
+  voiceCache.delete(key)
+  voiceCache.set(key, entry)
+  return entry.promise
+}
+
+function setCachedVoicePromise(key: string, promise: Promise<FishAudioModel[]>) {
+  if (voiceCache.has(key)) voiceCache.delete(key)
+  while (voiceCache.size >= VOICE_PROMISE_CACHE_MAX) {
+    const oldestKey = voiceCache.keys().next().value
+    if (oldestKey === undefined) break
+    voiceCache.delete(oldestKey)
+  }
+  voiceCache.set(key, { promise, createdAt: Date.now() })
+}
+
+function deleteCachedVoicePromise(key: string, promise: Promise<FishAudioModel[]>) {
+  if (voiceCache.get(key)?.promise === promise) voiceCache.delete(key)
+}
 
 function isLocalDevHost() {
   if (typeof window === 'undefined') return false
@@ -371,8 +401,14 @@ function parseSsePayloads(text: string): FishTimestampStreamEvent[] {
     const rawData = dataLines.join('\n').trim()
     dataLines = []
     if (!rawData || rawData === '[DONE]') return
-    const parsed = JSON.parse(rawData) as FishTimestampStreamEvent
-    if (parsed.audio_base64) events.push(parsed)
+    try {
+      const parsed = JSON.parse(rawData) as FishTimestampStreamEvent
+      if (parsed.audio_base64) events.push(parsed)
+    } catch (error) {
+      if (import.meta.env.DEV && import.meta.env.MODE !== 'test') {
+        console.warn('[FishAudio:SSE] malformed event, skipping', error)
+      }
+    }
   }
 
   for (const line of lines) {
@@ -632,15 +668,17 @@ export const FishAudioService = {
     const normalizedLanguage = normalizeLanguageTag(language)
     const cacheKey = `${resolvedApiKey}::${normalizedLanguage}`
 
-    const cached = voiceCache.get(cacheKey)
+    const cached = getCachedVoicePromise(cacheKey)
     if (cached) return cached
 
+    let cachedRequest: Promise<FishAudioModel[]> | null = null
     const request = fetchFishAudioVoices(resolvedApiKey, normalizedLanguage).catch((error) => {
-      voiceCache.delete(cacheKey)
+      if (cachedRequest) deleteCachedVoicePromise(cacheKey, cachedRequest)
       throw error
     })
+    cachedRequest = request
 
-    voiceCache.set(cacheKey, request)
+    setCachedVoicePromise(cacheKey, request)
     return request
   },
 

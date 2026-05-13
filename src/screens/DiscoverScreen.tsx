@@ -4,7 +4,6 @@ import { NytBooksRow } from '../components/NytBooksRow'
 import { EmptyState } from '../components/ui'
 import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
 
-const NYT_API_KEY = import.meta.env.VITE_NYT_API_KEY as string | undefined
 const TRENDING_LISTS = [
   'advice-how-to-and-miscellaneous',
   'hardcover-fiction',
@@ -25,6 +24,7 @@ interface DiscoverScreenProps {
 
 export function DiscoverScreen({ onBack, onOpenHome, onOpenLibrary, onOpenProfile }: DiscoverScreenProps) {
   useCapacitorBackButton(onBack)
+  const hasNytApiKey = Boolean(import.meta.env.VITE_NYT_API_KEY)
 
   return (
     <div className="min-h-screen pb-[90px] bg-bg-base text-text-primary">
@@ -44,7 +44,7 @@ export function DiscoverScreen({ onBack, onOpenHome, onOpenLibrary, onOpenProfil
       </header>
 
       <main>
-        {NYT_API_KEY ? (
+        {hasNytApiKey ? (
           <>
             <div className="mt-2 mb-1 border-t border-white/5" />
             <div className="px-5 mt-5">
