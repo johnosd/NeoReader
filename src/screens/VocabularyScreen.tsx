@@ -1,6 +1,7 @@
 import { Trash2, Star, Search, ArrowLeft } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useMemo, useState } from 'react'
+import { AdBannerSlot } from '../components/AdBannerSlot'
 import { EmptyState, Input, Spinner } from '../components/ui'
 import { db } from '../db/database'
 import { deleteVocabItem } from '../db/vocabulary'
@@ -123,6 +124,7 @@ export function VocabularyScreen({ onBack }: VocabularyScreenProps) {
           </ul>
         )}
       </main>
+      <AdBannerSlot />
     </div>
   )
 }

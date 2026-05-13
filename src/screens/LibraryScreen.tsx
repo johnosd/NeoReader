@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Capacitor } from '@capacitor/core'
 import { ArrowUpDown, BookOpen, Check, FileText, FolderOpen, MoreVertical, Plus, Search, Star, Tag, Trash2, X } from 'lucide-react'
+import { AdBannerSlot } from '../components/AdBannerSlot'
 import { BottomNav } from '../components/BottomNav'
 import { QuickBookActionsSheet } from '../components/QuickBookActionsSheet'
 import { BottomSheet, Button, Checkbox, EmptyState, Input, Skeleton, Spinner, Toast } from '../components/ui'
@@ -413,6 +414,8 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
           </div>
         )}
       </main>
+
+      <AdBannerSlot marginAboveBottomDp={64} />
 
       <BottomNav
         activeTab="biblioteca"

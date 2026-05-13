@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { HomeScreen } from './screens/HomeScreen'
 import { LibraryScreen } from './screens/LibraryScreen'
 import { BookDetailsScreen } from './screens/BookDetailsScreen'
@@ -9,8 +9,11 @@ import { DiscoverScreen } from './screens/DiscoverScreen'
 import { ProfileScreen } from './screens/ProfileScreen'
 import { WelcomeScreen } from './screens/WelcomeScreen'
 import { LoginScreen } from './screens/LoginScreen'
+import { PaywallScreen } from './screens/PaywallScreen'
 import { ErrorBoundary, Spinner } from './components/ui'
 import { useAuth } from './hooks/useAuth'
+import { AdsService } from './services/AdsService'
+import { BillingService } from './services/BillingService'
 import type { Book } from './types/book'
 
 type Route =
@@ -22,6 +25,7 @@ type Route =
   | { name: 'discover' }
   | { name: 'profile' }
   | { name: 'settings' }
+  | { name: 'paywall' }
 
 const WELCOME_SEEN_KEY = 'neoreader:welcome-seen'
 
@@ -55,6 +59,20 @@ function App() {
   const openLibrary = () => setStack([{ name: 'home' }, { name: 'library' }])
   const openDiscover = () => setStack([{ name: 'home' }, { name: 'discover' }])
   const openProfile = () => setStack([{ name: 'home' }, { name: 'profile' }])
+
+  // Inicializa Billing (RevenueCat) e Ads (AdMob) apos o login Firebase.
+  // Billing usa uid como appUserID. Ambos viram no-op silencioso em web/dev
+  // sem env keys configuradas.
+  const signedInUid = auth.state.status === 'signed-in' ? auth.state.user.uid : null
+  useEffect(() => {
+    if (!signedInUid) return
+    void BillingService.init(signedInUid).catch((err) => {
+      console.warn('[Billing] Falha ao inicializar:', err)
+    })
+    void AdsService.init().catch((err) => {
+      console.warn('[Ads] Falha ao inicializar:', err)
+    })
+  }, [signedInUid])
 
   function completeWelcome() {
     setWelcomeSeen()
@@ -153,7 +171,15 @@ function App() {
         <ErrorBoundary key="settings">
           <SettingsScreen
             onBack={pop}
+            onOpenPaywall={() => push({ name: 'paywall' })}
           />
+        </ErrorBoundary>
+      )
+
+    case 'paywall':
+      return (
+        <ErrorBoundary key="paywall">
+          <PaywallScreen onBack={pop} />
         </ErrorBoundary>
       )
 

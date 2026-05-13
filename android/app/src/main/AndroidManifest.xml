@@ -27,6 +27,11 @@
             android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- AdMob App ID. Sem este meta-data, o SDK do AdMob crasha no initialize. -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-7766179998340736~2404866742" />
     </application>
 
     <!-- Permissions -->

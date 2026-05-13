@@ -62,7 +62,10 @@
       "Bash(echo \"exit=$?\")",
       "Bash(tee /tmp/cap_assets_log.txt)",
       "Bash(echo \"---EXIT $?\")",
-      "Bash(node node_modules/@capacitor/assets/bin/capacitor-assets generate --android)"
+      "Bash(node node_modules/@capacitor/assets/bin/capacitor-assets generate --android)",
+      "PowerShell(npm install)",
+      "PowerShell(Test-Path \"$env:USERPROFILE\\\\.android\")",
+      "PowerShell($path = \"android\\\\app\\\\build\\\\outputs\\\\bundle\\\\release\\\\app-release.aab\"; $size = [math]::Round\\(\\(Get-Item $path\\).Length / 1MB, 2\\); \"AAB: $path\"; \"Tamanho: $size MB\")"
     ]
   }
 }
