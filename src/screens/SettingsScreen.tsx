@@ -12,10 +12,13 @@ import {
 } from '../components/reader/ReaderAppearanceControls'
 import { db } from '../db/database'
 import { getSettings, updateAppSettings, updateReaderDefaults } from '../db/settings'
-import { ElevenLabsService } from '../services/ElevenLabsService'
-import { SpeechifyService } from '../services/SpeechifyService'
+import {
+  PREMIUM_TTS_PROVIDER_DEFINITIONS,
+  PREMIUM_TTS_PROVIDER_ORDER,
+} from '../services/TtsProviderRegistry'
 import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
 import type { AppSettings, ReaderDefaults, UserSettings } from '../types/settings'
+import type { PremiumTtsProvider } from '../types/tts'
 import { getLanguageLabel, TRANSLATION_LANGUAGE_OPTIONS } from '../utils/languageOptions'
 
 interface SettingsScreenProps {
@@ -23,7 +26,7 @@ interface SettingsScreenProps {
 }
 
 type KeyValidationStatus = 'idle' | 'validating' | 'valid' | 'invalid'
-type IntegrationId = 'speechify' | 'elevenlabs' | 'youtube'
+type IntegrationId = PremiumTtsProvider | 'youtube'
 
 interface KeyValidationState {
   status: KeyValidationStatus
@@ -31,6 +34,29 @@ interface KeyValidationState {
 }
 
 const IDLE_KEY_STATE: KeyValidationState = { status: 'idle' }
+
+const EMPTY_TTS_KEY_INPUTS: Record<PremiumTtsProvider, string> = {
+  speechify: '',
+  elevenlabs: '',
+  fishaudio: '',
+}
+
+const EMPTY_TTS_KEY_VISIBILITY: Record<PremiumTtsProvider, boolean> = {
+  speechify: false,
+  elevenlabs: false,
+  fishaudio: false,
+}
+
+const EMPTY_TTS_VALIDATION_STATE: Record<PremiumTtsProvider, KeyValidationState> = {
+  speechify: IDLE_KEY_STATE,
+  elevenlabs: IDLE_KEY_STATE,
+  fishaudio: IDLE_KEY_STATE,
+}
+
+function getProviderIcon(provider: PremiumTtsProvider) {
+  if (provider === 'speechify') return <Mic2 size={18} />
+  return <Volume2 size={18} />
+}
 
 async function logSavedElevenLabsVoiceSelections() {
   if (!import.meta.env.DEV) return
@@ -70,19 +96,19 @@ function ValidationBadge({ state, emptyLabel }: { state: KeyValidationState; emp
 
 export function SettingsScreen({ onBack }: SettingsScreenProps) {
   const [settings, setSettings] = useState<UserSettings | null>(null)
-  const [showSpeechifyKey, setShowSpeechifyKey] = useState(false)
-  const [showElevenLabsKey, setShowElevenLabsKey] = useState(false)
+  const [showTtsKeys, setShowTtsKeys] = useState<Record<PremiumTtsProvider, boolean>>(EMPTY_TTS_KEY_VISIBILITY)
   const [showYoutubeKey, setShowYoutubeKey] = useState(false)
   const [expandedIntegration, setExpandedIntegration] = useState<IntegrationId | null>(null)
-  const [speechifyKeyInput, setSpeechifyKeyInput] = useState('')
-  const [elevenLabsKeyInput, setElevenLabsKeyInput] = useState('')
+  const [ttsKeyInputs, setTtsKeyInputs] = useState<Record<PremiumTtsProvider, string>>(EMPTY_TTS_KEY_INPUTS)
   const [youtubeKeyInput, setYoutubeKeyInput] = useState('')
-  const [speechifyValidation, setSpeechifyValidation] = useState<KeyValidationState>(IDLE_KEY_STATE)
-  const [elevenLabsValidation, setElevenLabsValidation] = useState<KeyValidationState>(IDLE_KEY_STATE)
+  const [ttsValidation, setTtsValidation] = useState<Record<PremiumTtsProvider, KeyValidationState>>(EMPTY_TTS_VALIDATION_STATE)
   const [youtubeValidation, setYoutubeValidation] = useState<KeyValidationState>(IDLE_KEY_STATE)
   const [langSheetOpen, setLangSheetOpen] = useState(false)
-  const speechifyValidationSeqRef = useRef(0)
-  const elevenLabsValidationSeqRef = useRef(0)
+  const ttsValidationSeqRef = useRef<Record<PremiumTtsProvider, number>>({
+    speechify: 0,
+    elevenlabs: 0,
+    fishaudio: 0,
+  })
 
   useCapacitorBackButton(onBack)
 
@@ -102,57 +128,40 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
     } : previous)
   }
 
-  const validateSpeechifyKey = useCallback(async (rawKey: string, persistOnSuccess: boolean) => {
+  const validateTtsProviderKey = useCallback(async (
+    provider: PremiumTtsProvider,
+    rawKey: string,
+    persistOnSuccess: boolean,
+  ) => {
+    const definition = PREMIUM_TTS_PROVIDER_DEFINITIONS[provider]
     const trimmedKey = rawKey.trim()
-    const validationSeq = ++speechifyValidationSeqRef.current
+    const validationSeq = ttsValidationSeqRef.current[provider] + 1
+    ttsValidationSeqRef.current[provider] = validationSeq
 
     if (!trimmedKey) {
-      setSpeechifyValidation(IDLE_KEY_STATE)
-      if (persistOnSuccess) await saveAppSettings({ speechifyApiKey: '' })
+      setTtsValidation((current) => ({ ...current, [provider]: IDLE_KEY_STATE }))
+      if (persistOnSuccess) await saveAppSettings({ [definition.apiKeyField]: '' } as Partial<AppSettings>)
       return
     }
 
-    setSpeechifyValidation({ status: 'validating', message: 'Validando a API key da Speechify...' })
-    const result = await SpeechifyService.validateApiKey(trimmedKey)
-    if (speechifyValidationSeqRef.current !== validationSeq) return
+    setTtsValidation((current) => ({
+      ...current,
+      [provider]: { status: 'validating', message: `Validando a API key da ${definition.label}...` },
+    }))
+    const result = await definition.validateApiKey(trimmedKey)
+    if (ttsValidationSeqRef.current[provider] !== validationSeq) return
 
     if (result.isValid) {
       if (persistOnSuccess) {
-        await saveAppSettings({ speechifyApiKey: trimmedKey })
+        await saveAppSettings({ [definition.apiKeyField]: trimmedKey } as Partial<AppSettings>)
+        if (provider === 'elevenlabs') await logSavedElevenLabsVoiceSelections()
       }
-      setSpeechifyKeyInput(trimmedKey)
-      setSpeechifyValidation({ status: 'valid', message: result.message })
+      setTtsKeyInputs((current) => ({ ...current, [provider]: trimmedKey }))
+      setTtsValidation((current) => ({ ...current, [provider]: { status: 'valid', message: result.message } }))
       return
     }
 
-    setSpeechifyValidation({ status: 'invalid', message: result.message })
-  }, [saveAppSettings])
-
-  const validateElevenLabsKey = useCallback(async (rawKey: string, persistOnSuccess: boolean) => {
-    const trimmedKey = rawKey.trim()
-    const validationSeq = ++elevenLabsValidationSeqRef.current
-
-    if (!trimmedKey) {
-      setElevenLabsValidation(IDLE_KEY_STATE)
-      if (persistOnSuccess) await saveAppSettings({ elevenLabsApiKey: '' })
-      return
-    }
-
-    setElevenLabsValidation({ status: 'validating', message: 'Validando a API key da ElevenLabs...' })
-    const result = await ElevenLabsService.validateApiKey(trimmedKey)
-    if (elevenLabsValidationSeqRef.current !== validationSeq) return
-
-    if (result.isValid) {
-      if (persistOnSuccess) {
-        await saveAppSettings({ elevenLabsApiKey: trimmedKey })
-        await logSavedElevenLabsVoiceSelections()
-      }
-      setElevenLabsKeyInput(trimmedKey)
-      setElevenLabsValidation({ status: 'valid', message: result.message })
-      return
-    }
-
-    setElevenLabsValidation({ status: 'invalid', message: result.message })
+    setTtsValidation((current) => ({ ...current, [provider]: { status: 'invalid', message: result.message } }))
   }, [saveAppSettings])
 
   useEffect(() => {
@@ -161,15 +170,16 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
     void getSettings().then((value) => {
       if (cancelled) return
       setSettings(value)
-      setSpeechifyKeyInput(value.appSettings.speechifyApiKey)
-      setElevenLabsKeyInput(value.appSettings.elevenLabsApiKey)
+      setTtsKeyInputs({
+        speechify: value.appSettings.speechifyApiKey,
+        elevenlabs: value.appSettings.elevenLabsApiKey,
+        fishaudio: value.appSettings.fishAudioApiKey,
+      })
       setYoutubeKeyInput(value.appSettings.youtubeApiKey)
 
-      if (value.appSettings.speechifyApiKey) {
-        void validateSpeechifyKey(value.appSettings.speechifyApiKey, false)
-      }
-      if (value.appSettings.elevenLabsApiKey) {
-        void validateElevenLabsKey(value.appSettings.elevenLabsApiKey, false)
+      for (const provider of PREMIUM_TTS_PROVIDER_ORDER) {
+        const key = value.appSettings[PREMIUM_TTS_PROVIDER_DEFINITIONS[provider].apiKeyField]
+        if (key) void validateTtsProviderKey(provider, key, false)
       }
       if (value.appSettings.youtubeApiKey) {
         setYoutubeValidation({ status: 'valid' })
@@ -179,7 +189,7 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
     return () => {
       cancelled = true
     }
-  }, [validateElevenLabsKey, validateSpeechifyKey])
+  }, [validateTtsProviderKey])
 
   if (!settings) {
     return (
@@ -193,16 +203,13 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
   const readerStyleMode = !settings.readerDefaults.overrideBookFont && !settings.readerDefaults.overrideBookColors
     ? 'original'
     : 'comfortable'
-  const speechifyHint = speechifyValidation.status === 'valid'
-    ? 'A key foi validada e salva.'
-    : speechifyValidation.status === 'validating'
-      ? speechifyValidation.message
-      : undefined
-  const elevenLabsHint = elevenLabsValidation.status === 'valid'
-    ? 'A key foi validada e salva.'
-    : elevenLabsValidation.status === 'validating'
-      ? elevenLabsValidation.message
-      : undefined
+
+  function getTtsValidationHint(provider: PremiumTtsProvider) {
+    const state = ttsValidation[provider]
+    if (state.status === 'valid') return 'A key foi validada e salva.'
+    if (state.status === 'validating') return state.message
+    return undefined
+  }
 
   // YouTube key não tem endpoint de validação público — salva direto no blur
   async function saveYoutubeKey(rawKey: string) {
@@ -356,71 +363,47 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
           description="Chaves usadas por recursos externos do app."
         >
           <SettingsGroup>
-            <ApiKeyField
-              label="Speechify"
-              description="Vozes neurais e karaoke de palavras."
-              icon={<Mic2 size={18} />}
-              state={speechifyValidation}
-              emptyLabel="Nao configurado - usando TTS nativo"
-              expanded={expandedIntegration === 'speechify'}
-              onToggleExpanded={() => toggleIntegration('speechify')}
-              input={(
-                <Input
-                  type={showSpeechifyKey ? 'text' : 'password'}
-                  value={speechifyKeyInput}
-                  onChange={(event) => {
-                    setSpeechifyKeyInput(event.target.value)
-                    if (speechifyValidation.status !== 'validating') setSpeechifyValidation(IDLE_KEY_STATE)
-                  }}
-                  onBlur={() => void validateSpeechifyKey(speechifyKeyInput, true)}
-                  placeholder="sk-..."
-                  autoComplete="off"
-                  spellCheck={false}
-                  error={speechifyValidation.status === 'invalid' ? speechifyValidation.message : undefined}
-                  hint={speechifyHint}
-                  className="h-12 font-mono text-sm"
-                  rightSlot={(
-                    <KeyVisibilityButton
-                      shown={showSpeechifyKey}
-                      onClick={() => setShowSpeechifyKey((value) => !value)}
+            {PREMIUM_TTS_PROVIDER_ORDER.map((provider) => {
+              const definition = PREMIUM_TTS_PROVIDER_DEFINITIONS[provider]
+              const validation = ttsValidation[provider]
+              return (
+                <ApiKeyField
+                  key={provider}
+                  label={definition.label}
+                  description={definition.description}
+                  icon={getProviderIcon(provider)}
+                  state={validation}
+                  emptyLabel={provider === 'speechify' ? 'Nao configurado - usando TTS nativo' : 'Nao configurado'}
+                  expanded={expandedIntegration === provider}
+                  onToggleExpanded={() => toggleIntegration(provider)}
+                  input={(
+                    <Input
+                      type={showTtsKeys[provider] ? 'text' : 'password'}
+                      value={ttsKeyInputs[provider]}
+                      onChange={(event) => {
+                        setTtsKeyInputs((current) => ({ ...current, [provider]: event.target.value }))
+                        if (validation.status !== 'validating') {
+                          setTtsValidation((current) => ({ ...current, [provider]: IDLE_KEY_STATE }))
+                        }
+                      }}
+                      onBlur={() => void validateTtsProviderKey(provider, ttsKeyInputs[provider], true)}
+                      placeholder={definition.placeholder}
+                      autoComplete="off"
+                      spellCheck={false}
+                      error={validation.status === 'invalid' ? validation.message : undefined}
+                      hint={getTtsValidationHint(provider)}
+                      className="h-12 font-mono text-sm"
+                      rightSlot={(
+                        <KeyVisibilityButton
+                          shown={showTtsKeys[provider]}
+                          onClick={() => setShowTtsKeys((current) => ({ ...current, [provider]: !current[provider] }))}
+                        />
+                      )}
                     />
                   )}
                 />
-              )}
-            />
-
-            <ApiKeyField
-              label="ElevenLabs"
-              description="Vozes premium com alinhamento temporal."
-              icon={<Volume2 size={18} />}
-              state={elevenLabsValidation}
-              emptyLabel="Nao configurado"
-              expanded={expandedIntegration === 'elevenlabs'}
-              onToggleExpanded={() => toggleIntegration('elevenlabs')}
-              input={(
-                <Input
-                  type={showElevenLabsKey ? 'text' : 'password'}
-                  value={elevenLabsKeyInput}
-                  onChange={(event) => {
-                    setElevenLabsKeyInput(event.target.value)
-                    if (elevenLabsValidation.status !== 'validating') setElevenLabsValidation(IDLE_KEY_STATE)
-                  }}
-                  onBlur={() => void validateElevenLabsKey(elevenLabsKeyInput, true)}
-                  placeholder="sk_..."
-                  autoComplete="off"
-                  spellCheck={false}
-                  error={elevenLabsValidation.status === 'invalid' ? elevenLabsValidation.message : undefined}
-                  hint={elevenLabsHint}
-                  className="h-12 font-mono text-sm"
-                  rightSlot={(
-                    <KeyVisibilityButton
-                      shown={showElevenLabsKey}
-                      onClick={() => setShowElevenLabsKey((value) => !value)}
-                    />
-                  )}
-                />
-              )}
-            />
+              )
+            })}
 
             <ApiKeyField
               label="YouTube Data API"

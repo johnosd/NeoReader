@@ -64,6 +64,7 @@ vi.mock('@/db/settings', () => ({
     appSettings: {
       speechifyApiKey: 'speechify-key',
       elevenLabsApiKey: '',
+      fishAudioApiKey: '',
       translationTargetLang: 'pt-BR',
       youtubeApiKey: '',
     },

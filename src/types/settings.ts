@@ -6,6 +6,7 @@ export type ReaderFontFamily = 'publisher' | 'classic' | 'modern' | 'readable' |
 export interface AppSettings {
   speechifyApiKey: string
   elevenLabsApiKey: string
+  fishAudioApiKey: string
   translationTargetLang: string
   youtubeApiKey: string
 }
@@ -37,6 +38,7 @@ export interface LegacyUserSettings {
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   speechifyApiKey: '',
   elevenLabsApiKey: '',
+  fishAudioApiKey: '',
   translationTargetLang: 'pt-BR',
   youtubeApiKey: '',
 }
@@ -70,6 +72,7 @@ export function normalizeUserSettings(record?: SettingsRecord | null): UserSetti
       ...DEFAULT_APP_SETTINGS,
       speechifyApiKey: record?.appSettings?.speechifyApiKey ?? record?.speechifyApiKey ?? DEFAULT_APP_SETTINGS.speechifyApiKey,
       elevenLabsApiKey: record?.appSettings?.elevenLabsApiKey ?? DEFAULT_APP_SETTINGS.elevenLabsApiKey,
+      fishAudioApiKey: record?.appSettings?.fishAudioApiKey ?? DEFAULT_APP_SETTINGS.fishAudioApiKey,
       translationTargetLang: record?.appSettings?.translationTargetLang ?? record?.translationTargetLang ?? DEFAULT_APP_SETTINGS.translationTargetLang,
       youtubeApiKey: record?.appSettings?.youtubeApiKey ?? DEFAULT_APP_SETTINGS.youtubeApiKey,
     },

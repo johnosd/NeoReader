@@ -1,5 +1,5 @@
 import type { FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from './settings'
-import type { TtsProvider } from './tts'
+import type { TtsProvider, TtsVoiceSelections } from './tts'
 
 export type ReadingStatus = 'unread' | 'reading' | 'finished'
 export type BookFormat = 'EPUB'
@@ -75,6 +75,7 @@ export interface BookSettings {
   ttsElevenLabsVoiceLabel?: string | null
   ttsNativeVoiceKey?: string | null
   ttsNativeVoiceLabel?: string | null
+  ttsVoiceSelections?: TtsVoiceSelections
   updatedAt?: Date
 }
 

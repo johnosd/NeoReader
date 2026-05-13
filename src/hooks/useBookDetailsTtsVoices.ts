@@ -1,7 +1,9 @@
 import { useCallback, useMemo, useState } from 'react'
-import { ElevenLabsService } from '../services/ElevenLabsService'
-import { NativeTtsService } from '../services/NativeTtsService'
-import { SpeechifyService } from '../services/SpeechifyService'
+import {
+  getTtsProviderLabel,
+  isTtsProviderConfigured,
+  listTtsProviderCompatibleVoices,
+} from '../services/TtsProviderRegistry'
 import type { AppSettings } from '../types/settings'
 import type { TtsProvider, TtsVoiceOption } from '../types/tts'
 
@@ -26,34 +28,20 @@ export function useBookDetailsTtsVoices({
     setLoading(true)
     setError(null)
     try {
-      if (provider === 'speechify') {
-        if (!appSettings.speechifyApiKey) {
-          setOptions([])
-          setError('Configure a API key da Speechify nas Configuracoes gerais.')
-          return
-        }
-        setOptions(await SpeechifyService.listCompatibleVoices(effectiveBookLanguage, appSettings.speechifyApiKey))
+      if (!isTtsProviderConfigured(provider, appSettings)) {
+        setOptions([])
+        setError(`Configure a API key da ${getTtsProviderLabel(provider)} nas Configuracoes gerais.`)
         return
       }
 
-      if (provider === 'elevenlabs') {
-        if (!appSettings.elevenLabsApiKey) {
-          setOptions([])
-          setError('Configure a API key da ElevenLabs nas Configuracoes gerais.')
-          return
-        }
-        setOptions(await ElevenLabsService.listCompatibleVoices(effectiveBookLanguage, appSettings.elevenLabsApiKey))
-        return
-      }
-
-      setOptions(await NativeTtsService.listCompatibleVoices(effectiveBookLanguage))
+      setOptions(await listTtsProviderCompatibleVoices(provider, effectiveBookLanguage, appSettings))
     } catch {
       setOptions([])
       setError('Nao foi possivel carregar as vozes compativeis.')
     } finally {
       setLoading(false)
     }
-  }, [appSettings.elevenLabsApiKey, appSettings.speechifyApiKey, effectiveBookLanguage])
+  }, [appSettings, effectiveBookLanguage])
 
   const filteredOptions = useMemo(() => {
     const normalizedSearch = search.trim().toLocaleLowerCase()

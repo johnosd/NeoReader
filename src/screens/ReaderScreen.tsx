@@ -23,6 +23,7 @@ import { addVocabItem } from '../db/vocabulary'
 import { db } from '../db/database'
 import { useTTS } from '../hooks/useTTS'
 import { TtsMiniPlayer } from '../components/reader/TtsMiniPlayer'
+import { getTtsProviderLabel } from '../services/TtsProviderRegistry'
 import {
   ReaderFontControl,
   ReaderFontSizeControl,
@@ -86,12 +87,6 @@ function isSectionHrefAtStartTarget(target: string, sectionHref?: string | null)
 }
 
 const START_NAVIGATION_FALLBACK_MS = 4000
-
-function getTtsProviderLabel(provider: TtsProvider) {
-  if (provider === 'speechify') return 'Speechify'
-  if (provider === 'elevenlabs') return 'ElevenLabs'
-  return 'TTS nativo'
-}
 
 interface ReaderScreenProps {
   book: Book
@@ -263,6 +258,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     speechifyVoiceId: ttsConfig.speechifyVoiceId,
     elevenLabsVoiceId: ttsConfig.elevenLabsVoiceId,
     nativeVoiceKey: ttsConfig.nativeVoiceKey,
+    voiceSelections: ttsConfig.voiceSelections,
     onWordHighlight: (paraIdx, start, end) => {
       viewerRef.current?.highlightTts(paraIdx, start, end)
     },

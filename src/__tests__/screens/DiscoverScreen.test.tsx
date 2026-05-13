@@ -19,12 +19,12 @@ vi.mock('@/components/BottomNav', () => ({
   BottomNav: () => <nav data-testid="bottom-nav" />,
 }))
 
-async function renderDiscoverScreen(apiKey?: string) {
-  vi.resetModules()
+import { DiscoverScreen } from '@/screens/DiscoverScreen'
+
+function renderDiscoverScreen(apiKey?: string) {
   if (apiKey) vi.stubEnv('VITE_NYT_API_KEY', apiKey)
   else vi.stubEnv('VITE_NYT_API_KEY', '')
 
-  const { DiscoverScreen } = await import('@/screens/DiscoverScreen')
   render(
     <DiscoverScreen
       onBack={vi.fn()}
@@ -39,8 +39,8 @@ describe('DiscoverScreen', () => {
     vi.unstubAllEnvs()
   })
 
-  it('mantem listas atuais e adiciona a secao infantil na ordem definida', async () => {
-    await renderDiscoverScreen('nyt-key')
+  it('mantem listas atuais e adiciona a secao infantil na ordem definida', () => {
+    renderDiscoverScreen('nyt-key')
 
     expect(screen.getByText('Tendencias no Mundo')).toBeTruthy()
     expect(screen.getByText('O que as crianças estão lendo agora')).toBeTruthy()
@@ -56,8 +56,8 @@ describe('DiscoverScreen', () => {
     ])
   })
 
-  it('mantem EmptyState quando a chave NYT nao esta configurada', async () => {
-    await renderDiscoverScreen()
+  it('mantem EmptyState quando a chave NYT nao esta configurada', () => {
+    renderDiscoverScreen()
 
     expect(screen.getByText('Descobertas indisponiveis')).toBeTruthy()
     expect(screen.queryAllByTestId('nyt-row')).toHaveLength(0)

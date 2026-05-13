@@ -53,6 +53,7 @@ describe('settings db helpers', () => {
       appSettings: {
         speechifyApiKey: 'legacy-key',
         elevenLabsApiKey: '',
+        fishAudioApiKey: '',
         youtubeApiKey: '',
         translationTargetLang: 'es',
       },
@@ -84,6 +85,7 @@ describe('settings db helpers', () => {
       appSettings: {
         speechifyApiKey: 'legacy-key',
         elevenLabsApiKey: '',
+        fishAudioApiKey: '',
         youtubeApiKey: '',
         translationTargetLang: 'fr',
       },
@@ -123,6 +125,7 @@ describe('settings db helpers', () => {
       appSettings: {
         speechifyApiKey: '',
         elevenLabsApiKey: '',
+        fishAudioApiKey: '',
         youtubeApiKey: '',
         translationTargetLang: 'de',
       },
@@ -143,6 +146,7 @@ describe('settings db helpers', () => {
       appSettings: {
         speechifyApiKey: '',
         elevenLabsApiKey: '',
+        fishAudioApiKey: '',
         translationTargetLang: 'pt-BR',
       },
       readerDefaults: {
@@ -172,6 +176,7 @@ describe('settings db helpers', () => {
       appSettings: {
         speechifyApiKey: '',
         elevenLabsApiKey: '',
+        fishAudioApiKey: '',
         youtubeApiKey: '',
         translationTargetLang: 'pt-BR',
       },
