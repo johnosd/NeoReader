@@ -271,12 +271,12 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
         <SettingsSection
           icon={<Sparkles size={17} />}
           label="Plano"
-          description="Status da sua assinatura NeoReader Pro."
+          description="Conheca o NeoReader Pro - em breve."
         >
           <SettingsGroup>
             <ListItem
               leading={<Sparkles size={20} className="text-purple-light" />}
-              title={entitlements.isPro ? 'NeoReader Pro' : 'NeoReader Free'}
+              title="NeoReader Pro"
               meta={getPlanMeta(entitlements, BillingService.isAvailable())}
               trailing={(
                 <div className="flex items-center gap-2">
@@ -511,17 +511,17 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
 
 function getPlanMeta(
   entitlements: ReturnType<typeof useEntitlements>,
-  billingAvailable: boolean,
+  _billingAvailable: boolean,
 ): string {
-  if (!billingAvailable) return 'Compras disponiveis apenas no app instalado.'
-  if (entitlements.isLoading) return 'Verificando assinatura...'
+  // Hoje o Pro nao esta a venda - tela serve como preview do que vem por ai.
+  // Quando o Pro for ativado, este texto volta a refletir o status real do entitlement.
   if (entitlements.isPro) {
     if (entitlements.expiresAt) {
       return `Renova em ${entitlements.expiresAt.toLocaleDateString('pt-BR')}`
     }
     return 'Acesso vitalicio'
   }
-  return 'Toque para conhecer o Pro'
+  return 'Em desenvolvimento - veja o que vem por ai'
 }
 
 function SettingsSection({

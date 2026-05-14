@@ -1,7 +1,29 @@
 # Monetização — Status de Implementação
 
 > Documento de acompanhamento. Estratégia completa em [`docs/monetization-plan.md`](#) (a fazer).
-> Última atualização: 2026-05-13.
+> Última atualização: 2026-05-14.
+
+## ⚠️ Decisão importante: Pro adiado até Drive Sync
+
+Em 2026-05-14 decidimos **não vender o Pro ainda**. Razão: dos 3 benefícios prometidos
+(sem ads, Drive Sync, IA), só "sem ads" está implementado. Cobrar por algo que não
+existe seria desonesto.
+
+**Estado atual do código:**
+- `PaywallScreen` reformulada como "preview do que vem por aí" — sem fetch de offerings,
+  sem botões de compra. Cada benefício tem badge `Já disponível` ou `Em breve`.
+- `SettingsScreen` Plano section mostra "Em desenvolvimento" como meta.
+- `BillingService` mantido intacto — pronto pra ativar quando Drive Sync entrar.
+- Store description sem menção a Pro como produto à venda.
+
+**Quando ativar o Pro:**
+1. Drive Sync implementado (Sprint 3) e funcionando
+2. Criar produtos `pro_monthly`, `pro_annual`, `pro_lifetime` na Play Console
+3. Service account Google Cloud → linkar Play ↔ RevenueCat
+4. Configurar offering no RevenueCat com os 3 packages
+5. Reverter `PaywallScreen` pra versão completa (fetchOfferings + purchase flow)
+6. Atualizar Store description e Settings copy
+7. Subir AAB com versionCode bumpado
 
 ## Estratégia escolhida
 
@@ -119,6 +141,14 @@
 ---
 
 ## Pendências (na ordem)
+
+### Bloqueados por features ainda não implementadas
+
+- **Drive Sync** (Sprint 3) — prerequisito para reativar o Pro
+- **Service account Google Cloud + link RevenueCat** — só faz sentido criar quando produtos forem ativados
+- **Criar produtos in-app** (`pro_monthly`, `pro_annual`, `pro_lifetime`) — só após Drive Sync
+- **Configurar offering no RevenueCat** — depende dos produtos
+- **License testing + teste end-to-end de compra** — depende de tudo acima
 
 ### Bloqueados pela verificação da Play Console
 
