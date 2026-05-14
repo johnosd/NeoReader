@@ -3,6 +3,44 @@
 > Documento de acompanhamento. Estratégia completa em [`docs/monetization-plan.md`](#) (a fazer).
 > Última atualização: 2026-05-14.
 
+## 🔴 BUG ABERTO: Google Sign-In falha no AAB Play Store (versionCode 5)
+
+**Sintoma**: ao tocar em "Continuar com Google" no app instalado via Play Store, fica em loading eterno ou erro "no credentials available". Picker não abre visualmente.
+
+**Logs reveladores** (em ordem):
+```
+W Auth: getToken() -> NEED_REMOTE_CONSENT. Service: oauth2:.../auth/lams
+W Auth.Api.Credentials: UserRecoverableAuthException: NeedRemoteConsent
+I CredentialManager: Remote provider response timed out (3s)
+I CredentialManager: Status changed to CANCELED
+```
+
+`lams` é scope interno do Google (Login Account Management Service). Failure dele faz a Credential Manager API timeout e cancelar silenciosamente.
+
+**O que JÁ foi verificado/corrigido** (config está toda certa):
+- ✅ App signing key SHA-1 (`7f3e44bac3ef977bbf3901e20ea253cb22223abd`) registrado no Firebase
+- ✅ Upload key SHA-1 (`44b4fbaa0dd4049e55e36e44b4c80f1237ea7411`) registrado no Firebase
+- ✅ `google-services.json` baixado pós-registro e substituído em `android/app/`
+- ✅ Audience em produção (Google Auth Platform)
+- ✅ Branding preenchido (App name, support email, developer contact)
+- ✅ Web OAuth Client (`631375167814-het24g8s9ksd32dprk421o1l6glee15r`) tem config correta: JS origins ok, redirect URI ok, enabled, sem warnings
+- ✅ Device em estado saudável (Gmail/Calendar funcionam normalmente)
+- ✅ Conta Google removida e re-adicionada no celular sem resolver
+- ✅ Cache do Play Services limpo, dados limpos, reboot — sem resolver
+
+**Hipóteses prováveis** (em ordem de probabilidade):
+1. **Anti-abuse do Google na conta `johnscosta2@gmail.com`** após muitas tentativas de auth falhas no mesmo dia. Costuma liberar em 24-48h sozinho.
+2. **Bug do Credential Manager API + capacitor-firebase/authentication v8** em alguma combinação específica device/account/SHA-1.
+3. **Propagação Google Cloud** ainda incompleta (mudanças em SHA-1 podem demorar).
+
+**Próximos passos quando retomar** (em ordem):
+1. **Tentar login direto** — pode ter resolvido sozinho. Se sim, fim do bug.
+2. **Tentar com outra conta Google no device** — se funcionar, confirma anti-abuse na conta original (espera mais 24h).
+3. **Testar em emulador Android Studio** — se funcionar, problema é device físico.
+4. **Implementar email/senha como método de auth principal** (~45 min de código) — fallback definitivo, deixa Google Sign-In como opcional.
+
+---
+
 ## ⚠️ Decisão importante: Pro adiado até Drive Sync
 
 Em 2026-05-14 decidimos **não vender o Pro ainda**. Razão: dos 3 benefícios prometidos
