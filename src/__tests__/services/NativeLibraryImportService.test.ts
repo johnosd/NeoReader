@@ -28,7 +28,7 @@ vi.mock('@capacitor/core', () => ({
 
 import { readNativeFolderFile, type NativeFolderFile } from '@/services/NativeLibraryImportService'
 
-const CHUNK_SIZE = 256 * 1024
+const CHUNK_SIZE = 64 * 1024
 
 describe('NativeLibraryImportService', () => {
   beforeEach(() => {
@@ -57,6 +57,7 @@ describe('NativeLibraryImportService', () => {
     mocks.readFileChunk
       .mockResolvedValueOnce(chunk(first, 0, false))
       .mockResolvedValueOnce(chunk(second, CHUNK_SIZE, false))
+      .mockResolvedValueOnce(chunk(new Uint8Array(), CHUNK_SIZE * 2, true))
 
     const file = await readNativeFolderFile(nativeFile({ size: first.byteLength + second.byteLength }))
 
@@ -81,34 +82,74 @@ describe('NativeLibraryImportService', () => {
     expect(mocks.readFileChunk).toHaveBeenCalledTimes(2)
   })
 
-  it('falha quando o tamanho decodificado diverge de bytesRead', async () => {
+  it('usa tamanho decodificado quando bytesRead diverge', async () => {
     const bytes = textBytes('short')
     mocks.readFileChunk.mockResolvedValue({
       ...chunk(bytes, 0, true),
       bytesRead: bytes.byteLength + 1,
     })
 
-    await expect(readNativeFolderFile(nativeFile({ size: bytes.byteLength + 1 })))
-      .rejects.toThrow('Chunk invalido ao ler EPUB nativo.')
+    const file = await readNativeFolderFile(nativeFile({ size: bytes.byteLength + 1 }))
+
+    await expect(file.text()).resolves.toBe('short')
+    expect(file.size).toBe(bytes.byteLength)
   })
 
-  it('falha quando o offset retornado diverge do solicitado', async () => {
+  it('tolera offset retornado como string pelo bridge nativo', async () => {
     const bytes = textBytes('hello')
     mocks.readFileChunk.mockResolvedValue({
       ...chunk(bytes, 1, true),
-      offset: 1,
+      offset: '0',
     })
 
-    await expect(readNativeFolderFile(nativeFile({ size: bytes.byteLength })))
-      .rejects.toThrow('Chunk invalido ao ler EPUB nativo.')
+    const file = await readNativeFolderFile(nativeFile({ size: bytes.byteLength }))
+
+    await expect(file.text()).resolves.toBe('hello')
   })
 
-  it('falha quando o tamanho final diverge do tamanho informado', async () => {
+  it('usa tamanho decodificado quando bytesRead vem como string pelo bridge nativo', async () => {
+    const bytes = textBytes('hello')
+    mocks.readFileChunk.mockResolvedValue({
+      ...chunk(bytes, 0, true),
+      bytesRead: String(bytes.byteLength),
+    })
+
+    const file = await readNativeFolderFile(nativeFile({ size: bytes.byteLength }))
+
+    await expect(file.text()).resolves.toBe('hello')
+  })
+
+  it('usa base64 quando bytesRead vem zerado mas o chunk tem conteudo', async () => {
+    const bytes = textBytes('hello')
+    mocks.readFileChunk.mockResolvedValue({
+      ...chunk(bytes, 0, true),
+      bytesRead: 0,
+    })
+
+    const file = await readNativeFolderFile(nativeFile({ size: bytes.byteLength }))
+
+    await expect(file.text()).resolves.toBe('hello')
+    expect(file.size).toBe(bytes.byteLength)
+  })
+
+  it('aceita tamanho informado maior que o conteudo real do provider Android', async () => {
     const bytes = textBytes('hello')
     mocks.readFileChunk.mockResolvedValue(chunk(bytes, 0, true))
 
-    await expect(readNativeFolderFile(nativeFile({ size: bytes.byteLength + 1 })))
-      .rejects.toThrow('Chunk invalido ao ler EPUB nativo.')
+    const file = await readNativeFolderFile(nativeFile({ size: bytes.byteLength + 1 }))
+
+    await expect(file.text()).resolves.toBe('hello')
+    expect(file.size).toBe(bytes.byteLength)
+  })
+
+  it('aceita tamanho informado menor que o conteudo real do provider Android', async () => {
+    const bytes = textBytes('hello')
+    mocks.readFileChunk.mockResolvedValue(chunk(bytes, 0, true))
+
+    const file = await readNativeFolderFile(nativeFile({ size: bytes.byteLength - 1 }))
+
+    await expect(file.text()).resolves.toBe('hello')
+    expect(file.size).toBe(bytes.byteLength)
   })
 })
 

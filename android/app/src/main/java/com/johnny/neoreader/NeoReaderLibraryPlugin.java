@@ -10,6 +10,7 @@ import android.net.Uri;
 import android.os.ParcelFileDescriptor;
 import android.provider.DocumentsContract;
 import android.util.Base64;
+import android.util.Log;
 
 import androidx.documentfile.provider.DocumentFile;
 
@@ -32,6 +33,7 @@ import java.util.concurrent.Executors;
 public class NeoReaderLibraryPlugin extends Plugin {
     static final int SELECT_FOLDER_REQUEST_CODE = 4701;
     static final int SELECT_FILE_REQUEST_CODE = 4702;
+    private static final String TAG = "NeoReaderLibrary";
     private static final String PREFS_NAME = "NeoReaderLibraryPlugin";
     private static final String PENDING_FOLDER_RESULT_KEY = "pendingFolderResult";
     private static final String PENDING_FILE_RESULT_KEY = "pendingFileResult";
@@ -164,7 +166,16 @@ public class NeoReaderLibraryPlugin extends Plugin {
                 Uri uri = Uri.parse(uriValue);
                 call.resolve(readFileChunkAsBase64(uri, offset, length));
             } catch (Exception error) {
-                call.reject("Erro ao ler trecho do arquivo selecionado.", error);
+                Log.e(TAG, "readFileChunk failed. offset=" + offset
+                    + " requestedLength=" + requestedLength
+                    + " length=" + length, error);
+                call.reject(
+                    "Erro ao ler trecho do arquivo selecionado: "
+                        + error.getClass().getSimpleName()
+                        + ": "
+                        + error.getMessage(),
+                    error
+                );
             }
         });
     }
@@ -413,6 +424,10 @@ public class NeoReaderLibraryPlugin extends Plugin {
         try {
             return readFileChunkWithFileChannel(uri, offset, length);
         } catch (Exception fileDescriptorError) {
+            Log.w(TAG, "FileChannel chunk read failed; falling back to InputStream. offset="
+                + offset
+                + " length="
+                + length, fileDescriptorError);
             return readFileChunkWithInputStream(uri, offset, length);
         }
     }
@@ -461,6 +476,13 @@ public class NeoReaderLibraryPlugin extends Plugin {
     }
 
     private JSObject buildChunkResponse(ByteArrayOutputStream output, long offset, int totalRead, int length) {
+        if (totalRead <= 0 || totalRead < length) {
+            Log.d(TAG, "readFileChunk result. offset=" + offset
+                + " bytesRead=" + totalRead
+                + " requestedLength=" + length
+                + " done=" + (totalRead < length));
+        }
+
         JSObject response = new JSObject();
         response.put("base64", Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP));
         response.put("bytesRead", totalRead);

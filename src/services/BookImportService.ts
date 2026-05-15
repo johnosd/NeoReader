@@ -79,8 +79,21 @@ interface DuplicateIndex {
 
 export class BookImportService {
   static async importEpub(file: File): Promise<number> {
+    const startedAt = performance.now()
+    logEpubImportDiagnostic('file-import-start', {
+      fileName: file.name,
+      fileSize: file.size,
+    })
     const metadata = await EpubService.parseMetadata(file)
+    logEpubImportDiagnostic('file-metadata-parsed', {
+      fileName: file.name,
+      elapsedMs: Math.round(performance.now() - startedAt),
+    })
     const fileHash = await this.hashFile(file)
+    logEpubImportDiagnostic('file-hash-computed', {
+      fileName: file.name,
+      elapsedMs: Math.round(performance.now() - startedAt),
+    })
     const duplicate = await this.findDuplicateBook({
       fileHash,
       fileName: file.name,
@@ -93,7 +106,7 @@ export class BookImportService {
       throw new Error('Este livro ja esta na biblioteca.')
     }
 
-    return this.importSingleEpubRecord(file, {
+    const bookId = await this.importSingleEpubRecord(file, {
       metadata,
       fileHash,
       tags: [],
@@ -101,13 +114,39 @@ export class BookImportService {
       uri: null,
       storageMode: 'embedded',
     })
+    logEpubImportDiagnostic('file-import-finished', {
+      fileName: file.name,
+      bookId,
+      elapsedMs: Math.round(performance.now() - startedAt),
+    })
+    return bookId
   }
 
   static async importNativeEpub(nativeFile: NativeFolderFile): Promise<number> {
+    const startedAt = performance.now()
+    logEpubImportDiagnostic('native-import-start', {
+      fileName: nativeFile.name,
+      reportedSize: nativeFile.size,
+      hasPath: Boolean(nativeFile.path),
+    })
     const file = await readNativeFolderFile(nativeFile)
+    logEpubImportDiagnostic('native-file-read', {
+      fileName: nativeFile.name,
+      fileSize: file.size,
+      reportedSize: nativeFile.size,
+      elapsedMs: Math.round(performance.now() - startedAt),
+    })
     const metadata = await EpubService.parseMetadata(file)
+    logEpubImportDiagnostic('native-metadata-parsed', {
+      fileName: nativeFile.name,
+      elapsedMs: Math.round(performance.now() - startedAt),
+    })
     const fileHash = await this.hashFile(file)
-    const fileSize = nativeFile.size || file.size
+    logEpubImportDiagnostic('native-hash-computed', {
+      fileName: nativeFile.name,
+      elapsedMs: Math.round(performance.now() - startedAt),
+    })
+    const fileSize = file.size || nativeFile.size
     const duplicate = await this.findDuplicateBook({
       fileHash,
       fileName: nativeFile.name,
@@ -121,7 +160,7 @@ export class BookImportService {
       throw new Error('Este livro ja esta na biblioteca.')
     }
 
-    return this.importSingleEpubRecord(file, {
+    const bookId = await this.importSingleEpubRecord(file, {
       metadata,
       fileHash,
       fileName: nativeFile.name,
@@ -130,8 +169,14 @@ export class BookImportService {
       tags: [],
       sourceFolderId: null,
       uri: nativeFile.uri,
-      storageMode: 'embedded',
+      storageMode: 'external',
     })
+    logEpubImportDiagnostic('native-import-finished', {
+      fileName: nativeFile.name,
+      bookId,
+      elapsedMs: Math.round(performance.now() - startedAt),
+    })
+    return bookId
   }
 
   static async buildImportPreview(files: File[]): Promise<ImportPreviewItem[]> {
@@ -246,14 +291,35 @@ export class BookImportService {
       }
 
       try {
+        const itemStartedAt = performance.now()
+        logEpubImportDiagnostic('batch-item-start', {
+          fileName: item.fileName,
+          native: Boolean(item.nativeFile),
+          reportedSize: item.fileSize,
+        })
         const file = item.file ?? (item.nativeFile ? await readNativeFolderFile(item.nativeFile) : null)
         if (!file) throw new Error('Arquivo invalido.')
+        logEpubImportDiagnostic('batch-item-file-read', {
+          fileName: item.fileName,
+          native: Boolean(item.nativeFile),
+          fileSize: file.size,
+          elapsedMs: Math.round(performance.now() - itemStartedAt),
+        })
         const metadata = await EpubService.parseMetadata(file)
+        logEpubImportDiagnostic('batch-item-metadata-parsed', {
+          fileName: item.fileName,
+          elapsedMs: Math.round(performance.now() - itemStartedAt),
+        })
         const fileHash = item.fileHash ?? await this.hashFile(file)
+        logEpubImportDiagnostic('batch-item-hash-computed', {
+          fileName: item.fileName,
+          elapsedMs: Math.round(performance.now() - itemStartedAt),
+        })
+        const fileSize = item.nativeFile ? (file.size || item.fileSize) : (item.fileSize || file.size)
         const candidate = {
           fileHash,
           fileName: item.fileName,
-          fileSize: item.fileSize || file.size,
+          fileSize,
           title: metadata.title,
           author: metadata.author,
           uri: item.nativeFile?.uri,
@@ -277,16 +343,20 @@ export class BookImportService {
           metadata,
           fileHash,
           fileName: item.fileName,
-          fileSize: item.fileSize || file.size,
+          fileSize,
           filePath: item.nativeFile?.path ?? item.file?.webkitRelativePath,
           tags: params.tagIds,
           sourceFolderId,
           uri: item.nativeFile?.uri ?? item.file?.webkitRelativePath ?? item.fileName,
-          storageMode: 'embedded',
+          storageMode: item.nativeFile ? 'external' : 'embedded',
           deferBookInfo: true,
         })
         this.registerDuplicate(duplicateIndex, candidate)
         summary.imported += 1
+        logEpubImportDiagnostic('batch-item-finished', {
+          fileName: item.fileName,
+          elapsedMs: Math.round(performance.now() - itemStartedAt),
+        })
       } catch (error) {
         console.warn(`Book import failed: ${item.fileName}`, error instanceof Error ? error.message : String(error))
         summary.errors += 1
@@ -484,5 +554,17 @@ export class BookImportService {
 
   private static async yieldToUi(): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 0))
+  }
+}
+
+function logEpubImportDiagnostic(stage: string, details: Record<string, unknown>): void {
+  console.info(`EPUB import ${stage}`, safeDiagnosticJson(details))
+}
+
+function safeDiagnosticJson(details: Record<string, unknown>): string {
+  try {
+    return JSON.stringify(details)
+  } catch {
+    return String(details)
   }
 }

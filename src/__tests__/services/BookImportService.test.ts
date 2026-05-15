@@ -213,13 +213,13 @@ describe('BookImportService', () => {
     expect(mocks.saveBookCover).toHaveBeenCalledWith(15, coverBlob, 'manual-upload')
   })
 
-  it('salva importacao nativa como blob embedded e preserva a URI de origem', async () => {
+  it('salva importacao nativa como referencia externa e preserva a URI de origem', async () => {
     const file = new File(['native epub'], 'native.epub', { type: 'application/epub+zip' })
     const nativeFile = {
       name: 'native.epub',
       uri: 'content://books/native',
       path: 'Folder/native.epub',
-      size: file.size,
+      size: file.size + 99,
     }
 
     mocks.readNativeFolderFile.mockResolvedValue(file)
@@ -235,11 +235,66 @@ describe('BookImportService', () => {
     expect(mocks.addBook).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Native Book',
       author: 'Native Author',
-      fileBlob: file,
-      storageMode: 'embedded',
+      fileBlob: undefined,
+      storageMode: 'external',
       fileName: 'native.epub',
       filePath: 'Folder/native.epub',
+      fileSize: file.size,
       uri: 'content://books/native',
+    }))
+  })
+
+  it('salva lote nativo como referencias externas sem embutir os EPUBs no IndexedDB', async () => {
+    const file = new File(['native batch epub'], 'native-batch.epub', { type: 'application/epub+zip' })
+    const nativeFile = {
+      name: 'native-batch.epub',
+      uri: 'content://books/native-batch',
+      path: 'Folder/native-batch.epub',
+      size: file.size + 99,
+    }
+
+    mocks.readNativeFolderFile.mockResolvedValue(file)
+    mocks.parseMetadata.mockResolvedValue({
+      title: 'Native Batch Book',
+      author: 'Native Author',
+      coverBlob: null,
+    })
+    mocks.addBook.mockResolvedValue(52)
+
+    const summary = await BookImportService.importSelectedBooks({
+      items: [{
+        id: 'native-batch',
+        nativeFile,
+        fileName: nativeFile.name,
+        fileSize: nativeFile.size,
+        format: 'EPUB',
+        supported: true,
+        duplicate: false,
+        selected: true,
+      }],
+      tagIds: [],
+      sourceFolder: {
+        folderName: 'Folder',
+        folderUri: 'content://folder',
+        includeSubfolders: true,
+        autoImportEnabled: false,
+      },
+    })
+
+    expect(summary).toEqual({
+      imported: 1,
+      duplicate: 0,
+      unsupported: 0,
+      errors: 0,
+    })
+    expect(mocks.addBook).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Native Batch Book',
+      fileBlob: undefined,
+      storageMode: 'external',
+      fileName: 'native-batch.epub',
+      filePath: 'Folder/native-batch.epub',
+      fileSize: file.size,
+      uri: 'content://books/native-batch',
     }))
   })
 

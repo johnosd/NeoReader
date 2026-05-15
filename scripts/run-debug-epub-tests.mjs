@@ -9,7 +9,12 @@ const vitestArgs = args.filter((arg) => arg !== '--full')
 
 const result = spawnSync(
   vitestCommand,
-  ['run', 'src/__tests__/debug/realEpubCorpus.test.ts', ...vitestArgs],
+  [
+    'run',
+    'src/__tests__/debug/realEpubCorpus.test.ts',
+    'src/__tests__/services/BookImportService.realEpub.test.ts',
+    ...vitestArgs,
+  ],
   {
     stdio: 'inherit',
     shell: process.platform === 'win32',
