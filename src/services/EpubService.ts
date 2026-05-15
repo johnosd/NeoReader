@@ -31,6 +31,12 @@ interface TocResolution {
   path: string
 }
 
+interface SanitizedTocNode {
+  item: TocItem
+  index: number
+  order: number
+}
+
 export type EpubStyleIssue =
   | 'hardcoded-text-color'
   | 'hardcoded-background-color'
@@ -53,6 +59,7 @@ export interface EpubExtras {
 
 export interface StoredEpubExtras extends EpubExtras {
   bookId: number
+  parserVersion?: number
   updatedAt: Date
 }
 
@@ -63,6 +70,8 @@ const EMPTY_EPUB_EXTRAS: EpubExtras = {
   previewText: null,
   styleDiagnostics: [],
 }
+
+export const EPUB_EXTRAS_PARSER_VERSION = 2
 
 // EPUB é um ZIP. Esse serviço abre o ZIP e extrai os metadados do OPF.
 // Fluxo: container.xml → caminho do .opf → title/author/cover
@@ -134,10 +143,13 @@ export class EpubService {
 
   private static async loadOrParseExtras(fileBlob: Blob, bookId: number): Promise<EpubExtras> {
     const stored = await getStoredEpubExtras(bookId).catch(() => undefined)
-    if (stored) return EpubService.toEpubExtras(stored)
+    if (stored?.parserVersion === EPUB_EXTRAS_PARSER_VERSION) return EpubService.toEpubExtras(stored)
 
     const extras = await EpubService._parseExtrasInternal(fileBlob)
-    await saveEpubExtras(bookId, extras).catch(() => undefined)
+    await saveEpubExtras(bookId, {
+      ...extras,
+      parserVersion: EPUB_EXTRAS_PARSER_VERSION,
+    }).catch(() => undefined)
     return extras
   }
 
@@ -473,37 +485,52 @@ export class EpubService {
   ): TocItem[] {
     if (spineDocuments.length === 0) return toc
 
-    const flattened = this.flattenToc(toc)
-      .map((item, order) => {
+    let order = 0
+
+    const sanitizeItems = (items: TocItem[]): SanitizedTocNode[] => {
+      const nodes = items.flatMap((item): SanitizedTocNode[] => {
+        const currentOrder = order
+        order += 1
+
+        const children = this.sortAndDedupeTocNodes(sanitizeItems(Array.isArray(item.subitems) ? item.subitems : []))
         const resolution = this.resolveTocHrefToSpine(spineDocuments, item.href)
-        if (!resolution) return null
+        const href = resolution ? this.sanitizeTocHref(item.href, resolution, files) : children[0]?.item.href
+        const label = this.cleanText(item.label)
+          || (resolution ? this.labelFromHref(resolution.path) : null)
+          || children[0]?.item.label
+          || href
+        const ownIndex = resolution?.index
+        const index = children[0]?.index ?? ownIndex
 
-        const href = this.sanitizeTocHref(item.href, resolution, files)
-        return {
-          label: item.label || this.labelFromHref(resolution.path),
-          href,
-          index: resolution.index,
-          order,
-        }
+        if (!href || !label || index === undefined) return children
+
+        return [{
+          item: {
+            label,
+            href,
+            ...(children.length > 0 ? { subitems: children.map((child) => child.item) } : {}),
+          },
+          index,
+          order: currentOrder,
+        }]
       })
-      .filter((item): item is TocItem & { index: number; order: number } => Boolean(item))
 
-    const sorted = flattened.sort((left, right) => left.index - right.index || left.order - right.order)
-    const deduped = new Map<string, TocItem & { index: number; order: number }>()
-
-    for (const item of sorted) {
-      const key = `${item.label}\n${item.href}`
-      if (!deduped.has(key)) deduped.set(key, item)
+      return this.sortAndDedupeTocNodes(nodes)
     }
 
-    return [...deduped.values()].map(({ label, href }) => ({ label, href }))
+    return sanitizeItems(toc).map((node) => node.item)
   }
 
-  private static flattenToc(items: TocItem[]): TocItem[] {
-    return items.flatMap((item) => [
-      item,
-      ...this.flattenToc(Array.isArray(item.subitems) ? item.subitems : []),
-    ])
+  private static sortAndDedupeTocNodes(nodes: SanitizedTocNode[]): SanitizedTocNode[] {
+    const sorted = [...nodes].sort((left, right) => left.index - right.index || left.order - right.order)
+    const deduped = new Map<string, SanitizedTocNode>()
+
+    for (const node of sorted) {
+      const key = `${node.item.label}\n${node.item.href}`
+      if (!deduped.has(key)) deduped.set(key, node)
+    }
+
+    return [...deduped.values()]
   }
 
   private static sanitizeTocHref(

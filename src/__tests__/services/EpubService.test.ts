@@ -35,7 +35,7 @@ vi.mock('@/db/epubExtras', () => ({
   deleteStoredEpubExtras: epubExtrasDb.deleteStoredEpubExtras,
 }))
 
-import { EpubService } from '@/services/EpubService'
+import { EPUB_EXTRAS_PARSER_VERSION, EpubService } from '@/services/EpubService'
 
 type EpubEntries = Record<string, string | Uint8Array>
 
@@ -384,6 +384,58 @@ describe('EpubService.parseExtras - toc extraction', () => {
     ])
   })
 
+  it('preserves nested EPUB3 nav entries when sanitizing against the spine', async () => {
+    fflateState.files = makeEpubFiles(
+      'OPS/package.opf',
+      makeOpf(
+        `
+          <item id="nav" href="Navigation/nav.xhtml" media-type="application/xhtml+xml" properties="nav" />
+          <item id="part" href="Text/part.xhtml" media-type="application/xhtml+xml" />
+          <item id="chapter1" href="Text/chapter1.xhtml" media-type="application/xhtml+xml" />
+          <item id="chapter2" href="Text/chapter2.xhtml" media-type="application/xhtml+xml" />
+        `,
+        '',
+        '',
+        '<spine><itemref idref="part" /><itemref idref="chapter1" /><itemref idref="chapter2" /></spine>',
+      ),
+      {
+        'OPS/Navigation/nav.xhtml': `
+          <html xmlns:epub="http://www.idpf.org/2007/ops">
+            <body>
+              <nav epub:type="toc">
+                <ol>
+                  <li>
+                    <a href="../Text/part.xhtml">Part I</a>
+                    <ol>
+                      <li><a href="../Text/chapter1.xhtml">Chapter 1</a></li>
+                      <li><a href="../Text/chapter2.xhtml#missing">Chapter 2</a></li>
+                    </ol>
+                  </li>
+                </ol>
+              </nav>
+            </body>
+          </html>
+        `,
+        'OPS/Text/part.xhtml': '<html><body><h1>Part I</h1></body></html>',
+        'OPS/Text/chapter1.xhtml': '<html><body><h1>Chapter 1</h1></body></html>',
+        'OPS/Text/chapter2.xhtml': '<html><body><h1>Chapter 2</h1></body></html>',
+      },
+    )
+
+    const extras = await EpubService.parseExtras(new Blob(['epub']))
+
+    expect(extras.toc).toEqual([
+      {
+        label: 'Part I',
+        href: 'OPS/Text/part.xhtml',
+        subitems: [
+          { label: 'Chapter 1', href: 'OPS/Text/chapter1.xhtml' },
+          { label: 'Chapter 2', href: 'OPS/Text/chapter2.xhtml' },
+        ],
+      },
+    ])
+  })
+
   it('extracts EPUB2 toc.ncx entries and preserves fragments', async () => {
     fflateState.files = makeEpubFiles(
       'OPS/package.opf',
@@ -602,6 +654,7 @@ describe('EpubService.parseExtras - cache de sessão', () => {
     epubExtrasDb.deleteStoredEpubExtras.mockClear()
     epubExtrasDb.rows.set(bookId, {
       bookId,
+      parserVersion: EPUB_EXTRAS_PARSER_VERSION,
       description: 'Persistido',
       language: 'pt-BR',
       toc: [{ label: 'Capitulo', href: 'chapter.xhtml' }],
@@ -617,6 +670,31 @@ describe('EpubService.parseExtras - cache de sessão', () => {
     expect(extras.description).toBe('Persistido')
     expect(arrayBuffer).not.toHaveBeenCalled()
     expect(epubExtrasDb.saveEpubExtras).not.toHaveBeenCalled()
+  })
+
+  it('reprocessa extras persistidos de versao antiga', async () => {
+    const bookId = 9007
+    EpubService.invalidateExtrasCache(bookId)
+    epubExtrasDb.deleteStoredEpubExtras.mockClear()
+    epubExtrasDb.rows.set(bookId, {
+      bookId,
+      description: 'Antigo',
+      language: 'pt-BR',
+      toc: [{ label: 'Indice antigo', href: 'old.xhtml' }],
+      previewText: 'Trecho antigo',
+      styleDiagnostics: [],
+      updatedAt: new Date(),
+    })
+    const arrayBuffer = vi.fn().mockResolvedValue(new ArrayBuffer(0))
+    const blob = { arrayBuffer } as unknown as Blob
+
+    const extras = await EpubService.parseExtras(blob, bookId)
+
+    expect(extras.toc).toEqual([])
+    expect(arrayBuffer).toHaveBeenCalledTimes(1)
+    expect(epubExtrasDb.saveEpubExtras).toHaveBeenCalledWith(bookId, expect.objectContaining({
+      parserVersion: EPUB_EXTRAS_PARSER_VERSION,
+    }))
   })
 
   it('processa o ZIP separadamente para bookIds diferentes', async () => {

@@ -1,6 +1,6 @@
 ﻿import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useCallback } from 'react'
-import { ArrowLeft, Star, ChevronRight, ChevronDown, Globe, Calendar, HardDrive, Sparkles, BookOpen, Bookmark, X, Check, Volume2, Mic2, Gauge, Search, Play, Loader2 } from 'lucide-react'
+import { ArrowLeft, Star, ChevronRight, Globe, Calendar, HardDrive, Sparkles, BookOpen, Bookmark, X, Check, Volume2, Mic2, Gauge, Search, Play, Loader2 } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Badge, BottomSheet, Button, EmptyState, ListItem, Spinner } from '../components/ui'
 import { AuthorTab } from '../components/AuthorTab'
@@ -35,6 +35,7 @@ import {
   ReaderThemeControl,
   type ReaderStyleMode,
 } from '../components/reader/ReaderAppearanceControls'
+import { TocNavigator } from '../components/reader/TocDrawer'
 import type { Book, BookSettings } from '../types/book'
 import type {
   BookInfoConfidence,
@@ -52,13 +53,6 @@ import {
   buildBookTtsVoiceSelectionPatch,
   getBookTtsVoiceSelection,
 } from '../utils/ttsVoiceSelection'
-import {
-  findCurrentTocPath,
-  flattenVisibleTocItems,
-  getDirectNavigationHref,
-  getTocAncestorPaths,
-  hasTocChildren,
-} from '../utils/toc'
 
 interface BookDetailsScreenProps {
   book: Book
@@ -83,6 +77,8 @@ const TTS_PROVIDERS: Array<{ value: TtsProvider; label: string }> = TTS_PROVIDER
   label: provider === 'native' ? 'Nativo' : getTtsProviderLabel(provider),
 }))
 
+const EXTRAS_LOAD_TIMEOUT_MS = 10_000
+const EXTRAS_LOAD_TIMEOUT_MESSAGE = 'Tempo limite ao carregar detalhes do EPUB.'
 const TTS_RATE_OPTIONS = [0.8, 0.9, 1, 1.1, 1.2]
 const VOICE_PREVIEW_ERROR = 'Nao foi possivel tocar a amostra desta voz.'
 
@@ -125,7 +121,6 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
   const [ttsSpeedSheetOpen, setTtsSpeedSheetOpen] = useState(false)
   const [ttsVoicePreviewingId, setTtsVoicePreviewingId] = useState<string | null>(null)
   const [ttsVoicePreviewError, setTtsVoicePreviewError] = useState<string | null>(null)
-  const [expandedChapterPaths, setExpandedChapterPaths] = useState<Set<string>>(new Set())
   const ttsVoicePreviewAudioRef = useRef<HTMLAudioElement | null>(null)
   const ttsVoicePreviewModeRef = useRef<'audio' | 'native' | null>(null)
   const ttsVoicePreviewSessionRef = useRef(0)
@@ -149,11 +144,6 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
   const overrideBookColors = bookSettingsRow?.overrideBookColors ?? defaultOverrideBookColors
   const readerStyleMode = !overrideBookFont && !overrideBookColors ? 'original' : 'comfortable'
   const tocItems = extras?.toc ?? []
-  const currentChapterPath = findCurrentTocPath(
-    tocItems,
-    progress?.sectionHref,
-    progress?.sectionLabel,
-  )
   const selectedTtsProvider: TtsProvider = bookSettingsRow?.ttsProvider ?? 'speechify'
   const effectiveTtsProvider = resolveEffectiveTtsProvider(selectedTtsProvider, appSettings)
   const ttsRate = clampTtsRate(bookSettingsRow?.ttsRate ?? 1)
@@ -187,24 +177,36 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
 
   useEffect(() => {
     let cancelled = false
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
     setExtrasLoading(true)
-    BookFileResolver.resolveFile(liveBook).then((file) => EpubService.parseExtras(file, liveBook.id)).then((result) => {
+    const extrasTask = BookFileResolver.resolveFile(liveBook).then((file) => EpubService.parseExtras(file, liveBook.id))
+    const timeoutTask = new Promise<EpubExtras>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(new Error(EXTRAS_LOAD_TIMEOUT_MESSAGE))
+      }, EXTRAS_LOAD_TIMEOUT_MS)
+    })
+
+    Promise.race([extrasTask, timeoutTask]).then((result) => {
       if (cancelled) return
       setExtras(result)
       setExtrasLoading(false)
-    }).catch(() => {
+    }).catch((error) => {
       if (cancelled) return
+      if (error instanceof Error && error.message === EXTRAS_LOAD_TIMEOUT_MESSAGE && liveBook.id !== undefined) {
+        EpubService.invalidateExtrasCache(liveBook.id)
+      }
       setExtras(null)
       setExtrasLoading(false)
+    }).finally(() => {
+      if (timeoutId) clearTimeout(timeoutId)
     })
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+      if (timeoutId) clearTimeout(timeoutId)
+    }
   }, [liveBook, liveBook.fileBlob, liveBook.id, liveBook.storageMode, liveBook.uri])
 
   useCapacitorBackButton(onBack)
-
-  useEffect(() => {
-    setExpandedChapterPaths(new Set(getTocAncestorPaths(currentChapterPath)))
-  }, [currentChapterPath, liveBook.id])
 
   const coverUrl = useBookCoverUrl(liveBook.id)
   const { percentage: pct, readingStatus } = resolveReadingState(liveBook, progress)
@@ -302,15 +304,6 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
     }
 
     applyComfortableReadingMode()
-  }
-
-  function toggleChapterExpanded(path: string) {
-    setExpandedChapterPaths((previous) => {
-      const next = new Set(previous)
-      if (next.has(path)) next.delete(path)
-      else next.add(path)
-      return next
-    })
   }
 
   const stopTtsVoicePreviewPlayback = useCallback(() => {
@@ -628,66 +621,21 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
           </div>
 
           <div className="px-4 pt-4">
-            {activeTab === 'chapters' && (() => {
-              const chapters = flattenVisibleTocItems(tocItems, expandedChapterPaths)
-              return extrasLoading ? (
+            {activeTab === 'chapters' && (
+              extrasLoading ? (
                 <div className="flex justify-center py-8">
                   <Spinner size={20} tone="purple" label="Carregando capitulos" />
                 </div>
-              ) : chapters.length > 0 ? (
-                <div className="rounded-md bg-bg-surface border border-border overflow-hidden">
-                  {chapters.map(({ item: chapter, depth, path }, index) => {
-                    const isCurrent = currentChapterPath === path
-                    const hasChildren = hasTocChildren(chapter)
-                    const isExpanded = expandedChapterPaths.has(path)
-                    return (
-                      <ListItem
-                        key={`${chapter.href}-${path}`}
-                        title={(
-                          <span className="block truncate" style={{ paddingLeft: depth * 14 }}>
-                            {chapter.label}
-                          </span>
-                        )}
-                        meta={isCurrent ? `${Math.round(pct)}% lido` : undefined}
-                        trailing={(
-                          <div className="flex items-center gap-2">
-                            {isCurrent && (
-                              <Badge tone="purple" className="px-2 py-0.5 text-[9px] tracking-normal">
-                                Parou aqui
-                              </Badge>
-                            )}
-                            {hasChildren ? (
-                              <button
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation()
-                                  toggleChapterExpanded(path)
-                                }}
-                                className="flex h-8 w-8 items-center justify-center rounded-md border border-white/8 bg-white/5 text-text-muted transition-colors active:bg-white/10"
-                                aria-label={isExpanded ? 'Recolher capitulo' : 'Expandir capitulo'}
-                              >
-                                {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                              </button>
-                            ) : (
-                              <ChevronRight size={16} />
-                            )}
-                          </div>
-                        )}
-                        className={isCurrent ? 'bg-purple-primary/10 ring-1 ring-inset ring-purple-primary/25' : undefined}
-                        onClick={() => openReader(getDirectNavigationHref(chapter))}
-                        divider={index < chapters.length - 1}
-                      />
-                    )
-                  })}
-                </div>
               ) : (
-                <EmptyState
-                  icon={<BookOpen size={32} />}
-                  title="Indice nao disponivel"
-                  description="Este EPUB nao contem um indice de capitulos."
+                <TocNavigator
+                  toc={tocItems}
+                  currentHref={progress?.sectionHref}
+                  currentLabel={progress?.sectionLabel}
+                  onSelect={(href) => openReader(href)}
+                  className="pb-4"
                 />
               )
-            })()}
+            )}
 
             {activeTab === 'bookmarks' && (
               bookmarks.length > 0 ? (

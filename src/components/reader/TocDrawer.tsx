@@ -17,6 +17,14 @@ interface TocDrawerProps {
   onClose: () => void
 }
 
+interface TocNavigatorProps {
+  toc: TocItem[]
+  currentHref?: string | null
+  currentLabel?: string | null
+  onSelect: (href: string) => void
+  className?: string
+}
+
 const EMPTY_TOGGLED_PATHS = new Set<string>()
 
 function getDefaultExpandedPaths(toc: TocItem[], currentPath?: string | null): Set<string> {
@@ -41,6 +49,24 @@ function getDefaultExpandedPaths(toc: TocItem[], currentPath?: string | null): S
 }
 
 export function TocDrawer({ open, toc, currentHref, currentLabel, onSelect, onClose }: TocDrawerProps) {
+  return (
+    <BottomSheet
+      open={open}
+      onClose={onClose}
+      title="Indice"
+      className="border-t border-white/10 bg-[rgba(15,7,24,0.94)] backdrop-blur-2xl"
+    >
+      <TocNavigator
+        toc={toc}
+        currentHref={currentHref}
+        currentLabel={currentLabel}
+        onSelect={onSelect}
+      />
+    </BottomSheet>
+  )
+}
+
+export function TocNavigator({ toc, currentHref, currentLabel, onSelect, className }: TocNavigatorProps) {
   const [toggledState, setToggledState] = useState<{
     toc: TocItem[]
     currentPath?: string | null
@@ -73,16 +99,11 @@ export function TocDrawer({ open, toc, currentHref, currentLabel, onSelect, onCl
   }
 
   return (
-    <BottomSheet
-      open={open}
-      onClose={onClose}
-      title="Índice"
-      className="border-t border-white/10 bg-[rgba(15,7,24,0.94)] backdrop-blur-2xl"
-    >
+    <div className={className}>
       {toc.length === 0 ? (
         <EmptyState
-          title="Índice não disponível"
-          description="Este EPUB não forneceu uma estrutura navegável para o sumário."
+          title="Indice nao disponivel"
+          description="Este EPUB nao forneceu uma estrutura navegavel para o sumario."
         />
       ) : (
         <div className="space-y-4">
@@ -90,10 +111,10 @@ export function TocDrawer({ open, toc, currentHref, currentLabel, onSelect, onCl
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-purple-light/80">
-                  Navegação direta
+                  Navegacao direta
                 </p>
                 <p className="mt-1 text-sm leading-6 text-text-muted">
-                  Escolha uma seção para abrir o conteúdo útil mais próximo, sem cair em páginas stub.
+                  Escolha uma secao para abrir o conteudo util mais proximo, sem cair em paginas stub.
                 </p>
               </div>
               <Badge tone="purple" className="shrink-0 px-2.5 py-1 text-[10px] normal-case tracking-normal">
@@ -116,7 +137,7 @@ export function TocDrawer({ open, toc, currentHref, currentLabel, onSelect, onCl
           </div>
         </div>
       )}
-    </BottomSheet>
+    </div>
   )
 }
 
@@ -185,7 +206,7 @@ function TocList({
                 </div>
                 {hasChildren && (
                   <p className="mt-1 text-xs text-text-muted">
-                    Abre direto na primeira seção útil deste agrupamento.
+                    Abre direto na primeira secao util deste agrupamento.
                   </p>
                 )}
               </button>
