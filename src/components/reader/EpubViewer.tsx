@@ -40,6 +40,33 @@ const SCRIPTABLE_EPUB_DOCUMENT_TYPES = new Set([
   'image/svg+xml',
 ])
 
+const XML_BOOLEAN_ATTRIBUTES = new Set([
+  'allowfullscreen',
+  'async',
+  'autofocus',
+  'autoplay',
+  'checked',
+  'controls',
+  'default',
+  'defer',
+  'disabled',
+  'formnovalidate',
+  'hidden',
+  'inert',
+  'itemscope',
+  'loop',
+  'multiple',
+  'muted',
+  'nomodule',
+  'novalidate',
+  'open',
+  'playsinline',
+  'readonly',
+  'required',
+  'reversed',
+  'selected',
+])
+
 const TRANSLATION_ICON = {
   bot: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="7" width="16" height="11" rx="4"></rect><path d="M12 3v4"></path><path d="M9 13h.01"></path><path d="M15 13h.01"></path><path d="M9 18v2"></path><path d="M15 18v2"></path></svg>',
   next: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path><path d="M5 18l6-6-6-6"></path></svg>',
@@ -456,20 +483,64 @@ function toRendererNavigationTarget(target: ResolvedHrefNavigationTarget): Rende
   }
 }
 
+async function navigateToInitialReaderTarget(view: View, target: string): Promise<boolean> {
+  if (isCfiNavigationTarget(target)) {
+    await view.init({ lastLocation: target })
+    return true
+  }
+
+  const resolved = buildHrefNavigationTarget(view.book?.sections as NavigableSection[] | undefined, target)
+  if (resolved && typeof view.renderer.goTo === 'function') {
+    await Promise.resolve(view.renderer.goTo(toRendererNavigationTarget(resolved)))
+    return true
+  }
+
+  return Boolean(await view.goTo(target))
+}
+
 function isScriptableEpubDocumentType(type: unknown): type is DOMParserSupportedType {
   return typeof type === 'string' && SCRIPTABLE_EPUB_DOCUMENT_TYPES.has(type)
+}
+
+function normalizeXmlBooleanAttributes(data: string): string {
+  return data.replace(/<[A-Za-z][^>"']*(?:"[^"]*"|'[^']*'|[^>"']*)*>/g, (tag) =>
+    tag.replace(/\s([A-Za-z_:][\w:.-]*)(?=(?:\s|\/?>))/g, (match, attrName: string) => {
+      const name = attrName.toLowerCase()
+      return XML_BOOLEAN_ATTRIBUTES.has(name) ? ` ${name}="${name}"` : match
+    }),
+  )
+}
+
+function isExternalOrRootRelativeResource(value: string): boolean {
+  return /^(?:https?:|\/\/|\/)/i.test(value.trim())
+}
+
+function isCfiNavigationTarget(target: string): boolean {
+  return /^epubcfi\(/i.test(target.trim())
 }
 
 function stripExecutableEpubContent(data: unknown, type: unknown): unknown {
   if (typeof data !== 'string' || !isScriptableEpubDocumentType(type)) return data
 
   try {
-    const doc = new DOMParser().parseFromString(data, type)
-    let changed = false
+    const normalizedData = type === 'text/html' ? data : normalizeXmlBooleanAttributes(data)
+    const doc = new DOMParser().parseFromString(normalizedData, type)
+    if (doc.querySelector('parsererror')) return data
+
+    let changed = normalizedData !== data
 
     for (const script of Array.from(doc.querySelectorAll('script'))) {
       script.remove()
       changed = true
+    }
+
+    for (const link of Array.from(doc.querySelectorAll('link[href]'))) {
+      const rel = link.getAttribute('rel')?.toLowerCase() ?? ''
+      const href = link.getAttribute('href') ?? ''
+      if (rel.includes('stylesheet') && isExternalOrRootRelativeResource(href)) {
+        link.remove()
+        changed = true
+      }
     }
 
     for (const element of Array.from(doc.querySelectorAll('*'))) {
@@ -931,6 +1002,7 @@ interface EpubViewerProps {
   overrideBookFont: boolean
   overrideBookColors: boolean
   savedCfi: string | null
+  initialTarget?: string | null
   onRelocate: (payload: ReaderRelocatePayload) => void
   onTocReady: (toc: TocItem[]) => void
   onLoad: () => void
@@ -966,7 +1038,7 @@ interface EpubViewerProps {
 export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
   (
     {
-      book, bookmarks, fontSize, lineHeight, readerTheme, fontFamily, overrideBookFont, overrideBookColors, savedCfi,
+      book, bookmarks, fontSize, lineHeight, readerTheme, fontFamily, overrideBookFont, overrideBookColors, savedCfi, initialTarget,
       onRelocate, onTocReady, onLoad, onSectionReady, onError,
       onSaveVocab, onCenterTap, onTranslate,
       onSpeakOne, onParagraphTapForTts, onTtsUserScrollAway, ttsGlobalActive,
@@ -1646,7 +1718,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     }
 
     function isCfiTarget(target: string): boolean {
-      return /^epubcfi\(/i.test(target.trim())
+      return isCfiNavigationTarget(target)
     }
 
     function clearFinalizeSectionTimeout(): void {
@@ -1855,6 +1927,13 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
         if (typeof target === 'string' && !isCfiTarget(target)) {
           const resolved = buildHrefNavigationTarget(view.book?.sections as NavigableSection[] | undefined, target)
+          if (resolved && hrefHasFragment(target) && typeof view.renderer.goTo === 'function') {
+            void Promise.resolve(view.renderer.goTo(toRendererNavigationTarget(resolved))).catch((error) => {
+              console.warn('[ReaderNavigation] fragment navigation failed; falling back to Foliate goTo.', error)
+              void view.goTo(target)
+            })
+            return
+          }
           if (resolved?.matchType === 'exact') {
             void view.goTo(target).then((nativeResolved) => {
               if (!nativeResolved && typeof view.renderer.goTo === 'function') {
@@ -2378,11 +2457,21 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           // Tratamos como "sem posição salva" e começamos pelo primeiro texto real.
           const isAtCover = !!savedCfi?.match(/\[Cover\]/i)
           const initCfi = savedCfi && !isAtCover ? savedCfi : null
-          await view.init(
-            initCfi
-              ? { lastLocation: initCfi }
-              : { showTextStart: true },
-          )
+          const initialReaderTarget = initialTarget?.trim() || null
+          const didOpenInitialTarget = initialReaderTarget
+            ? await navigateToInitialReaderTarget(view, initialReaderTarget).catch((error) => {
+              console.warn('[ReaderNavigation] initial target navigation failed; falling back to reader start.', error)
+              return false
+            })
+            : false
+
+          if (!didOpenInitialTarget) {
+            await view.init(
+              initCfi
+                ? { lastLocation: initCfi }
+                : { showTextStart: true },
+            )
+          }
 
           if (loadTimeout) clearTimeout(loadTimeout)
         } catch (err) {

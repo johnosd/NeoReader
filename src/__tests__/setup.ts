@@ -125,6 +125,7 @@ class FoliateViewMock extends HTMLElement {
   }
 
   book = {
+    transformTarget: new EventTarget(),
     metadata: {},
     sections: [
       { href: 'chapter-1.xhtml', linear: 'yes' },
