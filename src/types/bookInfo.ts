@@ -88,6 +88,6 @@ export interface BookInfoProviderAttemptDiagnostic {
 
 export interface BookInfoProvider {
   readonly source: BookInfoSource
-  collect(fileBlob: Blob, context?: ResolvedBookInfo): Promise<Partial<ResolvedBookInfo>>
+  collect(fileBlob: Blob | null, context?: ResolvedBookInfo): Promise<Partial<ResolvedBookInfo>>
   getDiagnostics?(): string[]
 }

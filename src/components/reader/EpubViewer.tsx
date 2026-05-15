@@ -2339,7 +2339,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         }, 8_000)
 
         try {
-          await view.open(await BookFileResolver.resolveFile(book))
+          const readerSource = await BookFileResolver.resolveReaderSource(book)
+          await (view.open as (source: Blob | string) => Promise<void>)(readerSource)
           if (cancelled) { clearTimeout(loadTimeout!); return }
           cleanupPassiveEpubContentTransform = installPassiveEpubContentTransform(view)
 

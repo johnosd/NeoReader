@@ -3,9 +3,14 @@ import { basename, join } from 'node:path'
 import { Blob as NodeBlob, File as NodeFile } from 'node:buffer'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ImportProgress } from '@/services/BookImportService'
+import type { NativeFolderFile } from '@/services/NativeLibraryImportService'
 
 const bookInfoMocks = vi.hoisted(() => ({
   collect: vi.fn(),
+}))
+const nativeImportMocks = vi.hoisted(() => ({
+  prepareLocalEpubImport: vi.fn(),
+  deleteLocalBookFile: vi.fn(),
 }))
 
 vi.mock('@/services/bookInfo', () => ({
@@ -15,6 +20,15 @@ vi.mock('@/services/bookInfo', () => ({
     }
   }),
 }))
+
+vi.mock('@/services/NativeLibraryImportService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/services/NativeLibraryImportService')>()
+  return {
+    ...actual,
+    prepareLocalEpubImport: nativeImportMocks.prepareLocalEpubImport,
+    deleteLocalBookFile: nativeImportMocks.deleteLocalBookFile,
+  }
+})
 
 const DEBUG_BOOKS_DIR = join(process.cwd(), 'debug-books')
 const shouldRunRealBookImport = process.env.NEOREADER_RUN_DEBUG_EPUBS === '1'
@@ -28,6 +42,9 @@ const epubPaths = existsSync(DEBUG_BOOKS_DIR)
 const singleImportEpubPaths = [...epubPaths]
   .sort((left, right) => statSync(left).size - statSync(right).size)
   .slice(0, 1)
+const nativeBatchEpubPaths = [...epubPaths]
+  .sort((left, right) => statSync(left).size - statSync(right).size)
+  .slice(0, Math.min(2, epubPaths.length))
 
 let db: typeof import('@/db/database')['db']
 let BookImportService: typeof import('@/services/BookImportService')['BookImportService']
@@ -39,6 +56,18 @@ function makeEpubFile(filePath: string): File {
     type: 'application/epub+zip',
     lastModified: 0,
   }) as unknown as File
+}
+
+function makeNativeEpubReference(filePath: string): NativeFolderFile {
+  const data = readFileSync(filePath)
+  const name = basename(filePath)
+  return {
+    name,
+    uri: `content://debug-books/${encodeURIComponent(name)}`,
+    path: `debug-books/${name}`,
+    size: data.byteLength,
+    base64: data.toString('base64'),
+  }
 }
 
 function makeEmptyFetch(): typeof fetch {
@@ -55,6 +84,14 @@ function makeEmptyFetch(): typeof fetch {
       items: [],
     }), { status: 200, headers })
   }) as unknown as typeof fetch
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  for (let index = 0; index < bytes.length; index += 1) {
+    binary += String.fromCharCode(bytes[index])
+  }
+  return btoa(binary)
 }
 
 async function resetDatabase(): Promise<void> {
@@ -98,6 +135,24 @@ function assertStoredBookLooksImported(book: Awaited<ReturnType<typeof db.books.
   expect(book?.missingFile).toBe(false)
 }
 
+function assertStoredNativeBookLooksImported(book: Awaited<ReturnType<typeof db.books.get>>, nativeFile: NativeFolderFile): void {
+  expect(book, `${nativeFile.name}: livro nativo deve ser salvo no IndexedDB`).toBeTruthy()
+  expect(book?.title.trim(), `${nativeFile.name}: titulo importado`).not.toBe('')
+  expect(book?.author.trim(), `${nativeFile.name}: autor importado`).not.toBe('')
+  expect(book?.storageMode).toBe('local')
+  expect(book?.format).toBe('EPUB')
+  expect(book?.fileName).toBe(nativeFile.name)
+  expect(book?.filePath).toBe(nativeFile.path)
+  expect(book?.fileSize).toBe(nativeFile.size)
+  expect(book?.fileBlob).toBeUndefined()
+  expect(book?.uri).toMatch(/^file:\/\//)
+  expect(book?.originalUri).toBe(nativeFile.uri)
+  expect(book?.fileHash, `${nativeFile.name}: hash SHA-256 persistido`).toMatch(/^[a-f0-9]{64}$/)
+  expect(book?.lastOpenedAt).toBeNull()
+  expect(book?.readingStatus).toBe('unread')
+  expect(book?.missingFile).toBe(false)
+}
+
 if (!shouldRunRealBookImport) {
   describe.skip('BookImportService real EPUB import', () => {
     it('rode npm run test:debug-epubs para validar importacao real dos EPUBs locais', () => {})
@@ -119,6 +174,9 @@ if (!shouldRunRealBookImport) {
       vi.stubGlobal('File', NodeFile)
       vi.stubGlobal('fetch', makeEmptyFetch())
       bookInfoMocks.collect.mockReset()
+      nativeImportMocks.prepareLocalEpubImport.mockReset()
+      nativeImportMocks.deleteLocalBookFile.mockReset()
+      nativeImportMocks.deleteLocalBookFile.mockResolvedValue(true)
       bookInfoMocks.collect.mockImplementation(async (_file: File, context?: {
         lookupHints?: {
           title?: string | null
@@ -139,6 +197,45 @@ if (!shouldRunRealBookImport) {
           identifiers: context?.lookupHints?.identifiers ?? [],
         },
       }))
+      nativeImportMocks.prepareLocalEpubImport.mockImplementation(async (nativeFile: NativeFolderFile, options?: { importId?: string }) => {
+        const filePath = epubPaths.find((candidate) => basename(candidate) === nativeFile.name)
+        if (!filePath) throw new Error(`EPUB nativo nao encontrado: ${nativeFile.name}`)
+        const file = makeEpubFile(filePath)
+        const { EpubService } = await import('@/services/EpubService')
+        const metadata = await EpubService.parseMetadata(file)
+        const hashBuffer = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
+        const sha256 = Array.from(new Uint8Array(hashBuffer))
+          .map((byte) => byte.toString(16).padStart(2, '0'))
+          .join('')
+        const cover = metadata.coverBlob
+          ? {
+            base64: bytesToBase64(new Uint8Array(await metadata.coverBlob.arrayBuffer())),
+            mimeType: metadata.coverBlob.type,
+          }
+          : undefined
+
+        return {
+          importId: options?.importId ?? 'real-native-import',
+          name: nativeFile.name,
+          path: nativeFile.path,
+          size: file.size,
+          sha256,
+          localUri: `file:///debug-books-local/${sha256}.epub`,
+          originalUri: nativeFile.uri,
+          metadata: {
+            title: metadata.title,
+            author: metadata.author,
+            identifiers: [],
+          },
+          ...(cover ? { cover } : {}),
+          diagnostics: {
+            copyMs: 1,
+            inspectMs: 1,
+            bytesCopied: file.size,
+            localFileExisted: false,
+          },
+        }
+      })
       await resetDatabase()
     })
 
@@ -169,6 +266,29 @@ if (!shouldRunRealBookImport) {
         expect(info?.lookupHints.author).toBe(book?.author)
 
         await expect(BookImportService.importEpub(file)).rejects.toThrow('Este livro ja esta na biblioteca.')
+        expect(await db.books.count()).toBe(1)
+      },
+      60_000,
+    )
+
+    it.each(singleImportEpubPaths.map((filePath) => [basename(filePath), filePath]))(
+      'importa EPUB real individual pelo fluxo nativo externo: %s',
+      async (_fileName, filePath) => {
+        const nativeFile = makeNativeEpubReference(filePath)
+
+        const bookId = await BookImportService.importNativeEpub(nativeFile)
+
+        const book = await db.books.get(bookId)
+        assertStoredNativeBookLooksImported(book, nativeFile)
+
+        const cover = await db.bookCovers.get(bookId)
+        expect(cover, `${nativeFile.name}: capa deve ser salva`).toBeTruthy()
+        expect(cover?.source).toBe('epub-extracted')
+        expect(cover?.blob.size ?? 0, `${nativeFile.name}: capa vazia`).toBeGreaterThan(128)
+        expect(cover?.blob.type ?? '', `${nativeFile.name}: MIME da capa`).toMatch(/^image\//)
+
+        await waitForTableCount('bookInfo', 1)
+        await expect(BookImportService.importNativeEpub(nativeFile)).rejects.toThrow('Este livro ja esta na biblioteca.')
         expect(await db.books.count()).toBe(1)
       },
       60_000,
@@ -242,5 +362,41 @@ if (!shouldRunRealBookImport) {
         total: files.length,
       })
     }, 180_000)
+
+    it('importa em lote EPUBs reais pelo fluxo nativo externo', async () => {
+      const nativeFiles = nativeBatchEpubPaths.map(makeNativeEpubReference)
+      const preview = await BookImportService.buildNativeImportPreview(nativeFiles)
+
+      expect(preview).toHaveLength(nativeFiles.length)
+      expect(preview.every((item) => item.supported)).toBe(true)
+
+      const summary = await BookImportService.importSelectedBooks({
+        items: preview.map((item) => ({ ...item, selected: true, duplicate: false })),
+        tagIds: [303],
+        sourceFolder: {
+          folderName: 'debug-books-native',
+          folderUri: 'content://debug-books',
+          includeSubfolders: false,
+          autoImportEnabled: false,
+        },
+      })
+
+      expect(summary.errors).toBe(0)
+      expect(summary.unsupported).toBe(0)
+      expect(summary.imported).toBeGreaterThan(0)
+      expect(summary.imported + summary.duplicate).toBe(nativeFiles.length)
+
+      const books = await db.books.toArray()
+      expect(books).toHaveLength(summary.imported)
+
+      for (const book of books) {
+        const nativeFile = nativeFiles.find((file) => file.name === book.fileName)
+        expect(nativeFile, `${book.fileName}: arquivo nativo original encontrado`).toBeTruthy()
+        assertStoredNativeBookLooksImported(book, nativeFile!)
+        expect(book.tags).toEqual([303])
+      }
+
+      await waitForTableCount('bookInfo', summary.imported)
+    }, 120_000)
   })
 }

@@ -17,7 +17,7 @@ export class OpenLibraryProvider implements BookInfoProvider {
     this.openLibraryService = openLibraryService
   }
 
-  async collect(_fileBlob: Blob, context?: ResolvedBookInfo): Promise<Partial<ResolvedBookInfo>> {
+  async collect(_fileBlob: Blob | null, context?: ResolvedBookInfo): Promise<Partial<ResolvedBookInfo>> {
     this.openLibraryService.resetDiagnostics()
     const isbns = this.findIsbns(context)
     if (isbns.length === 0) return {}

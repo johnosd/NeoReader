@@ -24,7 +24,7 @@ export class GoogleBooksProvider implements BookInfoProvider {
     this.googleBooksService = googleBooksService
   }
 
-  async collect(_fileBlob: Blob, context?: ResolvedBookInfo): Promise<Partial<ResolvedBookInfo>> {
+  async collect(_fileBlob: Blob | null, context?: ResolvedBookInfo): Promise<Partial<ResolvedBookInfo>> {
     const queries = this.buildQueries(context)
     const volume = await this.googleBooksService.searchFirstVolume(
       queries,

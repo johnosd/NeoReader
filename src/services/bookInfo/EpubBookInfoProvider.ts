@@ -38,7 +38,11 @@ const EMPTY_LOOKUP_HINTS = {
 export class EpubBookInfoProvider implements BookInfoProvider {
   readonly source = 'epub-metadata' as const
 
-  async collect(fileBlob: Blob): Promise<Partial<ResolvedBookInfo>> {
+  async collect(fileBlob: Blob | null): Promise<Partial<ResolvedBookInfo>> {
+    if (!fileBlob) {
+      return { lookupHints: EMPTY_LOOKUP_HINTS }
+    }
+
     const epubPackage = await this.openPackage(fileBlob)
     if (!epubPackage) {
       return { lookupHints: EMPTY_LOOKUP_HINTS }

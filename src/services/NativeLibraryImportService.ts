@@ -1,4 +1,13 @@
 import { Capacitor, registerPlugin } from '@capacitor/core'
+import {
+  createImportDiagnosticContext,
+  errorImportDiagnostic,
+  logImportDiagnostic,
+  warnImportDiagnostic,
+  withImportTimeout,
+  type ImportDiagnosticContext,
+} from './ImportDiagnostics'
+import type { BookIdentifier } from '../types/bookInfo'
 
 export interface NativeFolderFile {
   name: string
@@ -31,6 +40,39 @@ interface NativeFileChunk {
   done?: boolean
 }
 
+interface NativeFileReadSession {
+  sessionId?: string
+  size?: number | string
+  mode?: string
+}
+
+export interface NativePreparedEpub {
+  importId: string
+  name: string
+  path?: string
+  size: number
+  sha256: string
+  localUri: string
+  originalUri: string
+  metadata: {
+    title: string
+    author: string
+    identifiers?: BookIdentifier[]
+    language?: string | null
+    description?: string | null
+  }
+  cover?: {
+    base64: string
+    mimeType: string
+  }
+  diagnostics: {
+    copyMs: number
+    inspectMs: number
+    bytesCopied: number
+    localFileExisted?: boolean
+  }
+}
+
 interface NeoReaderLibraryPlugin {
   selectEpubFolder(): Promise<NativeFolderResult>
   selectEpubFile(): Promise<NativeFolderFile>
@@ -38,13 +80,36 @@ interface NeoReaderLibraryPlugin {
   consumePendingFileSelection(): Promise<Partial<NativeFolderFile>>
   listSelectedFolderFiles(options: { offset: number; limit: number }): Promise<NativeFolderFilesPage>
   readFile(file: NativeFolderFile): Promise<NativeFolderFile & { base64: string }>
-  readFileChunk(options: NativeFolderFile & { offset: number; length: number }): Promise<NativeFileChunk>
+  readFileChunk(options: NativeFolderFile & { offset: number; length: number; sessionId?: string }): Promise<NativeFileChunk>
+  openFileReadSession?(file: NativeFolderFile): Promise<NativeFileReadSession>
+  closeFileReadSession?(options: { sessionId: string }): Promise<{ closed?: boolean }>
+  prepareLocalEpubImport?(file: NativeFolderFile & { importId?: string }): Promise<NativePreparedEpub>
+  cancelImport?(options: { importId: string }): Promise<{ canceled?: boolean }>
+  deleteLocalBookFile?(options: { uri: string }): Promise<{ deleted?: boolean }>
+  cleanupImportTemp?(): Promise<{ deleted?: number }>
 }
 
 const NeoReaderLibrary = registerPlugin<NeoReaderLibraryPlugin>('NeoReaderLibrary')
 const FOLDER_FILE_PAGE_SIZE = 100
-const NATIVE_FILE_CHUNK_SIZE = 512 * 1024
+export const NATIVE_FILE_CHUNK_SIZE = 1024 * 1024
+export const NATIVE_FILE_CHUNK_TIMEOUT_MS = 30_000
+export const NATIVE_FILE_READ_TIMEOUT_MS = 5 * 60_000
+export const NATIVE_LOCAL_IMPORT_TIMEOUT_MS = 10 * 60_000
+const NATIVE_FILE_SESSION_REQUIRED_BYTES = 5 * 1024 * 1024
 const INVALID_NATIVE_CHUNK_ERROR = 'Chunk invalido ao ler EPUB nativo.'
+
+export interface NativeReadFileOptions {
+  importId?: string
+  chunkTimeoutMs?: number
+  readTimeoutMs?: number
+  signal?: AbortSignal
+}
+
+export interface NativeLocalImportOptions {
+  importId?: string
+  timeoutMs?: number
+  signal?: AbortSignal
+}
 
 export async function selectNativeEpubFolder(): Promise<{ folderName: string; folderUri: string; files: NativeFolderFile[] } | null> {
   if (!Capacitor.isNativePlatform()) return null
@@ -104,9 +169,137 @@ export async function consumePendingNativeFileSelection(): Promise<NativeFolderF
   }
 }
 
-export async function readNativeFolderFile(file: NativeFolderFile): Promise<File> {
-  if (file.base64) return fileFromChunks([base64ToArrayBuffer(file.base64)], file.name, file.path)
-  return readNativeFolderFileInChunks(file)
+export async function prepareLocalEpubImport(
+  file: NativeFolderFile,
+  options: NativeLocalImportOptions = {},
+): Promise<NativePreparedEpub> {
+  if (typeof NeoReaderLibrary.prepareLocalEpubImport !== 'function') {
+    throw new Error('Importacao local nativa indisponivel nesta versao do app Android.')
+  }
+
+  const importId = options.importId ?? `native-local-${Date.now().toString(36)}`
+  const context: ImportDiagnosticContext = options.importId
+    ? { importId, mode: 'native-read', startedAt: performance.now() }
+    : createImportDiagnosticContext('native-read', {
+      fileName: file.name,
+      reportedSize: file.size,
+      stage: 'native-local-prepare-start',
+    })
+  if (options.importId) {
+    logImportDiagnostic(context, 'native-local-prepare-start', {
+      fileName: file.name,
+      reportedSize: file.size,
+    })
+  }
+  throwIfNativeReadAborted(options.signal, context, {
+    fileName: file.name,
+    reportedSize: file.size,
+  })
+
+  const startedAt = performance.now()
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  let cleanupAbortListener: (() => void) | undefined
+  const nativeTask = NeoReaderLibrary.prepareLocalEpubImport({ ...file, importId })
+
+  const cancelNative = () => {
+    if (typeof NeoReaderLibrary.cancelImport === 'function') {
+      void NeoReaderLibrary.cancelImport({ importId }).catch(() => undefined)
+    }
+  }
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      cancelNative()
+      const error = new Error('Tempo limite excedido durante native-local-prepare.')
+      errorImportDiagnostic(context, 'timeout', error, {
+        importId,
+        timedOutStage: 'native-local-prepare',
+        timeoutMs: options.timeoutMs ?? NATIVE_LOCAL_IMPORT_TIMEOUT_MS,
+        fileName: file.name,
+        reportedSize: file.size,
+      })
+      reject(error)
+    }, options.timeoutMs ?? NATIVE_LOCAL_IMPORT_TIMEOUT_MS)
+  })
+
+  const abortPromise = new Promise<never>((_, reject) => {
+    if (!options.signal) return
+    const handleAbort = () => {
+      cancelNative()
+      const error = nativeReadAbortError(options.signal!)
+      errorImportDiagnostic(context, 'native-local-prepare-aborted', error, {
+        importId,
+        fileName: file.name,
+        reportedSize: file.size,
+      })
+      reject(error)
+    }
+    options.signal.addEventListener('abort', handleAbort, { once: true })
+    cleanupAbortListener = () => options.signal?.removeEventListener('abort', handleAbort)
+  })
+
+  try {
+    const prepared = await Promise.race([nativeTask, timeoutPromise, abortPromise])
+    logImportDiagnostic(context, 'native-local-prepare-finished', {
+      fileName: prepared.name,
+      reportedSize: file.size,
+      localSize: prepared.size,
+      localUri: prepared.localUri,
+      originalUri: prepared.originalUri,
+      sha256Prefix: prepared.sha256.slice(0, 12),
+      copyMs: prepared.diagnostics.copyMs,
+      inspectMs: prepared.diagnostics.inspectMs,
+      bytesCopied: prepared.diagnostics.bytesCopied,
+      elapsedMs: Math.round(performance.now() - startedAt),
+    })
+    return prepared
+  } catch (error) {
+    errorImportDiagnostic(context, 'native-local-prepare-failed', error, {
+      fileName: file.name,
+      reportedSize: file.size,
+      elapsedMs: Math.round(performance.now() - startedAt),
+    })
+    throw error
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId)
+    cleanupAbortListener?.()
+  }
+}
+
+export async function deleteLocalBookFile(uri: string): Promise<boolean> {
+  if (typeof NeoReaderLibrary.deleteLocalBookFile !== 'function') return false
+  const result = await NeoReaderLibrary.deleteLocalBookFile({ uri })
+  return result.deleted === true
+}
+
+export async function cleanupNativeImportTemp(): Promise<number> {
+  if (typeof NeoReaderLibrary.cleanupImportTemp !== 'function') return 0
+  const result = await NeoReaderLibrary.cleanupImportTemp()
+  return typeof result.deleted === 'number' ? result.deleted : 0
+}
+
+export async function readNativeFolderFile(file: NativeFolderFile, options: NativeReadFileOptions = {}): Promise<File> {
+  throwIfNativeReadAborted(options.signal, undefined, {
+    fileName: file.name,
+    reportedSize: file.size,
+  })
+
+  if (file.base64) {
+    const context = createNativeReadContext(file, options)
+    const buffer = base64ToArrayBuffer(file.base64)
+    throwIfNativeReadAborted(options.signal, context, {
+      fileName: file.name,
+      reportedSize: file.size,
+    })
+    logImportDiagnostic(context, 'native-read-base64-finished', {
+      fileName: file.name,
+      bytesRead: buffer.byteLength,
+      reportedSize: file.size,
+    })
+    return fileFromChunks([buffer], file.name, file.path)
+  }
+
+  return readNativeFolderFileInChunks(file, options)
 }
 
 function isFolderSelectionCanceled(error: unknown): boolean {
@@ -138,60 +331,333 @@ async function loadAllSelectedFolderFiles(initialPage: Partial<NativeFolderResul
   return files
 }
 
-async function readNativeFolderFileInChunks(file: NativeFolderFile): Promise<File> {
+async function readNativeFolderFileInChunks(file: NativeFolderFile, options: NativeReadFileOptions): Promise<File> {
   const chunks: ArrayBuffer[] = []
   let offset = 0
   let chunkCount = 0
   const startedAt = performance.now()
+  const readTimeoutMs = options.readTimeoutMs ?? NATIVE_FILE_READ_TIMEOUT_MS
   let lastProgressLogAt = startedAt
-
-  logNativeImportDiagnostic('read-start', {
+  const context = createNativeReadContext(file, options)
+  throwIfNativeReadAborted(options.signal, context, {
     fileName: file.name,
     reportedSize: file.size,
-    hasPath: Boolean(file.path),
-    chunkSize: NATIVE_FILE_CHUNK_SIZE,
+    stage: 'before-session-open',
   })
+  const sessionId = await openNativeFileReadSession(file, options, context)
 
-  while (true) {
-    const chunk = await NeoReaderLibrary.readFileChunk({
-      ...file,
-      offset,
-      length: NATIVE_FILE_CHUNK_SIZE,
-    })
-    const chunkBytes = validateNativeChunk(chunk, offset)
-    const bytesRead = chunkBytes?.byteLength ?? 0
-
-    if (chunkBytes) chunks.push(chunkBytes)
-    offset += bytesRead
-    chunkCount += 1
-
-    const now = performance.now()
-    if (chunk.done || bytesRead === 0 || now - lastProgressLogAt >= 1000) {
-      logNativeImportDiagnostic('read-progress', {
+  try {
+    while (true) {
+      throwIfNativeReadAborted(options.signal, context, {
         fileName: file.name,
-        chunks: chunkCount,
-        bytesRead: offset,
         reportedSize: file.size,
-        lastChunkBytes: bytesRead,
-        done: chunk.done === true,
-        elapsedMs: Math.round(now - startedAt),
+        bytesRead: offset,
+        chunks: chunkCount,
       })
-      lastProgressLogAt = now
-    }
 
-    if (bytesRead === 0 || chunk.done) break
-    await new Promise((resolve) => setTimeout(resolve, 0))
+      if (performance.now() - startedAt > readTimeoutMs) {
+        const error = new Error(`Tempo limite excedido durante leitura nativa do EPUB ${file.name}.`)
+        errorImportDiagnostic(context, 'native-read-timeout', error, {
+          fileName: file.name,
+          chunks: chunkCount,
+          bytesRead: offset,
+          reportedSize: file.size,
+          timeoutMs: readTimeoutMs,
+          hasSession: Boolean(sessionId),
+        })
+        throw error
+      }
+
+      const chunk = await readNativeChunkWithTimeout(file, offset, options, context, sessionId)
+      throwIfNativeReadAborted(options.signal, context, {
+        fileName: file.name,
+        reportedSize: file.size,
+        bytesRead: offset,
+        chunks: chunkCount,
+        stage: 'after-chunk',
+      })
+      const chunkBytes = validateNativeChunk(chunk, offset)
+      const bytesRead = chunkBytes?.byteLength ?? 0
+
+      if (chunkBytes) chunks.push(chunkBytes)
+      offset += bytesRead
+      chunkCount += 1
+
+      const now = performance.now()
+      if (chunk.done || bytesRead === 0 || now - lastProgressLogAt >= 1000) {
+        logImportDiagnostic(context, 'native-read-progress', {
+          fileName: file.name,
+          chunks: chunkCount,
+          bytesRead: offset,
+          reportedSize: file.size,
+          lastChunkBytes: bytesRead,
+          done: chunk.done === true,
+          hasSession: Boolean(sessionId),
+          elapsedMs: Math.round(now - startedAt),
+        })
+        lastProgressLogAt = now
+      }
+
+      if (bytesRead === 0 || chunk.done) break
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+  } finally {
+    await closeNativeFileReadSession(sessionId, options, context)
   }
 
   if (chunks.length === 0) throw new Error('Arquivo da pasta sem conteudo.')
-  logNativeImportDiagnostic('read-finished', {
+  logImportDiagnostic(context, 'native-read-finished', {
     fileName: file.name,
     chunks: chunkCount,
     bytesRead: offset,
     reportedSize: file.size,
+    hasSession: Boolean(sessionId),
     elapsedMs: Math.round(performance.now() - startedAt),
   })
   return fileFromChunks(chunks, file.name, file.path)
+}
+
+async function openNativeFileReadSession(
+  file: NativeFolderFile,
+  options: NativeReadFileOptions,
+  context: ImportDiagnosticContext,
+): Promise<string | undefined> {
+  if (typeof NeoReaderLibrary.openFileReadSession !== 'function') return undefined
+
+  const requireSession = shouldRequireNativeReadSession(file)
+  let closeLateSession = false
+  try {
+    const sessionTask = NeoReaderLibrary.openFileReadSession(file)
+    if (!sessionTask || typeof sessionTask.then !== 'function') return undefined
+    void sessionTask
+      .then((session) => {
+        const sessionId = typeof session?.sessionId === 'string' ? session.sessionId : undefined
+        if ((options.signal?.aborted || closeLateSession) && sessionId) {
+          void closeNativeFileReadSession(sessionId, options, context)
+        }
+      })
+      .catch(() => undefined)
+
+    const session = await withImportTimeout(
+      withNativeReadAbort(
+        sessionTask,
+        options.signal,
+        context,
+        'native-read-session-open-aborted',
+        {
+          fileName: file.name,
+          reportedSize: file.size,
+        },
+      ),
+      {
+        context,
+        stage: 'native-read-session-open',
+        timeoutMs: options.chunkTimeoutMs ?? NATIVE_FILE_CHUNK_TIMEOUT_MS,
+        details: {
+          fileName: file.name,
+          reportedSize: file.size,
+        },
+      },
+    )
+    const sessionId = typeof session?.sessionId === 'string' ? session.sessionId : undefined
+    if (!session) return undefined
+
+    if (!sessionId) {
+      const details = {
+        fileName: file.name,
+        reportedSize: file.size,
+        responseKeys: session ? Object.keys(session) : [],
+      }
+      if (requireSession) {
+        const error = new Error(`Nao foi possivel abrir sessao nativa de leitura para ${file.name}.`)
+        errorImportDiagnostic(context, 'native-read-session-open-failed', error, details)
+        throw error
+      }
+      warnImportDiagnostic(context, 'native-read-session-open-empty', details)
+      return undefined
+    }
+
+    logImportDiagnostic(context, 'native-read-session-opened', {
+      fileName: file.name,
+      reportedSize: file.size,
+      nativeSize: session.size,
+      mode: session.mode,
+      hasSession: true,
+    })
+    return sessionId
+  } catch (error) {
+    closeLateSession = true
+    if (isAbortError(error)) throw error
+    const details = {
+      fileName: file.name,
+      reportedSize: file.size,
+      error: error instanceof Error ? error.message : String(error),
+      requireSession,
+    }
+    if (requireSession) {
+      errorImportDiagnostic(context, 'native-read-session-open-failed', error, details)
+      throw new Error(`Nao foi possivel abrir sessao nativa de leitura para ${file.name}.`)
+    }
+    warnImportDiagnostic(context, 'native-read-session-open-fallback', details)
+    return undefined
+  }
+}
+
+async function closeNativeFileReadSession(
+  sessionId: string | undefined,
+  options: NativeReadFileOptions,
+  context: ImportDiagnosticContext,
+): Promise<void> {
+  if (!sessionId || typeof NeoReaderLibrary.closeFileReadSession !== 'function') return
+
+  try {
+    const result = await withImportTimeout(
+      NeoReaderLibrary.closeFileReadSession({ sessionId }),
+      {
+        context,
+        stage: 'native-read-session-close',
+        timeoutMs: Math.min(options.chunkTimeoutMs ?? NATIVE_FILE_CHUNK_TIMEOUT_MS, 5_000),
+        details: {
+          sessionId,
+        },
+      },
+    )
+    logImportDiagnostic(context, 'native-read-session-closed', {
+      closed: result.closed === true,
+    })
+  } catch (error) {
+    warnImportDiagnostic(context, 'native-read-session-close-failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+}
+
+function createNativeReadContext(file: NativeFolderFile, options: NativeReadFileOptions): ImportDiagnosticContext {
+  if (options.importId) {
+    const context: ImportDiagnosticContext = {
+      importId: options.importId,
+      mode: 'native-read',
+      startedAt: performance.now(),
+    }
+    logImportDiagnostic(context, 'native-read-start', {
+      fileName: file.name,
+      reportedSize: file.size,
+      hasPath: Boolean(file.path),
+      chunkSize: NATIVE_FILE_CHUNK_SIZE,
+      chunkTimeoutMs: options.chunkTimeoutMs ?? NATIVE_FILE_CHUNK_TIMEOUT_MS,
+      readTimeoutMs: options.readTimeoutMs ?? NATIVE_FILE_READ_TIMEOUT_MS,
+    })
+    return context
+  }
+
+  return createImportDiagnosticContext('native-read', {
+    fileName: file.name,
+    reportedSize: file.size,
+    hasPath: Boolean(file.path),
+    chunkSize: NATIVE_FILE_CHUNK_SIZE,
+    chunkTimeoutMs: options.chunkTimeoutMs ?? NATIVE_FILE_CHUNK_TIMEOUT_MS,
+    readTimeoutMs: options.readTimeoutMs ?? NATIVE_FILE_READ_TIMEOUT_MS,
+  })
+}
+
+async function readNativeChunkWithTimeout(
+  file: NativeFolderFile,
+  offset: number,
+  options: NativeReadFileOptions,
+  context: ImportDiagnosticContext,
+  sessionId?: string,
+): Promise<NativeFileChunk> {
+  return withImportTimeout(
+    withNativeReadAbort(
+      NeoReaderLibrary.readFileChunk({
+        ...file,
+        offset,
+        length: NATIVE_FILE_CHUNK_SIZE,
+        sessionId,
+      }),
+      options.signal,
+      context,
+      'native-read-chunk-aborted',
+      {
+        fileName: file.name,
+        offset,
+        length: NATIVE_FILE_CHUNK_SIZE,
+        hasSession: Boolean(sessionId),
+      },
+    ),
+    {
+      context,
+      stage: 'native-read-chunk',
+      timeoutMs: options.chunkTimeoutMs ?? NATIVE_FILE_CHUNK_TIMEOUT_MS,
+      details: {
+        fileName: file.name,
+        offset,
+        length: NATIVE_FILE_CHUNK_SIZE,
+        hasSession: Boolean(sessionId),
+      },
+    },
+  )
+}
+
+function shouldRequireNativeReadSession(file: NativeFolderFile): boolean {
+  return file.size >= NATIVE_FILE_SESSION_REQUIRED_BYTES
+}
+
+function throwIfNativeReadAborted(
+  signal: AbortSignal | undefined,
+  context: ImportDiagnosticContext | undefined,
+  details: Record<string, unknown>,
+): void {
+  if (!signal?.aborted) return
+  const error = nativeReadAbortError(signal)
+  errorImportDiagnostic(context ?? 'native-read', 'native-read-aborted', error, details)
+  throw error
+}
+
+async function withNativeReadAbort<T>(
+  task: Promise<T>,
+  signal: AbortSignal | undefined,
+  context: ImportDiagnosticContext,
+  stage: string,
+  details: Record<string, unknown>,
+): Promise<T> {
+  if (!signal) return task
+  throwIfNativeReadAborted(signal, context, details)
+
+  let cleanup: (() => void) | undefined
+  const abortPromise = new Promise<never>((_, reject) => {
+    const handleAbort = () => {
+      const error = nativeReadAbortError(signal)
+      errorImportDiagnostic(context, stage, error, details)
+      reject(error)
+    }
+    signal.addEventListener('abort', handleAbort, { once: true })
+    cleanup = () => signal.removeEventListener('abort', handleAbort)
+  })
+
+  try {
+    return await Promise.race([task, abortPromise])
+  } finally {
+    cleanup?.()
+  }
+}
+
+function nativeReadAbortError(signal: AbortSignal): Error {
+  const reason = signal.reason
+  if (reason instanceof Error) return reason
+  const message = typeof reason === 'string' && reason.trim()
+    ? reason
+    : 'Importacao cancelada.'
+  if (typeof DOMException !== 'undefined') {
+    return new DOMException(message, 'AbortError')
+  }
+  const error = new Error(message)
+  error.name = 'AbortError'
+  return error
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError'
 }
 
 function base64ToArrayBuffer(base64: string): ArrayBuffer {
@@ -210,7 +676,7 @@ function validateNativeChunk(chunk: NativeFileChunk | null | undefined, expected
 
   const reportedOffset = toFiniteNumber(chunk.offset, expectedOffset)
   if (reportedOffset !== expectedOffset) {
-    warnNativeChunkMismatch('offset', {
+    throwInvalidNativeChunk('offset-mismatch', {
       expectedOffset,
       reportedOffset,
       ...nativeChunkDiagnostics(chunk),
@@ -279,19 +745,12 @@ function toFiniteNumber(value: unknown, fallback: number): number {
 }
 
 function throwInvalidNativeChunk(reason: string, details: Record<string, unknown>): never {
-  console.error('Native EPUB chunk invalid', safeDiagnosticJson({
-    reason,
-    ...details,
-  }))
+  errorImportDiagnostic('native-read', 'native-chunk-invalid', new Error(reason), details)
   throw new Error(`${INVALID_NATIVE_CHUNK_ERROR} [${reason}]`)
 }
 
 function warnNativeChunkMismatch(kind: string, details: Record<string, unknown>): void {
-  console.warn(`Native EPUB chunk ${kind} mismatch`, safeDiagnosticJson(details))
-}
-
-function logNativeImportDiagnostic(stage: string, details: Record<string, unknown>): void {
-  console.info(`Native EPUB import ${stage}`, safeDiagnosticJson(details))
+  warnImportDiagnostic('native-read', `native-chunk-${kind}-mismatch`, details)
 }
 
 function nativeChunkDiagnostics(chunk: NativeFileChunk): Record<string, unknown> {
@@ -303,14 +762,6 @@ function nativeChunkDiagnostics(chunk: NativeFileChunk): Record<string, unknown>
     reportedBytesReadType: typeof chunk.bytesRead,
     done: chunk.done,
     base64Length: typeof chunk.base64 === 'string' ? chunk.base64.length : null,
-  }
-}
-
-function safeDiagnosticJson(details: Record<string, unknown>): string {
-  try {
-    return JSON.stringify(details)
-  } catch {
-    return String(details)
   }
 }
 

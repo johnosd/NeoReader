@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { App as CapApp } from '@capacitor/app'
+import { Capacitor } from '@capacitor/core'
 import { HomeScreen } from './screens/HomeScreen'
 import { LibraryScreen } from './screens/LibraryScreen'
 import { BookDetailsScreen } from './screens/BookDetailsScreen'
@@ -14,6 +16,8 @@ import { ErrorBoundary, Spinner } from './components/ui'
 import { useAuth } from './hooks/useAuth'
 import { AdsService } from './services/AdsService'
 import { BillingService } from './services/BillingService'
+import { BookImportService } from './services/BookImportService'
+import { cleanupNativeImportTemp } from './services/NativeLibraryImportService'
 import type { Book } from './types/book'
 
 type Route =
@@ -73,6 +77,26 @@ function App() {
       console.warn('[Ads] Falha ao inicializar:', err)
     })
   }, [signedInUid])
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return
+
+    void cleanupNativeImportTemp().catch(() => undefined)
+
+    let disposed = false
+    const listenerPromise = CapApp.addListener('appStateChange', (state) => {
+      if (!disposed && !state.isActive) {
+        BookImportService.cancelActiveImport('app-backgrounded')
+      }
+    })
+
+    return () => {
+      disposed = true
+      void listenerPromise
+        .then((listener) => listener.remove())
+        .catch(() => undefined)
+    }
+  }, [])
 
   function completeWelcome() {
     setWelcomeSeen()

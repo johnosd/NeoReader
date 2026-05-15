@@ -48,10 +48,16 @@ $fullLog = Join-Path $logDir "android-import-$timestamp-full.log"
 $filteredLog = Join-Path $logDir "android-import-$timestamp-filtered.log"
 $diagnosticsLog = Join-Path $logDir "android-import-$timestamp-diagnostics.log"
 $pattern = @(
+  "NeoReaderImport",
   "NeoReaderLibrary",
   "EPUB import",
   "Native EPUB import",
   "Native EPUB chunk",
+  "ads-",
+  "billing-",
+  "AdMob",
+  "RevenueCat",
+  "Purchases",
   "Chunk invalido",
   "Book import failed",
   "Capacitor/Console",
