@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { ArrowLeft, Check, ChevronDown, ChevronRight, Eye, EyeOff, Globe, Info, KeyRound, Mic2, Palette, PlayCircle, Volume2 } from 'lucide-react'
+import { ArrowLeft, Check, ChevronDown, ChevronRight, Eye, EyeOff, Globe, Info, KeyRound, Mic2, Palette, PlayCircle, Sparkles, Volume2 } from 'lucide-react'
 import { Badge, BottomSheet, Input, ListItem, Spinner } from '../components/ui'
+import { useEntitlements, useRefreshEntitlementsOnFocus } from '../hooks/useEntitlements'
+import { BillingService } from '../services/BillingService'
 import {
   ReaderFontControl,
   ReaderFontSizeControl,
@@ -23,6 +25,7 @@ import { getLanguageLabel, TRANSLATION_LANGUAGE_OPTIONS } from '../utils/languag
 
 interface SettingsScreenProps {
   onBack: () => void
+  onOpenPaywall: () => void
 }
 
 type KeyValidationStatus = 'idle' | 'validating' | 'valid' | 'invalid'
@@ -94,7 +97,9 @@ function ValidationBadge({ state, emptyLabel }: { state: KeyValidationState; emp
   return <p className="text-xs text-text-muted">{emptyLabel}</p>
 }
 
-export function SettingsScreen({ onBack }: SettingsScreenProps) {
+export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
+  const entitlements = useEntitlements()
+  useRefreshEntitlementsOnFocus()
   const [settings, setSettings] = useState<UserSettings | null>(null)
   const [showTtsKeys, setShowTtsKeys] = useState<Record<PremiumTtsProvider, boolean>>(EMPTY_TTS_KEY_VISIBILITY)
   const [showYoutubeKey, setShowYoutubeKey] = useState(false)
@@ -263,6 +268,28 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
       </header>
 
       <div className="flex flex-col gap-7 px-4 pt-5">
+        <SettingsSection
+          icon={<Sparkles size={17} />}
+          label="Plano"
+          description="Conheca o NeoReader Pro - em breve."
+        >
+          <SettingsGroup>
+            <ListItem
+              leading={<Sparkles size={20} className="text-purple-light" />}
+              title="NeoReader Pro"
+              meta={getPlanMeta(entitlements, BillingService.isAvailable())}
+              trailing={(
+                <div className="flex items-center gap-2">
+                  {entitlements.isPro && <Badge tone="success">Ativo</Badge>}
+                  <ChevronRight size={18} />
+                </div>
+              )}
+              onClick={onOpenPaywall}
+              divider={false}
+            />
+          </SettingsGroup>
+        </SettingsSection>
+
         <SettingsSection
           icon={<Palette size={17} />}
           label="Aparencia"
@@ -480,6 +507,21 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
       </BottomSheet>
     </div>
   )
+}
+
+function getPlanMeta(
+  entitlements: ReturnType<typeof useEntitlements>,
+  _billingAvailable: boolean,
+): string {
+  // Hoje o Pro nao esta a venda - tela serve como preview do que vem por ai.
+  // Quando o Pro for ativado, este texto volta a refletir o status real do entitlement.
+  if (entitlements.isPro) {
+    if (entitlements.expiresAt) {
+      return `Renova em ${entitlements.expiresAt.toLocaleDateString('pt-BR')}`
+    }
+    return 'Acesso vitalicio'
+  }
+  return 'Em desenvolvimento - veja o que vem por ai'
 }
 
 function SettingsSection({

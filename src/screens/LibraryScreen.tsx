@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Capacitor } from '@capacitor/core'
 import { ArrowUpDown, BookOpen, Check, FileText, FolderOpen, MoreVertical, Plus, Search, Star, Tag, Trash2, X } from 'lucide-react'
+import { AdBannerSlot } from '../components/AdBannerSlot'
 import { BottomNav } from '../components/BottomNav'
 import { QuickBookActionsSheet } from '../components/QuickBookActionsSheet'
 import { BottomSheet, Button, Checkbox, EmptyState, Input, Skeleton, Spinner, Toast } from '../components/ui'
@@ -8,8 +9,11 @@ import { setBookTags, toggleFavorite } from '../db/books'
 import { createTag, deleteTag } from '../db/tags'
 import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
 import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
+import { useIsImportActive } from '../hooks/useImportActivity'
 import { useLibraryCatalog, type LibraryBook, type LibraryFilter, type LibrarySort } from '../hooks/useLibraryCatalog'
 import { BookImportService, type FolderImportOptions, type ImportPreviewItem, type ImportProgress, type ImportSummary } from '../services/BookImportService'
+import { IMPORT_IN_PROGRESS_MESSAGE } from '../services/ImportCoordinator'
+import { logImportDiagnostic } from '../services/ImportDiagnostics'
 import { consumePendingNativeFileSelection, consumePendingNativeFolderSelection, selectNativeEpubFile, selectNativeEpubFolder, type NativeFolderFile } from '../services/NativeLibraryImportService'
 import type { Book, BookTag } from '../types/book'
 
@@ -64,6 +68,8 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
   const [importing, setImporting] = useState(false)
   const folderInputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const importActive = useIsImportActive()
+  const importBusy = importing || importActive
 
   const openNativeFolderResult = useCallback((result: { folderName: string; folderUri: string; files: NativeFolderFile[] }) => {
     setImportFlow({
@@ -99,6 +105,7 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
     let active = true
     void consumePendingNativeFileSelection().then(async (nativeFile) => {
       if (!active || !nativeFile) return
+      logImportDiagnostic('ui', 'library-pending-native-file-start', { fileName: nativeFile.name, fileSize: nativeFile.size })
       setImporting(true)
       setImportError(null)
       try {
@@ -107,6 +114,7 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
         setImportError(error instanceof Error ? error.message : 'Erro ao importar arquivo.')
       } finally {
         if (active) setImporting(false)
+        logImportDiagnostic('ui', 'library-pending-native-file-finished', { fileName: nativeFile.name })
       }
     }).catch(() => undefined)
     return () => { active = false }
@@ -133,6 +141,10 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
     const selectedFiles = Array.from(e.target.files ?? [])
     e.target.value = ''
     if (selectedFiles.length === 0) return
+    if (BookImportService.isImportInProgress()) {
+      setImportError(IMPORT_IN_PROGRESS_MESSAGE)
+      return
+    }
 
     const folderName = getFolderName(selectedFiles)
     const files = filterEpubFiles(selectedFiles)
@@ -159,6 +171,10 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const files = filterEpubFiles(Array.from(e.target.files ?? []))
     e.target.value = ''
+    if (BookImportService.isImportInProgress()) {
+      setImportError(IMPORT_IN_PROGRESS_MESSAGE)
+      return
+    }
     if (files.length === 0) {
       setImportError('Nenhum EPUB selecionado.')
       return
@@ -179,6 +195,12 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
   }
 
   async function chooseFolder() {
+    if (BookImportService.isImportInProgress()) {
+      setImportError(IMPORT_IN_PROGRESS_MESSAGE)
+      return
+    }
+
+    logImportDiagnostic('ui', 'library-choose-folder-start')
     setImporting(true)
     setImportError(null)
     try {
@@ -195,16 +217,23 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
       setImportError(error instanceof Error ? error.message : 'Erro ao selecionar pasta.')
     } finally {
       setImporting(false)
+      logImportDiagnostic('ui', 'library-choose-folder-finished')
     }
   }
 
   async function importFilesAction() {
+    if (BookImportService.isImportInProgress()) {
+      setImportError(IMPORT_IN_PROGRESS_MESSAGE)
+      return
+    }
+
     if (!Capacitor.isNativePlatform()) {
       fileInputRef.current?.click()
       return
     }
 
     setActionSheetOpen(false)
+    logImportDiagnostic('ui', 'library-native-file-import-start')
     setImporting(true)
     setImportError(null)
     try {
@@ -215,10 +244,20 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
       setImportError(error instanceof Error ? error.message : 'Erro ao importar arquivo.')
     } finally {
       setImporting(false)
+      logImportDiagnostic('ui', 'library-native-file-import-finished')
     }
   }
 
   async function buildPreview(options: ImportOptionsState) {
+    if (BookImportService.isImportInProgress()) {
+      setImportError(IMPORT_IN_PROGRESS_MESSAGE)
+      return
+    }
+
+    logImportDiagnostic('ui', 'library-build-preview-start', {
+      folderName: options.folderName,
+      native: Boolean(options.nativeFiles),
+    })
     setImporting(true)
     try {
       const nativeFiles = resolveNativeImportFiles(options)
@@ -237,6 +276,9 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
       setImportError(error instanceof Error ? error.message : 'Erro ao escanear arquivos.')
     } finally {
       setImporting(false)
+      logImportDiagnostic('ui', 'library-build-preview-finished', {
+        folderName: options.folderName,
+      })
     }
   }
 
@@ -256,6 +298,15 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
 
   async function confirmImport() {
     if (importFlow.step !== 'preview') return
+    if (BookImportService.isImportInProgress()) {
+      setImportError(IMPORT_IN_PROGRESS_MESSAGE)
+      return
+    }
+    logImportDiagnostic('ui', 'library-confirm-import-start', {
+      folderName: importFlow.folderName,
+      total: importFlow.preview.filter((item) => item.selected).length,
+      native: Boolean(importFlow.nativeFiles),
+    })
     setImporting(true)
     setImportProgress(null)
     setImportError(null)
@@ -286,6 +337,9 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
     } finally {
       setImporting(false)
       setImportProgress(null)
+      logImportDiagnostic('ui', 'library-confirm-import-finished', {
+        folderName: importFlow.folderName,
+      })
     }
   }
 
@@ -309,9 +363,16 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
           </div>
           <button
             type="button"
-            onClick={() => setActionSheetOpen(true)}
+            onClick={() => {
+              if (importBusy) {
+                setImportError(IMPORT_IN_PROGRESS_MESSAGE)
+                return
+              }
+              setActionSheetOpen(true)
+            }}
+            disabled={importBusy}
             aria-label="Importar livros"
-            className="flex h-11 w-11 items-center justify-center rounded-md bg-purple-primary text-white shadow-purple-glow transition-transform active:scale-95"
+            className="flex h-11 w-11 items-center justify-center rounded-md bg-purple-primary text-white shadow-purple-glow transition-transform active:scale-95 disabled:opacity-60"
           >
             <Plus size={22} strokeWidth={2.5} />
           </button>
@@ -414,6 +475,8 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
         )}
       </main>
 
+      <AdBannerSlot marginAboveBottomDp={64} suspended={importBusy} />
+
       <BottomNav
         activeTab="biblioteca"
         onTabChange={(tab) => {
@@ -446,7 +509,7 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
       <ImportFlowSheet
         state={importFlow}
         tags={tags}
-        importing={importing}
+        importing={importBusy}
         progress={importProgress}
         onClose={() => setImportFlow({ step: 'closed' })}
         onChooseFolder={() => void chooseFolder()}

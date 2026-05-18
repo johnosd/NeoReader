@@ -5,7 +5,10 @@ export async function getStoredEpubExtras(bookId: number): Promise<StoredEpubExt
   return db.epubExtras.get(bookId)
 }
 
-export async function saveEpubExtras(bookId: number, extras: EpubExtras): Promise<StoredEpubExtras> {
+export async function saveEpubExtras(
+  bookId: number,
+  extras: EpubExtras & Partial<Pick<StoredEpubExtras, 'parserVersion'>>,
+): Promise<StoredEpubExtras> {
   const record: StoredEpubExtras = {
     ...extras,
     bookId,

@@ -289,7 +289,7 @@ describe('BookDetailsScreen chapters', () => {
 
     await screen.findByText('Part I')
     expect(await screen.findByText('Chapter 1')).toBeTruthy()
-    expect(screen.getByText('Parou aqui')).toBeTruthy()
+    expect(screen.getByText('Agora')).toBeTruthy()
 
     fireEvent.click(screen.getByText('Part I'))
 
@@ -298,7 +298,7 @@ describe('BookDetailsScreen chapters', () => {
     })
   })
 
-  it('keeps chapter groups collapsed when there is no saved chapter inside', async () => {
+  it('usa o mesmo indice expansivel da tela de leitura', async () => {
     mocks.liveQueryIndex = 0
     mocks.progress = null
 
@@ -312,10 +312,12 @@ describe('BookDetailsScreen chapters', () => {
     )
 
     await screen.findByText('Part I')
+    expect(screen.getByText('Chapter 1')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Recolher' }))
     expect(screen.queryByText('Chapter 1')).toBeNull()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Expandir capitulo' }))
-
+    fireEvent.click(screen.getByRole('button', { name: 'Expandir' }))
     expect(screen.getByText('Chapter 1')).toBeTruthy()
   })
 

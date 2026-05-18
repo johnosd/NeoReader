@@ -1,4 +1,5 @@
 import { Compass } from 'lucide-react'
+import { AdBannerSlot } from '../components/AdBannerSlot'
 import { BottomNav } from '../components/BottomNav'
 import { NytBooksRow } from '../components/NytBooksRow'
 import { EmptyState } from '../components/ui'
@@ -79,6 +80,8 @@ export function DiscoverScreen({ onBack, onOpenHome, onOpenLibrary, onOpenProfil
           />
         )}
       </main>
+
+      <AdBannerSlot marginAboveBottomDp={64} />
 
       <BottomNav
         activeTab="discover"

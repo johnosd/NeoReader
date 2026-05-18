@@ -186,6 +186,15 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     setCurrentLoading(false)
   }, [clearStartNavigationFallbackTimer, setCurrentLoading])
 
+  const hideInitialLoading = useCallback(() => {
+    setCurrentLoading(false)
+  }, [setCurrentLoading])
+
+  const completeInitialStartNavigation = useCallback(() => {
+    pendingStartHrefRef.current = null
+    releaseInitialLoading()
+  }, [releaseInitialLoading])
+
   const scheduleStartNavigationFallback = useCallback(() => {
     clearStartNavigationFallbackTimer()
     startNavigationFallbackTimerRef.current = setTimeout(() => {
@@ -387,7 +396,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
       initialStartNavigationTriggeredRef.current &&
       isSectionHrefAtStartTarget(pendingStartHref, sectionHref)
     ) {
-      setCurrentLoading(false)
+      completeInitialStartNavigation()
     }
 
     handleTtsSectionReady()
@@ -526,8 +535,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
 
         if (!isRelocateAtStartTarget(pendingStartHref, location)) return
 
-        pendingStartHrefRef.current = null
-        releaseInitialLoading()
+        completeInitialStartNavigation()
       }
 
       const previousSectionIndex = activeSectionIndexRef.current
@@ -558,7 +566,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
         sectionLabel: tocLabel,
       })
     },
-    [releaseInitialLoading, saveProgress, setCfi, setCurrentSectionHrefForCurrentBook, setSectionChangeLabelForCurrentBook],
+    [completeInitialStartNavigation, saveProgress, setCfi, setCurrentSectionHrefForCurrentBook, setSectionChangeLabelForCurrentBook],
   )
 
   const buildProgressPayload = useCallback(
@@ -705,6 +713,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
           overrideBookFont={overrideBookFont}
           overrideBookColors={overrideBookColors}
           savedCfi={startHref ? null : savedCfi}
+          initialTarget={startHref ?? null}
           onRelocate={handleRelocate}
           onTocReady={setToc}
           onSectionReady={handleReaderSectionReady}
@@ -714,6 +723,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
               initialStartNavigationTriggeredRef.current = true
               scheduleStartNavigationFallback()
               viewerRef.current?.goTo(startHref)
+              hideInitialLoading()
               return
             } else {
               pendingStartHrefRef.current = null

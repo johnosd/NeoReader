@@ -7,6 +7,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "android:run": "npm run build && npx cap sync android && npx cap run android",
+    "android:logs:import": "powershell -ExecutionPolicy Bypass -File scripts/capture-android-import-logs.ps1",
+    "android:logs:import:run": "powershell -ExecutionPolicy Bypass -File scripts/capture-android-import-logs.ps1 -Seconds 120 -Launch",
+    "android:logs:import:run:dump": "powershell -ExecutionPolicy Bypass -File scripts/capture-android-import-logs.ps1 -Seconds 120 -Launch -ThreadDump",
     "lint": "eslint .",
     "postinstall": "node scripts/patch-capacitor-tts-proguard.mjs",
     "preview": "vite preview",
@@ -16,6 +19,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@capacitor-community/admob": "^8.0.0",
     "@capacitor-community/text-to-speech": "^8.0.0",
     "@capacitor-firebase/authentication": "^8.2.0",
     "@capacitor/android": "^8.3.0",
@@ -27,6 +31,7 @@
     "@fontsource/inter": "^5.2.8",
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@fontsource/playfair-display": "^5.2.8",
+    "@revenuecat/purchases-capacitor": "^11.0.0",
     "dexie": "^4.4.2",
     "dexie-react-hooks": "^4.4.0",
     "fflate": "^0.8.2",
@@ -51,6 +56,7 @@
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
+    "fake-indexeddb": "^6.2.5",
     "globals": "^17.4.0",
     "jsdom": "^29.0.2",
     "tailwindcss": "^4.2.2",

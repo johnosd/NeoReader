@@ -1,9 +1,24 @@
+import { Capacitor } from '@capacitor/core'
 import { db } from '../db/database'
 import { readNativeFolderFile, type NativeFolderFile } from './NativeLibraryImportService'
 import type { Book } from '../types/book'
 
 export class BookFileResolver {
   static async resolveFile(book: Book): Promise<Blob> {
+    if (book.storageMode === 'local') {
+      if (!book.uri) throw new Error('Arquivo do livro nao encontrado.')
+      try {
+        const response = await fetch(Capacitor.convertFileSrc(book.uri))
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        return await response.blob()
+      } catch {
+        if (book.id !== undefined) {
+          await db.books.update(book.id, { missingFile: true })
+        }
+        throw new Error('Este livro foi movido, apagado ou perdeu a permissao de acesso.')
+      }
+    }
+
     if (book.storageMode !== 'external' && book.fileBlob) {
       return book.fileBlob
     }
@@ -32,6 +47,15 @@ export class BookFileResolver {
     return new File([blob], book.fileName ?? `${book.title}.epub`, {
       type: 'application/epub+zip',
     })
+  }
+
+  static async resolveReaderSource(book: Book): Promise<Blob | string> {
+    if (book.storageMode === 'local') {
+      if (!book.uri) throw new Error('Arquivo do livro nao encontrado.')
+      return Capacitor.convertFileSrc(book.uri)
+    }
+
+    return this.resolveFile(book)
   }
 
   private static toNativeFile(book: Book): NativeFolderFile {

@@ -9,8 +9,11 @@ import { QuickBookActionsSheet } from '../components/QuickBookActionsSheet'
 import { BottomNav } from '../components/BottomNav'
 import { EmptyState, Skeleton, Toast } from '../components/ui'
 import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
+import { useIsImportActive } from '../hooks/useImportActivity'
 import { useLibraryGroups } from '../hooks/useLibraryGroups'
 import { BookImportService } from '../services/BookImportService'
+import { IMPORT_IN_PROGRESS_MESSAGE } from '../services/ImportCoordinator'
+import { logImportDiagnostic } from '../services/ImportDiagnostics'
 import { consumePendingNativeFileSelection, selectNativeEpubFile } from '../services/NativeLibraryImportService'
 import type { Book } from '../types/book'
 
@@ -28,6 +31,8 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
   const [importing, setImporting] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const importActive = useIsImportActive()
+  const importBusy = importing || importActive
 
   useCapacitorBackButton(() => {
     if (optionsBook) { setOptionsBook(null); return }
@@ -38,6 +43,7 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
     let active = true
     void consumePendingNativeFileSelection().then(async (nativeFile) => {
       if (!active || !nativeFile) return
+      logImportDiagnostic('ui', 'home-pending-native-file-start', { fileName: nativeFile.name, fileSize: nativeFile.size })
       setImporting(true)
       setImportError(null)
       try {
@@ -46,6 +52,7 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
         setImportError(err instanceof Error ? err.message : 'Erro ao importar o arquivo')
       } finally {
         if (active) setImporting(false)
+        logImportDiagnostic('ui', 'home-pending-native-file-finished', { fileName: nativeFile.name })
       }
     }).catch(() => undefined)
     return () => { active = false }
@@ -54,6 +61,12 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
+    if (BookImportService.isImportInProgress()) {
+      setImportError(IMPORT_IN_PROGRESS_MESSAGE)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      return
+    }
+    logImportDiagnostic('ui', 'home-web-file-import-start', { fileName: file.name, fileSize: file.size })
     setImporting(true)
     setImportError(null)
     try {
@@ -62,17 +75,24 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
       setImportError(err instanceof Error ? err.message : 'Erro ao importar o arquivo')
     } finally {
       setImporting(false)
+      logImportDiagnostic('ui', 'home-web-file-import-finished', { fileName: file.name })
       if (fileInputRef.current) fileInputRef.current.value = ''
     }
   }
 
   async function handleAddBook() {
+    if (BookImportService.isImportInProgress()) {
+      setImportError(IMPORT_IN_PROGRESS_MESSAGE)
+      return
+    }
+
     if (!Capacitor.isNativePlatform()) {
       fileInputRef.current?.click()
       return
     }
 
     setImporting(true)
+    logImportDiagnostic('ui', 'home-native-file-import-start')
     setImportError(null)
     try {
       const nativeFile = await selectNativeEpubFile()
@@ -82,6 +102,7 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
       setImportError(err instanceof Error ? err.message : 'Erro ao importar o arquivo')
     } finally {
       setImporting(false)
+      logImportDiagnostic('ui', 'home-native-file-import-finished')
     }
   }
 
@@ -144,7 +165,7 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
       {/* FAB de importar — flutua acima do nav bar */}
       <button
         onClick={handleAddBook}
-        disabled={importing}
+        disabled={importBusy}
         aria-label="Adicionar livro"
         className="fixed right-4 z-50 w-[52px] h-[52px] rounded-full flex items-center justify-center
           active:scale-90 transition-all duration-150 disabled:opacity-60"
@@ -154,7 +175,7 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
           boxShadow: '0 0 0 3px rgba(10,5,18,1), 0 0 20px rgba(123,44,191,0.55), 0 4px 16px rgba(0,0,0,0.5)',
         }}
       >
-        {importing
+        {importBusy
           ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
           : <Plus size={22} strokeWidth={2.5} className="text-white" />
         }

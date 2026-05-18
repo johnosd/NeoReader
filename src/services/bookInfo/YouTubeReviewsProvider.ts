@@ -46,7 +46,7 @@ export class YouTubeReviewsProvider implements BookInfoProvider {
     this.timeoutMs = options.timeoutMs
   }
 
-  async collect(_fileBlob: Blob, context?: ResolvedBookInfo): Promise<Partial<ResolvedBookInfo>> {
+  async collect(_fileBlob: Blob | null, context?: ResolvedBookInfo): Promise<Partial<ResolvedBookInfo>> {
     if (!this.apiKey) return {}
 
     const queries = this.buildQueries(context)

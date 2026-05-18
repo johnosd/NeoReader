@@ -46,7 +46,7 @@ export class BookInfoService {
   }
 
   async collect(
-    fileBlob: Blob,
+    fileBlob: Blob | null,
     initialContext?: Partial<ResolvedBookInfo>,
   ): Promise<ResolvedBookInfo> {
     let result: ResolvedBookInfo = { ...EMPTY_BOOK_INFO }

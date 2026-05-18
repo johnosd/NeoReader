@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   collectBookInfo: vi.fn(),
   invalidateExtrasCache: vi.fn(),
   readNativeFolderFile: vi.fn(),
+  prepareLocalEpubImport: vi.fn(),
+  deleteLocalBookFile: vi.fn(),
   transaction: vi.fn(),
   booksToArray: vi.fn(),
 }))
@@ -53,7 +55,10 @@ vi.mock('@/services/bookInfo', () => ({
 }))
 
 vi.mock('@/services/NativeLibraryImportService', () => ({
+  NATIVE_FILE_READ_TIMEOUT_MS: 300_000,
   readNativeFolderFile: mocks.readNativeFolderFile,
+  prepareLocalEpubImport: mocks.prepareLocalEpubImport,
+  deleteLocalBookFile: mocks.deleteLocalBookFile,
 }))
 
 import { BookImportService } from '@/services/BookImportService'
@@ -68,10 +73,13 @@ describe('BookImportService', () => {
     mocks.collectBookInfo.mockReset()
     mocks.invalidateExtrasCache.mockReset()
     mocks.readNativeFolderFile.mockReset()
+    mocks.prepareLocalEpubImport.mockReset()
+    mocks.deleteLocalBookFile.mockReset()
     mocks.transaction.mockReset()
     mocks.booksToArray.mockReset()
     mocks.booksToArray.mockResolvedValue([])
     mocks.saveSourceFolder.mockResolvedValue(3)
+    mocks.deleteLocalBookFile.mockResolvedValue(true)
     mocks.transaction.mockImplementation((...args: unknown[]) => {
       const scope = args.at(-1)
       if (typeof scope !== 'function') throw new Error('transaction scope ausente')
@@ -213,21 +221,16 @@ describe('BookImportService', () => {
     expect(mocks.saveBookCover).toHaveBeenCalledWith(15, coverBlob, 'manual-upload')
   })
 
-  it('salva importacao nativa como blob embedded e preserva a URI de origem', async () => {
-    const file = new File(['native epub'], 'native.epub', { type: 'application/epub+zip' })
+  it('salva importacao nativa como arquivo local privado e preserva a URI original', async () => {
+    const prepared = preparedNativeEpub({ size: 11 })
     const nativeFile = {
       name: 'native.epub',
       uri: 'content://books/native',
       path: 'Folder/native.epub',
-      size: file.size,
+      size: 99,
     }
 
-    mocks.readNativeFolderFile.mockResolvedValue(file)
-    mocks.parseMetadata.mockResolvedValue({
-      title: 'Native Book',
-      author: 'Native Author',
-      coverBlob: null,
-    })
+    mocks.prepareLocalEpubImport.mockResolvedValue(prepared)
     mocks.addBook.mockResolvedValue(51)
 
     await expect(BookImportService.importNativeEpub(nativeFile)).resolves.toBe(51)
@@ -235,11 +238,204 @@ describe('BookImportService', () => {
     expect(mocks.addBook).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Native Book',
       author: 'Native Author',
-      fileBlob: file,
-      storageMode: 'embedded',
+      fileBlob: undefined,
+      storageMode: 'local',
       fileName: 'native.epub',
       filePath: 'Folder/native.epub',
+      fileSize: prepared.size,
+      fileHash: prepared.sha256,
+      uri: prepared.localUri,
+      originalUri: prepared.originalUri,
+    }))
+    expect(mocks.prepareLocalEpubImport).toHaveBeenCalledWith(nativeFile, expect.objectContaining({
+      importId: expect.any(String),
+      signal: expect.any(AbortSignal),
+    }))
+    expect(mocks.readNativeFolderFile).not.toHaveBeenCalled()
+  })
+
+  it('finaliza importacao nativa sem aguardar enriquecimento externo', async () => {
+    const prepared = preparedNativeEpub({ coverBase64: null })
+    const nativeFile = {
+      name: 'native.epub',
       uri: 'content://books/native',
+      path: 'Folder/native.epub',
+      size: prepared.size,
+    }
+    let resolveCollect: (value: unknown) => void = () => {}
+
+    mocks.prepareLocalEpubImport.mockResolvedValue(prepared)
+    mocks.collectBookInfo.mockReturnValue(new Promise((resolve) => { resolveCollect = resolve }))
+    mocks.addBook.mockResolvedValue(51)
+
+    await expect(BookImportService.importNativeEpub(nativeFile)).resolves.toBe(51)
+
+    expect(mocks.addBook).toHaveBeenCalledTimes(1)
+    expect(mocks.collectBookInfo).toHaveBeenCalledTimes(1)
+    expect(mocks.collectBookInfo).toHaveBeenCalledWith(null, expect.objectContaining({
+      lookupHints: expect.objectContaining({
+        title: 'Native Book',
+        author: 'Native Author',
+      }),
+    }))
+    expect(mocks.saveBookInfo).not.toHaveBeenCalled()
+
+    resolveCollect({
+      category: null,
+      rating: null,
+      synopsis: null,
+      pageCount: null,
+      publishedDate: null,
+      universalIdentifier: null,
+      reviews: null,
+      lookupHints: {
+        title: 'Native Book',
+        author: 'Native Author',
+        identifiers: [],
+      },
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(mocks.saveBookInfo).toHaveBeenCalledWith(51, expect.objectContaining({
+      lookupHints: expect.objectContaining({
+        title: 'Native Book',
+      }),
+    }))
+  })
+
+  it('bloqueia outra importacao enquanto uma importacao nativa esta em andamento', async () => {
+    const prepared = preparedNativeEpub({ coverBase64: null })
+    const nativeFile = {
+      name: 'native.epub',
+      uri: 'content://books/native',
+      path: 'Folder/native.epub',
+      size: prepared.size,
+    }
+    let resolvePrepare: (prepared: ReturnType<typeof preparedNativeEpub>) => void = () => {}
+
+    mocks.prepareLocalEpubImport.mockReturnValueOnce(new Promise((resolve) => { resolvePrepare = resolve }))
+    mocks.addBook.mockResolvedValue(51)
+
+    const firstImport = BookImportService.importNativeEpub(nativeFile)
+    await Promise.resolve()
+
+    await expect(BookImportService.importNativeEpub({
+      ...nativeFile,
+      uri: 'content://books/second',
+    })).rejects.toThrow('Ja existe uma importacao em andamento')
+
+    resolvePrepare(prepared)
+    await expect(firstImport).resolves.toBe(51)
+    expect(mocks.prepareLocalEpubImport).toHaveBeenCalledTimes(1)
+    expect(mocks.prepareLocalEpubImport).toHaveBeenCalledWith(nativeFile, expect.objectContaining({
+      importId: expect.any(String),
+      signal: expect.any(AbortSignal),
+    }))
+  })
+
+  it('cancela a importacao ativa e nao salva registro parcial', async () => {
+    const nativeFile = {
+      name: 'cancel.epub',
+      uri: 'content://books/cancel',
+      path: 'Folder/cancel.epub',
+      size: 1024,
+    }
+
+    mocks.prepareLocalEpubImport.mockImplementation((_file, options?: { signal?: AbortSignal }) => (
+      new Promise((_resolve, reject) => {
+        options?.signal?.addEventListener('abort', () => reject(options.signal?.reason), { once: true })
+      })
+    ))
+
+    const pendingImport = BookImportService.importNativeEpub(nativeFile)
+    await Promise.resolve()
+
+    BookImportService.cancelActiveImport('teste')
+
+    await expect(pendingImport).rejects.toThrow('Importacao cancelada: teste.')
+    expect(mocks.addBook).not.toHaveBeenCalled()
+  })
+
+  it('remove arquivo local preparado quando a importacao nativa detecta duplicado', async () => {
+    const prepared = preparedNativeEpub({ sha256: 'b'.repeat(64) })
+    const nativeFile = {
+      name: 'native.epub',
+      uri: prepared.originalUri,
+      path: 'Folder/native.epub',
+      size: prepared.size,
+    }
+
+    mocks.prepareLocalEpubImport.mockResolvedValue(prepared)
+    mocks.booksToArray.mockResolvedValue([{
+      id: 1,
+      title: 'Existing',
+      author: 'Author',
+      fileHash: prepared.sha256,
+      fileName: 'existing.epub',
+      fileSize: prepared.size,
+    }])
+
+    await expect(BookImportService.importNativeEpub(nativeFile)).rejects.toThrow('Este livro ja esta na biblioteca.')
+
+    expect(mocks.addBook).not.toHaveBeenCalled()
+    expect(mocks.deleteLocalBookFile).toHaveBeenCalledWith(prepared.localUri)
+  })
+
+  it('salva lote nativo como arquivos locais sem embutir os EPUBs no IndexedDB', async () => {
+    const prepared = preparedNativeEpub({
+      name: 'native-batch.epub',
+      path: 'Folder/native-batch.epub',
+      originalUri: 'content://books/native-batch',
+      localUri: 'file:///data/user/0/com.johnny.neoreader/files/books/c.epub',
+      sha256: 'c'.repeat(64),
+      title: 'Native Batch Book',
+    })
+    const nativeFile = {
+      name: 'native-batch.epub',
+      uri: 'content://books/native-batch',
+      path: 'Folder/native-batch.epub',
+      size: prepared.size + 99,
+    }
+
+    mocks.prepareLocalEpubImport.mockResolvedValue(prepared)
+    mocks.addBook.mockResolvedValue(52)
+
+    const summary = await BookImportService.importSelectedBooks({
+      items: [{
+        id: 'native-batch',
+        nativeFile,
+        fileName: nativeFile.name,
+        fileSize: nativeFile.size,
+        format: 'EPUB',
+        supported: true,
+        duplicate: false,
+        selected: true,
+      }],
+      tagIds: [],
+      sourceFolder: {
+        folderName: 'Folder',
+        folderUri: 'content://folder',
+        includeSubfolders: true,
+        autoImportEnabled: false,
+      },
+    })
+
+    expect(summary).toEqual({
+      imported: 1,
+      duplicate: 0,
+      unsupported: 0,
+      errors: 0,
+    })
+    expect(mocks.addBook).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Native Batch Book',
+      fileBlob: undefined,
+      storageMode: 'local',
+      fileName: 'native-batch.epub',
+      filePath: 'Folder/native-batch.epub',
+      fileSize: prepared.size,
+      uri: prepared.localUri,
+      originalUri: prepared.originalUri,
     }))
   })
 
@@ -482,3 +678,48 @@ describe('BookImportService', () => {
     expect(mocks.addBook).toHaveBeenCalledTimes(1)
   })
 })
+
+function preparedNativeEpub(overrides: Partial<{
+  name: string
+  path: string
+  size: number
+  sha256: string
+  localUri: string
+  originalUri: string
+  title: string
+  author: string
+  coverBase64: string | null
+  localFileExisted: boolean
+}> = {}) {
+  const name = overrides.name ?? 'native.epub'
+  const sha256 = overrides.sha256 ?? 'a'.repeat(64)
+
+  return {
+    importId: 'native-import-1',
+    name,
+    path: overrides.path ?? `Folder/${name}`,
+    size: overrides.size ?? 11,
+    sha256,
+    localUri: overrides.localUri ?? `file:///data/user/0/com.johnny.neoreader/files/books/${sha256}.epub`,
+    originalUri: overrides.originalUri ?? `content://books/${name}`,
+    metadata: {
+      title: overrides.title ?? 'Native Book',
+      author: overrides.author ?? 'Native Author',
+      identifiers: [],
+      language: 'pt-BR',
+      description: 'Descricao nativa',
+    },
+    ...(overrides.coverBase64 === null ? {} : {
+      cover: {
+        base64: overrides.coverBase64 ?? btoa('cover'),
+        mimeType: 'image/jpeg',
+      },
+    }),
+    diagnostics: {
+      copyMs: 10,
+      inspectMs: 5,
+      bytesCopied: overrides.size ?? 11,
+      localFileExisted: overrides.localFileExisted ?? false,
+    },
+  }
+}

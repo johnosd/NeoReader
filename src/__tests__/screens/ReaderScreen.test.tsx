@@ -382,13 +382,27 @@ describe('ReaderScreen', () => {
     })
 
     expect(mocks.viewerHandle.goTo).toHaveBeenCalledWith('chapter-2.xhtml#frag')
-    expect(screen.getByTestId('reader-loading')).toBeTruthy()
+    expect(screen.queryByTestId('reader-loading')).toBeNull()
+
+    await act(async () => {
+      ;(mocks.epubViewerProps?.onRelocate as (payload: unknown) => void)({
+        cfi: 'epubcfi(/6/8!/4/2/1:0)',
+        percentage: 8,
+        tocLabel: 'Chapter 1',
+        sectionHref: 'chapter-1.xhtml',
+        fraction: 0.08,
+        sectionIndex: 0,
+      })
+    })
+
+    expect(mocks.readerStore.setCfi).not.toHaveBeenCalled()
+    expect(mocks.readerProgress.saveProgress).not.toHaveBeenCalled()
 
     await act(async () => {
       ;(mocks.epubViewerProps?.onSectionReady as (sectionIndex: number, sectionHref?: string) => void)(0, 'chapter-1.xhtml')
     })
 
-    expect(screen.getByTestId('reader-loading')).toBeTruthy()
+    expect(screen.queryByTestId('reader-loading')).toBeNull()
 
     await act(async () => {
       ;(mocks.epubViewerProps?.onSectionReady as (sectionIndex: number, sectionHref?: string) => void)(1, 'chapter-2.xhtml')
@@ -497,6 +511,7 @@ describe('ReaderScreen', () => {
     })
 
     expect(mocks.viewerHandle.goTo).toHaveBeenCalledWith(bookmarkCfi)
+    expect(screen.queryByTestId('reader-loading')).toBeNull()
 
     await act(async () => {
       ;(mocks.epubViewerProps?.onRelocate as (payload: unknown) => void)({

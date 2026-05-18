@@ -273,6 +273,33 @@ describe('EpubViewer — abertura do livro', () => {
 
     expect(onError).toHaveBeenCalledWith(expect.any(Error))
   })
+
+  it('abre diretamente no alvo inicial do indice quando informado', async () => {
+    const { foliateEl } = await renderViewer({ initialTarget: 'chapter-2.xhtml#target-heading' })
+
+    expect(foliateEl.init).not.toHaveBeenCalled()
+    expect(foliateEl.renderer.goTo).toHaveBeenCalledWith(expect.objectContaining({
+      index: 1,
+      anchor: expect.any(Function),
+    }))
+  })
+
+  it('normaliza XHTML malformado e remove scripts antes de entregar ao renderer', async () => {
+    const { foliateEl } = await renderViewer()
+    const detail = {
+      data: '<html xmlns="http://www.w3.org/1999/xhtml"><body><script src="/bad.js" async defer></script><p>Texto</p></body></html>',
+      type: 'application/xhtml+xml',
+    }
+
+    foliateEl.book.transformTarget.dispatchEvent(new CustomEvent('data', { detail }))
+    const transformed = await detail.data
+    const parsed = new DOMParser().parseFromString(transformed, 'application/xhtml+xml')
+
+    expect(parsed.querySelector('parsererror')).toBeNull()
+    expect(transformed).not.toContain('<script')
+    expect(transformed).not.toContain('async defer')
+    expect(parsed.querySelector('p')?.textContent).toBe('Texto')
+  })
 })
 
 describe('EpubViewer — seleção de texto', () => {
@@ -1229,7 +1256,7 @@ describe('EpubViewer — chapter auto-advance', () => {
     expect(target.anchor?.(doc)).toBe(heading)
   })
 
-  it('usa a navegacao nativa do Foliate quando o href do indice bate com o spine', async () => {
+  it('resolve explicitamente fragments do indice mesmo quando o href bate com o spine', async () => {
     const { viewerRef, foliateEl } = await renderViewer()
     foliateEl.book.sections = [
       { id: 'OPS/c01.xhtml', href: 'OPS/c01.xhtml', linear: 'yes' },
@@ -1241,8 +1268,19 @@ describe('EpubViewer — chapter auto-advance', () => {
     act(() => { viewerRef.current?.goTo('OPS/c02.xhtml#h2-1') })
     await act(async () => { await Promise.resolve() })
 
-    expect(foliateEl.goTo).toHaveBeenCalledWith('OPS/c02.xhtml#h2-1')
-    expect(foliateEl.renderer.goTo).not.toHaveBeenCalled()
+    expect(foliateEl.goTo).not.toHaveBeenCalled()
+    expect(foliateEl.renderer.goTo).toHaveBeenCalledWith(expect.objectContaining({
+      index: 1,
+      anchor: expect.any(Function),
+    }))
+
+    const target = foliateEl.renderer.goTo.mock.calls[0]?.[0] as { anchor?: (doc: Document) => Element | number | null }
+    const doc = document.implementation.createHTMLDocument('chapter')
+    const heading = doc.createElement('h2')
+    heading.id = 'h2-1'
+    doc.body.appendChild(heading)
+
+    expect(target.anchor?.(doc)).toBe(heading)
   })
 
   it('prevToEnd navega para o fim da seção anterior com âncora explícita', async () => {

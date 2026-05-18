@@ -4,7 +4,7 @@ import type { TtsProvider, TtsVoiceSelections } from './tts'
 export type ReadingStatus = 'unread' | 'reading' | 'finished'
 export type BookFormat = 'EPUB'
 export type BookCoverSource = 'epub-extracted' | 'manual-upload' | 'legacy-inline'
-export type BookStorageMode = 'embedded' | 'external'
+export type BookStorageMode = 'embedded' | 'external' | 'local'
 
 // Representa um livro armazenado no IndexedDB
 export interface Book {
@@ -16,6 +16,7 @@ export interface Book {
   fileName?: string
   filePath?: string
   uri?: string
+  originalUri?: string
   fileSize?: number
   fileHash?: string
   format?: BookFormat
