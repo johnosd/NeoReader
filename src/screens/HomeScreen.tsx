@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react'
 import { App as CapApp } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
 import { BookOpen, Plus, Settings } from 'lucide-react'
-import neoLogo from '../../docs/design-system/logo/neo-reader-header-logo.svg'
 import { HeroBanner } from '../components/HeroBanner'
 import { BookRow } from '../components/BookRow'
 import { QuickBookActionsSheet } from '../components/QuickBookActionsSheet'
@@ -201,13 +200,14 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
 function LibraryLogo() {
   return (
     <div className="flex items-center gap-2" aria-label="NeoReader">
-      <img
-        src={neoLogo}
-        alt=""
+      <div
         aria-hidden
-        className="h-14 w-14 object-contain drop-shadow-[0_0_12px_rgba(168,85,247,0.45)]"
-      />
-      <h1 className="text-xl font-black tracking-[-0.02em] leading-none text-text-primary">
+        className="h-14 w-14 rounded-full flex items-center justify-center text-white shadow-[0_0_18px_rgba(168,85,247,0.38)]"
+        style={{ background: 'linear-gradient(145deg, #9d4edd 0%, #7b2cbf 55%, #45126f 100%)' }}
+      >
+        <BookOpen size={28} strokeWidth={2.5} />
+      </div>
+      <h1 className="text-xl font-black tracking-normal leading-none text-text-primary">
         Neo<span className="text-purple-primary">Reader</span>
       </h1>
     </div>

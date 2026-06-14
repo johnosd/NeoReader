@@ -3,6 +3,7 @@ import { getSettings } from '../db/settings'
 import { getBookSettings, updateBookSettings } from '../db/bookSettings'
 import { EpubService } from '../services/EpubService'
 import { BookFileResolver } from '../services/BookFileResolver'
+import { logEvent } from '../services/DiagnosticsLogger'
 import {
   getTtsProviderAvailability,
   resolveTtsProviderFromAvailability,
@@ -50,6 +51,25 @@ export interface UseReaderAppearanceResult {
 
 function resolveBookLanguage(candidate?: string | null): string {
   return normalizeLanguageTag(candidate, 'en')
+}
+
+function logReaderAppearanceChange(
+  eventName: string,
+  previousValue: string,
+  nextValue: string,
+  bookId: Book['id'],
+) {
+  if (previousValue === nextValue) return
+
+  logEvent(eventName, {
+    screen: 'reader',
+    status: 'success',
+    details: {
+      bookId,
+      previousValue,
+      nextValue,
+    },
+  })
 }
 
 export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
@@ -127,10 +147,22 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
   const isReady = readySource?.bookId === book.id && readySource?.source === resolveBookSourceKey(book)
 
   function applyAppearancePatch(patch: AppearancePatch) {
-    if (patch.fontSize) setFontSize(patch.fontSize)
-    if (patch.lineHeight) setLineHeight(patch.lineHeight)
-    if (patch.readerTheme) setReaderTheme(patch.readerTheme)
-    if (patch.fontFamily) setFontFamily(patch.fontFamily)
+    if (patch.fontSize) {
+      logReaderAppearanceChange('reader.appearance.fontSize.change', fontSize, patch.fontSize, book.id)
+      setFontSize(patch.fontSize)
+    }
+    if (patch.lineHeight) {
+      logReaderAppearanceChange('reader.appearance.lineHeight.change', lineHeight, patch.lineHeight, book.id)
+      setLineHeight(patch.lineHeight)
+    }
+    if (patch.readerTheme) {
+      logReaderAppearanceChange('reader.appearance.theme.change', readerTheme, patch.readerTheme, book.id)
+      setReaderTheme(patch.readerTheme)
+    }
+    if (patch.fontFamily) {
+      logReaderAppearanceChange('reader.appearance.fontFamily.change', fontFamily, patch.fontFamily, book.id)
+      setFontFamily(patch.fontFamily)
+    }
     if (patch.overrideBookFont !== undefined) setOverrideBookFont(patch.overrideBookFont)
     if (patch.overrideBookColors !== undefined) setOverrideBookColors(patch.overrideBookColors)
     void updateBookSettings(book.id!, patch)

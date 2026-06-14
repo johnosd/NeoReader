@@ -27,6 +27,9 @@ type AudioSpeechMark = {
   end: number
 }
 
+type TtsPlaybackMode = 'continuous' | 'inline'
+type TtsPlaybackStopReason = 'finished' | 'stopped' | 'paused' | 'error'
+
 const WORD_HIGHLIGHT_SYNC_DELAY_MS = 140
 const NATIVE_RANGE_FALLBACK_DELAY_MS = 180
 
@@ -202,10 +205,44 @@ export function useTTS(options: UseTTSOptions) {
   const activeChunksRef = useRef<TtsChunk[]>([])
   const stopPremiumPlaybackRef = useRef<(() => void) | null>(null)
   const nativeRangeEventSeenRef = useRef(false)
+  const playbackFlowIdRef = useRef<string | null>(null)
+  const playbackModeRef = useRef<TtsPlaybackMode | null>(null)
+  const playbackStopReasonRef = useRef<TtsPlaybackStopReason | null>(null)
 
   function updatePaused(next: boolean) {
     pauseRequestedRef.current = next
     setIsPaused(next)
+  }
+
+  function getPlaybackLogDetails(extra: Record<string, unknown> = {}) {
+    return {
+      mode: playbackModeRef.current,
+      chunkIndex: lastChunkIdxRef.current,
+      ...extra,
+    }
+  }
+
+  function logPlaybackEvent(
+    eventName: string,
+    provider: TtsProvider,
+    status: 'start' | 'success',
+    details: Record<string, unknown> = {},
+  ) {
+    logEvent(eventName, {
+      flowId: playbackFlowIdRef.current ?? undefined,
+      provider,
+      status,
+      details: getPlaybackLogDetails(details),
+    })
+  }
+
+  function logPlaybackError(error: unknown, details: Record<string, unknown> = {}) {
+    logError('tts.playback.error', error, {
+      flowId: playbackFlowIdRef.current ?? undefined,
+      provider: activeProviderRef.current,
+      status: 'failure',
+      details: getPlaybackLogDetails(details),
+    })
   }
 
   useEffect(() => {
@@ -307,8 +344,18 @@ export function useTTS(options: UseTTSOptions) {
         URL.revokeObjectURL(url)
         if (audioRef.current === audio) audioRef.current = null
         if (stopPremiumPlaybackRef.current === cleanup) stopPremiumPlaybackRef.current = null
-        if (error) reject(error)
-        else resolve()
+        if (error) {
+          if (!shouldStopRef.current && playSessionRef.current === session) {
+            logPlaybackError(error, {
+              paraIdx,
+              offsetInPara,
+              trackPlaybackState,
+            })
+          }
+          reject(error)
+        } else {
+          resolve()
+        }
       }
 
       function cleanup() {
@@ -602,6 +649,10 @@ export function useTTS(options: UseTTSOptions) {
 
   async function play(chunks: TtsChunk[], startIdx = 0) {
     const mySession = ++playSessionRef.current
+    const playbackFlowId = createFlowId('tts-playback')
+    playbackFlowIdRef.current = playbackFlowId
+    playbackModeRef.current = 'continuous'
+    playbackStopReasonRef.current = null
     let resolvePlaybackDone = () => {}
     playbackDoneRef.current = new Promise<void>((resolve) => {
       resolvePlaybackDone = resolve
@@ -616,6 +667,11 @@ export function useTTS(options: UseTTSOptions) {
     const resolvedProvider = await resolveConfiguredTtsProvider(configRef.current.provider).catch(() => 'native' as const)
     let playbackProvider = resolvedProvider
     activeProviderRef.current = resolvedProvider
+    logPlaybackEvent('tts.playback.start', resolvedProvider, 'start', {
+      requestedProvider: configRef.current.provider,
+      startIdx,
+      chunkCount: chunks.length,
+    })
     const currentChunkRef = { current: chunks[startIdx] ?? chunks[0] }
     let nativeHandle: Awaited<ReturnType<typeof TextToSpeech.addListener>> | null = null
     let playbackError: unknown = null
@@ -663,11 +719,18 @@ export function useTTS(options: UseTTSOptions) {
       }
     } catch (error) {
       playbackError = error
+      playbackStopReasonRef.current = 'error'
+      logPlaybackError(error, { phase: 'continuous-playback' })
       logTtsPlaybackError(error)
     } finally {
       resolvePlaybackDone()
       await nativeHandle?.remove()
       if (playSessionRef.current === mySession) {
+        const stopReason: TtsPlaybackStopReason = playbackStopReasonRef.current ??
+          (playbackError ? 'error' : pauseRequestedRef.current ? 'paused' : shouldStopRef.current ? 'stopped' : 'finished')
+        logPlaybackEvent('tts.playback.stop', activeProviderRef.current, 'success', {
+          reason: stopReason,
+        })
         setIsPlaying(false)
         if (pauseRequestedRef.current) {
           setIsPaused(true)
@@ -689,11 +752,19 @@ export function useTTS(options: UseTTSOptions) {
     const playbackDone = playbackDoneRef.current
     updatePaused(true)
     setIsPlaying(false)
+    logPlaybackEvent('tts.playback.pause', activeProviderRef.current, 'success')
 
     if (activeProviderRef.current === 'native') {
       shouldStopRef.current = true
-      await TextToSpeech.stop()
-      await playbackDone
+      playbackStopReasonRef.current = 'paused'
+      try {
+        await TextToSpeech.stop()
+        await playbackDone
+      } catch (error) {
+        playbackStopReasonRef.current = 'error'
+        logPlaybackError(error, { phase: 'pause' })
+        throw error
+      }
       return
     }
 
@@ -707,6 +778,9 @@ export function useTTS(options: UseTTSOptions) {
       const chunks = activeChunksRef.current
       const startIdx = lastChunkIdxRef.current
       if (chunks.length === 0 || startIdx >= chunks.length) return false
+      logPlaybackEvent('tts.playback.resume', activeProviderRef.current, 'success', {
+        startIdx,
+      })
       void play(chunks, startIdx)
       return true
     }
@@ -717,17 +791,34 @@ export function useTTS(options: UseTTSOptions) {
     shouldStopRef.current = false
     updatePaused(false)
     setIsPlaying(true)
-    await audio.play()
+    try {
+      await audio.play()
+      logPlaybackEvent('tts.playback.resume', activeProviderRef.current, 'success')
+    } catch (error) {
+      playbackStopReasonRef.current = 'error'
+      logPlaybackError(error, { phase: 'resume' })
+      throw error
+    }
     return true
   }
 
   async function stop() {
     const playbackDone = playbackDoneRef.current
+    const shouldLogStopIntent = isPlaying || isPaused || pauseRequestedRef.current || Boolean(audioRef.current || stopPremiumPlaybackRef.current)
     shouldStopRef.current = true
     updatePaused(false)
+    if (shouldLogStopIntent) {
+      playbackStopReasonRef.current = 'stopped'
+    }
 
     if (activeProviderRef.current === 'native') {
-      await TextToSpeech.stop()
+      try {
+        await TextToSpeech.stop()
+      } catch (error) {
+        playbackStopReasonRef.current = 'error'
+        logPlaybackError(error, { phase: 'stop' })
+        throw error
+      }
     } else {
       audioRef.current?.pause()
       stopPremiumPlaybackRef.current?.()
@@ -738,7 +829,14 @@ export function useTTS(options: UseTTSOptions) {
 
   async function speakOne(text: string) {
     await stop()
+    const normalizedText = normalizeChunkText(text)
+    if (!normalizedText) return
+
     const mySession = ++playSessionRef.current
+    const playbackFlowId = createFlowId('tts-inline-playback')
+    playbackFlowIdRef.current = playbackFlowId
+    playbackModeRef.current = 'inline'
+    playbackStopReasonRef.current = null
     let resolvePlaybackDone = () => {}
     playbackDoneRef.current = new Promise<void>((resolve) => {
       resolvePlaybackDone = resolve
@@ -749,7 +847,10 @@ export function useTTS(options: UseTTSOptions) {
     updatePaused(false)
     const resolvedProvider = await resolveConfiguredTtsProvider(configRef.current.provider).catch(() => 'native' as const)
     activeProviderRef.current = resolvedProvider
-    const normalizedText = normalizeChunkText(text)
+    logPlaybackEvent('tts.playback.start', resolvedProvider, 'start', {
+      requestedProvider: configRef.current.provider,
+      textLength: normalizedText.length,
+    })
     let speakOneError: unknown = null
     let providerFallbackNotified = false
 
@@ -773,7 +874,6 @@ export function useTTS(options: UseTTSOptions) {
     }
 
     try {
-      if (!normalizedText) return
       const { sessionEnded } = await speakChunk(
         resolvedProvider, normalizedText, 0, undefined,
         0, mySession, false, notifyProviderFallback,
@@ -781,10 +881,19 @@ export function useTTS(options: UseTTSOptions) {
       if (sessionEnded) return
     } catch (error) {
       speakOneError = error
+      playbackStopReasonRef.current = 'error'
+      logPlaybackError(error, { phase: 'inline-playback' })
       logTtsPlaybackError(error)
     } finally {
       resolvePlaybackDone()
       await nativeHandle?.remove()
+      if (playSessionRef.current === mySession) {
+        const stopReason: TtsPlaybackStopReason = playbackStopReasonRef.current ??
+          (speakOneError ? 'error' : shouldStopRef.current ? 'stopped' : 'finished')
+        logPlaybackEvent('tts.playback.stop', activeProviderRef.current, 'success', {
+          reason: stopReason,
+        })
+      }
       if (playSessionRef.current === mySession && !speakOneError) {
         callbacksRef.current.onStop()
       }

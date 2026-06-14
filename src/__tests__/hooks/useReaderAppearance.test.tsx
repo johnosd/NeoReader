@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   getBookSettings: vi.fn(),
   updateBookSettings: vi.fn(),
   parseExtras: vi.fn(),
+  logEvent: vi.fn(),
 }))
 
 vi.mock('@/db/settings', () => ({ getSettings: mocks.getSettings }))
@@ -15,6 +16,9 @@ vi.mock('@/db/bookSettings', () => ({
 }))
 vi.mock('@/services/EpubService', () => ({
   EpubService: { parseExtras: mocks.parseExtras },
+}))
+vi.mock('@/services/DiagnosticsLogger', () => ({
+  logEvent: mocks.logEvent,
 }))
 
 import { useReaderAppearance } from '@/hooks/useReaderAppearance'
@@ -54,6 +58,7 @@ beforeEach(() => {
   mocks.getBookSettings.mockClear()
   mocks.parseExtras.mockClear()
   mocks.updateBookSettings.mockClear()
+  mocks.logEvent.mockClear()
   mocks.getSettings.mockResolvedValue(defaultSettings)
   mocks.getBookSettings.mockResolvedValue(emptyBookSettings)
   mocks.parseExtras.mockResolvedValue({ language: 'en', toc: [], description: null })
@@ -132,6 +137,64 @@ describe('useReaderAppearance', () => {
       fontSize: 'lg',
       readerTheme: 'paper',
     })
+  })
+
+  it('applyAppearancePatch registra mudancas de aparencia do leitor', async () => {
+    const { result } = renderHook(() => useReaderAppearance(book))
+    await act(async () => { await Promise.resolve() })
+
+    act(() => {
+      result.current.applyAppearancePatch({
+        fontSize: 'lg',
+        lineHeight: 'relaxed',
+        readerTheme: 'paper',
+        fontFamily: 'modern',
+      })
+    })
+
+    expect(mocks.logEvent).toHaveBeenCalledWith('reader.appearance.fontSize.change', expect.objectContaining({
+      screen: 'reader',
+      status: 'success',
+      details: expect.objectContaining({
+        bookId: book.id,
+        previousValue: 'md',
+        nextValue: 'lg',
+      }),
+    }))
+    expect(mocks.logEvent).toHaveBeenCalledWith('reader.appearance.lineHeight.change', expect.objectContaining({
+      details: expect.objectContaining({
+        previousValue: 'comfortable',
+        nextValue: 'relaxed',
+      }),
+    }))
+    expect(mocks.logEvent).toHaveBeenCalledWith('reader.appearance.theme.change', expect.objectContaining({
+      details: expect.objectContaining({
+        previousValue: 'dark',
+        nextValue: 'paper',
+      }),
+    }))
+    expect(mocks.logEvent).toHaveBeenCalledWith('reader.appearance.fontFamily.change', expect.objectContaining({
+      details: expect.objectContaining({
+        previousValue: 'classic',
+        nextValue: 'modern',
+      }),
+    }))
+  })
+
+  it('applyAppearancePatch nao registra log quando valor nao muda', async () => {
+    const { result } = renderHook(() => useReaderAppearance(book))
+    await act(async () => { await Promise.resolve() })
+
+    act(() => {
+      result.current.applyAppearancePatch({
+        fontSize: 'md',
+        lineHeight: 'comfortable',
+        readerTheme: 'dark',
+        fontFamily: 'classic',
+      })
+    })
+
+    expect(mocks.logEvent).not.toHaveBeenCalled()
   })
 
   it('handleReaderStyleModeChange original desativa overrides de fonte e cor', async () => {

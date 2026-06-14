@@ -120,6 +120,20 @@ async function flushMicrotasks() {
   })
 }
 
+type TestDiagnosticsEvent = {
+  eventName: string
+  provider?: string
+  status?: string
+  errorMessage?: string
+  details?: Record<string, unknown>
+}
+
+function getConsoleEvents(spy: ReturnType<typeof vi.spyOn>, eventName: string): TestDiagnosticsEvent[] {
+  return spy.mock.calls
+    .filter((call) => String(call[0]) === `NeoReaderEvent ${eventName}`)
+    .map((call) => JSON.parse(String(call[1])) as TestDiagnosticsEvent)
+}
+
 describe('useTTS', () => {
   beforeEach(() => {
     clearPremiumTtsAudioCache()
@@ -193,6 +207,52 @@ describe('useTTS', () => {
     expect(callbacks.onFinished).not.toHaveBeenCalled()
   })
 
+  it('registra stop explicito do playback nativo', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined)
+    try {
+      let resolveSpeak: (() => void) | undefined
+      textToSpeechMock.speak.mockImplementationOnce(() => new Promise<void>((resolve) => {
+        resolveSpeak = resolve
+      }))
+
+      const callbacks = createCallbacks()
+      const { result } = renderHook(() => useTTS({
+        ...callbacks,
+        provider: 'native',
+        language: 'en-US',
+        rate: 1,
+      }))
+      const chunks: TtsChunk[] = [
+        { text: 'Native stop.', paraIdx: 0, offsetInPara: 0 },
+      ]
+
+      await act(async () => {
+        void result.current.play(chunks, 0)
+      })
+      await flushMicrotasks()
+
+      let stopPromise: Promise<void> | undefined
+      await act(async () => {
+        stopPromise = result.current.stop()
+        await Promise.resolve()
+        resolveSpeak?.()
+        await stopPromise
+      })
+
+      expect(textToSpeechMock.stop).toHaveBeenCalledOnce()
+      expect(getConsoleEvents(infoSpy, 'tts.playback.start')[0]).toEqual(expect.objectContaining({
+        provider: 'native',
+        status: 'start',
+      }))
+      expect(getConsoleEvents(infoSpy, 'tts.playback.stop')[0]?.details).toEqual(expect.objectContaining({
+        mode: 'continuous',
+        reason: 'stopped',
+      }))
+    } finally {
+      infoSpy.mockRestore()
+    }
+  })
+
   it('encerra o audio premium ao desmontar o hook', async () => {
     speechifyMock.getApiKey.mockResolvedValue('speechify-key')
     speechifyMock.isConfigured.mockResolvedValue(true)
@@ -231,6 +291,7 @@ describe('useTTS', () => {
 
   it('limpa audio premium e cai para nativo quando audio.play falha', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     speechifyMock.getApiKey.mockResolvedValue('speechify-key')
     speechifyMock.isConfigured.mockResolvedValue(true)
     FakeAudio.nextPlayError = new DOMException('Autoplay bloqueado', 'NotAllowedError')
@@ -259,8 +320,21 @@ describe('useTTS', () => {
       fallbackProvider: 'native',
       reason: 'Speechify falhou por um erro inesperado.',
     })
+    const playbackErrors = getConsoleEvents(errorSpy, 'tts.playback.error')
+    expect(playbackErrors).toHaveLength(1)
+    expect(playbackErrors[0]).toEqual(expect.objectContaining({
+      provider: 'speechify',
+      status: 'failure',
+      errorMessage: 'Autoplay bloqueado',
+    }))
+    expect(playbackErrors[0]?.details).toEqual(expect.objectContaining({
+      mode: 'continuous',
+      paraIdx: 0,
+      trackPlaybackState: true,
+    }))
 
     warnSpy.mockRestore()
+    errorSpy.mockRestore()
   })
 
   it('interrompe o audiobook atual antes de tocar um speakOne via Speechify', async () => {
@@ -369,6 +443,74 @@ describe('useTTS', () => {
 
     expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1)
     expect(callbacks.onFinished).toHaveBeenCalledOnce()
+  })
+
+  it('registra start, pause, resume e stop do playback premium', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined)
+    try {
+      speechifyMock.getApiKey.mockResolvedValue('speechify-key')
+      speechifyMock.isConfigured.mockResolvedValue(true)
+
+      const callbacks = createCallbacks()
+      const { result } = renderHook(() => useTTS({
+        ...callbacks,
+        provider: 'speechify',
+        language: 'en-US',
+        rate: 1,
+      }))
+      const chunks: TtsChunk[] = [
+        { text: 'Premium lifecycle.', paraIdx: 0, offsetInPara: 0 },
+      ]
+
+      let playPromise: Promise<void> | undefined
+      await act(async () => {
+        playPromise = result.current.play(chunks, 0)
+      })
+      await flushMicrotasks()
+
+      await act(async () => {
+        await result.current.pause()
+        await Promise.resolve()
+      })
+
+      await act(async () => {
+        await result.current.resume()
+        await Promise.resolve()
+      })
+
+      await act(async () => {
+        FakeAudio.instances[0]?.finish()
+        await playPromise
+      })
+
+      const startEvents = getConsoleEvents(infoSpy, 'tts.playback.start')
+      const pauseEvents = getConsoleEvents(infoSpy, 'tts.playback.pause')
+      const resumeEvents = getConsoleEvents(infoSpy, 'tts.playback.resume')
+      const stopEvents = getConsoleEvents(infoSpy, 'tts.playback.stop')
+
+      expect(startEvents).toHaveLength(1)
+      expect(startEvents[0]).toEqual(expect.objectContaining({
+        provider: 'speechify',
+        status: 'start',
+      }))
+      expect(startEvents[0]?.details).toEqual(expect.objectContaining({
+        mode: 'continuous',
+        requestedProvider: 'speechify',
+        startIdx: 0,
+        chunkCount: 1,
+      }))
+      expect(pauseEvents).toHaveLength(1)
+      expect(pauseEvents[0]?.details).toEqual(expect.objectContaining({ mode: 'continuous' }))
+      expect(resumeEvents).toHaveLength(1)
+      expect(resumeEvents[0]?.details).toEqual(expect.objectContaining({ mode: 'continuous' }))
+      expect(stopEvents).toHaveLength(1)
+      expect(stopEvents[0]?.details).toEqual(expect.objectContaining({
+        mode: 'continuous',
+        reason: 'finished',
+      }))
+    } finally {
+      infoSpy.mockRestore()
+    }
   })
 
   it('reusa audio premium em cache ao tocar o mesmo trecho novamente', async () => {
