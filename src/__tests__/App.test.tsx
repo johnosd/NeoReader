@@ -189,6 +189,10 @@ vi.mock('@/hooks/useAuth', () => ({
   }),
 }))
 
+vi.mock('@/db/ttsVoiceCaches', () => ({
+  cleanupExpiredTtsVoiceCaches: vi.fn(async () => 0),
+}))
+
 import App from '@/App'
 
 function assertScreen(testId: string) {

@@ -52,7 +52,17 @@ export class BookFileResolver {
   static async resolveReaderSource(book: Book): Promise<Blob | string> {
     if (book.storageMode === 'local') {
       if (!book.uri) throw new Error('Arquivo do livro nao encontrado.')
-      return Capacitor.convertFileSrc(book.uri)
+      const localUrl = Capacitor.convertFileSrc(book.uri)
+      try {
+        const response = await fetch(localUrl)
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      } catch {
+        if (book.id !== undefined) {
+          await db.books.update(book.id, { missingFile: true })
+        }
+        throw new Error('Este livro foi movido, apagado ou perdeu a permissao de acesso.')
+      }
+      return localUrl
     }
 
     return this.resolveFile(book)

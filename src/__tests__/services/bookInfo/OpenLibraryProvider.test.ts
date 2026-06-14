@@ -41,6 +41,16 @@ function makeFetch(data: unknown, ok = true) {
   })) as unknown as typeof fetch
 }
 
+function makeInvalidJsonFetch() {
+  return vi.fn(async () => ({
+    ok: true,
+    status: 200,
+    json: async () => {
+      throw new SyntaxError('Unexpected token <')
+    },
+  })) as unknown as typeof fetch
+}
+
 function makeFetchSequence(responses: Array<{ data: unknown, ok?: boolean }>) {
   let index = 0
   return vi.fn(async () => {
@@ -233,6 +243,22 @@ describe('OpenLibraryProvider', () => {
         identifiers: [{ kind: 'ISBN_13', value: '9780132350884', raw: '9780132350884' }],
       },
     }))).resolves.toEqual({})
+  })
+
+  it('returns no fields when Open Library returns invalid JSON', async () => {
+    const fetchImpl = makeInvalidJsonFetch()
+    const service = new OpenLibraryService({ fetchImpl })
+    const provider = new OpenLibraryProvider(service)
+
+    await expect(provider.collect(new Blob(['epub']), makeContext({
+      lookupHints: {
+        title: null,
+        author: null,
+        identifiers: [{ kind: 'ISBN_13', value: '9780132350884', raw: '9780132350884' }],
+      },
+    }))).resolves.toEqual({})
+
+    expect(service.getDiagnostics().some((message) => message.includes('JSON invalido'))).toBe(true)
   })
 
   it('binds the browser fetch implementation when no fetch mock is passed', async () => {

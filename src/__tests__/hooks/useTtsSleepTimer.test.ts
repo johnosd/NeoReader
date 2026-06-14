@@ -90,4 +90,15 @@ describe('useTtsSleepTimer', () => {
     expect(onExpire).not.toHaveBeenCalled()
     expect(result.current.sleepRemainingSeconds).toBeGreaterThan(0)
   })
+
+  it('limpa handles ao desmontar com timer ativo', () => {
+    const { result, unmount } = renderHook(() => useTtsSleepTimer())
+    const onExpire = vi.fn()
+
+    act(() => { result.current.handleSleepTimerChange('5', onExpire) })
+    unmount()
+    act(() => { vi.advanceTimersByTime(5000) })
+
+    expect(onExpire).not.toHaveBeenCalled()
+  })
 })

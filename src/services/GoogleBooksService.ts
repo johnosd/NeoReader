@@ -81,7 +81,8 @@ export class GoogleBooksService {
         continue
       }
 
-      const data = await response.json() as GoogleBooksResponse
+      const data = await this.readJson<GoogleBooksResponse>(response, `Query "${query}"`)
+      if (!data) continue
       const volumes = (data.items ?? []).filter((volume) => volume.volumeInfo)
       const volume = selectVolume?.(volumes) ?? volumes[0]
       this.diagnostics.push(
@@ -105,5 +106,15 @@ export class GoogleBooksService {
 
     if (this.apiKey) params.set('key', this.apiKey)
     return `${this.baseUrl}?${params.toString()}`
+  }
+
+  private async readJson<T>(response: Response, label: string): Promise<T | null> {
+    try {
+      return await response.json() as T
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      this.diagnostics.push(`${label}: JSON invalido (${message}).`)
+      return null
+    }
   }
 }

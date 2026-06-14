@@ -19,7 +19,7 @@ import { useReaderAppearance } from '../hooks/useReaderAppearance'
 import { useCapacitorAppStateChange, useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
 import { useChromeAutoHide } from '../hooks/useChromeAutoHide'
 import type { ProgressSavePayload } from '../db/progress'
-import { updateLastOpened } from '../db/books'
+import { deleteBook, updateLastOpened } from '../db/books'
 import { addBookmark, restoreBookmark, softDeleteBookmark, updateBookmarkColor } from '../db/bookmarks'
 import { addVocabItem } from '../db/vocabulary'
 import { db } from '../db/database'
@@ -136,6 +136,8 @@ export function ReaderScreen({
   const [tocOpen, setTocOpen] = useState(false)
   const [bookmarkSheetOpen, setBookmarkSheetOpen] = useState(false)
   const [appearanceSheetOpen, setAppearanceSheetOpen] = useState(false)
+  const [removingMissingBook, setRemovingMissingBook] = useState(false)
+  const [missingBookRemovalError, setMissingBookRemovalError] = useState<string | null>(null)
   const {
     isReady: readerAppearanceReady,
     fontSize,
@@ -327,8 +329,8 @@ export function ReaderScreen({
 
   // Atualiza lastOpenedAt quando o leitor abre
   useEffect(() => {
-    if (book.id !== undefined) updateLastOpened(book.id)
-  }, [book.id])
+    if (book.id !== undefined && !book.missingFile) updateLastOpened(book.id)
+  }, [book.id, book.missingFile])
 
 
   // TTS: gerencia estado e sequenciamento de audiobook
@@ -763,18 +765,34 @@ export function ReaderScreen({
     toggleBookmarkAtLocation(payload)
   }
 
+  async function handleRemoveMissingBook() {
+    if (book.id === undefined) return
+    setRemovingMissingBook(true)
+    setMissingBookRemovalError(null)
+    try {
+      await deleteBook(book.id)
+      handleBack()
+    } catch {
+      setMissingBookRemovalError(t('reader.missingFile.removeError'))
+      setRemovingMissingBook(false)
+    }
+  }
+
   // Aguarda IndexedDB e preferências do livro antes de montar o EpubViewer.
   if (!initialLoadDone || !readerAppearanceReady) return <ReaderSkeleton />
 
   const readerPalette = getReaderThemePalette(readerTheme)
   const readerStyleMode = !overrideBookFont && !overrideBookColors ? 'original' : 'comfortable'
+  const missingFileMessage = book.missingFile ? t('reader.missingFile.description') : null
+  const visibleError = error ?? missingFileMessage
 
   return (
     <div className="fixed inset-0" style={{ backgroundColor: readerPalette.background }}>
-      {isLoading && <ReaderSkeleton />}
+      {isLoading && !book.missingFile && <ReaderSkeleton />}
 
       <div className="absolute inset-0">
-        <EpubViewer
+        {!book.missingFile && (
+          <EpubViewer
           ref={viewerRef}
           book={book}
           bookmarks={activeBookmarks}
@@ -823,7 +841,8 @@ export function ReaderScreen({
           ttsGlobalActive={ttsPlayerVisible}
           onBookmarkTap={(id) => { void softDeleteBookmark(id) }}
           onBookmarkParagraph={handleParagraphBookmark}
-        />
+          />
+        )}
       </div>
 
       {/* Nota: o toggle do chrome é tratado pelo handler de click do próprio iframe via a prop
@@ -1002,12 +1021,34 @@ export function ReaderScreen({
         </div>
       </BottomSheet>
 
-      {error && (
+      {visibleError && (
         <div className="absolute inset-0 z-40 bg-bg-reader flex flex-col items-center justify-center gap-4 px-8">
-          <p className="text-error text-sm text-center">{error}</p>
-          <button onClick={handleBack} className="text-indigo-primary text-sm underline">
-            {t('reader.backToLibrary')}
-          </button>
+          <div className="flex max-w-sm flex-col items-center gap-2 text-center">
+            {book.missingFile && (
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-error">
+                {t('reader.missingFile.title')}
+              </p>
+            )}
+            <p className="text-error text-sm text-center">{visibleError}</p>
+            {missingBookRemovalError && (
+              <p className="text-xs text-text-muted">{missingBookRemovalError}</p>
+            )}
+          </div>
+          <div className="flex flex-col items-center gap-3">
+            {book.missingFile && book.id !== undefined && (
+              <button
+                type="button"
+                onClick={() => void handleRemoveMissingBook()}
+                disabled={removingMissingBook}
+                className="rounded-pill bg-error/20 px-4 py-2 text-sm font-semibold text-error transition-all active:scale-[0.97] disabled:opacity-50"
+              >
+                {removingMissingBook ? t('reader.missingFile.removing') : t('reader.missingFile.remove')}
+              </button>
+            )}
+            <button onClick={handleBack} className="text-indigo-primary text-sm underline">
+              {t('reader.backToLibrary')}
+            </button>
+          </div>
         </div>
       )}
     </div>

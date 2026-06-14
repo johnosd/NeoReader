@@ -19,6 +19,7 @@ import { BillingService } from './services/BillingService'
 import { BookImportService } from './services/BookImportService'
 import { cleanupNativeImportTemp } from './services/NativeLibraryImportService'
 import { createFlowId, getDiagnosticsNowMs, logEvent } from './services/DiagnosticsLogger'
+import { cleanupExpiredTtsVoiceCaches } from './db/ttsVoiceCaches'
 import type { Book } from './types/book'
 
 type Route =
@@ -76,6 +77,9 @@ function App() {
     })
     void AdsService.init().catch((err) => {
       console.warn('[Ads] Falha ao inicializar:', err)
+    })
+    void cleanupExpiredTtsVoiceCaches().catch((err) => {
+      console.warn('[TTS] Falha ao limpar cache de vozes:', err)
     })
   }, [signedInUid])
 

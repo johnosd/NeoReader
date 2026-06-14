@@ -215,16 +215,6 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
   const detectedBookLanguage = extras?.language ? normalizeLanguageTag(extras.language, 'en') : null
   const effectiveBookLanguage = normalizeLanguageTag(bookSettingsRow?.bookLanguage ?? detectedBookLanguage ?? 'en', 'en')
   const langLabel = getLanguageLabel(effectiveBookLanguage)
-  const languageSettingMeta = bookSettingsRow?.bookLanguage
-    ? `${getLanguageLabel(bookSettingsRow.bookLanguage) ?? bookSettingsRow.bookLanguage} - manual`
-    : detectedBookLanguage
-      ? `${getLanguageLabel(detectedBookLanguage) ?? detectedBookLanguage} - automatico`
-      : 'Automatico'
-  const translationTargetLangMeta = bookSettingsRow?.translationTargetLang
-    ? `${getLanguageLabel(bookSettingsRow.translationTargetLang) ?? bookSettingsRow.translationTargetLang} - neste livro`
-    : `${getLanguageLabel(appSettings.translationTargetLang) ?? appSettings.translationTargetLang} - padrao do app`
-  void languageSettingMeta
-  void translationTargetLangMeta
   const readerPreviewText = extras?.previewText ?? 'The quick brown fox jumps over the lazy dog.'
   const styleDiagnostics = extras?.styleDiagnostics ?? []
   const visibleStyleDiagnostics = styleDiagnostics.slice(0, 3)

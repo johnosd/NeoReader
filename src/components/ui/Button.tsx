@@ -2,7 +2,7 @@ import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import { cn } from '../../utils/cn'
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'outline'
-type Tone = 'purple' | 'indigo'
+type Tone = 'purple'
 type Size = 'md' | 'sm'
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -15,15 +15,10 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 // Monta classes por variante. `tone` só afeta primary/outline (onde a cor de destaque aparece).
-function variantClasses(variant: Variant, tone: Tone): string {
-  const accent = tone === 'purple' ? 'bg-purple-primary' : 'bg-indigo-primary'
-  const accentActive = tone === 'purple' ? 'active:bg-purple-light' : 'active:bg-indigo-primary/90'
-  const outlineColor = tone === 'purple' ? 'border-purple-primary text-purple-light' : 'border-indigo-primary text-indigo-primary'
-  const outlineActive = tone === 'purple' ? 'active:bg-purple-primary/15' : 'active:bg-indigo-primary/15'
-
+function variantClasses(variant: Variant, _tone: Tone): string {
   switch (variant) {
     case 'primary':
-      return `${accent} ${accentActive} text-white`
+      return 'bg-purple-primary active:bg-purple-light text-white'
     case 'secondary':
       return 'bg-white/15 text-text-primary active:bg-white/25'
     case 'ghost':
@@ -31,7 +26,7 @@ function variantClasses(variant: Variant, tone: Tone): string {
     case 'danger':
       return 'bg-error/20 text-error active:bg-error/30'
     case 'outline':
-      return `bg-transparent border ${outlineColor} ${outlineActive}`
+      return 'bg-transparent border border-purple-primary text-purple-light active:bg-purple-primary/15'
   }
 }
 

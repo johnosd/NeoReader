@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 export interface UseTtsSleepTimerResult {
   sleepTimerValue: string
@@ -31,6 +31,8 @@ export function useTtsSleepTimer(): UseTtsSleepTimerResult {
     setSleepTimerValue('off')
     setSleepRemainingSeconds(null)
   }, [clearHandles])
+
+  useEffect(() => () => clearHandles(), [clearHandles])
 
   // onExpire: callback chamado quando o timer zera — responsabilidade de quem usa o hook
   // (ex: parar o TTS, esconder o player). Assim o hook não precisa saber sobre useTTS.

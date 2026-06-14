@@ -12,6 +12,7 @@ function hashCacheKey(input: string): number {
 
 // Incrementar quando o schema de TtsVoiceOption mudar, para invalidar caches antigos
 const VOICE_CACHE_VERSION = 5
+export const DEFAULT_TTS_VOICE_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000
 
 export function buildTtsVoiceCacheKey(provider: TtsProvider, language: string, apiKey: string): number {
   return hashCacheKey(`v${VOICE_CACHE_VERSION}::${provider}::${language}::${apiKey}`)
@@ -35,4 +36,11 @@ export async function setCachedTtsVoiceOptions(record: Omit<TtsVoiceCacheRecord,
     ...record,
     updatedAt: new Date(),
   })
+}
+
+export async function cleanupExpiredTtsVoiceCaches(
+  maxAgeMs = DEFAULT_TTS_VOICE_CACHE_MAX_AGE_MS,
+): Promise<number> {
+  const cutoff = new Date(Date.now() - maxAgeMs)
+  return db.ttsVoiceCaches.where('updatedAt').below(cutoff).delete()
 }

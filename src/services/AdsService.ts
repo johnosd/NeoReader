@@ -133,7 +133,11 @@ export const AdsService = {
       return
     }
     if (bannerShown) {
-      try { await AdMob.removeBanner() } catch { /* ignora */ }
+      try {
+        await AdMob.removeBanner()
+      } catch (error) {
+        errorImportDiagnostic('ads', 'ads-remove-before-show-failed', error, { marginDp })
+      }
       bannerShown = false
     }
 

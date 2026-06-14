@@ -1115,6 +1115,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const pendingSectionVersionRef = useRef(0)
     const finalizedSectionVersionRef = useRef(0)
     const finalizeSectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const translationActionResetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const initialInteractiveReadyRef = useRef(false)
     const pendingInlineNextTranslationRef = useRef(false)
     const renderBookmarkMarkersRef = useRef<((doc?: Document | null) => void) | null>(null)
@@ -1230,6 +1231,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       const content = getLoadedSection(index)
       if (!content) return null
 
+      if (currentDocRef.current !== content.doc) clearTranslationActionResetTimeout()
       currentDocRef.current = content.doc
       ttsParagraphsRef.current = content.paragraphs
       ttsParagraphTextsRef.current = content.paragraphTexts
@@ -1830,6 +1832,13 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       if (finalizeSectionTimeoutRef.current) {
         clearTimeout(finalizeSectionTimeoutRef.current)
         finalizeSectionTimeoutRef.current = null
+      }
+    }
+
+    function clearTranslationActionResetTimeout(): void {
+      if (translationActionResetTimeoutRef.current) {
+        clearTimeout(translationActionResetTimeoutRef.current)
+        translationActionResetTimeoutRef.current = null
       }
     }
 
@@ -2439,7 +2448,9 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
                 onSaveVocabRef.current(activeSourceTextRef.current, activeTranslatedTextRef.current)
                 setTranslationActionLabel(actionBtn, t('reader.translation.saved'))
                 actionBtn.dataset.nrFlash = '1'
-                setTimeout(() => {
+                clearTranslationActionResetTimeout()
+                translationActionResetTimeoutRef.current = setTimeout(() => {
+                  translationActionResetTimeoutRef.current = null
                   if (actionBtn.isConnected) {
                     setTranslationActionLabel(actionBtn, t('reader.translation.save'))
                     delete actionBtn.dataset.nrFlash
@@ -2611,6 +2622,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       return () => {
         cancelled = true
         clearFinalizeSectionTimeout()
+        clearTranslationActionResetTimeout()
         scrollListenerCleanupRef.current?.()
         scrollListenerCleanupRef.current = null
         trackedScrollDocRef.current = null

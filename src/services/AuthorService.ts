@@ -1,5 +1,6 @@
 import { getCachedAuthorRecord, setCachedAuthor } from '../db/authors'
 import type { AuthorData, AuthorBook, AuthorVideo } from '../types/author'
+import { logWarn } from './DiagnosticsLogger'
 import { fetchWithTimeout } from './http'
 
 const AUTHOR_VIDEOS_TTL_MS = 7 * 24 * 60 * 60 * 1000
@@ -86,7 +87,7 @@ export async function getAuthorData(
     if (youtubeApiKey && shouldRefreshVideos(cachedRecord.videosFetchedAt)) {
       const videos = await fetchYoutubeVideos(authorName, youtubeApiKey)
       const updated = { ...cached, videos }
-      void setCachedAuthor(authorName, updated, bookId, { videosFetchedAt: new Date() })
+      cacheAuthorInBackground(authorName, updated, bookId, { videosFetchedAt: new Date() })
       return updated
     }
     return cached
@@ -131,9 +132,30 @@ export async function getAuthorData(
   }
 
   // Fire-and-forget: não bloqueia o retorno
-  void setCachedAuthor(authorName, data, bookId, { videosFetchedAt })
+  cacheAuthorInBackground(authorName, data, bookId, { videosFetchedAt })
 
   return data
+}
+
+function logAuthorCacheWriteFailure(error: unknown, authorName: string, bookId?: number): void {
+  logWarn('author.cache.write.failure', {
+    status: 'failure',
+    error,
+    details: {
+      authorName,
+      bookId,
+    },
+  })
+}
+
+function cacheAuthorInBackground(
+  authorName: string,
+  data: AuthorData,
+  bookId: number | undefined,
+  options: { videosFetchedAt?: Date | null },
+): void {
+  void Promise.resolve(setCachedAuthor(authorName, data, bookId, options))
+    .catch((error) => logAuthorCacheWriteFailure(error, authorName, bookId))
 }
 
 export async function fetchYoutubeVideos(

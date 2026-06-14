@@ -8,6 +8,7 @@ import { getBookSettings, updateBookSettings } from '@/db/bookSettings'
 import { getSettings } from '@/db/settings'
 import { translate } from '@/services/TranslationService'
 import { addVocabItem } from '@/db/vocabulary'
+import { deleteBook } from '@/db/books'
 
 type MockTtsOptions = {
   onFinished?: () => void
@@ -95,6 +96,7 @@ vi.mock('@/hooks/useTTS', () => ({
 }))
 
 vi.mock('@/db/books', () => ({
+  deleteBook: vi.fn(),
   updateLastOpened: vi.fn(),
 }))
 
@@ -318,9 +320,36 @@ describe('ReaderScreen', () => {
     mocks.viewerHandle.scrollToParagraph.mockClear()
     vi.mocked(translate).mockClear()
     vi.mocked(addVocabItem).mockClear()
+    vi.mocked(deleteBook).mockReset()
+    vi.mocked(deleteBook).mockResolvedValue(undefined)
     vi.mocked(updateBookSettings).mockClear()
     vi.mocked(getSettings).mockResolvedValue(makeSettings())
     vi.mocked(getBookSettings).mockResolvedValue({})
+  })
+
+  it('bloqueia o reader e permite remover livro marcado como arquivo ausente', async () => {
+    const onBack = vi.fn()
+
+    render(
+      <ReaderScreen
+        book={{ ...book, missingFile: true }}
+        onBack={onBack}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+
+    await flushAsyncWork()
+
+    expect(screen.queryByTestId('epub-viewer')).toBeNull()
+    expect(screen.queryByTestId('reader-loading')).toBeNull()
+    expect(screen.getByText('Arquivo nao encontrado')).toBeTruthy()
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('Remover da biblioteca'))
+    })
+
+    expect(deleteBook).toHaveBeenCalledWith(1)
+    expect(onBack).toHaveBeenCalledOnce()
   })
 
   it('usa o progresso salvo como marcador inicial do indice do leitor', async () => {

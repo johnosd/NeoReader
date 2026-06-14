@@ -66,7 +66,8 @@ export class OpenLibraryService {
     this.diagnostics.push(`Book data ISBN ${isbn}: HTTP ${response.status ?? (response.ok ? 200 : 0)}.`)
     if (!response.ok) return null
 
-    const data = await response.json() as OpenLibraryResponse
+    const data = await this.readJson<OpenLibraryResponse>(response, `Book data ISBN ${isbn}`)
+    if (!data) return null
     const bookData = data[`ISBN:${isbn}`] ?? Object.values(data)[0] ?? null
     this.diagnostics.push(`Book data ISBN ${isbn}: encontrado=${bookData ? 'sim' : 'nao'}.`)
     return bookData
@@ -80,7 +81,8 @@ export class OpenLibraryService {
     this.diagnostics.push(`Edition ISBN ${isbn}: HTTP ${editionResponse.status ?? (editionResponse.ok ? 200 : 0)}.`)
     if (!editionResponse.ok) return null
 
-    const edition = await editionResponse.json() as OpenLibraryEditionData
+    const edition = await this.readJson<OpenLibraryEditionData>(editionResponse, `Edition ISBN ${isbn}`)
+    if (!edition) return null
     const workKey = edition.works
       ?.map((work) => work.key?.trim())
       .find((key): key is string => Boolean(key))
@@ -96,7 +98,8 @@ export class OpenLibraryService {
     this.diagnostics.push(`Ratings ${workKey}: HTTP ${ratingResponse.status ?? (ratingResponse.ok ? 200 : 0)}.`)
     if (!ratingResponse.ok) return null
 
-    const rating = await ratingResponse.json() as OpenLibraryRatingResponse
+    const rating = await this.readJson<OpenLibraryRatingResponse>(ratingResponse, `Ratings ${workKey}`)
+    if (!rating) return null
     const average = rating.summary?.average
     if (typeof average !== 'number' || !Number.isFinite(average) || average <= 0) {
       this.diagnostics.push(`Ratings ${workKey}: nota ausente.`)
@@ -117,5 +120,15 @@ export class OpenLibraryService {
 
   getDiagnostics(): string[] {
     return [...this.diagnostics]
+  }
+
+  private async readJson<T>(response: Response, label: string): Promise<T | null> {
+    try {
+      return await response.json() as T
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      this.diagnostics.push(`${label}: JSON invalido (${message}).`)
+      return null
+    }
   }
 }

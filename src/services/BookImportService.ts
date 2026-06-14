@@ -1010,7 +1010,11 @@ export class BookImportService {
       return Array.from(new Uint8Array(digest))
         .map((byte) => byte.toString(16).padStart(2, '0'))
         .join('')
-    } catch {
+    } catch (error) {
+      errorImportDiagnostic('web', 'file-hash-failed', error, {
+        fileName: file.name,
+        fileSize: file.size,
+      })
       return undefined
     }
   }
