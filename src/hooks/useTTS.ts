@@ -4,6 +4,11 @@ import type { TtsChunk } from '../components/reader/EpubViewer'
 import { NativeTtsService } from '../services/NativeTtsService'
 import { createFlowId, getDiagnosticsNowMs, logError, logEvent, logWarn } from '../services/DiagnosticsLogger'
 import {
+  getCachedPremiumTtsAudio,
+  setCachedPremiumTtsAudio,
+  type PremiumTtsAudioCacheParams,
+} from '../services/TtsAudioCache'
+import {
   getPremiumTtsApiKey,
   getTtsProviderLabel,
   isPremiumTtsProvider,
@@ -374,6 +379,13 @@ export function useTTS(options: UseTTSOptions) {
       rate: config.rate,
       hasVoiceId: Boolean(voiceId),
     }
+    const cacheParams: PremiumTtsAudioCacheParams = {
+      provider,
+      voiceId,
+      language: config.language,
+      rate: config.rate,
+      text,
+    }
 
     logEvent('tts.synthesize.start', {
       flowId,
@@ -381,6 +393,35 @@ export function useTTS(options: UseTTSOptions) {
       status: 'start',
       details: baseDetails,
     })
+
+    const cachedResult = getCachedPremiumTtsAudio(cacheParams)
+    if (cachedResult) {
+      logEvent('tts.synthesize.cache.hit', {
+        flowId,
+        provider,
+        status: 'success',
+        durationMs: getDiagnosticsNowMs() - startedAt,
+        details: {
+          ...baseDetails,
+          audioBytes: cachedResult.audioBlob.size,
+          speechMarkCount: cachedResult.speechMarks.length,
+        },
+      })
+      logEvent('tts.synthesize.success', {
+        flowId,
+        provider,
+        status: 'success',
+        durationMs: getDiagnosticsNowMs() - startedAt,
+        details: {
+          ...baseDetails,
+          audioBytes: cachedResult.audioBlob.size,
+          speechMarkCount: cachedResult.speechMarks.length,
+          cacheHit: true,
+        },
+      })
+      await playAudioBlob(text, cachedResult.audioBlob, cachedResult.speechMarks, paraIdx, offsetInPara, session, trackPlaybackState)
+      return
+    }
 
     let result: Awaited<ReturnType<typeof synthesizePremiumTts>>
     try {
@@ -401,6 +442,8 @@ export function useTTS(options: UseTTSOptions) {
       throw error
     }
 
+    setCachedPremiumTtsAudio(cacheParams, result)
+
     logEvent('tts.synthesize.success', {
       flowId,
       provider,
@@ -410,6 +453,7 @@ export function useTTS(options: UseTTSOptions) {
         ...baseDetails,
         audioBytes: result.audioBlob.size,
         speechMarkCount: result.speechMarks.length,
+        cacheHit: false,
       },
     })
 

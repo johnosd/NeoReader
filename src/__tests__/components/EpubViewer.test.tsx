@@ -114,6 +114,17 @@ function clickAt(el: Element, clientX: number, clientY = 360) {
   })
 }
 
+function expectTapIgnored(reason: string, details: Record<string, unknown> = {}) {
+  expect(logEventMock).toHaveBeenCalledWith('reader.tap.ignored', expect.objectContaining({
+    screen: 'reader',
+    status: 'fallback',
+    details: expect.objectContaining({
+      reason,
+      ...details,
+    }),
+  }))
+}
+
 function setCaretRange(doc: Document, textNode: Text, offset: number) {
   Object.defineProperty(doc, 'caretRangeFromPoint', {
     configurable: true,
@@ -390,6 +401,12 @@ describe('EpubViewer — seleção de texto', () => {
 
     expect(onCenterTap).toHaveBeenCalledOnce()
     expect(onTranslate).not.toHaveBeenCalled()
+    expectTapIgnored('chrome-zone', {
+      zone: 'right',
+      tapHitsReadableText: false,
+      sectionIndex: 0,
+      paragraphIndex: 0,
+    })
   })
 
   it('tap em paragrafo na zona superior seleciona o texto', async () => {
@@ -459,6 +476,10 @@ describe('EpubViewer — seleção de texto', () => {
 
     expect(onCenterTap).toHaveBeenCalledOnce()
     expect(onTranslate).not.toHaveBeenCalled()
+    expectTapIgnored('chrome-zone', {
+      zone: 'visible',
+      tapHitsReadableText: false,
+    })
   })
 
   it('tap na area superior de menu sem chrome visivel abre o chrome sem traduzir', async () => {
@@ -475,6 +496,28 @@ describe('EpubViewer — seleção de texto', () => {
 
     expect(onCenterTap).toHaveBeenCalledOnce()
     expect(onTranslate).not.toHaveBeenCalled()
+    expectTapIgnored('chrome-zone', {
+      zone: 'visible',
+      tapHitsReadableText: false,
+    })
+  })
+
+  it('tap fora de paragrafo legivel registra motivo e alterna o chrome', async () => {
+    const onTranslate = vi.fn()
+    const onCenterTap = vi.fn()
+    const { foliateEl } = await renderViewer({ onTranslate, onCenterTap })
+    const fakeDoc = makeFakeDoc(['Hi'])
+    setViewportWidth(fakeDoc, 360)
+    setViewportHeight(fakeDoc, 720)
+    loadSection(foliateEl, fakeDoc, 0)
+
+    clickAt(fakeDoc.body, 180, 360)
+
+    expect(onCenterTap).toHaveBeenCalledOnce()
+    expect(onTranslate).not.toHaveBeenCalled()
+    expectTapIgnored('no-readable-paragraph', {
+      chromeVisible: false,
+    })
   })
 
   it('apenas um parágrafo tem data-nr-active por vez', () => {
@@ -512,6 +555,33 @@ describe('EpubViewer — seleção de texto', () => {
     expect(onTranslate).toHaveBeenCalledOnce()
     expect(paraA.hasAttribute('data-nr-active')).toBe(true)
     expect(block?.querySelector('.nr-tr-spinner')).not.toBeNull()
+    expectTapIgnored('translation-loading', {
+      sectionIndex: 0,
+      paragraphIndex: 0,
+    })
+  })
+
+  it('tap em paragrafo durante TTS ativo navega o TTS e registra motivo', async () => {
+    const onTranslate = vi.fn()
+    const onParagraphTapForTts = vi.fn()
+    const { foliateEl } = await renderViewer({
+      onTranslate,
+      onParagraphTapForTts,
+      ttsGlobalActive: true,
+    })
+    const fakeDoc = makeFakeDoc(['First TTS paragraph.', 'Second TTS paragraph.'])
+    const paras = fakeDoc.querySelectorAll('p')
+    loadSection(foliateEl, fakeDoc, 0)
+
+    click(paras[1]!)
+
+    expect(onParagraphTapForTts).toHaveBeenCalledWith(1)
+    expect(onTranslate).not.toHaveBeenCalled()
+    expectTapIgnored('tts-active', {
+      sectionIndex: 0,
+      paragraphIndex: 1,
+      ttsParagraphIndex: 1,
+    })
   })
 
   it('toggle off após tradução reintegra o texto movido para o remainder', async () => {
@@ -879,6 +949,11 @@ describe('EpubViewer — posição visível', () => {
     })
 
     expect(onBookmarkTap).toHaveBeenCalledWith(7)
+    expectTapIgnored('bookmark-icon', {
+      sectionIndex: 0,
+      paragraphIndex: 1,
+      bookmarkId: 7,
+    })
   })
 
   it('continua permitindo tradução após carregar uma nova seção', async () => {
@@ -1421,6 +1496,29 @@ describe('EpubViewer - bloco inline de traducao', () => {
     expect(block?.querySelector('[data-nr-action="speak"]')).not.toBeNull()
     expect(block?.querySelector('[data-nr-action="bookmark"]')).not.toBeNull()
     expect(block?.querySelector('[data-nr-action="save"]')).not.toBeNull()
+  })
+
+  it('tap no fundo do bloco inline nao alterna chrome e registra motivo', async () => {
+    const onCenterTap = vi.fn()
+    const onTranslate = vi.fn()
+    const { viewerRef, foliateEl } = await renderViewer({ onCenterTap, onTranslate })
+    const fakeDoc = makeFakeDoc(['Chapter paragraph for translation.'])
+    const para = fakeDoc.querySelector('p') as HTMLElement
+
+    loadSection(foliateEl, fakeDoc, 1)
+    click(para)
+    act(() => { viewerRef.current?.showTranslationLoading() })
+    act(() => { viewerRef.current?.injectTranslation('Texto traduzido') })
+
+    const block = fakeDoc.getElementById('nr-translation-block') as HTMLElement
+    clickAt(block, 180, 360)
+
+    expect(onCenterTap).not.toHaveBeenCalled()
+    expect(onTranslate).toHaveBeenCalledOnce()
+    expectTapIgnored('translation-block', {
+      sectionIndex: 1,
+      paragraphIndex: 0,
+    })
   })
 
   it('botao Next seleciona e traduz a primeira unidade do proximo paragrafo', async () => {

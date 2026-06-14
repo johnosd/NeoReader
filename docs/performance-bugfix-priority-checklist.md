@@ -10,7 +10,7 @@ Objetivo: organizar as proximas frentes de melhoria do NeoReader por prioridade,
 | --- | --- | --- | --- | --- | --- |
 | PBF-01 | Logs para toques ignorados no leitor | Quando o usuario toca e nada acontece, hoje o log nem sempre explica o motivo. | Adicionar `reader.tap.ignored` com `reason`: `chrome-zone`, `translation-loading`, `tts-active`, `no-readable-paragraph`, `translation-block`, `bookmark-icon` quando aplicavel. | Todo toque descartado por regra interna relevante gera evento sem expor texto do livro. | Teste unitario no `EpubViewer`; teste Android tocando topo vazio, lateral direita, durante loading e durante TTS. |
 | PBF-02 | Zona lateral direita de toque | A lateral direita ainda tem prioridade para abrir chrome; pode parecer que o paragrafo nao responde se o usuario tocar texto perto da margem. | Revisar regra da lateral direita: priorizar texto quando o toque cair dentro de um paragrafo legivel, ou reduzir a zona lateral. | Toque em texto perto da margem direita seleciona/traduz; toque em area vazia perto da margem ainda alterna chrome. | Teste unitario similar ao AQA-20; teste Android dedicado. |
-| PBF-03 | Cache de TTS premium | Fluxos de TTS podem sintetizar o mesmo texto repetidamente, gerando custo/latencia. | Criar cache por `provider + voiceId + language + rate + textHash`, com expiração e invalidação simples. | Repetir a mesma frase/paragrafo usa cache e nao chama rede novamente. | Testes unitarios do hook/servico TTS; teste Android com dois plays do mesmo trecho e logs comparando cache hit. |
+| PBF-03 | Cache de TTS premium | Fluxos de TTS podem sintetizar o mesmo texto repetidamente, gerando custo/latencia. | Criar cache por `provider + voiceId + language + rate + textHash`, com expiracao e invalidacao simples. | Repetir a mesma frase/paragrafo usa cache e nao chama rede novamente. | Testes unitarios do hook/servico TTS; teste Android com dois plays do mesmo trecho e logs comparando cache hit. |
 
 ## Prioridade media
 
@@ -38,6 +38,13 @@ Objetivo: organizar as proximas frentes de melhoria do NeoReader por prioridade,
 6. PBF-06 - otimizacao de bundle/assets.
 7. PBF-07/PBF-08 - classificacao de warnings benignos.
 8. PBF-09 - checklist smoke Android.
+
+## Progresso
+
+| ID | Status | Evidencia |
+| --- | --- | --- |
+| PBF-01 | Concluido localmente | `reader.tap.ignored` cobre `chrome-zone`, `translation-loading`, `tts-active`, `no-readable-paragraph`, `translation-block` e `bookmark-icon` sem registrar texto do livro. Validado com `npm.cmd run test -- src/__tests__/components/EpubViewer.test.tsx`, `npm.cmd run test` e `npm.cmd run build` em 2026-06-14. |
+| PBF-03 | Implementado localmente | Cache em memoria por sessao para TTS premium usando provider, voz, idioma, rate e hash/tamanho do texto, com TTL de 6h e limite de 64 entradas. Logs incluem `tts.synthesize.cache.hit` e `cacheHit` em `tts.synthesize.success`. Validado com `npm.cmd run test -- src/__tests__/services/TtsAudioCache.test.ts src/__tests__/hooks/useTTS.test.tsx`, `npm.cmd run test` e `npm.cmd run build` em 2026-06-14. Falta reexecutar teste Android tocando o mesmo trecho duas vezes para confirmar o cache hit no logcat. |
 
 ## Notas de implementacao
 

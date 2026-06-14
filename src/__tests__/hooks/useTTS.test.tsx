@@ -1,6 +1,7 @@
 import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTTS } from '@/hooks/useTTS'
+import { clearPremiumTtsAudioCache } from '@/services/TtsAudioCache'
 import type { TtsChunk } from '@/components/reader/EpubViewer'
 
 const textToSpeechMock = vi.hoisted(() => {
@@ -121,6 +122,7 @@ async function flushMicrotasks() {
 
 describe('useTTS', () => {
   beforeEach(() => {
+    clearPremiumTtsAudioCache()
     textToSpeechMock.reset()
     speechifyMock.getApiKey.mockReset()
     speechifyMock.isConfigured.mockReset()
@@ -367,6 +369,104 @@ describe('useTTS', () => {
 
     expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1)
     expect(callbacks.onFinished).toHaveBeenCalledOnce()
+  })
+
+  it('reusa audio premium em cache ao tocar o mesmo trecho novamente', async () => {
+    speechifyMock.getApiKey.mockResolvedValue('speechify-key')
+    speechifyMock.isConfigured.mockResolvedValue(true)
+
+    const callbacks = createCallbacks()
+    const { result } = renderHook(() => useTTS({
+      ...callbacks,
+      provider: 'speechify',
+      language: 'en-US',
+      rate: 1,
+      speechifyVoiceId: 'speechify-voice-a',
+    }))
+    const chunks: TtsChunk[] = [
+      { text: 'Repeat cached paragraph.', paraIdx: 0, offsetInPara: 0 },
+    ]
+
+    let firstPlayPromise: Promise<void> | undefined
+    await act(async () => {
+      firstPlayPromise = result.current.play(chunks, 0)
+    })
+    await flushMicrotasks()
+
+    await act(async () => {
+      FakeAudio.instances[0]?.finish()
+      await firstPlayPromise
+    })
+
+    let secondPlayPromise: Promise<void> | undefined
+    await act(async () => {
+      secondPlayPromise = result.current.play(chunks, 0)
+    })
+    await flushMicrotasks()
+
+    await act(async () => {
+      FakeAudio.instances[1]?.finish()
+      await secondPlayPromise
+    })
+
+    expect(FakeAudio.instances).toHaveLength(2)
+    expect(speechifyMock.synthesize).toHaveBeenCalledTimes(1)
+    expect(speechifyMock.synthesize).toHaveBeenCalledWith('Repeat cached paragraph.', {
+      apiKey: 'speechify-key',
+      language: 'en-US',
+      rate: 1,
+      voiceId: 'speechify-voice-a',
+    })
+    expect(textToSpeechMock.speak).not.toHaveBeenCalled()
+  })
+
+  it('nao reutiliza cache premium quando o rate muda', async () => {
+    speechifyMock.getApiKey.mockResolvedValue('speechify-key')
+    speechifyMock.isConfigured.mockResolvedValue(true)
+
+    const callbacks = createCallbacks()
+    const { result, rerender } = renderHook((props: { rate: number }) => useTTS({
+      ...callbacks,
+      provider: 'speechify',
+      language: 'en-US',
+      rate: props.rate,
+      speechifyVoiceId: 'speechify-voice-a',
+    }), {
+      initialProps: { rate: 1 },
+    })
+    const chunks: TtsChunk[] = [
+      { text: 'Repeat cached paragraph.', paraIdx: 0, offsetInPara: 0 },
+    ]
+
+    let firstPlayPromise: Promise<void> | undefined
+    await act(async () => {
+      firstPlayPromise = result.current.play(chunks, 0)
+    })
+    await flushMicrotasks()
+    await act(async () => {
+      FakeAudio.instances[0]?.finish()
+      await firstPlayPromise
+    })
+
+    rerender({ rate: 1.25 })
+
+    let secondPlayPromise: Promise<void> | undefined
+    await act(async () => {
+      secondPlayPromise = result.current.play(chunks, 0)
+    })
+    await flushMicrotasks()
+    await act(async () => {
+      FakeAudio.instances[1]?.finish()
+      await secondPlayPromise
+    })
+
+    expect(speechifyMock.synthesize).toHaveBeenCalledTimes(2)
+    expect(speechifyMock.synthesize).toHaveBeenNthCalledWith(2, 'Repeat cached paragraph.', {
+      apiKey: 'speechify-key',
+      language: 'en-US',
+      rate: 1.25,
+      voiceId: 'speechify-voice-a',
+    })
   })
 
   it('permite ElevenLabs com voz padrao sem exigir voiceId salvo no livro', async () => {

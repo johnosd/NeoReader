@@ -79,6 +79,14 @@ const TRANSLATION_ICON = {
 
 type TranslationAction = 'next' | 'speak' | 'bookmark' | 'save'
 type InlineTranslationSource = 'tap' | 'next'
+type ReaderTapIgnoredReason =
+  | 'bookmark-icon'
+  | 'chrome-zone'
+  | 'no-readable-paragraph'
+  | 'scroll-gesture'
+  | 'translation-block'
+  | 'translation-loading'
+  | 'tts-active'
 
 function splitParagraphIntoTranslationUnits(text: string): Array<{ sentence: string; offset: number }> {
   const units = [...text.matchAll(/[^.!?。！？…]+(?:[.!?。！？…]+["'”’»)]*|$)/g)]
@@ -1178,6 +1186,38 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         textLength: sourceText.trim().length,
         ...extra,
       }
+    }
+
+    function getTapLogDetails(
+      para: Element | null,
+      extra: Record<string, unknown> = {},
+    ): Record<string, unknown> {
+      const sectionIndex = para
+        ? getSectionIndexForDocument(para.ownerDocument) ?? currentSectionIdxRef.current
+        : currentSectionIdxRef.current
+      const sectionContent = getLoadedSection(sectionIndex)
+      const paragraphIndex = para ? sectionContent?.paragraphs.indexOf(para) ?? -1 : -1
+
+      return {
+        sectionIndex,
+        paragraphIndex: paragraphIndex >= 0 ? paragraphIndex : undefined,
+        ...extra,
+      }
+    }
+
+    function logReaderTapIgnored(
+      reason: ReaderTapIgnoredReason,
+      para: Element | null = null,
+      extra: Record<string, unknown> = {},
+    ): void {
+      logEvent('reader.tap.ignored', {
+        screen: 'reader',
+        status: 'fallback',
+        details: getTapLogDetails(para, {
+          reason,
+          ...extra,
+        }),
+      })
     }
 
     function getSectionHref(index: number): string | undefined {
@@ -2368,7 +2408,10 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             const target = ev.target instanceof Element ? ev.target : doc.documentElement
             const ownerDocument = target.ownerDocument ?? doc
 
-            if (didScroll) return
+            if (didScroll) {
+              logReaderTapIgnored('scroll-gesture')
+              return
+            }
 
             // Botoes do bloco inline tem prioridade sobre zonas de menu e selecao
             // de paragrafo.
@@ -2406,7 +2449,10 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               return
             }
 
-            if (isTranslationBlockTap(target, ownerDocument, ev.clientX, ev.clientY)) return
+            if (isTranslationBlockTap(target, ownerDocument, ev.clientX, ev.clientY)) {
+              logReaderTapIgnored('translation-block', activeTranslationParaRef.current)
+              return
+            }
 
             const targetSectionIndex = getSectionIndexForDocument(target.ownerDocument)
             if (targetSectionIndex != null) {
@@ -2416,7 +2462,13 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             const para = getTapReadableBlock(target, ownerDocument, ev.clientX, ev.clientY)
             const tapHitsReadableText = para ? isPointInsideElement(para, ev.clientX, ev.clientY) : false
 
-            if (isRightChromeTapZone(ev, ownerDocument) || (!tapHitsReadableText && isVisibleChromeTapZone(ev, ownerDocument))) {
+            const rightChromeTapZone = isRightChromeTapZone(ev, ownerDocument)
+            const visibleChromeTapZone = !tapHitsReadableText && isVisibleChromeTapZone(ev, ownerDocument)
+            if (rightChromeTapZone || visibleChromeTapZone) {
+              logReaderTapIgnored('chrome-zone', para, {
+                zone: rightChromeTapZone ? 'right' : 'visible',
+                tapHitsReadableText,
+              })
               onCenterTapRef.current()
               return
             }
@@ -2431,6 +2483,9 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
               if (clickedBookmarkIcon) {
                 const bookmarkId = Number(para.dataset.nrBookmarkId)
+                logReaderTapIgnored('bookmark-icon', para, {
+                  bookmarkId: Number.isFinite(bookmarkId) ? bookmarkId : undefined,
+                })
                 if (Number.isFinite(bookmarkId)) onBookmarkTapRef.current?.(bookmarkId)
                 return
               }
@@ -2441,6 +2496,9 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
             // Tap fora da area de texto e das zonas de menu alterna o chrome.
             if (!para) {
+              logReaderTapIgnored('no-readable-paragraph', null, {
+                chromeVisible: chromeVisibleRef.current,
+              })
               if (!chromeVisibleRef.current) onCenterTapRef.current()
               return
             }
@@ -2451,12 +2509,18 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               const targetContent = targetSectionIndex != null ? getLoadedSection(targetSectionIndex) : null
               if (targetContent) ttsPlaybackContentRef.current = targetContent
               const idx = (targetContent?.paragraphs ?? ttsParagraphsRef.current).indexOf(para)
+              logReaderTapIgnored('tts-active', para, {
+                ttsParagraphIndex: idx >= 0 ? idx : undefined,
+              })
               if (idx >= 0) onParagraphTapForTtsRef.current(idx)
               return
             }
 
             // Bloqueia qualquer nova seleção/toggle enquanto o spinner está ativo.
-            if (translationInProgressRef.current) return
+            if (translationInProgressRef.current) {
+              logReaderTapIgnored('translation-loading', para)
+              return
+            }
 
             // Toggle off: parágrafo já destacado → limpa highlight e bloco de tradução inline
             if (para.hasAttribute('data-nr-active')) {
