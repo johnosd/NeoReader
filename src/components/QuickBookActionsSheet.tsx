@@ -8,6 +8,7 @@ import { BookImportService } from '../services/BookImportService'
 import { BookInfoRefreshService } from '../services/bookInfo'
 import { BottomSheet, Button, Checkbox, Spinner } from './ui'
 import type { Book, BookTag } from '../types/book'
+import { useI18n } from '../i18n'
 
 interface QuickBookActionsSheetProps {
   book: Book | null
@@ -15,6 +16,7 @@ interface QuickBookActionsSheetProps {
 }
 
 export function QuickBookActionsSheet({ book, onClose }: QuickBookActionsSheetProps) {
+  const { t } = useI18n()
   const tags = useLiveQuery(() => db.tags.orderBy('name').toArray(), []) ?? []
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -44,7 +46,7 @@ export function QuickBookActionsSheet({ book, onClose }: QuickBookActionsSheetPr
       await task()
       if (options.closeOnSuccess) resetAndClose()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao executar ação.')
+      setError(err instanceof Error ? err.message : t('quickActions.error'))
     } finally {
       setLoading(false)
     }
@@ -59,7 +61,7 @@ export function QuickBookActionsSheet({ book, onClose }: QuickBookActionsSheetPr
   async function handleReextractCover() {
     await runAction(async () => {
       const hasCover = await BookImportService.reextractCover(book!)
-      if (!hasCover) throw new Error('Nenhuma capa encontrada neste EPUB.')
+      if (!hasCover) throw new Error(t('quickActions.noCover'))
     })
   }
 
@@ -106,7 +108,7 @@ export function QuickBookActionsSheet({ book, onClose }: QuickBookActionsSheetPr
         onChange={handleImageChange}
       />
 
-      <BottomSheet open={book !== null} onClose={handleClose} title="Ações rápidas">
+      <BottomSheet open={book !== null} onClose={handleClose} title={t('quickActions.title')}>
         {book && (
           <p className="-mt-2 mb-4 truncate text-xs text-text-muted">{book.title}</p>
         )}
@@ -114,43 +116,43 @@ export function QuickBookActionsSheet({ book, onClose }: QuickBookActionsSheetPr
         <div className="flex flex-col gap-2">
           <ActionRow
             icon={<DatabaseZap size={18} />}
-            title="Atualizar dados do livro"
-            description="Busca categoria, nota, sinopse, publicação e reviews"
+            title={t('quickActions.refreshBookInfo.title')}
+            description={t('quickActions.refreshBookInfo.description')}
             onClick={() => void handleRefreshBookInfo()}
             disabled={loading}
           />
           <ActionRow
             icon={<RefreshCw size={18} />}
-            title="Recriar capa"
-            description="Reextrai a imagem original do arquivo EPUB"
+            title={t('quickActions.reextractCover.title')}
+            description={t('quickActions.reextractCover.description')}
             onClick={() => void handleReextractCover()}
             disabled={loading}
           />
           <ActionRow
             icon={<ImagePlus size={18} />}
-            title="Escolher imagem"
-            description="Seleciona uma imagem do dispositivo como capa"
+            title={t('quickActions.chooseCover.title')}
+            description={t('quickActions.chooseCover.description')}
             onClick={() => imageInputRef.current?.click()}
             disabled={loading}
           />
           <ActionRow
             icon={<BookOpen size={18} />}
-            title="Marcar como lendo"
-            description="Move o livro para Lendo"
+            title={t('quickActions.markReading.title')}
+            description={t('quickActions.markReading.description')}
             onClick={() => void runAction(() => updateReadingStatus(book!.id!, 'reading'))}
             disabled={loading}
           />
           <ActionRow
             icon={<Check size={18} />}
-            title="Marcar como finalizado"
-            description="Move o livro para Finalizados"
+            title={t('quickActions.markFinished.title')}
+            description={t('quickActions.markFinished.description')}
             onClick={() => void runAction(() => updateReadingStatus(book!.id!, 'finished'))}
             disabled={loading}
           />
           <ActionRow
             icon={<Tags size={18} />}
-            title="Tags"
-            description="Crie e aplique tags a este livro"
+            title={t('quickActions.tags.title')}
+            description={t('quickActions.tags.description')}
             onClick={() => setTagsOpen((value) => !value)}
             disabled={loading}
           />
@@ -170,22 +172,22 @@ export function QuickBookActionsSheet({ book, onClose }: QuickBookActionsSheetPr
           {!confirmDelete ? (
             <ActionRow
               icon={<Trash2 size={18} />}
-              title="Deletar livro"
-              description="Remove o livro e todo o progresso salvo"
+              title={t('quickActions.delete.title')}
+              description={t('quickActions.delete.description')}
               onClick={() => setConfirmDelete(true)}
               disabled={loading}
               danger
             />
           ) : (
             <div className="rounded-md border border-error/30 bg-error/15 px-4 py-3">
-              <p className="text-sm font-semibold text-error">Confirmar exclusão?</p>
-              <p className="mt-1 text-xs text-error/75">Esta ação não pode ser desfeita.</p>
+              <p className="text-sm font-semibold text-error">{t('quickActions.confirmDelete.title')}</p>
+              <p className="mt-1 text-xs text-error/75">{t('quickActions.confirmDelete.description')}</p>
               <div className="mt-3 flex gap-2">
                 <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)} disabled={loading}>
-                  Cancelar
+                  {t('common.cancel')}
                 </Button>
                 <Button variant="danger" size="sm" onClick={() => void handleDelete()} disabled={loading}>
-                  {loading ? 'Deletando...' : 'Deletar'}
+                  {loading ? t('quickActions.deleting') : t('quickActions.deleteButton')}
                 </Button>
               </div>
             </div>
@@ -193,7 +195,7 @@ export function QuickBookActionsSheet({ book, onClose }: QuickBookActionsSheetPr
 
           {loading && !confirmDelete && (
             <div className="flex justify-center py-2">
-              <Spinner size={18} label="Processando" />
+              <Spinner size={18} label={t('quickActions.processing')} />
             </div>
           )}
           {error && (
@@ -222,11 +224,13 @@ function TagEditor({
   onToggleTag: (tag: BookTag) => void
   onCreateTag: () => void
 }) {
+  const { t } = useI18n()
+
   return (
     <div className="rounded-md border border-border bg-white/5 p-3">
       <div className="space-y-2">
         {tags.length === 0 ? (
-          <p className="text-xs text-text-muted">Nenhuma tag criada ainda.</p>
+          <p className="text-xs text-text-muted">{t('quickActions.noTags')}</p>
         ) : (
           tags.map((tag) => (
             <Checkbox
@@ -243,7 +247,7 @@ function TagEditor({
         <input
           value={newTagName}
           onChange={(e) => onNewTagNameChange(e.target.value)}
-          placeholder="Nova tag"
+          placeholder={t('quickActions.newTagPlaceholder')}
           disabled={disabled}
           className="h-10 min-w-0 flex-1 rounded-md border border-border bg-bg-base px-3 text-sm text-text-primary outline-none focus:border-purple-primary disabled:opacity-50"
         />
@@ -253,7 +257,7 @@ function TagEditor({
           disabled={disabled || !newTagName.trim()}
           className="h-10 rounded-md bg-purple-primary px-3 text-sm font-semibold text-white disabled:opacity-50"
         >
-          Criar
+          {t('quickActions.createTag')}
         </button>
       </div>
     </div>

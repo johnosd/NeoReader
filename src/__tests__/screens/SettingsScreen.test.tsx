@@ -37,6 +37,7 @@ vi.mock('@/services/ElevenLabsService', () => ({
 function settingsFixture() {
   return {
     appSettings: {
+      appLocale: 'auto',
       speechifyApiKey: '',
       elevenLabsApiKey: '',
       fishAudioApiKey: '',
@@ -89,6 +90,21 @@ describe('SettingsScreen', () => {
     expect(await screen.findByPlaceholderText('sk-...')).not.toBeNull()
   })
 
+  it('explica o que cada API key habilita nas integracoes', async () => {
+    render(<SettingsScreen onBack={vi.fn()} />)
+
+    await screen.findByText('Integracoes')
+    fireEvent.click(screen.getByRole('button', { name: /Speechify/ }))
+
+    expect(await screen.findByText(/Vozes Speechify/)).toBeTruthy()
+    expect(screen.getByText(/A key fica salva neste dispositivo/)).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /YouTube Data API/ }))
+
+    expect(await screen.findByText(/Reviews em video/)).toBeTruthy()
+    expect(screen.getByText(/entrevistas e palestras/)).toBeTruthy()
+  })
+
   it('salva defaults do leitor ao alterar tamanho de fonte', async () => {
     render(<SettingsScreen onBack={vi.fn()} />)
 
@@ -139,9 +155,23 @@ describe('SettingsScreen', () => {
 
     const languageRows = await screen.findAllByText('Idioma padrao das traducoes')
     fireEvent.click(languageRows[0])
-    fireEvent.click(screen.getByText('Espanhol'))
+    const spanishOptions = screen.getAllByText('Espanhol')
+    fireEvent.click(spanishOptions[spanishOptions.length - 1])
 
     expect(mocks.updateAppSettings).toHaveBeenCalledWith({ translationTargetLang: 'es' })
+  })
+
+  it('salva idioma do app pelo bottom sheet', async () => {
+    render(<SettingsScreen onBack={vi.fn()} />)
+
+    const appLanguageLabels = await screen.findAllByText('Idioma do app')
+    const appLanguageRow = appLanguageLabels[0].closest('[role="button"]')
+    expect(appLanguageRow).not.toBeNull()
+    fireEvent.click(appLanguageRow!)
+    const englishOptions = screen.getAllByText('Inglês')
+    fireEvent.click(englishOptions[0])
+
+    expect(mocks.updateAppSettings).toHaveBeenCalledWith({ appLocale: 'en' })
   })
 
   it('valida e salva key da Speechify no blur', async () => {

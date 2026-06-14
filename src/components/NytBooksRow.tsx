@@ -2,6 +2,7 @@ import { NytBookCard } from './NytBookCard'
 import { Skeleton } from './ui'
 import { useNytTrending } from '../hooks/useNytTrending'
 import type { NytBook } from '../services/NytBooksService'
+import { useI18n } from '../i18n'
 
 interface NytBooksRowProps {
   listName: string
@@ -12,6 +13,7 @@ function openUrl(url: string) {
 }
 
 export function NytBooksRow({ listName }: NytBooksRowProps) {
+  const { t } = useI18n()
   const { books, displayName, loading, error } = useNytTrending(listName)
 
   function handlePress(book: NytBook) {
@@ -43,7 +45,7 @@ export function NytBooksRow({ listName }: NytBooksRowProps) {
 
         {!loading && error && (
           <p className="text-[12px] px-1" style={{ color: 'rgba(100,116,139,0.75)' }}>
-            Nao foi possivel carregar.
+            {t('nyt.rowError')}
           </p>
         )}
 

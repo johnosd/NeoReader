@@ -4,6 +4,7 @@ import { BottomNav } from '../components/BottomNav'
 import { NytBooksRow } from '../components/NytBooksRow'
 import { EmptyState } from '../components/ui'
 import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
+import { useI18n } from '../i18n'
 
 const TRENDING_LISTS = [
   'advice-how-to-and-miscellaneous',
@@ -24,6 +25,7 @@ interface DiscoverScreenProps {
 }
 
 export function DiscoverScreen({ onBack, onOpenHome, onOpenLibrary, onOpenProfile }: DiscoverScreenProps) {
+  const { t } = useI18n()
   useCapacitorBackButton(onBack)
   const hasNytApiKey = Boolean(import.meta.env.VITE_NYT_API_KEY)
 
@@ -38,8 +40,8 @@ export function DiscoverScreen({ onBack, onOpenHome, onOpenLibrary, onOpenProfil
             <Compass size={22} />
           </div>
           <div>
-            <h1 className="text-2xl font-serif font-bold text-purple-light">Descubra</h1>
-            <p className="text-sm text-text-secondary mt-1">Livros em destaque agora.</p>
+            <h1 className="text-2xl font-serif font-bold text-purple-light">{t('discover.title')}</h1>
+            <p className="text-sm text-text-secondary mt-1">{t('discover.subtitle')}</p>
           </div>
         </div>
       </header>
@@ -49,9 +51,9 @@ export function DiscoverScreen({ onBack, onOpenHome, onOpenLibrary, onOpenProfil
           <>
             <div className="mt-2 mb-1 border-t border-white/5" />
             <div className="px-5 mt-5">
-              <p className="text-[16px] font-semibold text-text-primary">Tendencias no Mundo</p>
+              <p className="text-[16px] font-semibold text-text-primary">{t('discover.trending.title')}</p>
               <p className="text-[11px] mt-[2px]" style={{ color: 'rgba(100,116,139,0.8)' }}>
-                O que o mundo esta lendo agora - NYT Best Sellers
+                {t('discover.trending.subtitle')}
               </p>
             </div>
 
@@ -60,9 +62,9 @@ export function DiscoverScreen({ onBack, onOpenHome, onOpenLibrary, onOpenProfil
             ))}
 
             <div className="px-5 mt-8">
-              <p className="text-[16px] font-semibold text-text-primary">O que as crianças estão lendo agora</p>
+              <p className="text-[16px] font-semibold text-text-primary">{t('discover.children.title')}</p>
               <p className="text-[11px] mt-[2px]" style={{ color: 'rgba(100,116,139,0.8)' }}>
-                Best Sellers infantis e juvenis em destaque no NYT
+                {t('discover.children.subtitle')}
               </p>
             </div>
 
@@ -75,8 +77,8 @@ export function DiscoverScreen({ onBack, onOpenHome, onOpenLibrary, onOpenProfil
         ) : (
           <EmptyState
             icon={<Compass size={48} />}
-            title="Descobertas indisponiveis"
-            description="Configure VITE_NYT_API_KEY para carregar as listas do NYT Best Sellers."
+            title={t('discover.unavailable.title')}
+            description={t('discover.unavailable.description')}
           />
         )}
       </main>

@@ -5,8 +5,17 @@ import { SpeechifyService } from './SpeechifyService'
 import type { AppSettings } from '../types/settings'
 import type { PremiumTtsProvider, TtsProvider, TtsSpeechMark, TtsVoiceOption } from '../types/tts'
 
+export type ApiKeyValidationCode =
+  | 'empty'
+  | 'valid'
+  | 'invalid'
+  | 'timeout'
+  | 'unavailable'
+  | 'no_credits'
+
 export interface ApiKeyValidationResult {
   isValid: boolean
+  code: ApiKeyValidationCode
   message: string
 }
 

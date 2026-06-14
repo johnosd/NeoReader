@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
-import { User } from 'lucide-react'
+import { PlayCircle, User } from 'lucide-react'
 import { EmptyState, Skeleton } from './ui'
+import { IntegrationHelpBanner } from './IntegrationHelpBanner'
 import { getAuthorData } from '../services/AuthorService'
 import type { AuthorData } from '../types/author'
 import type { Book } from '../types/book'
+import { useI18n } from '../i18n'
 
 interface AuthorTabProps {
   book: Book
@@ -12,6 +14,7 @@ interface AuthorTabProps {
 }
 
 export function AuthorTab({ book, youtubeApiKey, onOpenSettings }: AuthorTabProps) {
+  const { t } = useI18n()
   const requestKey = `${book.id ?? 'new'}::${book.author}::${youtubeApiKey}`
   const [authorState, setAuthorState] = useState<{
     key: string
@@ -39,8 +42,8 @@ export function AuthorTab({ book, youtubeApiKey, onOpenSettings }: AuthorTabProp
     return (
       <EmptyState
         icon={<User size={32} />}
-        title="Autor nao encontrado"
-        description={`Nao encontramos informacoes sobre ${book.author}.`}
+        title={t('author.empty.title')}
+        description={t('author.empty.description', { author: book.author })}
       />
     )
   }
@@ -49,7 +52,16 @@ export function AuthorTab({ book, youtubeApiKey, onOpenSettings }: AuthorTabProp
     <div className="flex flex-col gap-6 pb-4">
       <AuthorBio data={authorData} />
       {authorData.videos.length > 0 && <VideoCarousel videos={authorData.videos} />}
-      {!youtubeApiKey && <YoutubePrompt onOpenSettings={onOpenSettings} />}
+      {!youtubeApiKey && (
+        <IntegrationHelpBanner
+          title={t('author.youtubePrompt.title')}
+          description={t('author.youtubePrompt.description')}
+          actionLabel={t('author.youtubePrompt.action')}
+          dismissId="author-youtube-key"
+          icon={<PlayCircle size={18} />}
+          onAction={onOpenSettings}
+        />
+      )}
       {authorData.otherBooks.length > 0 && <OtherBooksRow books={authorData.otherBooks} />}
     </div>
   )
@@ -58,6 +70,7 @@ export function AuthorTab({ book, youtubeApiKey, onOpenSettings }: AuthorTabProp
 // ─── Bio do autor ─────────────────────────────────────────────────────────────
 
 function AuthorBio({ data }: { data: AuthorData }) {
+  const { t } = useI18n()
   const [bioExpanded, setBioExpanded] = useState(false)
   const [photoError, setPhotoError] = useState(false)
 
@@ -93,7 +106,7 @@ function AuthorBio({ data }: { data: AuthorData }) {
               onClick={() => setBioExpanded((v) => !v)}
               className="mt-1 text-xs font-semibold text-purple-light active:opacity-70"
             >
-              {bioExpanded ? 'Ver menos' : 'Ver mais'}
+              {bioExpanded ? t('author.bio.showLess') : t('author.bio.showMore')}
             </button>
           )}
         </div>
@@ -105,10 +118,12 @@ function AuthorBio({ data }: { data: AuthorData }) {
 // ─── Carrossel de vídeos (populado na Fase 3, já renderiza se houver dados) ───
 
 function VideoCarousel({ videos }: { videos: AuthorData['videos'] }) {
+  const { t } = useI18n()
+
   return (
     <div>
       <h3 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-text-muted">
-        Videos
+        {t('author.videos')}
       </h3>
       <div className="flex gap-3 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
         {videos.map((video) => (
@@ -137,30 +152,15 @@ function VideoCarousel({ videos }: { videos: AuthorData['videos'] }) {
 
 // ─── Banner para configurar YouTube key ───────────────────────────────────────
 
-function YoutubePrompt({ onOpenSettings }: { onOpenSettings: () => void }) {
-  return (
-    <div className="rounded-md border border-border bg-bg-surface p-4 flex flex-col gap-3">
-      <p className="text-xs text-text-muted leading-relaxed">
-        Configure sua YouTube API key nas Configuracoes para ver entrevistas, TED Talks e
-        palestras deste autor.
-      </p>
-      <button
-        onClick={onOpenSettings}
-        className="self-start rounded-md bg-purple-primary/20 px-3 py-1.5 text-xs font-semibold text-purple-light active:bg-purple-primary/30 transition-colors"
-      >
-        Ir para Configuracoes
-      </button>
-    </div>
-  )
-}
-
 // ─── Outros livros do autor ────────────────────────────────────────────────────
 
 function OtherBooksRow({ books }: { books: AuthorData['otherBooks'] }) {
+  const { t } = useI18n()
+
   return (
     <div>
       <h3 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-text-muted">
-        Outros Livros
+        {t('author.otherBooks')}
       </h3>
       <div className="flex gap-3 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
         {books.map((book, index) => (

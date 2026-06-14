@@ -575,6 +575,22 @@ describe('useTTS', () => {
       reason: 'Speechify está indisponível no momento.',
     })
     expect(callbacks.onFinished).toHaveBeenCalledOnce()
+    const diagnosticCall = warnSpy.mock.calls.find((call) => (
+      String(call[0]).startsWith('NeoReaderEvent tts.provider.fallback')
+    ))
+    expect(diagnosticCall).toBeTruthy()
+    const event = JSON.parse(String(diagnosticCall?.[1])) as {
+      eventName: string
+      provider?: string
+      status?: string
+      errorMessage?: string
+      details?: { fallbackProvider?: string }
+    }
+    expect(event.eventName).toBe('tts.provider.fallback')
+    expect(event.provider).toBe('speechify')
+    expect(event.status).toBe('fallback')
+    expect(event.errorMessage).toBe('Speechify error: 500')
+    expect(event.details?.fallbackProvider).toBe('native')
     expect(callbacks.onStop).toHaveBeenCalledOnce()
 
     warnSpy.mockRestore()

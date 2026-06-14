@@ -1,6 +1,7 @@
 import { X } from 'lucide-react'
 import { Badge, BottomSheet, EmptyState } from '../ui'
 import type { Bookmark } from '../../types/book'
+import { useI18n, type MessageKey } from '../../i18n'
 
 interface BookmarkSheetProps {
   open: boolean
@@ -12,18 +13,18 @@ interface BookmarkSheetProps {
 }
 
 const COLORS = [
-  { key: 'indigo', hex: '#6366f1', label: 'Indigo' },
-  { key: 'emerald', hex: '#22c55e', label: 'Verde' },
-  { key: 'amber', hex: '#f59e0b', label: 'Ambar' },
-  { key: 'rose', hex: '#f43f5e', label: 'Rosa' },
-]
+  { key: 'indigo', hex: '#6366f1', labelKey: 'bookmark.color.indigo' },
+  { key: 'emerald', hex: '#22c55e', labelKey: 'bookmark.color.emerald' },
+  { key: 'amber', hex: '#f59e0b', labelKey: 'bookmark.color.amber' },
+  { key: 'rose', hex: '#f43f5e', labelKey: 'bookmark.color.rose' },
+] satisfies Array<{ key: string; hex: string; labelKey: MessageKey }>
 
 function colorHex(color: string | undefined): string {
   return COLORS.find((c) => c.key === color)?.hex ?? '#6366f1'
 }
 
-function formatDate(date: Date | string): string {
-  return new Intl.DateTimeFormat('pt-BR', {
+function formatDate(date: Date | string, locale: string): string {
+  return new Intl.DateTimeFormat(locale, {
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
@@ -40,6 +41,7 @@ export function BookmarkSheet({
   onColorChange,
   onClose,
 }: BookmarkSheetProps) {
+  const { locale, t } = useI18n()
   const sorted = [...bookmarks].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   )
@@ -48,13 +50,13 @@ export function BookmarkSheet({
     <BottomSheet
       open={open}
       onClose={onClose}
-      title="Marcadores"
+      title={t('bookmark.title')}
       className="border-t border-white/10 bg-[rgba(15,7,24,0.94)] backdrop-blur-2xl"
     >
       {sorted.length === 0 ? (
         <EmptyState
-          title="Nenhum marcador ainda"
-          description="Selecione um paragrafo durante a leitura e use Marcar para salvar esse trecho."
+          title={t('bookmark.empty.title')}
+          description={t('bookmark.empty.description')}
         />
       ) : (
         <div className="space-y-3">
@@ -62,14 +64,14 @@ export function BookmarkSheet({
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-purple-light/80">
-                  Trechos salvos
+                  {t('bookmark.savedSections')}
                 </p>
                 <p className="mt-1 text-sm leading-6 text-text-muted">
-                  Abra qualquer marcador para voltar exatamente ao paragrafo salvo.
+                  {t('bookmark.savedSectionsDescription')}
                 </p>
               </div>
               <Badge tone="indigo" className="shrink-0 px-2.5 py-1 text-[10px] normal-case tracking-normal">
-                {sorted.length} salvos
+                {t('bookmark.savedCount', { count: sorted.length })}
               </Badge>
             </div>
           </div>
@@ -96,7 +98,7 @@ export function BookmarkSheet({
                         {bookmark.label}
                       </p>
                       <p className="mt-1 text-sm leading-6 text-text-primary line-clamp-2">
-                        {bookmark.snippet || 'Trecho salvo deste capitulo.'}
+                        {bookmark.snippet || t('bookmark.fallbackSnippet')}
                       </p>
                     </div>
 
@@ -113,7 +115,7 @@ export function BookmarkSheet({
                       {COLORS.map((c) => (
                         <button
                           key={c.key}
-                          aria-label={`Cor ${c.label}`}
+                          aria-label={t('bookmark.color', { label: t(c.labelKey) })}
                           onClick={() => {
                             if (bookmark.id !== undefined) onColorChange(bookmark.id, c.key)
                           }}
@@ -130,7 +132,7 @@ export function BookmarkSheet({
                     </div>
 
                     <span className="text-[11px] tabular-nums text-text-muted">
-                      {formatDate(bookmark.createdAt)}
+                      {formatDate(bookmark.createdAt, locale)}
                     </span>
                   </div>
                 </div>
@@ -141,7 +143,7 @@ export function BookmarkSheet({
                     if (bookmark.id !== undefined) onDelete(bookmark.id)
                   }}
                   className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/8 bg-bg-surface-2/70 text-text-muted transition-colors duration-150 active:bg-error/12 active:text-error"
-                  aria-label="Remover marcador"
+                  aria-label={t('bookmark.remove')}
                 >
                   <X size={16} />
                 </button>

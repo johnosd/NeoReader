@@ -6,12 +6,14 @@ import { EmptyState, Input, Spinner } from '../components/ui'
 import { db } from '../db/database'
 import { deleteVocabItem } from '../db/vocabulary'
 import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
+import { useI18n } from '../i18n'
 
 interface VocabularyScreenProps {
   onBack: () => void
 }
 
 export function VocabularyScreen({ onBack }: VocabularyScreenProps) {
+  const { t } = useI18n()
   // Reativo: atualiza automaticamente quando um item é apagado
   const items = useLiveQuery(
     () => db.vocabulary.orderBy('createdAt').reverse().toArray(),
@@ -42,13 +44,13 @@ export function VocabularyScreen({ onBack }: VocabularyScreenProps) {
         <button
           onClick={onBack}
           className="p-2 -ml-1 rounded-md text-text-secondary active:scale-90 transition-transform"
-          aria-label="Voltar"
+          aria-label={t('common.back')}
         >
           <ArrowLeft size={20} />
         </button>
         <div>
-          <p className="text-xs text-text-muted uppercase tracking-wider">Biblioteca</p>
-          <h1 className="text-2xl font-serif font-bold text-purple-light">Vocabulário</h1>
+          <p className="text-xs text-text-muted uppercase tracking-wider">{t('vocabulary.library')}</p>
+          <h1 className="text-2xl font-serif font-bold text-purple-light">{t('vocabulary.title')}</h1>
         </div>
       </header>
 
@@ -57,7 +59,7 @@ export function VocabularyScreen({ onBack }: VocabularyScreenProps) {
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Buscar palavra, tradução ou livro..."
+            placeholder={t('vocabulary.searchPlaceholder')}
             leftIcon={<Search size={16} />}
           />
         </div>
@@ -66,23 +68,23 @@ export function VocabularyScreen({ onBack }: VocabularyScreenProps) {
       <main className="px-4">
         {items === undefined && (
           <div className="flex justify-center pt-16">
-            <Spinner tone="purple" label="Carregando" />
+            <Spinner tone="purple" label={t('vocabulary.loading')} />
           </div>
         )}
 
         {items?.length === 0 && (
           <EmptyState
             icon={<Star size={48} />}
-            title="Nenhum item salvo"
-            description="Toque em um parágrafo durante a leitura e salve com a estrela."
+            title={t('vocabulary.empty.title')}
+            description={t('vocabulary.empty.description')}
           />
         )}
 
         {hasItems && filtered && filtered.length === 0 && (
           <EmptyState
             icon={<Search size={48} />}
-            title="Nada encontrado"
-            description={`Nenhum item combina com "${query}".`}
+            title={t('vocabulary.noResults.title')}
+            description={t('vocabulary.noResults.description', { query })}
           />
         )}
 
@@ -114,7 +116,7 @@ export function VocabularyScreen({ onBack }: VocabularyScreenProps) {
                   <button
                     onClick={() => item.id !== undefined && void deleteVocabItem(item.id)}
                     className="text-text-muted active:text-error transition-colors p-1 rounded-md active:scale-90"
-                    aria-label="Apagar"
+                    aria-label={t('vocabulary.delete')}
                   >
                     <Trash2 size={16} />
                   </button>

@@ -16,6 +16,7 @@ import { IMPORT_IN_PROGRESS_MESSAGE } from '../services/ImportCoordinator'
 import { logImportDiagnostic } from '../services/ImportDiagnostics'
 import { consumePendingNativeFileSelection, selectNativeEpubFile } from '../services/NativeLibraryImportService'
 import type { Book } from '../types/book'
+import { useI18n } from '../i18n'
 
 interface HomeScreenProps {
   onOpenBook: (book: Book) => void
@@ -26,6 +27,7 @@ interface HomeScreenProps {
 }
 
 export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpenProfile, onOpenSettings }: HomeScreenProps) {
+  const { t } = useI18n()
   const { isLoading, isEmpty, heroBook, inProgressBooks, recentBooks } = useLibraryGroups()
   const [optionsBook, setOptionsBook] = useState<Book | null>(null)
   const [importing, setImporting] = useState(false)
@@ -49,14 +51,14 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
       try {
         await BookImportService.importNativeEpub(nativeFile)
       } catch (err) {
-        setImportError(err instanceof Error ? err.message : 'Erro ao importar o arquivo')
+        setImportError(err instanceof Error ? err.message : t('home.importError'))
       } finally {
         if (active) setImporting(false)
         logImportDiagnostic('ui', 'home-pending-native-file-finished', { fileName: nativeFile.name })
       }
     }).catch(() => undefined)
     return () => { active = false }
-  }, [])
+  }, [t])
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -72,7 +74,7 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
     try {
       await BookImportService.importEpub(file)
     } catch (err) {
-      setImportError(err instanceof Error ? err.message : 'Erro ao importar o arquivo')
+      setImportError(err instanceof Error ? err.message : t('home.importError'))
     } finally {
       setImporting(false)
       logImportDiagnostic('ui', 'home-web-file-import-finished', { fileName: file.name })
@@ -99,7 +101,7 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
       if (nativeFile) await BookImportService.importNativeEpub(nativeFile)
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return
-      setImportError(err instanceof Error ? err.message : 'Erro ao importar o arquivo')
+      setImportError(err instanceof Error ? err.message : t('home.importError'))
     } finally {
       setImporting(false)
       logImportDiagnostic('ui', 'home-native-file-import-finished')
@@ -118,7 +120,7 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
       {!showFloatingHeader && (
         <header className="px-4 pt-8 pb-3 flex items-center justify-between">
           <LibraryLogo />
-          <SettingsButton onClick={onOpenSettings} />
+          <SettingsButton ariaLabel={t('home.settings')} onClick={onOpenSettings} />
         </header>
       )}
 
@@ -128,8 +130,8 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
         {isEmpty && (
           <EmptyState
             icon={<BookOpen size={48} />}
-            title="Sua biblioteca está vazia"
-            description="Toque no botão + para adicionar seu primeiro livro EPUB."
+            title={t('home.empty.title')}
+            description={t('home.empty.description')}
           />
         )}
 
@@ -143,7 +145,7 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
                     style={{ background: 'linear-gradient(180deg, rgba(7,3,12,0.96) 0%, rgba(7,3,12,0.80) 55%, transparent 100%)' }}
                   />
                   <div className="relative"><LibraryLogo /></div>
-                  <div className="relative"><SettingsButton glass onClick={onOpenSettings} /></div>
+                  <div className="relative"><SettingsButton glass ariaLabel={t('home.settings')} onClick={onOpenSettings} /></div>
                 </header>
               )}
 
@@ -156,8 +158,8 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
               )}
             </div>
 
-            <BookRow title="Continue lendo" books={inProgressBooks} onPress={onOpenBook} onOpenOptions={setOptionsBook} variant="progress" />
-            <BookRow title="Meus Livros" books={recentBooks} onPress={onOpenBook} onOpenOptions={setOptionsBook} />
+            <BookRow title={t('home.continueReading')} books={inProgressBooks} onPress={onOpenBook} onOpenOptions={setOptionsBook} variant="progress" />
+            <BookRow title={t('home.myBooks')} books={recentBooks} onPress={onOpenBook} onOpenOptions={setOptionsBook} />
           </>
         )}
       </main>
@@ -166,7 +168,7 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
       <button
         onClick={handleAddBook}
         disabled={importBusy}
-        aria-label="Adicionar livro"
+        aria-label={t('common.addBook')}
         className="fixed right-4 z-50 w-[52px] h-[52px] rounded-full flex items-center justify-center
           active:scale-90 transition-all duration-150 disabled:opacity-60"
         style={{
@@ -212,7 +214,7 @@ function LibraryLogo() {
   )
 }
 
-function SettingsButton({ glass, onClick }: { glass?: boolean; onClick: () => void }) {
+function SettingsButton({ glass, ariaLabel, onClick }: { glass?: boolean; ariaLabel: string; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
@@ -222,7 +224,7 @@ function SettingsButton({ glass, onClick }: { glass?: boolean; onClick: () => vo
           ? 'bg-black/30 border border-white/15 text-white backdrop-blur-sm'
           : 'bg-bg-surface border border-border',
       ].join(' ')}
-      aria-label="Configurações gerais"
+      aria-label={ariaLabel}
     >
       <Settings size={20} />
     </button>

@@ -2,6 +2,7 @@ import { Bookmark, ChevronLeft, GraduationCap, List, Type, Volume2, VolumeX } fr
 import type { FontSize } from './EpubViewer'
 import { getTtsProviderLabel } from '../../services/TtsProviderRegistry'
 import type { TtsProvider } from '../../types/tts'
+import { useI18n, type TranslateFn } from '../../i18n'
 
 interface ReaderChromeProps {
   visible: boolean
@@ -48,6 +49,8 @@ export function ReaderChrome({
   onTtsToggle,
   onDismiss,
 }: ReaderChromeProps) {
+  const { t } = useI18n()
+
   function handleBarTap(e: React.PointerEvent) {
     if (!(e.target as Element).closest('button')) onDismiss()
   }
@@ -58,7 +61,7 @@ export function ReaderChrome({
   const bottomState = visible
     ? 'translate-y-0 opacity-100'
     : 'translate-y-full opacity-0 pointer-events-none'
-  const bookmarkLabel = `${bookmarkCount} marcador${bookmarkCount === 1 ? '' : 'es'}`
+  const bookmarkLabel = formatBookmarkLabel(bookmarkCount, t)
 
   return (
     <>
@@ -74,7 +77,7 @@ export function ReaderChrome({
             <button
               onClick={onBack}
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/8 bg-bg-surface-2/80 text-text-primary transition-transform duration-150 active:scale-[0.94] active:bg-white/10"
-              aria-label="Voltar"
+              aria-label={t('common.back')}
             >
               <ChevronLeft size={22} />
             </button>
@@ -85,11 +88,11 @@ export function ReaderChrome({
               </p>
               <div className="mt-2 flex items-center justify-center gap-1.5">
                 <span className={pvBadgeReadClass}>
-                  Livro {percentage}%
+                  {t('readerChrome.bookProgress', { percent: percentage })}
                 </span>
                 {chapterPercentage !== null && chapterPercentage !== undefined && (
                   <span className={pvBadgeReadClass}>
-                    Cap. {chapterPercentage}%
+                    {t('readerChrome.chapterProgress', { percent: chapterPercentage })}
                   </span>
                 )}
                 <span className={bookmarkCount > 0 ? pvBadgeBookmarkClass : pvBadgeNeutralClass}>
@@ -101,7 +104,7 @@ export function ReaderChrome({
             <button
               onClick={onTocOpen}
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/8 bg-bg-surface-2/80 text-text-primary transition-transform duration-150 active:scale-[0.94] active:bg-white/10"
-              aria-label="Índice"
+              aria-label={t('readerChrome.toc')}
             >
               <List size={20} />
             </button>
@@ -122,7 +125,7 @@ export function ReaderChrome({
               <button
                 onClick={onAppearanceOpen}
                 className={`${iconCardClass} ${fontSize !== 'md' ? iconCardPrimaryClass : ''}`}
-                aria-label="Abrir ajustes de aparencia"
+                aria-label={t('readerChrome.appearance')}
               >
                 <Type size={20} strokeWidth={2.1} />
               </button>
@@ -130,7 +133,7 @@ export function ReaderChrome({
               <button
                 onClick={onBookmarkList}
                 className={`${iconCardClass} ${bookmarkCount > 0 ? iconCardPrimaryClass : ''}`}
-                aria-label="Ver marcadores"
+                aria-label={t('readerChrome.bookmarks')}
               >
                 <Bookmark size={20} strokeWidth={2.1} />
               </button>
@@ -138,7 +141,7 @@ export function ReaderChrome({
               <button
                 onClick={onOpenVocabulary}
                 className={iconCardClass}
-                aria-label="Vocabulário"
+                aria-label={t('readerChrome.vocabulary')}
               >
                 <GraduationCap size={20} strokeWidth={2.1} />
               </button>
@@ -146,13 +149,13 @@ export function ReaderChrome({
               <button
                 onClick={onTtsToggle}
                 className={`${iconCardClass} ${ttsIsPlaying ? iconCardPrimaryClass : ''}`}
-                aria-label={ttsIsPlaying ? 'Parar leitura' : 'Iniciar leitura'}
+                aria-label={ttsIsPlaying ? t('readerChrome.stopReading') : t('readerChrome.startReading')}
               >
                 {ttsIsPlaying
                   ? <VolumeX size={20} strokeWidth={2.1} />
                   : <Volume2 size={20} strokeWidth={2.1} />}
                 {ttsEngine !== 'native' && (
-                  <span className="sr-only">{getTtsProviderLabel(ttsEngine)} ativo</span>
+                  <span className="sr-only">{t('readerChrome.ttsProviderActive', { provider: getTtsProviderLabel(ttsEngine) })}</span>
                 )}
               </button>
             </div>
@@ -161,4 +164,10 @@ export function ReaderChrome({
       </div>
     </>
   )
+}
+
+function formatBookmarkLabel(count: number, t: TranslateFn): string {
+  if (count === 0) return t('readerChrome.bookmarkCount.zero')
+  if (count === 1) return t('readerChrome.bookmarkCount.one')
+  return t('readerChrome.bookmarkCount.many', { count })
 }

@@ -16,6 +16,7 @@ import { IMPORT_IN_PROGRESS_MESSAGE } from '../services/ImportCoordinator'
 import { logImportDiagnostic } from '../services/ImportDiagnostics'
 import { consumePendingNativeFileSelection, consumePendingNativeFolderSelection, selectNativeEpubFile, selectNativeEpubFolder, type NativeFolderFile } from '../services/NativeLibraryImportService'
 import type { Book, BookTag } from '../types/book'
+import { useI18n, type MessageKey, type TranslateFn } from '../i18n'
 
 interface LibraryScreenProps {
   onOpenBook: (book: Book) => void
@@ -24,27 +25,28 @@ interface LibraryScreenProps {
   onOpenProfile: () => void
 }
 
-const FILTERS: Array<{ id: LibraryFilter; label: string }> = [
-  { id: 'all', label: 'Todos' },
-  { id: 'reading', label: 'Lendo' },
-  { id: 'unread', label: 'Não iniciados' },
-  { id: 'finished', label: 'Finalizados' },
-  { id: 'favorites', label: 'Favoritos' },
-  { id: 'untagged', label: 'Sem tag' },
+const FILTERS: Array<{ id: LibraryFilter; labelKey: MessageKey }> = [
+  { id: 'all', labelKey: 'library.filter.all' },
+  { id: 'reading', labelKey: 'library.filter.reading' },
+  { id: 'unread', labelKey: 'library.filter.unread' },
+  { id: 'finished', labelKey: 'library.filter.finished' },
+  { id: 'favorites', labelKey: 'library.filter.favorites' },
+  { id: 'untagged', labelKey: 'library.filter.untagged' },
 ]
 
-const SORT_OPTIONS: Array<{ id: LibrarySort; label: string }> = [
-  { id: 'recent', label: 'Recentes' },
-  { id: 'title', label: 'Título A-Z' },
-  { id: 'author', label: 'Autor A-Z' },
-  { id: 'importedAt', label: 'Data de importação' },
-  { id: 'format', label: 'Formato' },
-  { id: 'fileName', label: 'Nome do arquivo' },
+const SORT_OPTIONS: Array<{ id: LibrarySort; labelKey: MessageKey }> = [
+  { id: 'recent', labelKey: 'library.sort.recent' },
+  { id: 'title', labelKey: 'library.sort.title' },
+  { id: 'author', labelKey: 'library.sort.author' },
+  { id: 'importedAt', labelKey: 'library.sort.importedAt' },
+  { id: 'format', labelKey: 'library.sort.format' },
+  { id: 'fileName', labelKey: 'library.sort.fileName' },
 ]
 
 const EPUB_FILE_PATTERN = /\.epub$/i
 
 export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenProfile }: LibraryScreenProps) {
+  const { t } = useI18n()
   const {
     isLoading,
     books,
@@ -111,14 +113,14 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
       try {
         await BookImportService.importNativeEpub(nativeFile)
       } catch (error) {
-        setImportError(error instanceof Error ? error.message : 'Erro ao importar arquivo.')
+        setImportError(error instanceof Error ? error.message : t('library.import.errors.files'))
       } finally {
         if (active) setImporting(false)
         logImportDiagnostic('ui', 'library-pending-native-file-finished', { fileName: nativeFile.name })
       }
     }).catch(() => undefined)
     return () => { active = false }
-  }, [])
+  }, [t])
 
   useCapacitorBackButton(() => {
     if (tagEditorBook) { setTagEditorBook(null); return }
@@ -129,7 +131,7 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
     onOpenHome()
   })
 
-  const subtitle = formatBookCount(books.length)
+  const subtitle = formatBookCount(books.length, t)
   const isSearchEmpty = !isLoading && books.length > 0 && search.trim() && filteredBooks.length === 0
   const isFilterEmpty = !isLoading && books.length > 0 && !search.trim() && activeFilter !== 'all' && filteredBooks.length === 0
   const liveTagEditorBook = useMemo(() => {
@@ -146,13 +148,13 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
       return
     }
 
-    const folderName = getFolderName(selectedFiles)
+    const folderName = getFolderName(selectedFiles, t)
     const files = filterEpubFiles(selectedFiles)
     setActionSheetOpen(false)
     setImportError(null)
 
     if (files.length === 0) {
-      setImportError('Nenhum EPUB encontrado nesta pasta.')
+      setImportError(t('library.import.errors.noEpubFolder'))
       return
     }
 
@@ -176,7 +178,7 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
       return
     }
     if (files.length === 0) {
-      setImportError('Nenhum EPUB selecionado.')
+      setImportError(t('library.import.errors.noEpubSelected'))
       return
     }
 
@@ -185,7 +187,7 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
     await buildPreview({
       step: 'options',
       files,
-      folderName: 'Arquivos selecionados',
+      folderName: t('library.folderName.manualFiles'),
       folderUri: 'manual-files',
       includeSubfolders: false,
       autoImportEnabled: false,
@@ -214,7 +216,7 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
       openNativeFolderResult(result)
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return
-      setImportError(error instanceof Error ? error.message : 'Erro ao selecionar pasta.')
+      setImportError(error instanceof Error ? error.message : t('library.import.errors.folder'))
     } finally {
       setImporting(false)
       logImportDiagnostic('ui', 'library-choose-folder-finished')
@@ -241,7 +243,7 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
       if (nativeFile) await BookImportService.importNativeEpub(nativeFile)
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return
-      setImportError(error instanceof Error ? error.message : 'Erro ao importar arquivo.')
+      setImportError(error instanceof Error ? error.message : t('library.import.errors.files'))
     } finally {
       setImporting(false)
       logImportDiagnostic('ui', 'library-native-file-import-finished')
@@ -265,7 +267,7 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
       const itemCount = nativeFiles?.length ?? files.length
       if (itemCount === 0) {
         setImportFlow({ ...options, files, nativeFiles: nativeFiles ?? undefined })
-        setImportError('Nenhum EPUB encontrado nesta pasta.')
+        setImportError(t('library.import.errors.noEpubFolder'))
         return
       }
       const preview = nativeFiles
@@ -273,7 +275,7 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
         : await BookImportService.buildImportPreview(files)
       setImportFlow({ ...options, files, nativeFiles: nativeFiles ?? undefined, step: 'preview', preview, selectedTagIds: [] })
     } catch (error) {
-      setImportError(error instanceof Error ? error.message : 'Erro ao escanear arquivos.')
+      setImportError(error instanceof Error ? error.message : t('library.import.errors.scan'))
     } finally {
       setImporting(false)
       logImportDiagnostic('ui', 'library-build-preview-finished', {
@@ -333,7 +335,7 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
       setImportSummary(summary)
       setImportFlow({ step: 'closed' })
     } catch (error) {
-      setImportError(error instanceof Error ? error.message : 'Erro ao importar livros.')
+      setImportError(error instanceof Error ? error.message : t('library.import.errors.books'))
     } finally {
       setImporting(false)
       setImportProgress(null)
@@ -351,14 +353,14 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
       {importError && <Toast tone="error" onDismiss={() => setImportError(null)}>{importError}</Toast>}
       {importSummary && (
         <Toast tone={importSummary.errors > 0 ? 'warning' : 'success'} onDismiss={() => setImportSummary(null)}>
-          {formatImportSummary(importSummary)}
+          {formatImportSummary(importSummary, t)}
         </Toast>
       )}
 
       <header className="px-5 pt-10 pb-4">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Biblioteca</h1>
+            <h1 className="text-2xl font-bold tracking-tight">{t('library.title')}</h1>
             <p className="mt-1 text-sm text-text-secondary">{subtitle}</p>
           </div>
           <button
@@ -371,7 +373,7 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
               setActionSheetOpen(true)
             }}
             disabled={importBusy}
-            aria-label="Importar livros"
+            aria-label={t('library.importButton')}
             className="flex h-11 w-11 items-center justify-center rounded-md bg-purple-primary text-white shadow-purple-glow transition-transform active:scale-95 disabled:opacity-60"
           >
             <Plus size={22} strokeWidth={2.5} />
@@ -382,10 +384,10 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar livro, autor ou tag"
+            placeholder={t('library.searchPlaceholder')}
             leftIcon={<Search size={18} />}
             rightSlot={search ? (
-              <button type="button" onClick={() => setSearch('')} aria-label="Limpar busca" className="p-2 text-text-muted active:text-text-primary">
+              <button type="button" onClick={() => setSearch('')} aria-label={t('library.clearSearch')} className="p-2 text-text-muted active:text-text-primary">
                 <X size={16} />
               </button>
             ) : undefined}
@@ -398,7 +400,7 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
               <FilterChip
                 key={filter.id}
                 active={activeFilter === filter.id}
-                label={filter.label}
+                label={t(filter.labelKey)}
                 onClick={() => setActiveFilter(filter.id)}
               />
             ))}
@@ -414,14 +416,14 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
         </div>
 
         <div className="mt-3 flex items-center justify-between border-t border-white/5 pt-3">
-          <p className="text-xs text-text-muted">{filteredBooks.length} exibidos</p>
+          <p className="text-xs text-text-muted">{t('library.shownCount', { count: filteredBooks.length })}</p>
           <button
             type="button"
             onClick={() => setSortSheetOpen(true)}
             className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-white/5 px-3 text-sm font-semibold text-text-primary active:bg-white/10"
           >
             <ArrowUpDown size={15} />
-            Ordenar
+            {t('library.sort')}
           </button>
         </div>
       </header>
@@ -432,12 +434,12 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
         {!isLoading && books.length === 0 && (
           <EmptyState
             icon={<BookOpen size={48} />}
-            title="Sua biblioteca está vazia"
-            description="Importe uma pasta com seus PDFs e EPUBs para começar."
+            title={t('library.empty.title')}
+            description={t('library.empty.description')}
             action={(
               <div className="flex w-full max-w-xs flex-col gap-2">
-                <Button onClick={() => setImportFlow({ step: 'intro' })} leftIcon={<FolderOpen size={18} />}>Importar pasta</Button>
-                <Button variant="secondary" onClick={() => void importFilesAction()} leftIcon={<FileText size={18} />}>Importar arquivos</Button>
+                <Button onClick={() => setImportFlow({ step: 'intro' })} leftIcon={<FolderOpen size={18} />}>{t('library.import.action.folder.title')}</Button>
+                <Button variant="secondary" onClick={() => void importFilesAction()} leftIcon={<FileText size={18} />}>{t('library.import.action.files.title')}</Button>
               </div>
             )}
           />
@@ -446,17 +448,17 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
         {isSearchEmpty && (
           <EmptyState
             icon={<Search size={44} />}
-            title="Nenhum livro encontrado"
-            description="Tente buscar por título, autor, tag ou formato."
-            action={<Button size="sm" variant="secondary" onClick={() => setSearch('')}>Limpar busca</Button>}
+            title={t('library.searchEmpty.title')}
+            description={t('library.searchEmpty.description')}
+            action={<Button size="sm" variant="secondary" onClick={() => setSearch('')}>{t('library.clearSearch')}</Button>}
           />
         )}
 
         {isFilterEmpty && (
           <EmptyState
             icon={<Tag size={44} />}
-            title="Nenhum livro nesta categoria"
-            description="Adicione tags aos seus livros ou escolha outro filtro."
+            title={t('library.filterEmpty.title')}
+            description={t('library.filterEmpty.description')}
           />
         )}
 
@@ -566,8 +568,9 @@ function LibraryBookRow({ book, onOpenBook, onOpenOptions, onOpenTags }: {
   onOpenOptions: (book: LibraryBook) => void
   onOpenTags: (book: LibraryBook) => void
 }) {
+  const { locale, t } = useI18n()
   const coverUrl = useBookCoverUrl(book.id)
-  const author = book.author?.trim() || 'Autor desconhecido'
+  const author = book.author?.trim() || t('library.unknownAuthor')
   const isFavorite = Boolean(book.isFavorite)
 
   async function handleToggleFavorite() {
@@ -599,10 +602,10 @@ function LibraryBookRow({ book, onOpenBook, onOpenOptions, onOpenTags }: {
           <h2 className="truncate text-[15px] font-bold text-text-primary">{book.title}</h2>
           <p className="mt-1 truncate text-sm text-text-secondary">{author}</p>
           <p className="mt-2 text-xs font-semibold text-text-muted">
-            {book.percentage}% lido • {book.format ?? 'EPUB'}
+            {t('library.progressRead', { percent: book.percentage, format: book.format ?? 'EPUB' })}
           </p>
           {book.lastOpenedAt && (
-            <p className="mt-1 text-[11px] text-text-muted">Aberto em {formatDate(book.lastOpenedAt)}</p>
+            <p className="mt-1 text-[11px] text-text-muted">{t('library.openedOn', { date: formatDate(book.lastOpenedAt, locale) })}</p>
           )}
         </button>
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -611,7 +614,7 @@ function LibraryBookRow({ book, onOpenBook, onOpenOptions, onOpenTags }: {
               key={tag.id}
               type="button"
               onClick={() => onOpenTags(book)}
-              aria-label={`Editar tags de ${book.title}`}
+              aria-label={t('library.editTagsFor', { title: book.title })}
               className="rounded-sm bg-purple-primary/15 px-2 py-1 text-[10px] font-semibold text-purple-light active:bg-purple-primary/25"
             >
               #{tag.name}
@@ -620,17 +623,17 @@ function LibraryBookRow({ book, onOpenBook, onOpenOptions, onOpenTags }: {
             <button
               type="button"
               onClick={() => onOpenTags(book)}
-              aria-label={`Adicionar tag em ${book.title}`}
+              aria-label={t('library.addTagTo', { title: book.title })}
               className="rounded-sm bg-white/5 px-2 py-1 text-[10px] font-semibold text-text-muted active:bg-white/10"
             >
-              Sem tag
+              {t('library.noTag')}
             </button>
           )}
           <button
             type="button"
             onClick={() => void handleToggleFavorite()}
             disabled={book.id === undefined}
-            aria-label={isFavorite ? 'Remover dos favoritos' : 'Favoritar'}
+            aria-label={isFavorite ? t('library.removeFavorite') : t('library.favorite')}
             aria-pressed={isFavorite}
             className={[
               'inline-flex h-6 w-6 items-center justify-center rounded-sm border transition-colors active:scale-95 disabled:opacity-40',
@@ -646,7 +649,7 @@ function LibraryBookRow({ book, onOpenBook, onOpenOptions, onOpenTags }: {
       <button
         type="button"
         onClick={() => onOpenOptions(book)}
-        aria-label="Opções do livro"
+        aria-label={t('common.bookOptions')}
         className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-text-muted active:bg-white/10"
       >
         <MoreVertical size={18} />
@@ -662,6 +665,7 @@ function LibraryTagSheet({ book, tags, books, onClose, onTagDeleted }: {
   onClose: () => void
   onTagDeleted: (tagId: number) => void
 }) {
+  const { t } = useI18n()
   const [newTagName, setNewTagName] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -681,7 +685,7 @@ function LibraryTagSheet({ book, tags, books, onClose, onTagDeleted }: {
     try {
       await task()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao atualizar tags.')
+      setError(err instanceof Error ? err.message : t('library.tag.error'))
     } finally {
       setSaving(false)
     }
@@ -727,7 +731,7 @@ function LibraryTagSheet({ book, tags, books, onClose, onTagDeleted }: {
   }
 
   return (
-    <BottomSheet open={book !== null} onClose={saving ? () => {} : onClose} title="Editar tags">
+    <BottomSheet open={book !== null} onClose={saving ? () => {} : onClose} title={t('library.tag.editTitle')}>
       {book && (
         <div className="space-y-4">
           <p className="-mt-2 truncate text-xs text-text-muted">{book.title}</p>
@@ -751,14 +755,14 @@ function LibraryTagSheet({ book, tags, books, onClose, onTagDeleted }: {
                     type="button"
                     onClick={() => setPendingDeleteTag(tag)}
                     disabled={saving || tag.id === undefined}
-                    aria-label={`Deletar tag ${tag.name}`}
+                    aria-label={t('library.tag.deleteAria', { tag: tag.name })}
                     className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors active:bg-error/15 active:text-error disabled:opacity-40"
                   >
                     <Trash2 size={16} />
                   </button>
                 </div>
               )) : (
-                <p className="text-xs text-text-muted">Nenhuma tag criada ainda.</p>
+                <p className="text-xs text-text-muted">{t('quickActions.noTags')}</p>
               )}
             </div>
           </div>
@@ -770,7 +774,7 @@ function LibraryTagSheet({ book, tags, books, onClose, onTagDeleted }: {
               onKeyDown={(e) => {
                 if (e.key === 'Enter') void handleCreateTag()
               }}
-              placeholder="Nova tag"
+              placeholder={t('quickActions.newTagPlaceholder')}
               disabled={saving}
               className="h-10 min-w-0 flex-1 rounded-md border border-border bg-bg-base px-3 text-sm text-text-primary outline-none focus:border-purple-primary disabled:opacity-50"
             />
@@ -780,29 +784,29 @@ function LibraryTagSheet({ book, tags, books, onClose, onTagDeleted }: {
               disabled={saving || !newTagName.trim()}
               className="h-10 rounded-md bg-purple-primary px-3 text-sm font-semibold text-white disabled:opacity-50"
             >
-              Criar
+              {t('quickActions.createTag')}
             </button>
           </div>
 
           {saving && (
             <div className="flex justify-center py-1">
-              <Spinner size={18} label="Salvando" />
+              <Spinner size={18} label={t('library.tag.saving')} />
             </div>
           )}
           {error && <p className="text-center text-sm text-error">{error}</p>}
 
           {pendingDeleteTag && (
             <div className="rounded-md border border-error/30 bg-error/15 px-4 py-3">
-              <p className="text-sm font-semibold text-error">Apagar tag "{pendingDeleteTag.name}"?</p>
+              <p className="text-sm font-semibold text-error">{t('library.tag.deleteConfirm', { tag: pendingDeleteTag.name })}</p>
               <p className="mt-1 text-xs text-error/75">
-                {formatTagDeleteMessage(getTagUsageCount(pendingDeleteTag))}
+                {formatTagDeleteMessage(getTagUsageCount(pendingDeleteTag), t)}
               </p>
               <div className="mt-3 flex gap-2">
                 <Button variant="ghost" size="sm" onClick={() => setPendingDeleteTag(null)} disabled={saving}>
-                  Cancelar
+                  {t('common.cancel')}
                 </Button>
                 <Button variant="danger" size="sm" onClick={() => void handleDeleteTag()} disabled={saving}>
-                  {saving ? 'Apagando...' : 'Apagar tag'}
+                  {saving ? t('library.tag.deleting') : t('library.tag.deleteButton')}
                 </Button>
               </div>
             </div>
@@ -819,11 +823,13 @@ function ImportActionSheet({ open, onClose, onImportFolder, onImportFiles }: {
   onImportFolder: () => void
   onImportFiles: () => void
 }) {
+  const { t } = useI18n()
+
   return (
-    <BottomSheet open={open} onClose={onClose} title="Importar livros">
+    <BottomSheet open={open} onClose={onClose} title={t('library.import.action.title')}>
       <div className="space-y-2">
-        <ActionRow icon={<FolderOpen size={18} />} title="Importar pasta" description="Escolha uma pasta específica com EPUBs." onClick={onImportFolder} />
-        <ActionRow icon={<FileText size={18} />} title="Importar arquivos" description="Selecione EPUBs individuais." onClick={onImportFiles} />
+        <ActionRow icon={<FolderOpen size={18} />} title={t('library.import.action.folder.title')} description={t('library.import.action.folder.description')} onClick={onImportFolder} />
+        <ActionRow icon={<FileText size={18} />} title={t('library.import.action.files.title')} description={t('library.import.action.files.description')} onClick={onImportFiles} />
       </div>
     </BottomSheet>
   )
@@ -835,8 +841,10 @@ function SortSheet({ open, sort, onClose, onChange }: {
   onClose: () => void
   onChange: (sort: LibrarySort) => void
 }) {
+  const { t } = useI18n()
+
   return (
-    <BottomSheet open={open} onClose={onClose} title="Ordenar">
+    <BottomSheet open={open} onClose={onClose} title={t('library.sort')}>
       <div className="-mx-4">
         {SORT_OPTIONS.map((option) => (
           <button
@@ -845,7 +853,7 @@ function SortSheet({ open, sort, onClose, onChange }: {
             onClick={() => { onChange(option.id); onClose() }}
             className="flex w-full items-center justify-between border-b border-white/5 px-4 py-4 text-left text-sm font-semibold text-text-primary active:bg-white/5"
           >
-            {option.label}
+            {t(option.labelKey)}
             {sort === option.id && <Check size={18} className="text-purple-light" />}
           </button>
         ))}
@@ -876,45 +884,50 @@ function ImportFlowSheet({
   onBuildPreview: (state: ImportOptionsState) => Promise<void>
   onConfirmImport: () => Promise<void>
 }) {
+  const { t } = useI18n()
   const open = state.step !== 'closed'
-  const title = state.step === 'intro' ? 'Importar pasta' : state.step === 'options' ? 'Configurar importação' : 'Preview da importação'
+  const title = state.step === 'intro'
+    ? t('library.import.introTitle')
+    : state.step === 'options'
+      ? t('library.import.configTitle')
+      : t('library.import.previewTitle')
 
   return (
     <BottomSheet open={open} onClose={importing ? () => {} : onClose} title={title}>
       {state.step === 'intro' && (
         <div className="space-y-4">
           <p className="text-sm leading-relaxed text-text-secondary">
-            Escolha uma pasta com seus livros. O NeoReader acessará apenas a pasta selecionada.
+            {t('library.import.intro.description')}
           </p>
           {importing && (
             <div className="flex items-center gap-3 rounded-md border border-purple-primary/25 bg-purple-primary/10 px-4 py-3 text-sm text-text-secondary" role="status" aria-live="polite">
-              <Spinner size={18} label="Lendo pasta" />
-              <span>Processando a pasta selecionada...</span>
+              <Spinner size={18} label={t('library.import.loadingFolder')} />
+              <span>{t('library.import.loadingFolderText')}</span>
             </div>
           )}
           <Button disabled={importing} onClick={onChooseFolder} leftIcon={<FolderOpen size={18} />}>
-            {importing ? 'Lendo pasta...' : 'Escolher pasta'}
+            {importing ? t('library.import.loadingFolderButton') : t('library.import.chooseFolder')}
           </Button>
         </div>
       )}
 
       {state.step === 'options' && (
         <div className="space-y-4">
-          <p className="text-sm text-text-secondary">{getImportFileCount(state)} arquivos encontrados em {state.folderName}.</p>
-          <Checkbox checked={state.includeSubfolders} onChange={(value) => onOptionsChange({ ...state, includeSubfolders: value })} label="Incluir subpastas" />
-          <Checkbox checked={state.autoImportEnabled} onChange={(value) => onOptionsChange({ ...state, autoImportEnabled: value })} label="Detectar novos livros automaticamente" />
-          <Checkbox checked={state.applyFolderTag} onChange={(value) => onOptionsChange({ ...state, applyFolderTag: value })} label="Aplicar tag automática com nome da pasta" />
+          <p className="text-sm text-text-secondary">{t('library.import.fileCount', { count: getImportFileCount(state), folder: state.folderName })}</p>
+          <Checkbox checked={state.includeSubfolders} onChange={(value) => onOptionsChange({ ...state, includeSubfolders: value })} label={t('library.import.includeSubfolders')} />
+          <Checkbox checked={state.autoImportEnabled} onChange={(value) => onOptionsChange({ ...state, autoImportEnabled: value })} label={t('library.import.autoDetect')} />
+          <Checkbox checked={state.applyFolderTag} onChange={(value) => onOptionsChange({ ...state, applyFolderTag: value })} label={t('library.import.applyFolderTag')} />
           {state.applyFolderTag && (
-            <Input value={state.tagName} onChange={(e) => onOptionsChange({ ...state, tagName: e.target.value })} label="Tag sugerida" />
+            <Input value={state.tagName} onChange={(e) => onOptionsChange({ ...state, tagName: e.target.value })} label={t('library.import.suggestedTag')} />
           )}
           {importing && (
             <div className="flex items-center gap-3 rounded-md border border-purple-primary/25 bg-purple-primary/10 px-4 py-3 text-sm text-text-secondary" role="status" aria-live="polite">
-              <Spinner size={18} label="Lendo arquivos" />
-              <span>Lendo arquivos e preparando o preview...</span>
+              <Spinner size={18} label={t('library.import.loadingFiles')} />
+              <span>{t('library.import.loadingFilesText')}</span>
             </div>
           )}
           <Button disabled={importing} onClick={() => void onBuildPreview(state)}>
-            {importing ? 'Preparando preview...' : 'Continuar'}
+            {importing ? t('library.import.progress.preparing') : t('library.import.continue')}
           </Button>
         </div>
       )}
@@ -938,7 +951,7 @@ function ImportFlowSheet({
           </div>
           {importing && <ImportProgressPanel progress={progress} />}
           <div className="rounded-md border border-border bg-white/5 p-3">
-            <p className="mb-2 text-sm font-bold">Tags adicionais</p>
+            <p className="mb-2 text-sm font-bold">{t('library.import.additionalTags')}</p>
             <div className="space-y-2">
               {tags.map((tag) => tag.id !== undefined && (
                 <Checkbox
@@ -956,9 +969,9 @@ function ImportFlowSheet({
             </div>
           </div>
           <div className="flex gap-2">
-            <Button variant="secondary" disabled={importing} onClick={onClose}>Cancelar</Button>
+            <Button variant="secondary" disabled={importing} onClick={onClose}>{t('common.cancel')}</Button>
             <Button disabled={importing || state.preview.every((item) => !item.selected)} onClick={() => void onConfirmImport()}>
-              {importing ? 'Importando...' : 'Importar selecionados'}
+              {importing ? t('library.import.importing') : t('library.import.confirm')}
             </Button>
           </div>
         </div>
@@ -968,6 +981,7 @@ function ImportFlowSheet({
 }
 
 function ImportPreviewStats({ preview }: { preview: ImportPreviewItem[] }) {
+  const { t } = useI18n()
   const stats = useMemo(() => ({
     total: preview.length,
     newItems: preview.filter((item) => item.supported && !item.duplicate).length,
@@ -977,10 +991,10 @@ function ImportPreviewStats({ preview }: { preview: ImportPreviewItem[] }) {
 
   return (
     <div className="grid grid-cols-4 gap-2 text-center">
-      <Stat value={stats.total} label="arquivos" />
-      <Stat value={stats.newItems} label="novos" />
-      <Stat value={stats.duplicates} label="já importados" />
-      <Stat value={stats.unsupported} label="não suportados" />
+      <Stat value={stats.total} label={t('library.import.stats.files')} />
+      <Stat value={stats.newItems} label={t('library.import.stats.new')} />
+      <Stat value={stats.duplicates} label={t('library.import.stats.duplicates')} />
+      <Stat value={stats.unsupported} label={t('library.import.stats.unsupported')} />
     </div>
   )
 }
@@ -999,14 +1013,15 @@ function ImportPreviewRow({ item, onChange }: { item: ImportPreviewItem; onChang
 }
 
 function ImportProgressPanel({ progress }: { progress: ImportProgress | null }) {
+  const { t } = useI18n()
   const total = progress?.total ?? 0
   const current = progress?.current ?? 0
   const percentage = total > 0 ? Math.round((current / total) * 100) : 0
   const label = progress?.phase === 'finishing'
-    ? 'Finalizando importação'
+    ? t('library.import.progress.finishing')
     : progress?.fileName
-      ? `Importando ${progress.fileName}`
-      : 'Preparando importação'
+      ? t('library.import.progress.importingFile', { file: progress.fileName })
+      : t('library.import.progress.preparing')
 
   return (
     <div className="rounded-md border border-purple-primary/25 bg-purple-primary/10 p-4" role="status" aria-live="polite">
@@ -1014,7 +1029,9 @@ function ImportProgressPanel({ progress }: { progress: ImportProgress | null }) 
         <div className="min-w-0">
           <p className="text-sm font-bold text-text-primary">{label}</p>
           <p className="mt-1 text-xs text-text-muted">
-            {total > 0 ? `${current} de ${total} arquivos processados` : 'Calculando arquivos selecionados'}
+            {total > 0
+              ? t('library.import.progress.processed', { current, total })
+              : t('library.import.progress.calculating')}
           </p>
         </div>
         <div className="h-8 w-8 shrink-0 animate-spin rounded-full border-[3px] border-white/10 border-t-purple-light" />
@@ -1026,10 +1043,10 @@ function ImportProgressPanel({ progress }: { progress: ImportProgress | null }) 
         />
       </div>
       <div className="mt-3 grid grid-cols-4 gap-2 text-center">
-        <ProgressStat value={progress?.imported ?? 0} label="importados" />
-        <ProgressStat value={progress?.duplicate ?? 0} label="duplicados" />
-        <ProgressStat value={progress?.unsupported ?? 0} label="ignorados" />
-        <ProgressStat value={progress?.errors ?? 0} label="erros" />
+        <ProgressStat value={progress?.imported ?? 0} label={t('library.import.progress.imported')} />
+        <ProgressStat value={progress?.duplicate ?? 0} label={t('library.import.progress.duplicates')} />
+        <ProgressStat value={progress?.unsupported ?? 0} label={t('library.import.progress.ignored')} />
+        <ProgressStat value={progress?.errors ?? 0} label={t('library.import.progress.errors')} />
       </div>
     </div>
   )
@@ -1092,31 +1109,37 @@ function LibrarySkeleton() {
   )
 }
 
-function formatBookCount(count: number): string {
-  if (count === 0) return '0 livros'
-  if (count === 1) return '1 livro'
-  return `${count} livros`
+function formatBookCount(count: number, t: TranslateFn): string {
+  if (count === 0) return t('library.bookCount.zero')
+  if (count === 1) return t('library.bookCount.one')
+  return t('library.bookCount.many', { count })
 }
 
-function formatImportSummary(summary: ImportSummary): string {
+function formatImportSummary(summary: ImportSummary, t: TranslateFn): string {
+  const params = {
+    imported: summary.imported,
+    duplicate: summary.duplicate,
+    unsupported: summary.unsupported,
+    errors: summary.errors,
+  }
   if (summary.errors > 0) {
-    return `Importação concluída com avisos: ${summary.imported} importados, ${summary.duplicate} duplicados, ${summary.unsupported} não suportados, ${summary.errors} erros.`
+    return t('library.import.summary.warnings', params)
   }
   if (summary.duplicate > 0) {
-    return `${summary.imported} livros importados. ${summary.duplicate} livros já estavam na biblioteca e foram ignorados.`
+    return t('library.import.summary.duplicates', params)
   }
-  return `${summary.imported} livros importados.`
+  return t('library.import.summary.success', params)
 }
 
-function formatTagDeleteMessage(usageCount: number): string {
-  if (usageCount === 0) return 'Esta tag sera apagada da biblioteca.'
-  if (usageCount === 1) return 'Esta tag sera removida de 1 livro e apagada da biblioteca.'
-  return `Esta tag sera removida de ${usageCount} livros e apagada da biblioteca.`
+function formatTagDeleteMessage(usageCount: number, t: TranslateFn): string {
+  if (usageCount === 0) return t('library.tag.deleteMessage.zero')
+  if (usageCount === 1) return t('library.tag.deleteMessage.one')
+  return t('library.tag.deleteMessage.many', { count: usageCount })
 }
 
-function getFolderName(files: File[]): string {
+function getFolderName(files: File[], t: TranslateFn): string {
   const relativePath = files.find((file) => file.webkitRelativePath)?.webkitRelativePath
-  return relativePath?.split('/').filter(Boolean)[0] ?? 'Pasta selecionada'
+  return relativePath?.split('/').filter(Boolean)[0] ?? t('library.folderName.selectedFolder')
 }
 
 function isInSubfolder(file: File): boolean {
@@ -1146,8 +1169,8 @@ function filterEpubFiles(files: File[]): File[] {
   return files.filter((file) => EPUB_FILE_PATTERN.test(file.name))
 }
 
-function formatDate(date: Date): string {
-  return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(date))
+function formatDate(date: Date, locale: string): string {
+  return new Intl.DateTimeFormat(locale, { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(date))
 }
 
 function formatFileSize(bytes: number): string {

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { TextToSpeech } from '@capacitor-community/text-to-speech'
 import type { TtsChunk } from '../components/reader/EpubViewer'
 import { NativeTtsService } from '../services/NativeTtsService'
+import { createFlowId, getDiagnosticsNowMs, logError, logEvent, logWarn } from '../services/DiagnosticsLogger'
 import {
   getPremiumTtsApiKey,
   getTtsProviderLabel,
@@ -12,6 +13,7 @@ import {
 import type { TtsPlaybackConfig, TtsProvider } from '../types/tts'
 import { clampTtsRate, normalizeLanguageTag } from '../utils/language'
 import { getPlaybackTtsVoiceId } from '../utils/ttsVoiceSelection'
+import { useI18n, type TranslateFn } from '../i18n'
 
 type AudioSpeechMark = {
   start_time: number
@@ -72,43 +74,43 @@ function getHttpStatusFromError(message: string): number | null {
   return Number.isFinite(status) ? status : null
 }
 
-function getPremiumFallbackReason(provider: TtsProvider, error: unknown): string {
+function getPremiumFallbackReason(provider: TtsProvider, error: unknown, t: TranslateFn): string {
   const providerLabel = getTtsProviderLabel(provider)
   const message = getErrorMessage(error)
   const normalized = message.toLowerCase()
   const status = getHttpStatusFromError(message)
 
   if (normalized.includes('not configured')) {
-    return `${providerLabel} não está configurado. Confira a API key nas configurações.`
+    return t('tts.fallbackReason.notConfigured', { provider: providerLabel })
   }
   if (normalized.includes('empty input')) {
-    return 'O trecho selecionado não tem texto suficiente para gerar áudio.'
+    return t('tts.fallbackReason.emptyInput')
   }
   if (normalized.includes('compatible voice missing')) {
-    return `${providerLabel} não encontrou uma voz compatível com o idioma do livro.`
+    return t('tts.fallbackReason.compatibleVoiceMissing', { provider: providerLabel })
   }
   if (normalized.includes('voice missing')) {
-    return `${providerLabel} não tem uma voz selecionada para este livro.`
+    return t('tts.fallbackReason.voiceMissing', { provider: providerLabel })
   }
   if (normalized.includes('aborted') || normalized.includes('aborterror')) {
-    return `${providerLabel} demorou para responder e a requisição expirou.`
+    return t('tts.fallbackReason.timeout', { provider: providerLabel })
   }
   if (normalized.includes('failed to fetch') || normalized.includes('networkerror')) {
-    return `Falha de rede ao conectar com ${providerLabel}.`
+    return t('tts.fallbackReason.network', { provider: providerLabel })
   }
 
-  if (status === 400) return `${providerLabel} recusou a requisição. Verifique voz, idioma e texto selecionados.`
-  if (status === 401 || status === 403) return `API key do ${providerLabel} inválida, expirada ou sem permissão.`
-  if (status === 402) return `${providerLabel} recusou por falta de créditos ou assinatura.`
-  if (status === 404) return `A voz selecionada no ${providerLabel} não foi encontrada.`
-  if (status === 408) return `${providerLabel} demorou para responder e a requisição expirou.`
-  if (status === 409) return `${providerLabel} recusou a voz ou o modelo selecionado para este idioma.`
-  if (status === 413) return 'O trecho enviado ao TTS ficou grande demais para o provedor.'
-  if (status === 422) return `${providerLabel} não conseguiu processar esse texto, voz ou idioma.`
-  if (status === 429) return `${providerLabel} atingiu limite de uso ou muitas requisições.`
-  if (status && status >= 500) return `${providerLabel} está indisponível no momento.`
+  if (status === 400) return t('tts.fallbackReason.badRequest', { provider: providerLabel })
+  if (status === 401 || status === 403) return t('tts.fallbackReason.invalidKey', { provider: providerLabel })
+  if (status === 402) return t('tts.fallbackReason.noCredits', { provider: providerLabel })
+  if (status === 404) return t('tts.fallbackReason.voiceNotFound', { provider: providerLabel })
+  if (status === 408) return t('tts.fallbackReason.timeout', { provider: providerLabel })
+  if (status === 409) return t('tts.fallbackReason.voiceRejected', { provider: providerLabel })
+  if (status === 413) return t('tts.fallbackReason.payloadTooLarge')
+  if (status === 422) return t('tts.fallbackReason.unprocessable', { provider: providerLabel })
+  if (status === 429) return t('tts.fallbackReason.rateLimited', { provider: providerLabel })
+  if (status && status >= 500) return t('tts.fallbackReason.providerUnavailable', { provider: providerLabel })
 
-  return `${providerLabel} falhou por um erro inesperado.`
+  return t('tts.fallbackReason.unexpected', { provider: providerLabel })
 }
 
 function getAudioDurationMs(audio: HTMLAudioElement): number | null {
@@ -166,6 +168,7 @@ function resolveSpeechMarks(speechMarks: AudioSpeechMark[], text: string, durati
 }
 
 export function useTTS(options: UseTTSOptions) {
+  const { t } = useI18n()
   const [isPlaying, setIsPlaying] = useState(false)
   const [isPaused, setIsPaused] = useState(false)
   const shouldStopRef = useRef(false)
@@ -361,12 +364,55 @@ export function useTTS(options: UseTTSOptions) {
     const config = configRef.current
     const apiKey = await getPremiumTtsApiKey(provider)
     if (!apiKey) throw new Error(`${getTtsProviderLabel(provider)} not configured`)
-    const result = await synthesizePremiumTts(provider, text, {
-      apiKey,
+    const flowId = createFlowId(`tts-${provider}`)
+    const startedAt = getDiagnosticsNowMs()
+    const voiceId = getPlaybackTtsVoiceId(config, provider)
+    const baseDetails = {
+      textLength: text.length,
+      paraIdx,
       language: config.language,
       rate: config.rate,
-      voiceId: getPlaybackTtsVoiceId(config, provider),
+      hasVoiceId: Boolean(voiceId),
+    }
+
+    logEvent('tts.synthesize.start', {
+      flowId,
+      provider,
+      status: 'start',
+      details: baseDetails,
     })
+
+    let result: Awaited<ReturnType<typeof synthesizePremiumTts>>
+    try {
+      result = await synthesizePremiumTts(provider, text, {
+        apiKey,
+        language: config.language,
+        rate: config.rate,
+        voiceId,
+      })
+    } catch (error) {
+      logError('tts.synthesize.failure', error, {
+        flowId,
+        provider,
+        status: 'failure',
+        durationMs: getDiagnosticsNowMs() - startedAt,
+        details: baseDetails,
+      })
+      throw error
+    }
+
+    logEvent('tts.synthesize.success', {
+      flowId,
+      provider,
+      status: 'success',
+      durationMs: getDiagnosticsNowMs() - startedAt,
+      details: {
+        ...baseDetails,
+        audioBytes: result.audioBlob.size,
+        speechMarkCount: result.speechMarks.length,
+      },
+    })
+
     await playAudioBlob(text, result.audioBlob, result.speechMarks, paraIdx, offsetInPara, session, trackPlaybackState)
   }
 
@@ -401,7 +447,23 @@ export function useTTS(options: UseTTSOptions) {
     const config = configRef.current
     const language = normalizeLanguageTag(config.language)
     const rate = clampTtsRate(config.rate)
-    const voice = await NativeTtsService.resolveVoiceIndex(config.nativeVoiceKey, language)
+    const flowId = createFlowId('tts-native')
+    const diagnosticsStartedAt = getDiagnosticsNowMs()
+    const baseDetails = {
+      textLength: text.length,
+      paraIdx,
+      language,
+      rate,
+      hasNativeVoiceKey: Boolean(config.nativeVoiceKey),
+    }
+
+    logEvent('tts.synthesize.start', {
+      flowId,
+      provider: 'native',
+      status: 'start',
+      details: baseDetails,
+    })
+
     let clearSyntheticHighlights = () => {}
     const speechStartedAt = performance.now()
     const syntheticDelay = paraIdx === undefined
@@ -412,6 +474,7 @@ export function useTTS(options: UseTTSOptions) {
         }, NATIVE_RANGE_FALLBACK_DELAY_MS)
 
     try {
+      const voice = await NativeTtsService.resolveVoiceIndex(config.nativeVoiceKey, language)
       await TextToSpeech.speak({
         text,
         lang: language,
@@ -419,6 +482,25 @@ export function useTTS(options: UseTTSOptions) {
         ...(voice !== undefined ? { voice } : {}),
       })
       if (shouldStopRef.current || playSessionRef.current !== session) return
+      logEvent('tts.synthesize.success', {
+        flowId,
+        provider: 'native',
+        status: 'success',
+        durationMs: getDiagnosticsNowMs() - diagnosticsStartedAt,
+        details: {
+          ...baseDetails,
+          hasResolvedVoice: voice !== undefined,
+        },
+      })
+    } catch (error) {
+      logError('tts.synthesize.failure', error, {
+        flowId,
+        provider: 'native',
+        status: 'failure',
+        durationMs: getDiagnosticsNowMs() - diagnosticsStartedAt,
+        details: baseDetails,
+      })
+      throw error
     } finally {
       if (syntheticDelay) clearTimeout(syntheticDelay)
       clearSyntheticHighlights()
@@ -453,6 +535,16 @@ export function useTTS(options: UseTTSOptions) {
           return { sessionEnded: true, usedProvider: provider }
         }
         logPremiumTtsFallback(provider, error)
+        logWarn('tts.provider.fallback', {
+          provider,
+          status: 'fallback',
+          error,
+          details: {
+            fallbackProvider: 'native',
+            textLength: text.length,
+            paraIdx,
+          },
+        })
         onFallback(provider, error)
         await fallbackToNative(text, session, nativeParaIdx, offsetInPara)
         return { sessionEnded: false, usedProvider: 'native' }
@@ -491,7 +583,7 @@ export function useTTS(options: UseTTSOptions) {
       callbacksRef.current.onProviderFallback?.({
         provider,
         fallbackProvider: 'native',
-        reason: getPremiumFallbackReason(provider, error),
+        reason: getPremiumFallbackReason(provider, error, t),
       })
     }
 
@@ -623,7 +715,7 @@ export function useTTS(options: UseTTSOptions) {
       callbacksRef.current.onProviderFallback?.({
         provider,
         fallbackProvider: 'native',
-        reason: getPremiumFallbackReason(provider, error),
+        reason: getPremiumFallbackReason(provider, error, t),
       })
     }
 

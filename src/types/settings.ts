@@ -1,9 +1,12 @@
+import { DEFAULT_APP_LOCALE_PREFERENCE, normalizeAppLocalePreference, type AppLocalePreference } from '../i18n/locales'
+
 export type FontSize = 'sm' | 'md' | 'lg' | 'xl'
 export type ReaderLineHeight = 'compact' | 'comfortable' | 'relaxed'
 export type ReaderTheme = 'dark' | 'black' | 'paper' | 'warm' | 'sepia' | 'sage' | 'contrast'
 export type ReaderFontFamily = 'publisher' | 'classic' | 'modern' | 'readable' | 'mono'
 
 export interface AppSettings {
+  appLocale: AppLocalePreference
   speechifyApiKey: string
   elevenLabsApiKey: string
   fishAudioApiKey: string
@@ -36,6 +39,7 @@ export interface LegacyUserSettings {
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
+  appLocale: DEFAULT_APP_LOCALE_PREFERENCE,
   speechifyApiKey: '',
   elevenLabsApiKey: '',
   fishAudioApiKey: '',
@@ -70,6 +74,7 @@ export function normalizeUserSettings(record?: SettingsRecord | null): UserSetti
     ...(record?.id !== undefined ? { id: record.id } : {}),
     appSettings: {
       ...DEFAULT_APP_SETTINGS,
+      appLocale: normalizeAppLocalePreference(record?.appSettings?.appLocale),
       speechifyApiKey: record?.appSettings?.speechifyApiKey ?? record?.speechifyApiKey ?? DEFAULT_APP_SETTINGS.speechifyApiKey,
       elevenLabsApiKey: record?.appSettings?.elevenLabsApiKey ?? DEFAULT_APP_SETTINGS.elevenLabsApiKey,
       fishAudioApiKey: record?.appSettings?.fishAudioApiKey ?? DEFAULT_APP_SETTINGS.fishAudioApiKey,

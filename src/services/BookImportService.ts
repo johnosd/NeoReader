@@ -637,7 +637,10 @@ export class BookImportService {
           hasFile: Boolean(file),
         })
       }
-      const info = await new BookInfoService().collect(file, {
+      const info = await new BookInfoService(undefined, {
+        flowId: diagnostic?.importId,
+        screen: 'import',
+      }).collect(file, {
         ...context,
         lookupHints: {
           ...context.lookupHints,

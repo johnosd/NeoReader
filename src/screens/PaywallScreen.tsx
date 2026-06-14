@@ -1,15 +1,17 @@
 import { ArrowLeft, BookOpen, CloudUpload, Hourglass, Sparkles } from 'lucide-react'
+import type { ReactNode } from 'react'
 import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
 import { cn } from '../utils/cn'
+import { useI18n, type MessageKey } from '../i18n'
 
 interface PaywallScreenProps {
   onBack: () => void
 }
 
 interface BenefitItem {
-  icon: React.ReactNode
-  title: string
-  description: string
+  icon: ReactNode
+  titleKey: MessageKey
+  descriptionKey: MessageKey
   available: boolean
 }
 
@@ -19,25 +21,26 @@ interface BenefitItem {
 const BENEFITS: BenefitItem[] = [
   {
     icon: <Sparkles size={18} className="text-purple-light" />,
-    title: 'Sem anúncios',
-    description: 'Biblioteca, descobrir e vocabulário ficam limpos.',
+    titleKey: 'paywall.benefit.noAds.title',
+    descriptionKey: 'paywall.benefit.noAds.description',
     available: true,
   },
   {
     icon: <CloudUpload size={18} className="text-purple-light" />,
-    title: 'Sincronização Google Drive',
-    description: 'Progresso, marcadores e vocabulário em todos os seus dispositivos.',
+    titleKey: 'paywall.benefit.sync.title',
+    descriptionKey: 'paywall.benefit.sync.description',
     available: false,
   },
   {
     icon: <BookOpen size={18} className="text-purple-light" />,
-    title: 'Falar com o livro (IA)',
-    description: 'Pergunte sobre passagens, peça resumos, tire dúvidas de vocabulário em contexto.',
+    titleKey: 'paywall.benefit.ai.title',
+    descriptionKey: 'paywall.benefit.ai.description',
     available: false,
   },
 ]
 
 export function PaywallScreen({ onBack }: PaywallScreenProps) {
+  const { t } = useI18n()
   useCapacitorBackButton(onBack)
 
   return (
@@ -46,13 +49,13 @@ export function PaywallScreen({ onBack }: PaywallScreenProps) {
         <button
           onClick={onBack}
           className="-ml-1 rounded-md p-2 text-text-secondary transition-transform active:scale-90"
-          aria-label="Voltar"
+          aria-label={t('common.back')}
         >
           <ArrowLeft size={20} />
         </button>
         <div className="min-w-0">
           <h1 className="text-lg font-extrabold tracking-[-0.02em] text-text-primary">NeoReader Pro</h1>
-          <p className="text-xs text-text-muted">O que vem por aí.</p>
+          <p className="text-xs text-text-muted">{t('paywall.subtitle')}</p>
         </div>
       </header>
 
@@ -63,10 +66,9 @@ export function PaywallScreen({ onBack }: PaywallScreenProps) {
               <Hourglass size={18} />
             </div>
             <div className="flex-1">
-              <h2 className="text-sm font-semibold text-text-primary">Em desenvolvimento</h2>
+              <h2 className="text-sm font-semibold text-text-primary">{t('paywall.development.title')}</h2>
               <p className="mt-1 text-xs leading-relaxed text-text-muted">
-                Estamos preparando o NeoReader Pro com calma. Por enquanto, tudo no app é gratuito —
-                use sem pressa e nos diga o que mais faria sentido cobrar.
+                {t('paywall.development.description')}
               </p>
             </div>
           </div>
@@ -74,12 +76,12 @@ export function PaywallScreen({ onBack }: PaywallScreenProps) {
 
         <section>
           <h2 className="mb-3 text-[11px] font-bold uppercase tracking-[0.1em] text-purple-light">
-            Benefícios planejados
+            {t('paywall.benefitsTitle')}
           </h2>
           <div className="overflow-hidden rounded-md border border-border bg-bg-surface">
             {BENEFITS.map((benefit, index) => (
               <div
-                key={benefit.title}
+                key={benefit.titleKey}
                 className={cn(
                   'flex items-start gap-3 px-4 py-4',
                   index !== BENEFITS.length - 1 && 'border-b border-white/5',
@@ -88,17 +90,17 @@ export function PaywallScreen({ onBack }: PaywallScreenProps) {
                 <div className="mt-0.5">{benefit.icon}</div>
                 <div className="flex-1">
                   <div className="flex items-center justify-between gap-3">
-                    <h3 className="text-sm font-semibold text-text-primary">{benefit.title}</h3>
+                    <h3 className="text-sm font-semibold text-text-primary">{t(benefit.titleKey)}</h3>
                     <span
                       className={cn(
                         'text-[10px] font-bold uppercase tracking-wider',
                         benefit.available ? 'text-success' : 'text-text-muted',
                       )}
                     >
-                      {benefit.available ? 'Já disponível' : 'Em breve'}
+                      {benefit.available ? t('paywall.available') : t('paywall.soon')}
                     </span>
                   </div>
-                  <p className="mt-1 text-xs leading-relaxed text-text-muted">{benefit.description}</p>
+                  <p className="mt-1 text-xs leading-relaxed text-text-muted">{t(benefit.descriptionKey)}</p>
                 </div>
               </div>
             ))}
@@ -106,24 +108,23 @@ export function PaywallScreen({ onBack }: PaywallScreenProps) {
         </section>
 
         <section className="rounded-md border border-border bg-bg-surface p-4">
-          <h3 className="text-sm font-semibold text-text-primary">Quer ser avisado no lançamento?</h3>
+          <h3 className="text-sm font-semibold text-text-primary">{t('paywall.notify.title')}</h3>
           <p className="mt-1 text-xs leading-relaxed text-text-muted">
-            Quando os benefícios acima estiverem prontos, o Pro vai aparecer aqui pra assinar.
-            Continue usando o app de graça enquanto isso.
+            {t('paywall.notify.description')}
           </p>
         </section>
 
         <p className="px-2 text-center text-[10px] leading-relaxed text-text-muted">
-          Ao usar o NeoReader você concorda com nossa{' '}
+          {t('paywall.privacyPrefix')}{' '}
           <a
             href="https://johnosd.github.io/neoreader-legal/"
             target="_blank"
             rel="noopener noreferrer"
             className="text-purple-light underline"
           >
-            política de privacidade
+            {t('paywall.privacyLink')}
           </a>
-          .
+          {t('paywall.privacySuffix')}
         </p>
       </div>
     </div>

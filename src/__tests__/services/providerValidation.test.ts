@@ -37,6 +37,7 @@ describe('provider API key validation', () => {
 
     expect(result).toEqual({
       isValid: true,
+      code: 'valid',
       message: 'API key válida.',
     })
     expect(fetch).toHaveBeenCalledOnce()
@@ -50,6 +51,7 @@ describe('provider API key validation', () => {
 
     expect(result).toEqual({
       isValid: false,
+      code: 'invalid',
       message: 'API key inválida ou sem permissão.',
     })
     expect(fetchMock).toHaveBeenCalledOnce()
@@ -534,6 +536,7 @@ describe('provider API key validation', () => {
 
     expect(result).toEqual({
       isValid: true,
+      code: 'valid',
       message: 'API key valida.',
     })
     expect(fetchMock).toHaveBeenCalledOnce()

@@ -4,6 +4,7 @@ import { ArrowLeft, Star, ChevronRight, Globe, Calendar, HardDrive, Sparkles, Bo
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Badge, BottomSheet, Button, EmptyState, ListItem, Spinner } from '../components/ui'
 import { AuthorTab } from '../components/AuthorTab'
+import { IntegrationHelpBanner } from '../components/IntegrationHelpBanner'
 import { db } from '../db/database'
 import { toggleFavorite } from '../db/books'
 import { softDeleteBookmark } from '../db/bookmarks'
@@ -53,6 +54,7 @@ import {
   buildBookTtsVoiceSelectionPatch,
   getBookTtsVoiceSelection,
 } from '../utils/ttsVoiceSelection'
+import { useI18n, type MessageKey } from '../i18n'
 
 interface BookDetailsScreenProps {
   book: Book
@@ -63,24 +65,17 @@ interface BookDetailsScreenProps {
 
 type Tab = 'chapters' | 'bookmarks' | 'settings' | 'details' | 'reviews' | 'autor'
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'chapters', label: 'Capitulo' },
-  { id: 'bookmarks', label: 'Marcacoes' },
-  { id: 'reviews', label: 'Reviews' },
-  { id: 'autor', label: 'Autor' },
-  { id: 'settings', label: 'Configuracoes' },
-  { id: 'details', label: 'Detalhes' },
+const TABS: { id: Tab; labelKey: MessageKey }[] = [
+  { id: 'chapters', labelKey: 'bookDetails.tab.chapters' },
+  { id: 'bookmarks', labelKey: 'bookDetails.tab.bookmarks' },
+  { id: 'reviews', labelKey: 'bookDetails.tab.reviews' },
+  { id: 'autor', labelKey: 'bookDetails.tab.author' },
+  { id: 'settings', labelKey: 'bookDetails.tab.settings' },
+  { id: 'details', labelKey: 'bookDetails.tab.details' },
 ]
 
-const TTS_PROVIDERS: Array<{ value: TtsProvider; label: string }> = TTS_PROVIDER_ORDER.map((provider) => ({
-  value: provider,
-  label: provider === 'native' ? 'Nativo' : getTtsProviderLabel(provider),
-}))
-
 const EXTRAS_LOAD_TIMEOUT_MS = 10_000
-const EXTRAS_LOAD_TIMEOUT_MESSAGE = 'Tempo limite ao carregar detalhes do EPUB.'
 const TTS_RATE_OPTIONS = [0.8, 0.9, 1, 1.1, 1.2]
-const VOICE_PREVIEW_ERROR = 'Nao foi possivel tocar a amostra desta voz.'
 
 function resolveEffectiveTtsProvider(provider: TtsProvider, settings: AppSettings): TtsProvider {
   return resolveTtsProviderFromAvailability(provider, getTtsProviderAvailability(settings))
@@ -94,6 +89,7 @@ function getTtsVoicePreviewText(language: string) {
 }
 
 export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: BookDetailsScreenProps) {
+  const { locale, t } = useI18n()
   const [activeTab, setActiveTab] = useState<Tab>('chapters')
   const [descExpanded, setDescExpanded] = useState(false)
   const [extras, setExtras] = useState<EpubExtras | null>(null)
@@ -107,6 +103,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
   const [defaultOverrideBookFont, setDefaultOverrideBookFont] = useState(true)
   const [defaultOverrideBookColors, setDefaultOverrideBookColors] = useState(true)
   const [appSettings, setAppSettings] = useState<AppSettings>({
+    appLocale: 'auto',
     speechifyApiKey: '',
     elevenLabsApiKey: '',
     fishAudioApiKey: '',
@@ -125,6 +122,10 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
   const ttsVoicePreviewModeRef = useRef<'audio' | 'native' | null>(null)
   const ttsVoicePreviewSessionRef = useRef(0)
   const pendingBookSettingsSaveRef = useRef<Promise<void>>(Promise.resolve())
+  const ttsProviders: Array<{ value: TtsProvider; label: string }> = TTS_PROVIDER_ORDER.map((provider) => ({
+    value: provider,
+    label: provider === 'native' ? t('bookDetails.tts.native') : getTtsProviderLabel(provider),
+  }))
 
   const liveBook = useLiveQuery(() => db.books.get(book.id!), [book.id]) ?? book
   const progress = useLiveQuery(() => db.progress.where('bookId').equals(book.id!).first(), [book.id])
@@ -180,9 +181,10 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
     let timeoutId: ReturnType<typeof setTimeout> | null = null
     setExtrasLoading(true)
     const extrasTask = BookFileResolver.resolveFile(liveBook).then((file) => EpubService.parseExtras(file, liveBook.id))
+    const timeoutMessage = t('bookDetails.extrasTimeout')
     const timeoutTask = new Promise<EpubExtras>((_, reject) => {
       timeoutId = setTimeout(() => {
-        reject(new Error(EXTRAS_LOAD_TIMEOUT_MESSAGE))
+        reject(new Error(timeoutMessage))
       }, EXTRAS_LOAD_TIMEOUT_MS)
     })
 
@@ -192,7 +194,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
       setExtrasLoading(false)
     }).catch((error) => {
       if (cancelled) return
-      if (error instanceof Error && error.message === EXTRAS_LOAD_TIMEOUT_MESSAGE && liveBook.id !== undefined) {
+      if (error instanceof Error && error.message === timeoutMessage && liveBook.id !== undefined) {
         EpubService.invalidateExtrasCache(liveBook.id)
       }
       setExtras(null)
@@ -204,7 +206,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
       cancelled = true
       if (timeoutId) clearTimeout(timeoutId)
     }
-  }, [liveBook, liveBook.fileBlob, liveBook.id, liveBook.storageMode, liveBook.uri])
+  }, [liveBook, liveBook.fileBlob, liveBook.id, liveBook.storageMode, liveBook.uri, t])
 
   useCapacitorBackButton(onBack)
 
@@ -227,26 +229,26 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
   const styleDiagnostics = extras?.styleDiagnostics ?? []
   const visibleStyleDiagnostics = styleDiagnostics.slice(0, 3)
   const providerConfigured = isTtsProviderConfigured(selectedTtsProvider, appSettings)
-  const selectedProviderLabel = TTS_PROVIDERS.find((option) => option.value === selectedTtsProvider)?.label ?? selectedTtsProvider
-  const effectiveProviderLabel = TTS_PROVIDERS.find((option) => option.value === effectiveTtsProvider)?.label ?? effectiveTtsProvider
+  const selectedProviderLabel = ttsProviders.find((option) => option.value === selectedTtsProvider)?.label ?? selectedTtsProvider
+  const effectiveProviderLabel = ttsProviders.find((option) => option.value === effectiveTtsProvider)?.label ?? effectiveTtsProvider
   const providerInFallback = effectiveTtsProvider !== selectedTtsProvider
   const selectedVoice = getBookTtsVoiceSelection(bookSettingsRow, effectiveTtsProvider)
   const selectedVoiceLabel = !providerConfigured
-    ? `${selectedProviderLabel} indisponivel`
-    : (selectedVoice?.label ?? (effectiveTtsProvider === 'native' ? 'Voz padrao do dispositivo' : 'Voz padrao do provider'))
+    ? t('bookDetails.tts.providerUnavailable', { provider: selectedProviderLabel })
+    : (selectedVoice?.label ?? (effectiveTtsProvider === 'native' ? t('bookDetails.setting.defaultVoiceDevice') : t('bookDetails.tts.providerDefaultVoice')))
   const selectedVoiceAvatarUrl = providerConfigured ? (selectedVoice?.avatarUrl ?? null) : null
   const selectedVoiceMeta = providerConfigured
     ? `${selectedVoiceLabel} - ${getLanguageLabel(effectiveBookLanguage) ?? effectiveBookLanguage}`
-    : 'Abra as Configuracoes gerais para configurar a API key'
+    : t('bookDetails.configureApiKey')
   const publishedYear = formatPublishedYear(bookInfo?.publishedDate?.value)
   const headerRating = bookInfo?.rating
     ? formatBookRating(bookInfo.rating.value.average, bookInfo.rating.value.count)
     : null
   const headerRatingLabel = headerRating
-    ? `Nota ${headerRating}`
+    ? t('bookDetails.rating.value', { rating: headerRating })
     : bookInfoLoading
-      ? 'Buscando nota'
-      : 'Nota indisponivel'
+      ? t('bookDetails.rating.loading')
+      : t('bookDetails.rating.unavailable')
   const aboutDescription = extras?.description ?? bookInfo?.synopsis?.value ?? null
   const youtubeReviews = bookInfo?.reviews?.value.filter((review) => review.provider === 'youtube') ?? []
   const {
@@ -438,7 +440,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
     } catch (error) {
       if (ttsVoicePreviewSessionRef.current === session) {
         console.warn('Voice preview failed.', error)
-        setTtsVoicePreviewError(VOICE_PREVIEW_ERROR)
+        setTtsVoicePreviewError(t('bookDetails.tts.voicePreviewError'))
       }
     } finally {
       if (ttsVoicePreviewSessionRef.current === session) {
@@ -479,7 +481,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
         <button
           onClick={onBack}
           className="p-2 -ml-1 rounded-md text-text-secondary active:scale-90 transition-transform"
-          aria-label="Voltar"
+          aria-label={t('common.back')}
         >
           <ArrowLeft size={20} />
         </button>
@@ -487,7 +489,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
         <button
           onClick={() => book.id !== undefined && void toggleFavorite(book.id)}
           className="p-2 -mr-1 rounded-md active:scale-90 transition-transform"
-          aria-label={liveBook.isFavorite ? 'Remover dos favoritos' : 'Favoritar'}
+          aria-label={liveBook.isFavorite ? t('library.removeFavorite') : t('library.favorite')}
         >
           <Star
             size={20}
@@ -538,22 +540,22 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
         <div className="px-4 flex flex-col gap-3">
           <Button variant="primary" tone="purple" fullWidth onClick={() => openReader()}>
             {readingStatus === 'finished'
-              ? 'Ler novamente'
+              ? t('bookDetails.action.readAgain')
               : readingStatus === 'reading'
-                ? `Continuar leitura - ${pct}%`
-                : 'Comecar a ler'}
+                ? t('bookDetails.action.continue', { percent: pct })
+                : t('bookDetails.action.start')}
           </Button>
           <Button
             variant="outline" tone="purple" fullWidth disabled
             leftIcon={<Sparkles size={16} />}
-            rightIcon={<Badge tone="neutral">em breve</Badge>}
+            rightIcon={<Badge tone="neutral">{t('bookDetails.comingSoon')}</Badge>}
           >
-            Falar com o livro
+            {t('bookDetails.talkToBook')}
           </Button>
         </div>
 
         <div className="px-4">
-          <Section title="Sobre o livro">
+          <Section title={t('bookDetails.about')}>
             {aboutDescription && (
               <div className="mb-4">
                 <p className={`text-sm text-text-secondary leading-relaxed ${descExpanded ? '' : 'line-clamp-3'}`}>
@@ -563,7 +565,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
                   onClick={() => setDescExpanded((value) => !value)}
                   className="text-xs text-purple-light mt-1 active:opacity-60"
                 >
-                  {descExpanded ? 'Mostrar menos' : 'Leia mais'}
+                  {descExpanded ? t('bookDetails.readLess') : t('bookDetails.readMore')}
                 </button>
               </div>
             )}
@@ -575,12 +577,12 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
                 />
               </div>
               <span className="text-xs text-text-muted tabular-nums shrink-0">
-                {readingStatus === 'finished' ? 'Concluido' : `${pct}%`}
+                {readingStatus === 'finished' ? t('bookDetails.finished') : `${pct}%`}
               </span>
             </div>
             <div className="flex gap-4 mt-3">
-              <Stat value={bookmarks.length} label="marcadores" />
-              <Stat value={vocabCount} label="vocabulario" />
+              <Stat value={bookmarks.length} label={t('bookDetails.stat.bookmarks')} />
+              <Stat value={vocabCount} label={t('bookDetails.stat.vocabulary')} />
             </div>
           </Section>
         </div>
@@ -603,7 +605,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
                       active ? 'text-purple-light' : 'text-text-muted active:text-text-secondary'
                     }`}
                   >
-                    {tab.label}
+                    {t(tab.labelKey)}
                     {count !== null && (
                       <span className={`text-[10px] font-bold tabular-nums px-1.5 py-0.5 rounded-pill ${
                         active ? 'bg-purple-primary/20 text-purple-light' : 'bg-bg-surface text-text-muted'
@@ -624,7 +626,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
             {activeTab === 'chapters' && (
               extrasLoading ? (
                 <div className="flex justify-center py-8">
-                  <Spinner size={20} tone="purple" label="Carregando capitulos" />
+                  <Spinner size={20} tone="purple" label={t('bookDetails.chaptersLoading')} />
                 </div>
               ) : (
                 <TocNavigator
@@ -655,7 +657,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
                             if (bookmark.id !== undefined) void softDeleteBookmark(bookmark.id)
                           }}
                           className="p-2 -m-2 text-text-muted active:text-error transition-colors"
-                          aria-label="Remover marcacao"
+                          aria-label={t('bookDetails.removeBookmark')}
                         >
                           <X size={15} />
                         </button>
@@ -666,8 +668,8 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
               ) : (
                 <EmptyState
                   icon={<Bookmark size={32} />}
-                  title="Nenhuma marcacao"
-                  description="Selecione um paragrafo durante a leitura e use Marcar para salvar posicoes."
+                  title={t('bookDetails.noBookmarks.title')}
+                  description={t('bookDetails.noBookmarks.description')}
                 />
               )
             )}
@@ -676,7 +678,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
               <div className="rounded-md p-4 bg-bg-surface border border-border flex flex-col gap-4">
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-3">
-                    Previa
+                    {t('bookDetails.setting.preview')}
                   </p>
                   <ReaderPreviewPanel
                     theme={readerTheme}
@@ -694,10 +696,10 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
                       <Sparkles size={16} className="mt-0.5 shrink-0 text-[#1bcc64]" />
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-semibold text-text-primary">
-                          Estilos fortes detectados
+                          {t('bookDetails.setting.strongStylesTitle')}
                         </p>
                         <p className="mt-1 text-xs leading-relaxed text-text-muted">
-                          Este EPUB define estilos proprios que podem reduzir a legibilidade.
+                          {t('bookDetails.setting.strongStylesDescription')}
                         </p>
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           {visibleStyleDiagnostics.map((diagnostic) => (
@@ -711,7 +713,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
                           onClick={applyComfortableReadingMode}
                           className="mt-3 text-xs font-bold text-purple-light transition-colors hover:text-white"
                         >
-                          Aplicar modo confortavel
+                          {t('bookDetails.setting.applyComfortable')}
                         </button>
                       </div>
                     </div>
@@ -720,7 +722,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
 
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-3">
-                    Tema do leitor
+                    {t('bookDetails.setting.themeReader')}
                   </p>
                   <ReaderThemeControl
                     value={readerTheme}
@@ -731,7 +733,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
 
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-3">
-                    Fonte do livro
+                    {t('bookDetails.setting.fontBook')}
                   </p>
                   <ReaderFontControl
                     value={fontFamily}
@@ -743,17 +745,17 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
                   />
                   <div className="mt-3 flex flex-wrap gap-1.5">
                     <PrimeVideoBadge tone={overrideBookFont ? 'prime' : 'neutral'}>
-                      {overrideBookFont ? 'Fonte NeoReader' : 'Fonte original'}
+                      {overrideBookFont ? t('bookDetails.setting.fontNeoReader') : t('bookDetails.setting.fontOriginal')}
                     </PrimeVideoBadge>
                     <PrimeVideoBadge tone={overrideBookColors ? 'prime' : 'neutral'}>
-                      {overrideBookColors ? 'Cores do tema' : 'Cores do livro'}
+                      {overrideBookColors ? t('bookDetails.setting.themeColors') : t('bookDetails.setting.bookColors')}
                     </PrimeVideoBadge>
                   </div>
                 </div>
 
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-3">
-                    Tamanho de fonte
+                    {t('settings.appearance.fontSize.label')}
                   </p>
                   <ReaderFontSizeControl
                     value={fontSize}
@@ -764,7 +766,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
 
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-3">
-                    Espacamento
+                    {t('bookDetails.setting.lineHeight')}
                   </p>
                   <ReaderLineHeightControl
                     value={lineHeight}
@@ -775,7 +777,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
 
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-3">
-                    Modo de leitura
+                    {t('bookDetails.setting.readingMode')}
                   </p>
                   <ReaderModeControl
                     value={readerStyleMode}
@@ -786,19 +788,19 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
 
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-3">
-                    Idioma do livro
+                    {t('bookDetails.setting.bookLanguage')}
                   </p>
                   <div className="-mx-4">
                     <ListItem
                       leading={<Globe size={18} />}
-                      title="Idioma original do livro"
+                      title={t('bookDetails.setting.bookOriginalLanguage')}
                       meta={(
                         <div className="flex flex-wrap items-center gap-1.5 pt-1">
                           <PrimeVideoBadge tone="exclusive">
                             {getLanguageLabel(bookSettingsRow?.bookLanguage ?? detectedBookLanguage ?? effectiveBookLanguage) ?? effectiveBookLanguage}
                           </PrimeVideoBadge>
                           <PrimeVideoBadge tone={bookSettingsRow?.bookLanguage ? 'prime' : 'neutral'}>
-                            {bookSettingsRow?.bookLanguage ? 'Manual' : 'Auto'}
+                            {bookSettingsRow?.bookLanguage ? t('bookDetails.manual') : t('bookDetails.auto')}
                           </PrimeVideoBadge>
                         </div>
                       )}
@@ -811,19 +813,19 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
 
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-3">
-                    Traducao
+                    {t('bookDetails.setting.translation')}
                   </p>
                   <div className="-mx-4">
                     <ListItem
                       leading={<Globe size={18} />}
-                      title="Idioma de destino da traducao"
+                      title={t('bookDetails.setting.translationTarget')}
                       meta={(
                         <div className="flex flex-wrap items-center gap-1.5 pt-1">
                           <PrimeVideoBadge tone="exclusive">
                             {getLanguageLabel(bookSettingsRow?.translationTargetLang ?? appSettings.translationTargetLang) ?? (bookSettingsRow?.translationTargetLang ?? appSettings.translationTargetLang)}
                           </PrimeVideoBadge>
                           <PrimeVideoBadge tone={bookSettingsRow?.translationTargetLang ? 'prime' : 'neutral'}>
-                            {bookSettingsRow?.translationTargetLang ? 'Neste livro' : 'Padrao do app'}
+                            {bookSettingsRow?.translationTargetLang ? t('bookDetails.thisBook') : t('bookDetails.defaultApp')}
                           </PrimeVideoBadge>
                         </div>
                       )}
@@ -838,27 +840,40 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
                   <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-3">
                     TTS
                   </p>
+                  {providerInFallback && (
+                    <div className="mb-3">
+                      <IntegrationHelpBanner
+                        title={t('bookDetails.tts.missingKey.title')}
+                        description={t('bookDetails.tts.missingKey.description', { provider: selectedProviderLabel })}
+                        actionLabel={t('bookDetails.tts.missingKey.action')}
+                        dismissId={`book-details-tts-${selectedTtsProvider}`}
+                        icon={<Volume2 size={18} />}
+                        tone="warning"
+                        onAction={onOpenSettings}
+                      />
+                    </div>
+                  )}
                   <div className="-mx-4 rounded-md border border-border overflow-hidden">
                     <ListItem
                       leading={<Volume2 size={18} />}
-                      title="Provider"
+                      title={t('bookDetails.setting.provider')}
                       meta={(
                         <div className="flex flex-wrap items-center gap-1.5 pt-1">
                           <PrimeVideoBadge tone="exclusive">
-                            Salvo - {selectedProviderLabel}
+                            {t('bookDetails.provider.saved', { provider: selectedProviderLabel })}
                           </PrimeVideoBadge>
                           {providerInFallback ? (
                             <>
                               <PrimeVideoBadge tone="neutral">
-                                Em uso - {effectiveProviderLabel}
+                                {t('bookDetails.provider.inUse', { provider: effectiveProviderLabel })}
                               </PrimeVideoBadge>
                               <PrimeVideoBadge tone="warning">
-                                Key pendente
+                                {t('bookDetails.apiKeyPending')}
                               </PrimeVideoBadge>
                             </>
                           ) : (
                             <PrimeVideoBadge tone="prime">
-                              Ativo
+                              {t('bookDetails.provider.active')}
                             </PrimeVideoBadge>
                           )}
                         </div>
@@ -869,21 +884,22 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
                     />
                     <div className="border-t border-border px-3 py-3">
                       <p className="px-1 pb-2 text-[11px] font-bold uppercase tracking-wider text-text-muted">
-                        Voz e velocidade
+                         {t('bookDetails.setting.voiceAndSpeed')}
                       </p>
                       <div className="overflow-hidden rounded-2xl border border-white/6 bg-[#1f1f1f]">
                         <TtsControlRow
                           icon={<Mic2 size={18} />}
-                          label="Voz"
+                          label={t('bookDetails.setting.voice')}
                           value={selectedVoiceLabel}
                           detail={selectedVoiceMeta}
                           avatarUrl={selectedVoiceAvatarUrl}
+                          isVoiceRow
                           onClick={openVoiceSettings}
                         />
                         <div className="mx-4 h-px bg-white/6" />
                         <TtsControlRow
                           icon={<Gauge size={18} />}
-                          label="Velocidade"
+                          label={t('bookDetails.setting.ttsSpeed')}
                           value={formatTtsRate(ttsRate)}
                           detail={formatTtsWordsPerMinute(ttsRate)}
                           onClick={() => setTtsSpeedSheetOpen(true)}
@@ -910,25 +926,25 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
 
                 <div className="rounded-md bg-bg-surface border border-border overflow-hidden">
                   {langLabel && (
-                    <ListItem leading={<Globe size={18} />} title="Idioma" meta={langLabel} divider />
+                    <ListItem leading={<Globe size={18} />} title={t('bookDetails.details.language')} meta={langLabel} divider />
                   )}
                   <ListItem
                     leading={<Calendar size={18} />}
-                    title="Adicionado"
-                    meta={formatDate(liveBook.addedAt)}
+                    title={t('bookDetails.added')}
+                    meta={formatDate(liveBook.addedAt, locale)}
                     divider={!!liveBook.lastOpenedAt}
                   />
                   {liveBook.lastOpenedAt && (
                     <ListItem
                       leading={<Calendar size={18} />}
-                      title="Ultimo acesso"
-                      meta={formatDate(liveBook.lastOpenedAt)}
+                      title={t('bookDetails.lastAccess')}
+                      meta={formatDate(liveBook.lastOpenedAt, locale)}
                       divider
                     />
                   )}
                   <ListItem
                     leading={<HardDrive size={18} />}
-                    title="Tamanho"
+                    title={t('bookDetails.size')}
                     meta={formatFileSize(liveBook.fileSize ?? liveBook.fileBlob?.size ?? 0)}
                     divider={false}
                   />
@@ -959,7 +975,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
       <BottomSheet
         open={bookLanguageSheetOpen}
         onClose={() => setBookLanguageSheetOpen(false)}
-        title="Idioma do livro"
+        title={t('bookDetails.setting.bookLanguage')}
       >
         <div className="-mx-4">
           {BOOK_LANGUAGE_OPTIONS.map((option) => {
@@ -983,11 +999,11 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
       <BottomSheet
         open={translationTargetLangSheetOpen}
         onClose={() => setTranslationTargetLangSheetOpen(false)}
-        title="Idioma da traducao"
+        title={t('bookDetails.setting.translationLanguage')}
       >
         <div className="-mx-4">
           <ListItem
-            title="Usar padrao do app"
+            title={t('bookDetails.defaultApp')}
             meta={getLanguageLabel(appSettings.translationTargetLang) ?? appSettings.translationTargetLang}
             trailing={!bookSettingsRow?.translationTargetLang ? <Check size={18} className="text-purple-light" /> : undefined}
             onClick={() => {
@@ -1017,14 +1033,14 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
       <BottomSheet
         open={ttsProviderSheetOpen}
         onClose={() => setTtsProviderSheetOpen(false)}
-        title="Provider de TTS"
+        title={t('bookDetails.setting.providerSheet')}
       >
         <div className="-mx-4">
-          {TTS_PROVIDERS.map((option) => {
+          {ttsProviders.map((option) => {
             const active = selectedTtsProvider === option.value
             const meta = option.value === 'native'
-              ? 'Disponivel no dispositivo'
-              : (isTtsProviderConfigured(option.value, appSettings) ? 'Configurado' : 'API key pendente')
+              ? t('bookDetails.provider.deviceAvailable')
+              : (isTtsProviderConfigured(option.value, appSettings) ? t('bookDetails.configured') : t('bookDetails.apiKeyPending'))
             return (
               <ListItem
                 key={option.value}
@@ -1032,7 +1048,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
                 meta={meta}
                 trailing={active ? <Check size={18} className="text-purple-light" /> : undefined}
                 onClick={() => updateProvider(option.value)}
-                divider={option.value !== TTS_PROVIDERS[TTS_PROVIDERS.length - 1].value}
+                divider={option.value !== ttsProviders[ttsProviders.length - 1].value}
               />
             )
           })}
@@ -1042,27 +1058,37 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
       <BottomSheet
         open={ttsVoiceSheetOpen}
         onClose={closeTtsVoiceSheet}
-        title="Voz do livro"
+        title={t('bookDetails.setting.bookVoice')}
       >
-        {ttsVoiceLoading ? (
-          <div className="flex justify-center py-8">
-            <Spinner size={20} tone="purple" label="Carregando vozes" />
-          </div>
-        ) : ttsVoiceError ? (
-          <EmptyState
-            icon={<Volume2 size={28} />}
-            title="Vozes indisponiveis"
-            description={ttsVoiceError}
+        <>
+          <IntegrationHelpBanner
+            title={t('bookDetails.tts.voiceEducation.title')}
+            description={selectedTtsProvider === 'native'
+              ? t('bookDetails.tts.voiceEducation.nativeDescription')
+              : t('bookDetails.tts.voiceEducation.premiumDescription')}
+            dismissId="book-details-voice-education"
+            icon={<Mic2 size={18} />}
           />
-        ) : (
-          <div className="space-y-3">
+          <div className="mt-3">
+            {ttsVoiceLoading ? (
+              <div className="flex justify-center py-8">
+                <Spinner size={20} tone="purple" label={t('bookDetails.setting.voiceLoading')} />
+              </div>
+            ) : ttsVoiceError ? (
+              <EmptyState
+                icon={<Volume2 size={28} />}
+                title={t('bookDetails.setting.voicesUnavailable')}
+                description={ttsVoiceError}
+              />
+            ) : (
+              <div className="space-y-3">
             <div className="relative">
               <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
               <input
                 type="search"
                 value={ttsVoiceSearch}
                 onChange={(event) => setTtsVoiceSearch(event.target.value)}
-                placeholder="Pesquisar voz por nome"
+                placeholder={t('bookDetails.setting.searchVoice')}
                 className="h-11 w-full rounded-md border border-border bg-bg-base pl-9 pr-10 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-purple-primary/60"
               />
               {ttsVoiceSearch && (
@@ -1070,7 +1096,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
                   type="button"
                   onClick={() => setTtsVoiceSearch('')}
                   className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-text-muted transition-colors active:bg-white/10"
-                  aria-label="Limpar pesquisa"
+                  aria-label={t('common.clearSearch')}
                 >
                   <X size={15} />
                 </button>
@@ -1085,8 +1111,8 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
 
             <div className="-mx-4">
               <ListItem
-                title="Usar voz padrao"
-                meta={selectedTtsProvider === 'native' ? 'Voz padrao do dispositivo' : 'Definida automaticamente pelo provider'}
+                title={t('bookDetails.setting.defaultVoice')}
+                meta={selectedTtsProvider === 'native' ? t('bookDetails.setting.defaultVoiceDevice') : t('bookDetails.setting.defaultVoiceProvider')}
                 trailing={
                   !getBookTtsVoiceSelection(bookSettingsRow, selectedTtsProvider)?.id
                     ? <Check size={18} className="text-purple-light" />
@@ -1132,7 +1158,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
                               ? 'border-purple-primary/60 bg-purple-primary/15 text-purple-light'
                               : 'border-white/10 bg-white/5 text-text-secondary active:bg-white/10'
                           }`}
-                          aria-label={previewing ? `Parar amostra de ${voice.label}` : `Ouvir amostra de ${voice.label}`}
+                          aria-label={previewing ? t('bookDetails.tts.voicePreviewStop', { voice: voice.label }) : t('bookDetails.tts.voicePreviewListen', { voice: voice.label })}
                         >
                           {previewing ? <Loader2 size={16} className="animate-spin" /> : <Play size={15} />}
                         </button>
@@ -1146,7 +1172,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
               })}
               {visibleTtsVoiceOptions.length === 0 && (
                 <div className="px-4 py-6 text-center text-sm text-text-muted">
-                  Nenhuma voz encontrada.
+                  {t('bookDetails.setting.noVoiceFound')}
                 </div>
               )}
               {hiddenTtsVoiceCount > 0 && (
@@ -1154,18 +1180,20 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
                   onClick={() => setShowAllTtsVoices(true)}
                   className="w-full border-t border-white/5 px-4 py-3 text-sm font-semibold text-purple-light transition-colors duration-150 active:bg-white/5"
                 >
-                  Mostrar mais vozes ({hiddenTtsVoiceCount})
+                  {t('bookDetails.setting.showMoreVoices', { count: hiddenTtsVoiceCount })}
                 </button>
               )}
             </div>
+              </div>
+            )}
           </div>
-        )}
+        </>
       </BottomSheet>
 
       <BottomSheet
         open={ttsSpeedSheetOpen}
         onClose={() => setTtsSpeedSheetOpen(false)}
-        title="Velocidade do TTS"
+        title={t('bookDetails.setting.ttsSpeed')}
       >
         <div className="-mx-4">
           {TTS_RATE_OPTIONS.map((value, index) => {
@@ -1212,10 +1240,12 @@ function BookInfoDiagnosticsSection({
   loading: boolean
   onRefresh: () => void
 }) {
+  const { t } = useI18n()
+
   return (
     <section>
       <h2 className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-3">
-        Diagnostico
+        {t('bookDetails.bookInfo.diagnostics')}
       </h2>
       <div className="rounded-md border border-border bg-bg-surface px-4 py-3">
         <button
@@ -1224,13 +1254,13 @@ function BookInfoDiagnosticsSection({
           disabled={loading}
           className="w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm font-semibold text-purple-light transition-colors active:bg-white/10 disabled:opacity-50"
         >
-          {loading ? 'Atualizando informacoes' : 'Atualizar informacoes'}
+          {loading ? t('bookDetails.bookInfo.refreshing') : t('bookDetails.bookInfo.refresh')}
         </button>
 
         {import.meta.env.DEV && diagnostics.length > 0 && (
           <div className="mt-4 space-y-3 border-t border-white/8 pt-3">
             <div className="text-[11px] font-bold uppercase tracking-wider text-amber-200">
-              Fontes consultadas
+              {t('bookDetails.bookInfo.sources')}
             </div>
             {diagnostics.map((attempt, index) => (
               <div key={`${attempt.source}-${index}`} className="text-xs leading-relaxed text-text-muted">
@@ -1279,6 +1309,8 @@ function BookReviewsTab({
   youtubeApiKey: string
   onOpenSettings: () => void
 }) {
+  const { t } = useI18n()
+
   if (loading && reviews.length === 0) {
     return (
       <div className="flex flex-col gap-6 pb-4">
@@ -1294,8 +1326,8 @@ function BookReviewsTab({
       ) : (
         <EmptyState
           icon={<Play size={32} />}
-          title="Reviews nao encontrados"
-          description="Ainda nao encontramos reviews em video para este livro."
+          title={t('bookDetails.review.emptyTitle')}
+          description={t('bookDetails.review.emptyDescription')}
         />
       )}
       {!youtubeApiKey && <ReviewsYoutubePrompt onOpenSettings={onOpenSettings} />}
@@ -1304,10 +1336,12 @@ function BookReviewsTab({
 }
 
 function VideoReviewsCarousel({ reviews }: { reviews: BookReview[] }) {
+  const { t } = useI18n()
+
   return (
     <div>
       <h3 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-text-muted">
-        Videos
+        {t('author.videos')}
       </h3>
       <div className="flex gap-3 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
         {reviews.slice(0, 8).map((review) => {
@@ -1356,19 +1390,17 @@ function VideoReviewsCarousel({ reviews }: { reviews: BookReview[] }) {
 }
 
 function ReviewsYoutubePrompt({ onOpenSettings }: { onOpenSettings: () => void }) {
+  const { t } = useI18n()
+
   return (
-    <div className="rounded-md border border-border bg-bg-surface p-4 flex flex-col gap-3">
-      <p className="text-xs text-text-muted leading-relaxed">
-        Configure sua YouTube API key nas Configuracoes para buscar reviews em video deste livro.
-      </p>
-      <button
-        type="button"
-        onClick={onOpenSettings}
-        className="self-start rounded-md bg-purple-primary/20 px-3 py-1.5 text-xs font-semibold text-purple-light transition-colors active:bg-purple-primary/30"
-      >
-        Ir para Configuracoes
-      </button>
-    </div>
+    <IntegrationHelpBanner
+      title={t('bookDetails.review.promptTitle')}
+      description={t('bookDetails.review.promptDescription')}
+      actionLabel={t('bookDetails.review.promptAction')}
+      dismissId="book-reviews-youtube-key"
+      icon={<Play size={18} />}
+      onAction={onOpenSettings}
+    />
   )
 }
 
@@ -1398,10 +1430,12 @@ function BookInfoDetails({
   loading: boolean
   onRefresh: () => void
 }) {
+  const { t } = useI18n()
+
   if (loading && !info) {
     return (
       <div className="rounded-md border border-border bg-bg-surface px-4 py-3 text-sm text-text-muted">
-        Atualizando informacoes do livro...
+        {t('bookDetails.bookInfo.refreshingTitle')}...
       </div>
     )
   }
@@ -1413,42 +1447,42 @@ function BookInfoDetails({
   const rows: BookInfoDetailRow[] = []
   if (info.subtitle) {
     rows.push({
-      title: 'Subtitulo',
+      title: t('bookDetails.bookInfo.subtitle'),
       meta: info.subtitle.value,
       source: info.subtitle,
     })
   }
   if (info.category) {
     rows.push({
-      title: 'Genero/Categoria',
+      title: t('bookDetails.bookInfo.category'),
       meta: info.category.value.map((item) => item.label).join(', '),
       source: info.category,
     })
   }
   if (info.publisher) {
     rows.push({
-      title: 'Editora',
+      title: t('bookDetails.bookInfo.publisher'),
       meta: info.publisher.value,
       source: info.publisher,
     })
   }
   if (info.publishedDate) {
     rows.push({
-      title: 'Publicacao',
+      title: t('bookDetails.bookInfo.publishedDate'),
       meta: info.publishedDate.value,
       source: info.publishedDate,
     })
   }
   if (info.language) {
     rows.push({
-      title: 'Idioma',
+      title: t('bookDetails.bookInfo.language'),
       meta: info.language.value,
       source: info.language,
     })
   }
   if (info.pageCount) {
     rows.push({
-      title: 'Paginas',
+      title: t('bookDetails.bookInfo.pages'),
       meta: String(info.pageCount.value),
       source: info.pageCount,
     })
@@ -1469,28 +1503,28 @@ function BookInfoDetails({
   }
   if (info.series) {
     rows.push({
-      title: 'Serie',
+      title: t('bookDetails.bookInfo.series'),
       meta: info.series.value,
       source: info.series,
     })
   }
   if (info.edition) {
     rows.push({
-      title: 'Edicao',
+      title: t('bookDetails.bookInfo.edition'),
       meta: info.edition.value,
       source: info.edition,
     })
   }
   if (info.rating) {
     rows.push({
-      title: 'Rating',
+      title: t('bookDetails.bookInfo.rating'),
       meta: formatBookRating(info.rating.value.average, info.rating.value.count),
       source: info.rating,
     })
   }
   if (info.universalIdentifier && shouldShowUniversalIdentifier(info)) {
     rows.push({
-      title: 'Identificador',
+      title: t('bookDetails.bookInfo.identifier'),
       meta: `${info.universalIdentifier.value.kind}: ${info.universalIdentifier.value.value}`,
       source: info.universalIdentifier,
     })
@@ -1505,7 +1539,7 @@ function BookInfoDetails({
       {rows.length > 0 && (
         <section>
           <h2 className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-3">
-            Informacoes editoriais
+            {t('bookDetails.bookInfo.editorial')}
           </h2>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {rows.map((row) => (
@@ -1552,6 +1586,8 @@ function BookInfoEmptyState({
   loading: boolean
   onRefresh: () => void
 }) {
+  const { t } = useI18n()
+
   return (
     <div className="rounded-md border border-border bg-bg-surface px-4 py-5">
       <div className="flex items-start gap-3">
@@ -1560,12 +1596,12 @@ function BookInfoEmptyState({
         </div>
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold text-text-primary">
-            {loading ? 'Atualizando informacoes do livro' : 'Nenhuma informacao editorial encontrada'}
+            {loading ? t('bookDetails.bookInfo.refreshingTitle') : t('bookDetails.bookInfo.emptyTitle')}
           </div>
           <p className="mt-1 text-sm leading-relaxed text-text-muted">
             {loading
-              ? 'Estamos buscando dados no EPUB e em fontes externas.'
-              : 'Tente atualizar usando titulo e autor salvos na biblioteca.'}
+              ? t('bookDetails.bookInfo.refreshingDescription')
+              : t('bookDetails.bookInfo.emptyDescription')}
           </p>
         </div>
       </div>
@@ -1667,8 +1703,8 @@ function Stat({ value, label }: { value: number; label: string }) {
   )
 }
 
-function formatDate(date: Date): string {
-  return new Intl.DateTimeFormat('pt-BR', {
+function formatDate(date: Date, locale: string): string {
+  return new Intl.DateTimeFormat(locale, {
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
@@ -1745,6 +1781,7 @@ function TtsControlRow({
   value,
   detail,
   avatarUrl,
+  isVoiceRow = false,
   onClick,
 }: {
   icon: ReactNode
@@ -1752,16 +1789,15 @@ function TtsControlRow({
   value: string
   detail?: string
   avatarUrl?: string | null
+  isVoiceRow?: boolean
   onClick: () => void
 }) {
-  const isVoiceRow = label === 'Voz'
-
   return (
     <button
       onClick={onClick}
       className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors duration-150 active:bg-white/5"
     >
-      {label === 'Voz' && avatarUrl ? (
+      {isVoiceRow && avatarUrl ? (
         <img
           src={avatarUrl}
           alt=""

@@ -1,4 +1,5 @@
 import { BOOK_INFO_SCHEMA_VERSION, type BookInfoProvider, type BookInfoProviderAttemptDiagnostic, type ResolvedBookInfo } from '../../types/bookInfo'
+import { createFlowId, getDiagnosticsNowMs, logError, logEvent } from '../DiagnosticsLogger'
 import { EpubBookInfoProvider } from './EpubBookInfoProvider'
 import { GoogleBooksProvider } from './GoogleBooksProvider'
 import { OpenLibraryProvider } from './OpenLibraryProvider'
@@ -6,6 +7,8 @@ import { YouTubeReviewsProvider } from './YouTubeReviewsProvider'
 
 interface BookInfoServiceOptions {
   onProviderAttempt?: (attempt: BookInfoProviderAttemptDiagnostic) => void
+  flowId?: string
+  screen?: string
 }
 
 const EMPTY_BOOK_INFO: ResolvedBookInfo = {
@@ -49,7 +52,20 @@ export class BookInfoService {
     fileBlob: Blob | null,
     initialContext?: Partial<ResolvedBookInfo>,
   ): Promise<ResolvedBookInfo> {
+    const flowId = this.options.flowId ?? createFlowId('bookinfo-collect')
+    const startedAt = getDiagnosticsNowMs()
     let result: ResolvedBookInfo = { ...EMPTY_BOOK_INFO }
+
+    logEvent('bookinfo.collect.start', {
+      flowId,
+      screen: this.options.screen,
+      status: 'start',
+      details: {
+        providerCount: this.providers.length,
+        hasFileBlob: Boolean(fileBlob),
+        hasInitialContext: Boolean(initialContext),
+      },
+    })
 
     if (initialContext) {
       result = this.merge(result, initialContext)
@@ -68,6 +84,16 @@ export class BookInfoService {
         })
       } catch (error) {
         console.warn(`Book info provider failed: ${provider.source}`, error)
+        logError('bookinfo.collect.failure', error, {
+          flowId,
+          screen: this.options.screen,
+          provider: provider.source,
+          status: 'failure',
+          durationMs: getDiagnosticsNowMs() - startedAt,
+          details: {
+            returnedFields: this.extractReturnedFields(result),
+          },
+        })
         this.options.onProviderAttempt?.({
           source: provider.source,
           status: 'failed',
@@ -77,6 +103,16 @@ export class BookInfoService {
         })
       }
     }
+
+    logEvent('bookinfo.collect.success', {
+      flowId,
+      screen: this.options.screen,
+      status: 'success',
+      durationMs: getDiagnosticsNowMs() - startedAt,
+      details: {
+        returnedFields: this.extractReturnedFields(result),
+      },
+    })
 
     return result
   }

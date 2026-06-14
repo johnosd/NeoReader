@@ -1,6 +1,7 @@
 import { Check, Minus, Plus } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from '../../types/settings'
+import { useI18n, type MessageKey } from '../../i18n'
 import {
   READER_FONT_FAMILY_OPTIONS,
   READER_LINE_HEIGHT_OPTIONS,
@@ -16,13 +17,13 @@ type ControlSurface = 'base' | 'surface'
 
 const READER_FONT_SIZE_OPTIONS: Array<{
   value: FontSize
-  description: string
+  descriptionKey: MessageKey
   px: number
 }> = [
-  { value: 'sm', description: 'Pequena', px: 16 },
-  { value: 'md', description: 'Media', px: 18 },
-  { value: 'lg', description: 'Grande', px: 22 },
-  { value: 'xl', description: 'Extra', px: 26 },
+  { value: 'sm', descriptionKey: 'reader.fontSize.sm', px: 16 },
+  { value: 'md', descriptionKey: 'reader.fontSize.md', px: 18 },
+  { value: 'lg', descriptionKey: 'reader.fontSize.lg', px: 22 },
+  { value: 'xl', descriptionKey: 'reader.fontSize.xl', px: 26 },
 ]
 
 const READER_FONT_PREVIEW_PX: Record<FontSize, number> = {
@@ -34,12 +35,30 @@ const READER_FONT_PREVIEW_PX: Record<FontSize, number> = {
 
 const READER_STYLE_MODE_OPTIONS: Array<{
   value: ReaderStyleMode
-  label: string
-  description: string
+  labelKey: MessageKey
+  descriptionKey: MessageKey
 }> = [
-  { value: 'comfortable', label: 'Confortavel', description: 'Forca fonte e cores' },
-  { value: 'original', label: 'Original', description: 'Respeita o EPUB' },
+  { value: 'comfortable', labelKey: 'reader.mode.comfortable.label', descriptionKey: 'reader.mode.comfortable.description' },
+  { value: 'original', labelKey: 'reader.mode.original.label', descriptionKey: 'reader.mode.original.description' },
 ]
+
+const READER_THEME_LABEL_KEYS: Record<ReaderTheme, MessageKey> = {
+  dark: 'reader.theme.dark',
+  black: 'reader.theme.black',
+  paper: 'reader.theme.paper',
+  warm: 'reader.theme.warm',
+  sepia: 'reader.theme.sepia',
+  sage: 'reader.theme.sage',
+  contrast: 'reader.theme.contrast',
+}
+
+const READER_FONT_LABEL_KEYS: Record<ReaderFontFamily, MessageKey> = {
+  publisher: 'reader.font.publisher',
+  classic: 'reader.font.classic',
+  modern: 'reader.font.modern',
+  readable: 'reader.font.readable',
+  mono: 'reader.font.mono',
+}
 
 function choiceClass(active: boolean, surface: ControlSurface, extra = '') {
   const inactiveSurface = surface === 'base'
@@ -97,10 +116,14 @@ export function ReaderModeControl({
   onChange: (value: ReaderStyleMode) => void
   surface?: ControlSurface
 }) {
+  const { t } = useI18n()
+
   return (
     <div className="grid grid-cols-2 gap-2">
       {READER_STYLE_MODE_OPTIONS.map((option) => {
         const active = value === option.value
+        const label = t(option.labelKey)
+        const description = t(option.descriptionKey)
 
         return (
           <button
@@ -111,8 +134,8 @@ export function ReaderModeControl({
             aria-pressed={active}
           >
             <ActiveMark active={active} />
-            <span className="block text-sm font-semibold">{option.label}</span>
-            <span className="mt-1 block text-xs leading-snug text-text-muted">{option.description}</span>
+            <span className="block text-sm font-semibold">{label}</span>
+            <span className="mt-1 block text-xs leading-snug text-text-muted">{description}</span>
           </button>
         )
       })}
@@ -129,6 +152,7 @@ export function ReaderThemeControl({
   onChange: (value: ReaderTheme) => void
   surface?: ControlSurface
 }) {
+  const { t } = useI18n()
   const inactiveFrame = surface === 'base'
     ? 'border-white/10'
     : 'border-border'
@@ -140,6 +164,7 @@ export function ReaderThemeControl({
         const palette = getReaderThemePalette(option.value)
         const mutedLine = palette.isDark ? 'rgba(255,255,255,0.20)' : 'rgba(15,23,42,0.22)'
         const strongLine = palette.isDark ? 'rgba(255,255,255,0.34)' : 'rgba(15,23,42,0.32)'
+        const label = t(READER_THEME_LABEL_KEYS[option.value])
 
         return (
           <button
@@ -154,7 +179,7 @@ export function ReaderThemeControl({
             ].join(' ')}
             style={{ backgroundColor: palette.background }}
             aria-pressed={active}
-            aria-label={`Tema ${option.label}`}
+            aria-label={t('reader.theme.aria', { label })}
           >
             <span className="flex h-full flex-col justify-between px-2 py-2">
               <span>
@@ -175,7 +200,7 @@ export function ReaderThemeControl({
                 className="block truncate text-center text-[11px] font-bold"
                 style={{ color: active ? '#c084fc' : palette.text, opacity: active ? 1 : 0.62 }}
               >
-                {option.label}
+                {label}
               </span>
             </span>
           </button>
@@ -194,6 +219,7 @@ export function ReaderFontControl({
   onChange: (value: ReaderFontFamily) => void
   surface?: ControlSurface
 }) {
+  const { t } = useI18n()
   const inactiveFrame = surface === 'base'
     ? 'border-white/10 bg-purple-primary/10'
     : 'border-border bg-bg-surface'
@@ -202,6 +228,7 @@ export function ReaderFontControl({
     <div className="grid auto-cols-[112px] grid-flow-col gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {READER_FONT_FAMILY_OPTIONS.map((option) => {
         const active = value === option.value
+        const label = t(READER_FONT_LABEL_KEYS[option.value])
 
         return (
           <button
@@ -215,13 +242,13 @@ export function ReaderFontControl({
                 : `${inactiveFrame} text-text-secondary`,
             ].join(' ')}
             aria-pressed={active}
-            aria-label={`Fonte ${option.label}`}
+            aria-label={t('reader.font.aria', { label })}
           >
             <span
               className="block max-w-full truncate text-sm font-semibold"
               style={getReaderFontPreviewStyle(option.value)}
             >
-              {option.label}
+              {label}
             </span>
           </button>
         )
@@ -238,6 +265,7 @@ export function ReaderFontSizeControl({
   onChange: (value: FontSize) => void
   surface?: ControlSurface
 }) {
+  const { t } = useI18n()
   const activeIndex = getFontSizeIndex(value)
   const activeMeta = getFontSizeMeta(value)
   const progress = (activeIndex / (READER_FONT_SIZE_OPTIONS.length - 1)) * 100
@@ -252,7 +280,7 @@ export function ReaderFontSizeControl({
   return (
     <div>
       <div className="mb-3 flex items-center justify-between">
-        <span className="text-xs font-semibold text-text-muted">{activeMeta.description}</span>
+        <span className="text-xs font-semibold text-text-muted">{t(activeMeta.descriptionKey)}</span>
         <span className="font-mono text-sm font-bold text-purple-light">{activeMeta.px}px</span>
       </div>
       <div className="flex items-center gap-4">
@@ -261,7 +289,7 @@ export function ReaderFontSizeControl({
           onClick={() => setByIndex(activeIndex - 1)}
           disabled={!canDecrease}
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-purple-primary/25 bg-purple-primary/10 text-text-primary transition-transform active:scale-95 disabled:opacity-40"
-          aria-label="Diminuir tamanho da fonte"
+          aria-label={t('reader.fontSize.decrease')}
         >
           <Minus size={18} />
         </button>
@@ -284,7 +312,7 @@ export function ReaderFontSizeControl({
                   : 'border-transparent bg-transparent',
               ].join(' ')}
               style={{ left: `${(index / (READER_FONT_SIZE_OPTIONS.length - 1)) * 100}%` }}
-              aria-label={`Fonte ${option.description}`}
+              aria-label={t('reader.fontSize.option', { label: t(option.descriptionKey) })}
               aria-pressed={index === activeIndex}
             />
           ))}
@@ -295,7 +323,7 @@ export function ReaderFontSizeControl({
           onClick={() => setByIndex(activeIndex + 1)}
           disabled={!canIncrease}
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-purple-primary/25 bg-purple-primary/10 text-text-primary transition-transform active:scale-95 disabled:opacity-40"
-          aria-label="Aumentar tamanho da fonte"
+          aria-label={t('reader.fontSize.increase')}
         >
           <Plus size={18} />
         </button>

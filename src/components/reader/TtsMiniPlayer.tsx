@@ -5,6 +5,7 @@ import fishAudioIcon from '../../assets/tts-providers/fishaudio.svg'
 import nativeTtsIcon from '../../assets/tts-providers/native-tts.svg'
 import { TTS_PROVIDER_ORDER, getTtsProviderLabel } from '../../services/TtsProviderRegistry'
 import type { TtsProvider } from '../../types/tts'
+import { useI18n } from '../../i18n'
 
 interface TtsMiniPlayerProps {
   isPlaying: boolean
@@ -50,6 +51,7 @@ export function TtsMiniPlayer({
   onRateChange,
   onStop,
 }: TtsMiniPlayerProps) {
+  const { t } = useI18n()
   const activeProviderLabel = getTtsProviderLabel(activeProvider)
   const fallbackProviderLabel = fallbackFromProvider ? getTtsProviderLabel(fallbackFromProvider) : null
 
@@ -66,7 +68,7 @@ export function TtsMiniPlayer({
               value={activeProvider}
               onChange={(event) => onProviderChange(event.target.value as TtsProvider)}
               className="min-w-0 flex-1 rounded-md border border-white/8 bg-[rgba(15,7,24,0.92)] px-1 py-0.5 text-[11px] font-semibold text-text-primary outline-none"
-              aria-label="Provedor TTS"
+              aria-label={t('tts.provider')}
             >
               {TTS_PROVIDER_ORDER.map((provider) => (
                 <option key={provider} value={provider} disabled={!providerAvailability[provider]}>
@@ -83,7 +85,7 @@ export function TtsMiniPlayer({
               value={ttsRate.toFixed(1)}
               onChange={(event) => onRateChange(Number(event.target.value))}
               className="w-[4.75rem] rounded-md border border-white/8 bg-[rgba(15,7,24,0.92)] px-1 py-0.5 text-[11px] font-semibold text-text-primary outline-none"
-              aria-label="Velocidade de leitura"
+              aria-label={t('tts.rate')}
             >
               {TTS_RATE_OPTIONS.map((rate) => (
                 <option key={rate} value={rate.toFixed(1)}>
@@ -95,14 +97,14 @@ export function TtsMiniPlayer({
 
           {fallbackProviderLabel && (
             <span className="sr-only">
-              {fallbackProviderLabel} indisponivel; usando {activeProviderLabel}
+              {t('tts.fallbackActive', { fallbackProvider: fallbackProviderLabel, activeProvider: activeProviderLabel })}
             </span>
           )}
 
           <button
             onPointerUp={onStop}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/8 bg-bg-surface-2/80 text-text-muted transition-all duration-150 active:scale-[0.94] active:bg-white/10"
-            aria-label="Encerrar leitura"
+            aria-label={t('tts.stop')}
           >
             <Square size={14} fill="currentColor" />
           </button>
@@ -112,7 +114,7 @@ export function TtsMiniPlayer({
           <button
             onPointerUp={onPrevParagraph}
             className="flex h-9 w-9 items-center justify-center rounded-full border border-white/8 bg-bg-surface-2/80 text-text-secondary transition-all duration-150 active:scale-[0.94] active:bg-white/10"
-            aria-label="Paragrafo anterior"
+            aria-label={t('tts.prevParagraph')}
           >
             <ChevronsLeft size={18} />
           </button>
@@ -120,7 +122,7 @@ export function TtsMiniPlayer({
           <button
             onPointerUp={onPrevSentence}
             className="flex h-9 w-9 items-center justify-center rounded-full border border-white/8 bg-bg-surface-2/80 text-text-secondary transition-all duration-150 active:scale-[0.94] active:bg-white/10"
-            aria-label="Frase anterior"
+            aria-label={t('tts.prevSentence')}
           >
             <ChevronLeft size={18} />
           </button>
@@ -128,7 +130,7 @@ export function TtsMiniPlayer({
           <button
             onPointerUp={onPlayPause}
             className="flex h-11 w-11 items-center justify-center rounded-full bg-indigo-primary text-white shadow-indigo-glow transition-all duration-150 active:scale-[0.94]"
-            aria-label={isPlaying ? 'Pausar' : 'Retomar'}
+            aria-label={isPlaying ? t('tts.pause') : t('tts.resume')}
           >
             {isPlaying
               ? <Pause size={19} fill="currentColor" />
@@ -138,7 +140,7 @@ export function TtsMiniPlayer({
           <button
             onPointerUp={onNextSentence}
             className="flex h-9 w-9 items-center justify-center rounded-full border border-white/8 bg-bg-surface-2/80 text-text-secondary transition-all duration-150 active:scale-[0.94] active:bg-white/10"
-            aria-label="Proxima frase"
+            aria-label={t('tts.nextSentence')}
           >
             <ChevronRight size={18} />
           </button>
@@ -146,7 +148,7 @@ export function TtsMiniPlayer({
           <button
             onPointerUp={onNextParagraph}
             className="flex h-9 w-9 items-center justify-center rounded-full border border-white/8 bg-bg-surface-2/80 text-text-secondary transition-all duration-150 active:scale-[0.94] active:bg-white/10"
-            aria-label="Proximo paragrafo"
+            aria-label={t('tts.nextParagraph')}
           >
             <ChevronsRight size={18} />
           </button>
@@ -159,7 +161,7 @@ export function TtsMiniPlayer({
             className="mt-1.5 flex h-8 w-full items-center justify-center gap-2 rounded-lg border border-indigo-primary/30 bg-indigo-primary/15 px-3 text-xs font-bold text-text-primary transition-all duration-150 active:scale-[0.98]"
           >
             <LocateFixed size={14} />
-            Voltar ao audio
+            {t('tts.backToAudio')}
           </button>
         )}
 

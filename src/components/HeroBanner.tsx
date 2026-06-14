@@ -2,6 +2,7 @@ import { BookOpen, Play, Plus } from 'lucide-react'
 import type { BookWithProgress } from '../hooks/useLibraryGroups'
 import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
 import type { Book } from '../types/book'
+import { useI18n, type TranslateFn } from '../i18n'
 
 interface HeroBannerProps {
   book: BookWithProgress
@@ -10,17 +11,18 @@ interface HeroBannerProps {
 }
 
 export function HeroBanner({ book, onPress, onOpenOptions }: HeroBannerProps) {
+  const { t } = useI18n()
   const coverUrl = useBookCoverUrl(book.id)
 
   const actionLabel =
-    book.readingStatus === 'finished' ? 'Reler'
-    : book.readingStatus === 'reading' ? 'Retomar'
-    : 'Abrir'
+    book.readingStatus === 'finished' ? t('hero.action.reread')
+    : book.readingStatus === 'reading' ? t('hero.action.resume')
+    : t('hero.action.open')
 
   const badgeLabel =
-    book.readingStatus === 'finished' ? 'Concluído'
-    : book.readingStatus === 'reading' ? 'Em leitura'
-    : 'Destaque'
+    book.readingStatus === 'finished' ? t('hero.status.finished')
+    : book.readingStatus === 'reading' ? t('hero.status.reading')
+    : t('hero.status.featured')
 
   const badgeStyle = book.readingStatus === 'reading'
     ? { background: 'linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%)', color: '#1f1300' }
@@ -79,7 +81,7 @@ export function HeroBanner({ book, onPress, onOpenOptions }: HeroBannerProps) {
             <>
               <span className="text-white/30 text-xs">·</span>
               <span className="text-[11px] font-semibold uppercase tracking-[0.13em] text-white/75">
-                {book.percentage}% lido
+                {t('hero.progressRead', { percent: book.percentage })}
               </span>
             </>
           )}
@@ -95,7 +97,7 @@ export function HeroBanner({ book, onPress, onOpenOptions }: HeroBannerProps) {
 
         {/* Description */}
         <p className="text-[0.85rem] leading-5 text-white/65 mb-3" style={{ maxWidth: 320 }}>
-          {getHeroDescription(book)}
+          {getHeroDescription(book, t)}
         </p>
 
         {/* Status badge — below description */}
@@ -138,7 +140,7 @@ export function HeroBanner({ book, onPress, onOpenOptions }: HeroBannerProps) {
             className="flex flex-1 items-center justify-center gap-[7px] rounded-full h-[50px] text-[0.9rem] font-semibold text-white bg-white/10 border border-white/20 backdrop-blur-sm active:scale-[0.97] transition-transform duration-150"
           >
             <Plus size={15} strokeWidth={2.5} />
-            {onOpenOptions ? 'Opções' : 'Abrir'}
+            {onOpenOptions ? t('hero.action.options') : t('hero.action.open')}
           </button>
         </div>
       </div>
@@ -146,14 +148,14 @@ export function HeroBanner({ book, onPress, onOpenOptions }: HeroBannerProps) {
   )
 }
 
-function getHeroDescription(book: BookWithProgress): string {
+function getHeroDescription(book: BookWithProgress, t: TranslateFn): string {
   if (book.readingStatus === 'finished') {
-    return 'Você terminou este livro. Volte ao início quando quiser revisitar a história ou seus trechos favoritos.'
+    return t('hero.description.finished')
   }
   if (book.readingStatus === 'reading') {
     return book.percentage > 0
-      ? `Você já percorreu ${book.percentage}% da leitura. Retome da última página salva sem perder o ritmo.`
-      : 'Este foi o último livro que você abriu. Entre novamente e deixe a leitura engrenar daqui.'
+      ? t('hero.description.readingProgress', { percent: book.percentage })
+      : t('hero.description.reading')
   }
-  return 'Foi o último livro aberto na biblioteca. Entre nele de novo para transformar curiosidade em leitura.'
+  return t('hero.description.default')
 }

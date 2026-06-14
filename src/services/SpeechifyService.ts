@@ -75,6 +75,7 @@ export interface SpeechifyResult {
 
 export interface ApiKeyValidationResult {
   isValid: boolean
+  code: 'empty' | 'valid' | 'invalid' | 'timeout' | 'unavailable' | 'no_credits'
   message: string
 }
 
@@ -260,21 +261,21 @@ export const SpeechifyService = {
   async validateApiKey(apiKey: string): Promise<ApiKeyValidationResult> {
     const trimmedKey = apiKey.trim()
     if (!trimmedKey) {
-      return { isValid: false, message: 'Informe uma API key.' }
+      return { isValid: false, code: 'empty', message: 'Informe uma API key.' }
     }
 
     try {
       await fetchSpeechifyVoices(trimmedKey)
-      return { isValid: true, message: 'API key válida.' }
+      return { isValid: true, code: 'valid', message: 'API key válida.' }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       if (message.includes(':401') || message.includes(':403')) {
-        return { isValid: false, message: 'API key inválida ou sem permissão.' }
+        return { isValid: false, code: 'invalid', message: 'API key inválida ou sem permissão.' }
       }
       if (message.includes('aborted')) {
-        return { isValid: false, message: 'Tempo esgotado ao validar a API key.' }
+        return { isValid: false, code: 'timeout', message: 'Tempo esgotado ao validar a API key.' }
       }
-      return { isValid: false, message: 'Não foi possível validar a API key agora.' }
+      return { isValid: false, code: 'unavailable', message: 'Não foi possível validar a API key agora.' }
     }
   },
 

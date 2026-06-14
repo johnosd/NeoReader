@@ -51,6 +51,7 @@ describe('settings db helpers', () => {
     expect(settings).toEqual({
       id: 7,
       appSettings: {
+        appLocale: 'auto',
         speechifyApiKey: 'legacy-key',
         elevenLabsApiKey: '',
         fishAudioApiKey: '',
@@ -83,6 +84,7 @@ describe('settings db helpers', () => {
     expect(mocks.settingsTable.put).toHaveBeenCalledWith(expect.objectContaining({
       id: 3,
       appSettings: {
+        appLocale: 'auto',
         speechifyApiKey: 'legacy-key',
         elevenLabsApiKey: '',
         fishAudioApiKey: '',
@@ -104,6 +106,7 @@ describe('settings db helpers', () => {
     mocks.first.mockResolvedValue({
       id: 4,
       appSettings: {
+        appLocale: 'auto',
         speechifyApiKey: '',
         translationTargetLang: 'pt-BR',
       },
@@ -123,6 +126,7 @@ describe('settings db helpers', () => {
     expect(mocks.settingsTable.put).toHaveBeenCalledWith(expect.objectContaining({
       id: 4,
       appSettings: {
+        appLocale: 'auto',
         speechifyApiKey: '',
         elevenLabsApiKey: '',
         fishAudioApiKey: '',
@@ -144,6 +148,7 @@ describe('settings db helpers', () => {
     mocks.first.mockResolvedValue({
       id: 5,
       appSettings: {
+        appLocale: 'auto',
         speechifyApiKey: '',
         elevenLabsApiKey: '',
         fishAudioApiKey: '',
@@ -174,6 +179,7 @@ describe('settings db helpers', () => {
     let stored = {
       id: 9,
       appSettings: {
+        appLocale: 'auto',
         speechifyApiKey: '',
         elevenLabsApiKey: '',
         fishAudioApiKey: '',

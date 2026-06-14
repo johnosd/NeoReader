@@ -7,13 +7,15 @@ import {
   signOut as signOutFromFirebase,
 } from '../services/FirebaseAuthService'
 import type { AuthState } from '../types/auth'
+import { useI18n, type TranslateFn } from '../i18n'
 
-function getAuthErrorMessage(error: unknown) {
+function getAuthErrorMessage(error: unknown, t: TranslateFn) {
   if (error instanceof Error) return error.message
-  return 'Nao foi possivel concluir a autenticacao. Tente novamente.'
+  return t('auth.error.generic')
 }
 
 export function useAuth() {
+  const { t } = useI18n()
   const configured = isFirebaseAuthConfigured()
   const [state, setState] = useState<AuthState>(() => (
     configured
@@ -22,7 +24,7 @@ export function useAuth() {
           status: 'signed-out',
           user: null,
           configured: false,
-          error: 'Firebase Auth nao configurado. Preencha as variaveis VITE_FIREBASE_* no .env.',
+          error: t('auth.error.firebaseConfig'),
         }
   ))
 
@@ -40,12 +42,12 @@ export function useAuth() {
         status: 'signed-out',
         user: null,
         configured: true,
-        error: getAuthErrorMessage(error),
+        error: getAuthErrorMessage(error, t),
       })
     })
 
     return unsubscribe
-  }, [configured])
+  }, [configured, t])
 
   const signInWithGoogle = useCallback(async () => {
     const user = await signInWithGoogleRedirect()

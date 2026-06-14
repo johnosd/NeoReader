@@ -71,4 +71,25 @@ describe('ErrorBoundary', () => {
       expect.anything(),
     )
   })
+
+  it('emite diagnostico estruturado ao capturar erro de render', () => {
+    throwFlag.current = true
+    render(<ErrorBoundary screen="test-screen"><ThrowOnRender /></ErrorBoundary>)
+
+    const diagnosticCall = vi.mocked(console.error).mock.calls.find((call) => (
+      String(call[0]).startsWith('NeoReaderEvent app.error.render')
+    ))
+    expect(diagnosticCall).toBeTruthy()
+
+    const event = JSON.parse(String(diagnosticCall?.[1])) as {
+      eventName: string
+      screen?: string
+      status?: string
+      errorMessage?: string
+    }
+    expect(event.eventName).toBe('app.error.render')
+    expect(event.screen).toBe('test-screen')
+    expect(event.status).toBe('failure')
+    expect(event.errorMessage).toBe('Erro de teste')
+  })
 })

@@ -10,6 +10,7 @@ import { areTocHrefDocumentSuffixesEqual, normalizeTocHref } from '../../utils/t
 import { clampPercentage, fractionToPercentage } from '../../utils/progress'
 import { splitParagraphIntoTtsChunks } from '../../utils/ttsChunking'
 import { BookFileResolver } from '../../services/BookFileResolver'
+import { useI18n } from '../../i18n'
 
 export type { FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from '../../types/settings'
 
@@ -1047,6 +1048,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     },
     ref,
   ) => {
+    const { t } = useI18n()
     const containerRef = useRef<HTMLDivElement>(null)
     const viewRef = useRef<View | null>(null)
     const currentDocRef = useRef<Document | null>(null)
@@ -1639,7 +1641,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
       const bookmarkState = getParagraphBookmarkState(activeTranslationParaRef.current)
       const isBookmarked = !!bookmarkState?.matchedBookmark
-      setTranslationActionLabel(actionBtn, isBookmarked ? 'Remover' : 'Marcar')
+      setTranslationActionLabel(actionBtn, isBookmarked ? t('reader.translation.remove') : t('reader.translation.bookmark'))
       actionBtn.setAttribute('aria-pressed', isBookmarked ? 'true' : 'false')
       actionBtn.removeAttribute('disabled')
       delete actionBtn.dataset.nrPending
@@ -2135,10 +2137,10 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             <p class="nr-tr-text">${escapeHtml(translatedText)}</p>
           </div>
           <div class="nr-tr-actions">
-            ${renderTranslationAction('next', 'Next', TRANSLATION_ICON.next)}
-            ${renderTranslationAction('speak', 'Ouvir', TRANSLATION_ICON.speak)}
-            ${renderTranslationAction('bookmark', 'Marcar', TRANSLATION_ICON.bookmark, 'primary')}
-            ${renderTranslationAction('save', 'Salvar', TRANSLATION_ICON.save)}
+            ${renderTranslationAction('next', t('reader.translation.next'), TRANSLATION_ICON.next)}
+            ${renderTranslationAction('speak', t('reader.translation.speak'), TRANSLATION_ICON.speak)}
+            ${renderTranslationAction('bookmark', t('reader.translation.bookmark'), TRANSLATION_ICON.bookmark, 'primary')}
+            ${renderTranslationAction('save', t('reader.translation.save'), TRANSLATION_ICON.save)}
           </div>`
         syncActiveTranslationBookmarkAction(para.ownerDocument)
       },
@@ -2312,17 +2314,17 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
                   actionBtn.dataset.nrPending = '1'
                   actionBtn.setAttribute('disabled', 'true')
                   const nextIsBookmarked = !bookmarkState.matchedBookmark
-                  setTranslationActionLabel(actionBtn, nextIsBookmarked ? 'Remover' : 'Marcar')
+                  setTranslationActionLabel(actionBtn, nextIsBookmarked ? t('reader.translation.remove') : t('reader.translation.bookmark'))
                   actionBtn.setAttribute('aria-pressed', nextIsBookmarked ? 'true' : 'false')
                   onBookmarkParagraphRef.current?.(bookmarkState.payload)
                 }
               } else if (action === 'save' && activeTranslatedTextRef.current) {
                 onSaveVocabRef.current(activeSourceTextRef.current, activeTranslatedTextRef.current)
-                setTranslationActionLabel(actionBtn, 'Salvo')
+                setTranslationActionLabel(actionBtn, t('reader.translation.saved'))
                 actionBtn.dataset.nrFlash = '1'
                 setTimeout(() => {
                   if (actionBtn.isConnected) {
-                    setTranslationActionLabel(actionBtn, 'Salvar')
+                    setTranslationActionLabel(actionBtn, t('reader.translation.save'))
                     delete actionBtn.dataset.nrFlash
                   }
                 }, 1500)
@@ -2413,7 +2415,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           loadTimeout = null
           if (!cancelled) {
             cancelled = true
-            onError(new Error('Não foi possível abrir este livro. O arquivo pode estar corrompido ou em formato não suportado.'))
+            onError(new Error(t('reader.openError')))
           }
         }, 8_000)
 

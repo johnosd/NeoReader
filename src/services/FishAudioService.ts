@@ -89,6 +89,7 @@ export interface FishAudioResult {
 
 export interface ApiKeyValidationResult {
   isValid: boolean
+  code: 'empty' | 'valid' | 'invalid' | 'timeout' | 'unavailable' | 'no_credits'
   message: string
 }
 
@@ -626,7 +627,7 @@ export const FishAudioService = {
   async validateApiKey(apiKey: string): Promise<ApiKeyValidationResult> {
     const trimmedKey = apiKey.trim()
     if (!trimmedKey) {
-      return { isValid: false, message: 'Informe uma API key.' }
+      return { isValid: false, code: 'empty', message: 'Informe uma API key.' }
     }
 
     const url = createFishAudioUrl(MODEL_PATH)
@@ -646,19 +647,19 @@ export const FishAudioService = {
       })
 
       if (!response.ok) throw new Error(`Fish Audio validation error:${response.status}`)
-      return { isValid: true, message: 'API key valida.' }
+      return { isValid: true, code: 'valid', message: 'API key valida.' }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       if (message.includes(':401') || message.includes(':403')) {
-        return { isValid: false, message: 'API key invalida ou sem permissao.' }
+        return { isValid: false, code: 'invalid', message: 'API key invalida ou sem permissao.' }
       }
       if (message.includes(':402')) {
-        return { isValid: false, message: 'Conta Fish Audio sem creditos ou assinatura ativa.' }
+        return { isValid: false, code: 'no_credits', message: 'Conta Fish Audio sem creditos ou assinatura ativa.' }
       }
       if (message.includes('aborted')) {
-        return { isValid: false, message: 'Tempo esgotado ao validar a API key.' }
+        return { isValid: false, code: 'timeout', message: 'Tempo esgotado ao validar a API key.' }
       }
-      return { isValid: false, message: 'Nao foi possivel validar a API key agora.' }
+      return { isValid: false, code: 'unavailable', message: 'Nao foi possivel validar a API key agora.' }
     }
   },
 

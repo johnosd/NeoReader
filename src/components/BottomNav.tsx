@@ -1,4 +1,5 @@
 import { BookOpen, Compass, Home, User } from 'lucide-react'
+import { useI18n, type MessageKey } from '../i18n'
 
 type Tab = 'home' | 'discover' | 'biblioteca' | 'profile'
 
@@ -7,14 +8,16 @@ interface BottomNavProps {
   onTabChange?: (tab: Tab) => void
 }
 
-const NAV_ITEMS: { id: Tab; label: string; Icon: typeof Home }[] = [
-  { id: 'home',       label: 'Início',     Icon: Home     },
-  { id: 'discover',   label: 'Descubra',   Icon: Compass  },
-  { id: 'biblioteca', label: 'Biblioteca', Icon: BookOpen },
-  { id: 'profile',    label: 'Perfil',     Icon: User     },
+const NAV_ITEMS: { id: Tab; labelKey: MessageKey; Icon: typeof Home }[] = [
+  { id: 'home',       labelKey: 'nav.home',     Icon: Home     },
+  { id: 'discover',   labelKey: 'nav.discover', Icon: Compass  },
+  { id: 'biblioteca', labelKey: 'nav.library',  Icon: BookOpen },
+  { id: 'profile',    labelKey: 'nav.profile',  Icon: User     },
 ]
 
 export function BottomNav({ activeTab = 'home', onTabChange }: BottomNavProps) {
+  const { t } = useI18n()
+
   return (
     <nav
       className="fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around"
@@ -27,8 +30,9 @@ export function BottomNav({ activeTab = 'home', onTabChange }: BottomNavProps) {
         borderTop: '1px solid rgba(255,255,255,0.08)',
       }}
     >
-      {NAV_ITEMS.map(({ id, label, Icon }) => {
+      {NAV_ITEMS.map(({ id, labelKey, Icon }) => {
         const isActive = activeTab === id
+        const label = t(labelKey)
         return (
           <button
             key={id}

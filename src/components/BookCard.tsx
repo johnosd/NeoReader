@@ -1,6 +1,7 @@
 import { BookOpen, MoreVertical, Star } from 'lucide-react'
 import type { BookWithProgress } from '../hooks/useLibraryGroups'
 import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
+import { useI18n } from '../i18n'
 
 interface BookCardProps {
   book: BookWithProgress
@@ -9,6 +10,7 @@ interface BookCardProps {
 }
 
 export function BookCard({ book, onPress, onOpenOptions }: BookCardProps) {
+  const { t } = useI18n()
   const coverUrl = useBookCoverUrl(book.id)
 
   const pct = book.percentage
@@ -57,7 +59,7 @@ export function BookCard({ book, onPress, onOpenOptions }: BookCardProps) {
             className="absolute top-2 left-2 px-2 py-[3px] rounded-[2px] text-[10px] font-extrabold uppercase tracking-[0.08em]"
             style={{ background: '#1bcc64', color: '#fff' }}
           >
-            Novo
+            {t('bookCard.new')}
           </div>
         )}
 
@@ -96,7 +98,7 @@ export function BookCard({ book, onPress, onOpenOptions }: BookCardProps) {
             onClick={(e) => { e.stopPropagation(); onOpenOptions(book) }}
             className="absolute top-[5px] right-[5px] w-6 h-6 rounded-full flex items-center justify-center active:opacity-60 transition-opacity"
             style={{ background: 'rgba(0,0,0,0.65)', border: '1px solid rgba(255,255,255,0.1)' }}
-            aria-label="Opções do livro"
+            aria-label={t('common.bookOptions')}
           >
             <MoreVertical size={12} className="text-white/80" />
           </button>

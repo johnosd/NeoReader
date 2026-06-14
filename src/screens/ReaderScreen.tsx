@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
+import { Volume2 } from 'lucide-react'
 import {
   EpubViewer,
   type EpubViewerHandle,
@@ -11,6 +12,7 @@ import { ReaderChrome } from '../components/reader/ReaderChrome'
 import { TocDrawer } from '../components/reader/TocDrawer'
 import { BookmarkSheet } from '../components/reader/BookmarkSheet'
 import { BottomSheet } from '../components/ui'
+import { IntegrationHelpBanner } from '../components/IntegrationHelpBanner'
 import { useReaderProgress } from '../hooks/useReaderProgress'
 import { useReaderStore } from '../store/readerStore'
 import { useReaderAppearance } from '../hooks/useReaderAppearance'
@@ -23,7 +25,7 @@ import { addVocabItem } from '../db/vocabulary'
 import { db } from '../db/database'
 import { useTTS } from '../hooks/useTTS'
 import { TtsMiniPlayer } from '../components/reader/TtsMiniPlayer'
-import { getTtsProviderLabel } from '../services/TtsProviderRegistry'
+import { getTtsProviderLabel, isPremiumTtsProvider } from '../services/TtsProviderRegistry'
 import {
   ReaderFontControl,
   ReaderFontSizeControl,
@@ -32,12 +34,14 @@ import {
   ReaderThemeControl,
 } from '../components/reader/ReaderAppearanceControls'
 import { translate } from '../services/TranslationService'
+import { createFlowId, getDiagnosticsNowMs, logError, logEvent } from '../services/DiagnosticsLogger'
 import type { Book } from '../types/book'
 import type { TtsProvider } from '../types/tts'
 import { areCfisEquivalent, isCfiInLocation, normalizeCfi } from '../utils/cfi'
 import { areTocHrefDocumentSuffixesEqual } from '../utils/toc'
 import { getReaderThemePalette } from '../utils/readerPreferences'
 import { clampTtsRate } from '../utils/language'
+import { useI18n } from '../i18n'
 
 function normalizeReaderHref(href?: string | null) {
   if (!href) return null
@@ -91,11 +95,23 @@ const START_NAVIGATION_FALLBACK_MS = 4000
 interface ReaderScreenProps {
   book: Book
   startHref?: string   // capítulo/CFI inicial — se definido, ignora o progresso salvo
+  readerOpenFlowId?: string
+  readerOpenStartedAt?: number
   onBack: () => void
   onOpenVocabulary: () => void
+  onOpenSettings?: () => void
 }
 
-export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: ReaderScreenProps) {
+export function ReaderScreen({
+  book,
+  startHref,
+  readerOpenFlowId,
+  readerOpenStartedAt,
+  onBack,
+  onOpenVocabulary,
+  onOpenSettings = () => undefined,
+}: ReaderScreenProps) {
+  const { t } = useI18n()
   const viewerRef = useRef<EpubViewerHandle>(null)
   const pendingBookmarkKeysRef = useRef(new Set<string>())
   const activeSectionIndexRef = useRef<number | null>(null)
@@ -141,6 +157,12 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   const loadingStateKey = `${book.id ?? 'unknown'}::${startHref ?? ''}`
   const [loadingState, setLoadingState] = useState({ key: loadingStateKey, isLoading: true })
   const isLoading = loadingState.key === loadingStateKey ? loadingState.isLoading : true
+  const readerOpenFlowRef = useRef<{
+    key: string
+    flowId: string
+    startedAt: number
+    completed: boolean
+  } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [sectionNavigationState, setSectionNavigationState] = useState<{
     bookId: Book['id']
@@ -153,6 +175,56 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
   const currentSectionHref = sectionNavigationState.bookId === book.id
     ? sectionNavigationState.currentSectionHref
     : null
+  const selectedPremiumTtsMissingKey = isPremiumTtsProvider(ttsConfig.provider) && !ttsProviderAvailability[ttsConfig.provider]
+
+  useEffect(() => {
+    const flowId = readerOpenFlowId ?? createFlowId('reader-open')
+    readerOpenFlowRef.current = {
+      key: loadingStateKey,
+      flowId,
+      startedAt: readerOpenStartedAt ?? getDiagnosticsNowMs(),
+      completed: false,
+    }
+
+    if (!readerOpenFlowId) {
+      logEvent('reader.open.start', {
+        flowId,
+        screen: 'reader',
+        status: 'start',
+        details: {
+          bookId: book.id,
+          storageMode: book.storageMode,
+          hasStartHref: Boolean(startHref),
+          targetType: startHref?.startsWith('epubcfi(') ? 'cfi' : startHref ? 'href' : 'saved-progress',
+        },
+      })
+    }
+  }, [book.id, book.storageMode, loadingStateKey, readerOpenFlowId, readerOpenStartedAt, startHref])
+
+  const finishReaderOpen = useCallback((status: 'success' | 'failure', openError?: Error) => {
+    const flow = readerOpenFlowRef.current
+    if (!flow || flow.key !== loadingStateKey || flow.completed) return
+
+    flow.completed = true
+    const fields = {
+      flowId: flow.flowId,
+      screen: 'reader',
+      status,
+      durationMs: getDiagnosticsNowMs() - flow.startedAt,
+      details: {
+        bookId: book.id,
+        storageMode: book.storageMode,
+        hasStartHref: Boolean(startHref),
+        targetType: startHref?.startsWith('epubcfi(') ? 'cfi' : startHref ? 'href' : 'saved-progress',
+      },
+    }
+
+    if (status === 'failure') {
+      logError('reader.open.failure', openError ?? new Error('Reader open failed'), fields)
+    } else {
+      logEvent('reader.open.success', fields)
+    }
+  }, [book.id, book.storageMode, loadingStateKey, startHref])
 
   const setCurrentLoading = useCallback((nextIsLoading: boolean) => {
     setLoadingState({ key: loadingStateKey, isLoading: nextIsLoading })
@@ -523,7 +595,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
     viewerRef.current?.showTranslationLoading()
     translate(sourceText, bookLanguage, translationTargetLang)
       .then((result) => viewerRef.current?.injectTranslation(result))
-      .catch(() => viewerRef.current?.injectTranslation('Erro ao traduzir.'))
+      .catch(() => viewerRef.current?.injectTranslation(t('reader.translation.error')))
   }
 
   const handleRelocate = useCallback(
@@ -718,6 +790,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
           onTocReady={setToc}
           onSectionReady={handleReaderSectionReady}
           onLoad={() => {
+            finishReaderOpen('success')
             // Navega para o capítulo selecionado na tela de detalhes (se houver)
             if (startHref && !initialStartNavigationTriggeredRef.current) {
               initialStartNavigationTriggeredRef.current = true
@@ -731,6 +804,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
             releaseInitialLoading()
           }}
           onError={(err) => {
+            finishReaderOpen('failure', err)
             pendingStartHrefRef.current = null
             releaseInitialLoading()
             setError(err.message)
@@ -795,6 +869,20 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
         </div>
       )}
 
+      {selectedPremiumTtsMissingKey && !ttsPlayerVisible && (
+        <div className="absolute left-4 right-4 top-4 z-30">
+          <IntegrationHelpBanner
+            title={t('reader.tts.missingKey.title')}
+            description={t('reader.tts.missingKey.description', { provider: getTtsProviderLabel(ttsConfig.provider) })}
+            actionLabel={t('reader.tts.missingKey.action')}
+            dismissId={`reader-tts-${ttsConfig.provider}`}
+            icon={<Volume2 size={18} />}
+            tone="warning"
+            onAction={onOpenSettings}
+          />
+        </div>
+      )}
+
       {/* Mini player TTS — visível enquanto TTS está ativo (tocando ou pausado) */}
       {ttsFallbackNotice && (
         <TtsFallbackToast
@@ -856,12 +944,12 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
       <BottomSheet
         open={appearanceSheetOpen}
         onClose={() => setAppearanceSheetOpen(false)}
-        title="Aparencia da leitura"
+        title={t('reader.appearance.title')}
       >
         <div className="flex flex-col gap-5">
           <div>
             <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-text-muted">
-              Tema
+              {t('reader.appearance.theme')}
             </p>
             <ReaderThemeControl
               value={readerTheme}
@@ -871,7 +959,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
 
           <div>
             <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-text-muted">
-              Fonte
+              {t('reader.appearance.font')}
             </p>
             <ReaderFontControl
               value={fontFamily}
@@ -884,7 +972,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
 
           <div>
             <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-text-muted">
-              Tamanho
+              {t('reader.appearance.size')}
             </p>
             <ReaderFontSizeControl
               value={fontSize}
@@ -894,7 +982,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
 
           <div>
             <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-text-muted">
-              Espacamento
+              {t('reader.appearance.lineHeight')}
             </p>
             <ReaderLineHeightControl
               value={lineHeight}
@@ -904,7 +992,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
 
           <div>
             <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-text-muted">
-              Modo
+              {t('reader.appearance.mode')}
             </p>
             <ReaderModeControl
               value={readerStyleMode}
@@ -918,7 +1006,7 @@ export function ReaderScreen({ book, startHref, onBack, onOpenVocabulary }: Read
         <div className="absolute inset-0 z-40 bg-bg-reader flex flex-col items-center justify-center gap-4 px-8">
           <p className="text-error text-sm text-center">{error}</p>
           <button onClick={handleBack} className="text-indigo-primary text-sm underline">
-            Voltar à biblioteca
+            {t('reader.backToLibrary')}
           </button>
         </div>
       )}
@@ -935,6 +1023,8 @@ function TtsFallbackToast({
   reason: string
   onDismiss: () => void
 }) {
+  const { t } = useI18n()
+
   useEffect(() => {
     const t = setTimeout(onDismiss, 6500)
     return () => clearTimeout(t)
@@ -945,10 +1035,10 @@ function TtsFallbackToast({
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-warning">
-            TTS alternado
+            {t('tts.fallback.title')}
           </p>
           <p className="mt-1 text-sm text-text-secondary">
-            {getTtsProviderLabel(provider)} está com problemas. Usando TTS nativo.
+            {t('tts.fallback.message', { provider: getTtsProviderLabel(provider) })}
           </p>
           <p className="mt-1 text-xs leading-snug text-text-muted">
             {reason}
@@ -959,7 +1049,7 @@ function TtsFallbackToast({
           onPointerUp={onDismiss}
           className="inline-flex h-9 shrink-0 items-center rounded-pill border border-white/8 bg-bg-surface-2/80 px-3 text-xs font-semibold text-text-primary transition-all duration-150 active:scale-[0.96] active:bg-white/10"
         >
-          OK
+          {t('common.ok')}
         </button>
       </div>
     </div>
@@ -975,6 +1065,8 @@ function ReaderSkeleton() {
 }
 
 function TtsFinishedToast({ onDismiss }: { onDismiss: () => void }) {
+  const { t } = useI18n()
+
   useEffect(() => {
     const t = setTimeout(onDismiss, 5000)
     return () => clearTimeout(t)
@@ -985,17 +1077,17 @@ function TtsFinishedToast({ onDismiss }: { onDismiss: () => void }) {
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-purple-light/80">
-            TTS concluído
+            {t('tts.finished.title')}
           </p>
           <p className="mt-1 text-sm text-text-secondary">
-            Fim do capítulo
+            {t('tts.finished.chapterEnd')}
           </p>
         </div>
         <button
           onPointerUp={onDismiss}
           className="inline-flex h-10 shrink-0 items-center rounded-pill border border-white/8 bg-bg-surface-2/80 px-4 text-sm font-medium text-indigo-primary transition-all duration-150 active:scale-[0.96] active:bg-white/10"
         >
-          OK
+          {t('common.ok')}
         </button>
       </div>
     </div>

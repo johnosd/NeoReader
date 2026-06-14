@@ -3,6 +3,7 @@ import { BookCard } from './BookCard'
 import { ProgressCard } from './ProgressCard'
 import type { BookWithProgress } from '../hooks/useLibraryGroups'
 import type { Book } from '../types/book'
+import { useI18n } from '../i18n'
 
 interface BookRowProps {
   title: string
@@ -14,6 +15,8 @@ interface BookRowProps {
 }
 
 export function BookRow({ title, books, onPress, onOpenOptions, variant = 'default' }: BookRowProps) {
+  const { t } = useI18n()
+
   if (books.length === 0) return null
 
   return (
@@ -29,9 +32,9 @@ export function BookRow({ title, books, onPress, onOpenOptions, variant = 'defau
         <button
           className="flex items-center gap-[2px] text-[11px] font-semibold active:opacity-60 transition-opacity"
           style={{ color: '#a855f7' }}
-          aria-label={`Ver tudo em ${title}`}
+          aria-label={t('bookRow.viewAllIn', { title })}
         >
-          Ver tudo
+          {t('bookRow.viewAll')}
           <ChevronRight size={13} strokeWidth={2.5} />
         </button>
       </div>

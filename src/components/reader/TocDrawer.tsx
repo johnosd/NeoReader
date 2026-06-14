@@ -7,6 +7,7 @@ import {
   getTocSubitems,
   hasTocChildren,
 } from '../../utils/toc'
+import { useI18n } from '../../i18n'
 
 interface TocDrawerProps {
   open: boolean
@@ -49,11 +50,13 @@ function getDefaultExpandedPaths(toc: TocItem[], currentPath?: string | null): S
 }
 
 export function TocDrawer({ open, toc, currentHref, currentLabel, onSelect, onClose }: TocDrawerProps) {
+  const { t } = useI18n()
+
   return (
     <BottomSheet
       open={open}
       onClose={onClose}
-      title="Indice"
+      title={t('toc.title')}
       className="border-t border-white/10 bg-[rgba(15,7,24,0.94)] backdrop-blur-2xl"
     >
       <TocNavigator
@@ -67,6 +70,7 @@ export function TocDrawer({ open, toc, currentHref, currentLabel, onSelect, onCl
 }
 
 export function TocNavigator({ toc, currentHref, currentLabel, onSelect, className }: TocNavigatorProps) {
+  const { t } = useI18n()
   const [toggledState, setToggledState] = useState<{
     toc: TocItem[]
     currentPath?: string | null
@@ -102,8 +106,8 @@ export function TocNavigator({ toc, currentHref, currentLabel, onSelect, classNa
     <div className={className}>
       {toc.length === 0 ? (
         <EmptyState
-          title="Indice nao disponivel"
-          description="Este EPUB nao forneceu uma estrutura navegavel para o sumario."
+          title={t('toc.empty.title')}
+          description={t('toc.empty.description')}
         />
       ) : (
         <div className="space-y-4">
@@ -111,14 +115,14 @@ export function TocNavigator({ toc, currentHref, currentLabel, onSelect, classNa
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-purple-light/80">
-                  Navegacao direta
+                  {t('toc.directNavigation')}
                 </p>
                 <p className="mt-1 text-sm leading-6 text-text-muted">
-                  Escolha uma secao para abrir o conteudo util mais proximo, sem cair em paginas stub.
+                  {t('toc.directDescription')}
                 </p>
               </div>
               <Badge tone="purple" className="shrink-0 px-2.5 py-1 text-[10px] normal-case tracking-normal">
-                {toc.length} itens
+                {t('toc.itemCount', { count: toc.length })}
               </Badge>
             </div>
           </div>
@@ -158,6 +162,8 @@ function TocList({
   onToggle: (path: string) => void
   onSelect: (href: string) => void
 }) {
+  const { t } = useI18n()
+
   return (
     <div className="space-y-4">
       {items.map((item, i) => {
@@ -200,13 +206,13 @@ function TocList({
                   </p>
                   {isCurrent && (
                     <Badge tone="purple" className="shrink-0 px-2 py-0.5 text-[9px] tracking-normal">
-                      Agora
+                      {t('toc.now')}
                     </Badge>
                   )}
                 </div>
                 {hasChildren && (
                   <p className="mt-1 text-xs text-text-muted">
-                    Abre direto na primeira secao util deste agrupamento.
+                    {t('toc.childHint')}
                   </p>
                 )}
               </button>
@@ -215,7 +221,7 @@ function TocList({
                 <button
                   onClick={() => onToggle(path)}
                   className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/8 bg-bg-surface-2/80 text-text-muted transition-all duration-150 active:scale-[0.94] active:bg-white/10"
-                  aria-label={isExpanded ? 'Recolher' : 'Expandir'}
+                  aria-label={isExpanded ? t('toc.collapse') : t('toc.expand')}
                 >
                   {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                 </button>

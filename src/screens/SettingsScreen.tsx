@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowLeft, Check, ChevronDown, ChevronRight, Eye, EyeOff, Globe, Info, KeyRound, Mic2, Palette, PlayCircle, Sparkles, Volume2 } from 'lucide-react'
 import { Badge, BottomSheet, Input, ListItem, Spinner } from '../components/ui'
+import { IntegrationEducationCard } from '../components/IntegrationEducationCard'
+import { IntegrationHelpBanner } from '../components/IntegrationHelpBanner'
 import { useEntitlements, useRefreshEntitlementsOnFocus } from '../hooks/useEntitlements'
-import { BillingService } from '../services/BillingService'
 import {
   ReaderFontControl,
   ReaderFontSizeControl,
@@ -17,11 +18,13 @@ import { getSettings, updateAppSettings, updateReaderDefaults } from '../db/sett
 import {
   PREMIUM_TTS_PROVIDER_DEFINITIONS,
   PREMIUM_TTS_PROVIDER_ORDER,
+  type ApiKeyValidationCode,
 } from '../services/TtsProviderRegistry'
 import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
 import type { AppSettings, ReaderDefaults, UserSettings } from '../types/settings'
 import type { PremiumTtsProvider } from '../types/tts'
 import { getLanguageLabel, TRANSLATION_LANGUAGE_OPTIONS } from '../utils/languageOptions'
+import { APP_LOCALE_PREFERENCES, useI18n, type AppLocalePreference, type MessageKey, type TranslateFn } from '../i18n'
 
 interface SettingsScreenProps {
   onBack: () => void
@@ -56,6 +59,32 @@ const EMPTY_TTS_VALIDATION_STATE: Record<PremiumTtsProvider, KeyValidationState>
   fishaudio: IDLE_KEY_STATE,
 }
 
+const TTS_PROVIDER_EDUCATION_KEYS: Record<PremiumTtsProvider, {
+  description: MessageKey
+  enables: MessageKey
+  bestFor: MessageKey
+  setup: MessageKey
+}> = {
+  speechify: {
+    description: 'settings.integrations.speechify.description',
+    enables: 'settings.integrations.speechify.enables',
+    bestFor: 'settings.integrations.speechify.bestFor',
+    setup: 'settings.integrations.speechify.setup',
+  },
+  elevenlabs: {
+    description: 'settings.integrations.elevenlabs.description',
+    enables: 'settings.integrations.elevenlabs.enables',
+    bestFor: 'settings.integrations.elevenlabs.bestFor',
+    setup: 'settings.integrations.elevenlabs.setup',
+  },
+  fishaudio: {
+    description: 'settings.integrations.fishaudio.description',
+    enables: 'settings.integrations.fishaudio.enables',
+    bestFor: 'settings.integrations.fishaudio.bestFor',
+    setup: 'settings.integrations.fishaudio.setup',
+  },
+}
+
 function getProviderIcon(provider: PremiumTtsProvider) {
   if (provider === 'speechify') return <Mic2 size={18} />
   return <Volume2 size={18} />
@@ -81,20 +110,41 @@ async function logSavedElevenLabsVoiceSelections() {
 }
 
 function ValidationBadge({ state, emptyLabel }: { state: KeyValidationState; emptyLabel: string }) {
+  const { t } = useI18n()
+
   if (state.status === 'validating') {
-    return <Badge tone="neutral">Validando key...</Badge>
+    return <Badge tone="neutral">{t('settings.status.validatingKey')}</Badge>
   }
   if (state.status === 'valid') {
     return (
       <Badge tone="success">
-        <Check size={11} /> Key valida
+        <Check size={11} /> {t('settings.status.validKey')}
       </Badge>
     )
   }
   if (state.status === 'invalid') {
-    return <Badge tone="error">Key invalida</Badge>
+    return <Badge tone="error">{t('settings.status.invalidKey')}</Badge>
   }
   return <p className="text-xs text-text-muted">{emptyLabel}</p>
+}
+
+function getApiKeyValidationMessage(code: ApiKeyValidationCode | undefined, t: TranslateFn): string {
+  if (code === 'empty') return t('settings.apiKey.validation.empty')
+  if (code === 'valid') return t('settings.apiKey.validation.valid')
+  if (code === 'invalid') return t('settings.apiKey.validation.invalid')
+  if (code === 'timeout') return t('settings.apiKey.validation.timeout')
+  if (code === 'no_credits') return t('settings.apiKey.validation.noCredits')
+  return t('settings.apiKey.validation.unavailable')
+}
+
+function getEducationStatus(state: KeyValidationState, t: TranslateFn): {
+  statusLabel: string
+  statusTone: 'success' | 'warning' | 'neutral'
+} {
+  if (state.status === 'valid') return { statusLabel: t('settings.status.connected'), statusTone: 'success' }
+  if (state.status === 'invalid') return { statusLabel: t('settings.status.invalid'), statusTone: 'warning' }
+  if (state.status === 'validating') return { statusLabel: t('settings.status.validating'), statusTone: 'neutral' }
+  return { statusLabel: t('settings.status.notConfigured'), statusTone: 'neutral' }
 }
 
 export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
@@ -108,7 +158,9 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
   const [youtubeKeyInput, setYoutubeKeyInput] = useState('')
   const [ttsValidation, setTtsValidation] = useState<Record<PremiumTtsProvider, KeyValidationState>>(EMPTY_TTS_VALIDATION_STATE)
   const [youtubeValidation, setYoutubeValidation] = useState<KeyValidationState>(IDLE_KEY_STATE)
+  const [appLangSheetOpen, setAppLangSheetOpen] = useState(false)
   const [langSheetOpen, setLangSheetOpen] = useState(false)
+  const { localePreference, setLocalePreference, t } = useI18n()
   const ttsValidationSeqRef = useRef<Record<PremiumTtsProvider, number>>({
     speechify: 0,
     elevenlabs: 0,
@@ -133,6 +185,12 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
     } : previous)
   }
 
+  async function saveAppLocalePreference(preference: AppLocalePreference) {
+    await saveAppSettings({ appLocale: preference })
+    setLocalePreference(preference)
+    setAppLangSheetOpen(false)
+  }
+
   const validateTtsProviderKey = useCallback(async (
     provider: PremiumTtsProvider,
     rawKey: string,
@@ -151,7 +209,7 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
 
     setTtsValidation((current) => ({
       ...current,
-      [provider]: { status: 'validating', message: `Validando a API key da ${definition.label}...` },
+      [provider]: { status: 'validating', message: t('settings.tts.validatingProvider', { provider: definition.label }) },
     }))
     const result = await definition.validateApiKey(trimmedKey)
     if (ttsValidationSeqRef.current[provider] !== validationSeq) return
@@ -162,12 +220,24 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
         if (provider === 'elevenlabs') await logSavedElevenLabsVoiceSelections()
       }
       setTtsKeyInputs((current) => ({ ...current, [provider]: trimmedKey }))
-      setTtsValidation((current) => ({ ...current, [provider]: { status: 'valid', message: result.message } }))
+      setTtsValidation((current) => ({
+        ...current,
+        [provider]: {
+          status: 'valid',
+          message: getApiKeyValidationMessage(result.code, t),
+        },
+      }))
       return
     }
 
-    setTtsValidation((current) => ({ ...current, [provider]: { status: 'invalid', message: result.message } }))
-  }, [saveAppSettings])
+    setTtsValidation((current) => ({
+      ...current,
+      [provider]: {
+        status: 'invalid',
+        message: getApiKeyValidationMessage(result.code, t),
+      },
+    }))
+  }, [saveAppSettings, t])
 
   useEffect(() => {
     let cancelled = false
@@ -205,13 +275,15 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
   }
 
   const currentLang = getLanguageLabel(settings.appSettings.translationTargetLang) ?? settings.appSettings.translationTargetLang
+  const currentAppLocalePreference = settings.appSettings.appLocale ?? localePreference
+  const currentAppLocale = getAppLocalePreferenceLabel(currentAppLocalePreference, t)
   const readerStyleMode = !settings.readerDefaults.overrideBookFont && !settings.readerDefaults.overrideBookColors
     ? 'original'
     : 'comfortable'
 
   function getTtsValidationHint(provider: PremiumTtsProvider) {
     const state = ttsValidation[provider]
-    if (state.status === 'valid') return 'A key foi validada e salva.'
+    if (state.status === 'valid') return t('settings.tts.validatedAndSaved')
     if (state.status === 'validating') return state.message
     return undefined
   }
@@ -257,30 +329,30 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
         <button
           onClick={onBack}
           className="-ml-1 rounded-md p-2 text-text-secondary transition-transform active:scale-90"
-          aria-label="Voltar"
+          aria-label={t('common.back')}
         >
           <ArrowLeft size={20} />
         </button>
         <div className="min-w-0">
-          <h1 className="text-lg font-extrabold tracking-[-0.02em] text-text-primary">Leitor</h1>
-          <p className="text-xs text-text-muted">Configuracoes de leitura e integracoes</p>
+          <h1 className="text-lg font-extrabold tracking-[-0.02em] text-text-primary">{t('settings.header.title')}</h1>
+          <p className="text-xs text-text-muted">{t('settings.header.subtitle')}</p>
         </div>
       </header>
 
       <div className="flex flex-col gap-7 px-4 pt-5">
         <SettingsSection
           icon={<Sparkles size={17} />}
-          label="Plano"
-          description="Conheca o NeoReader Pro - em breve."
+          label={t('settings.plan.sectionLabel')}
+          description={t('settings.plan.sectionDescription')}
         >
           <SettingsGroup>
             <ListItem
               leading={<Sparkles size={20} className="text-purple-light" />}
               title="NeoReader Pro"
-              meta={getPlanMeta(entitlements, BillingService.isAvailable())}
+              meta={getPlanMeta(entitlements, t)}
               trailing={(
                 <div className="flex items-center gap-2">
-                  {entitlements.isPro && <Badge tone="success">Ativo</Badge>}
+                  {entitlements.isPro && <Badge tone="success">{t('settings.plan.active')}</Badge>}
                   <ChevronRight size={18} />
                 </div>
               )}
@@ -291,23 +363,40 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
         </SettingsSection>
 
         <SettingsSection
-          icon={<Palette size={17} />}
-          label="Aparencia"
-          description="Padrao usado quando um livro novo e aberto."
+          icon={<Globe size={17} />}
+          label={t('settings.appLanguage.sectionLabel')}
+          description={t('settings.appLanguage.sectionDescription')}
         >
           <SettingsGroup>
-            <SettingBlock label="Previa" description="As alteracoes abaixo refletem neste exemplo.">
+            <ListItem
+              leading={<Globe size={20} />}
+              title={t('settings.appLanguage.title')}
+              meta={currentAppLocale}
+              trailing={<ChevronRight size={18} />}
+              onClick={() => setAppLangSheetOpen(true)}
+              divider={false}
+            />
+          </SettingsGroup>
+        </SettingsSection>
+
+        <SettingsSection
+          icon={<Palette size={17} />}
+          label={t('settings.appearance.sectionLabel')}
+          description={t('settings.appearance.sectionDescription')}
+        >
+          <SettingsGroup>
+            <SettingBlock label={t('settings.appearance.preview.label')} description={t('settings.appearance.preview.description')}>
               <ReaderPreviewPanel
                 theme={settings.readerDefaults.readerTheme}
                 fontFamily={settings.readerDefaults.fontFamily}
                 fontSize={settings.readerDefaults.defaultFontSize}
                 lineHeight={settings.readerDefaults.lineHeight}
               >
-                A leitura deve ficar confortavel por longos periodos, com ritmo visual claro e sem distracao.
+                {t('settings.appearance.previewText')}
               </ReaderPreviewPanel>
             </SettingBlock>
 
-            <SettingBlock label="Tema do leitor" description="Aparencia inicial ao abrir qualquer livro.">
+            <SettingBlock label={t('settings.appearance.theme.label')} description={t('settings.appearance.theme.description')}>
               <ReaderThemeControl
                 value={settings.readerDefaults.readerTheme}
                 onChange={(value) => void saveReaderDefaults({ readerTheme: value, overrideBookColors: true })}
@@ -315,7 +404,7 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
               />
             </SettingBlock>
 
-            <SettingBlock label="Fonte padrao" description="Define como livros novos escolhem a fonte.">
+            <SettingBlock label={t('settings.appearance.font.label')} description={t('settings.appearance.font.description')}>
               <ReaderFontControl
                 value={settings.readerDefaults.fontFamily}
                 onChange={(value) => void saveReaderDefaults({
@@ -326,7 +415,7 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
               />
             </SettingBlock>
 
-            <SettingBlock label="Tamanho da fonte" description="Tamanho inicial para novos livros.">
+            <SettingBlock label={t('settings.appearance.fontSize.label')} description={t('settings.appearance.fontSize.description')}>
               <ReaderFontSizeControl
                 value={settings.readerDefaults.defaultFontSize}
                 onChange={(value) => void saveReaderDefaults({ defaultFontSize: value })}
@@ -334,7 +423,7 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
               />
             </SettingBlock>
 
-            <SettingBlock label="Espacamento de linha" description="Altura de linha usada como base no leitor.">
+            <SettingBlock label={t('settings.appearance.lineHeight.label')} description={t('settings.appearance.lineHeight.description')}>
               <ReaderLineHeightControl
                 value={settings.readerDefaults.lineHeight}
                 onChange={(value) => void saveReaderDefaults({ lineHeight: value })}
@@ -342,7 +431,7 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
               />
             </SettingBlock>
 
-            <SettingBlock label="Modo de leitura" description="Escolha entre preservar o EPUB ou usar o estilo NeoReader." divider={false}>
+            <SettingBlock label={t('settings.appearance.mode.label')} description={t('settings.appearance.mode.description')} divider={false}>
               <ReaderModeControl
                 value={readerStyleMode}
                 onChange={handleReaderStyleModeChange}
@@ -354,13 +443,13 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
 
         <SettingsSection
           icon={<Globe size={17} />}
-          label="Traducao"
-          description="Idioma padrao ao selecionar e traduzir trechos."
+          label={t('settings.translation.sectionLabel')}
+          description={t('settings.translation.sectionDescription')}
         >
           <SettingsGroup>
             <ListItem
               leading={<Globe size={20} />}
-              title="Idioma padrao das traducoes"
+              title={t('settings.translation.defaultLanguage')}
               meta={currentLang}
               trailing={<ChevronRight size={18} />}
               onClick={() => setLangSheetOpen(true)}
@@ -371,111 +460,153 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
 
         <SettingsSection
           icon={<Volume2 size={17} />}
-          label="Narracao"
-          description="Vozes e servicos usados para leitura em audio."
+          label={t('settings.narration.sectionLabel')}
+          description={t('settings.narration.sectionDescription')}
         >
+          <div className="mb-3">
+            <IntegrationHelpBanner
+              title={t('settings.integrations.voiceFallback.title')}
+              description={t('settings.integrations.voiceFallback.description')}
+              icon={<Volume2 size={18} />}
+            />
+          </div>
           <SettingsGroup>
             <InfoRow
               icon={<Mic2 size={18} />}
-              title="TTS nativo"
-              description="Sempre disponivel como fallback no dispositivo."
-              badge={<Badge tone="success">Ativo</Badge>}
+              title={t('settings.narration.native.title')}
+              description={t('settings.narration.native.description')}
+              badge={<Badge tone="success">{t('settings.plan.active')}</Badge>}
             />
           </SettingsGroup>
         </SettingsSection>
 
         <SettingsSection
           icon={<KeyRound size={17} />}
-          label="Integracoes"
-          description="Chaves usadas por recursos externos do app."
+          label={t('settings.integrations.sectionLabel')}
+          description={t('settings.integrations.description')}
         >
           <SettingsGroup>
             {PREMIUM_TTS_PROVIDER_ORDER.map((provider) => {
               const definition = PREMIUM_TTS_PROVIDER_DEFINITIONS[provider]
               const validation = ttsValidation[provider]
+              const educationKeys = TTS_PROVIDER_EDUCATION_KEYS[provider]
+              const educationStatus = getEducationStatus(validation, t)
               return (
                 <ApiKeyField
                   key={provider}
                   label={definition.label}
-                  description={definition.description}
+                  description={t(educationKeys.description)}
                   icon={getProviderIcon(provider)}
                   state={validation}
-                  emptyLabel={provider === 'speechify' ? 'Nao configurado - usando TTS nativo' : 'Nao configurado'}
+                  emptyLabel={provider === 'speechify'
+                    ? t('settings.integrations.tts.nativeFallbackEmptyLabel')
+                    : t('settings.integrations.tts.emptyLabel')}
                   expanded={expandedIntegration === provider}
                   onToggleExpanded={() => toggleIntegration(provider)}
                   input={(
-                    <Input
-                      type={showTtsKeys[provider] ? 'text' : 'password'}
-                      value={ttsKeyInputs[provider]}
-                      onChange={(event) => {
-                        setTtsKeyInputs((current) => ({ ...current, [provider]: event.target.value }))
-                        if (validation.status !== 'validating') {
-                          setTtsValidation((current) => ({ ...current, [provider]: IDLE_KEY_STATE }))
-                        }
-                      }}
-                      onBlur={() => void validateTtsProviderKey(provider, ttsKeyInputs[provider], true)}
-                      placeholder={definition.placeholder}
-                      autoComplete="off"
-                      spellCheck={false}
-                      error={validation.status === 'invalid' ? validation.message : undefined}
-                      hint={getTtsValidationHint(provider)}
-                      className="h-12 font-mono text-sm"
-                      rightSlot={(
-                        <KeyVisibilityButton
-                          shown={showTtsKeys[provider]}
-                          onClick={() => setShowTtsKeys((current) => ({ ...current, [provider]: !current[provider] }))}
-                        />
-                      )}
-                    />
+                    <div className="flex flex-col gap-3">
+                      <IntegrationEducationCard
+                        title={definition.label}
+                        description={t(educationKeys.description)}
+                        enables={t(educationKeys.enables)}
+                        bestFor={t(educationKeys.bestFor)}
+                        setup={t(educationKeys.setup)}
+                        privacy={t('settings.integrations.privacy.localKey')}
+                        statusLabel={educationStatus.statusLabel}
+                        statusTone={educationStatus.statusTone}
+                        icon={getProviderIcon(provider)}
+                      />
+                      <Input
+                        type={showTtsKeys[provider] ? 'text' : 'password'}
+                        value={ttsKeyInputs[provider]}
+                        onChange={(event) => {
+                          setTtsKeyInputs((current) => ({ ...current, [provider]: event.target.value }))
+                          if (validation.status !== 'validating') {
+                            setTtsValidation((current) => ({ ...current, [provider]: IDLE_KEY_STATE }))
+                          }
+                        }}
+                        onBlur={() => void validateTtsProviderKey(provider, ttsKeyInputs[provider], true)}
+                        placeholder={definition.placeholder}
+                        autoComplete="off"
+                        spellCheck={false}
+                        error={validation.status === 'invalid' ? validation.message : undefined}
+                        hint={getTtsValidationHint(provider)}
+                        className="h-12 font-mono text-sm"
+                        rightSlot={(
+                          <KeyVisibilityButton
+                            shown={showTtsKeys[provider]}
+                            onClick={() => setShowTtsKeys((current) => ({ ...current, [provider]: !current[provider] }))}
+                          />
+                        )}
+                      />
+                    </div>
                   )}
                 />
               )
             })}
 
-            <ApiKeyField
-              label="YouTube Data API"
-              description="Videos e entrevistas na aba Autor dos livros."
-              icon={<PlayCircle size={18} />}
-              state={youtubeValidation}
-              emptyLabel="Nao configurado - videos do autor nao serao exibidos"
-              expanded={expandedIntegration === 'youtube'}
-              onToggleExpanded={() => toggleIntegration('youtube')}
-              divider={false}
-              input={(
-                <Input
-                  type={showYoutubeKey ? 'text' : 'password'}
-                  value={youtubeKeyInput}
-                  onChange={(event) => {
-                    setYoutubeKeyInput(event.target.value)
-                    setYoutubeValidation(IDLE_KEY_STATE)
-                  }}
-                  onBlur={() => void saveYoutubeKey(youtubeKeyInput)}
-                  placeholder="AIza..."
-                  autoComplete="off"
-                  spellCheck={false}
-                  className="h-12 font-mono text-sm"
-                  rightSlot={(
-                    <KeyVisibilityButton
-                      shown={showYoutubeKey}
-                      onClick={() => setShowYoutubeKey((value) => !value)}
-                    />
+            {(() => {
+              const educationStatus = getEducationStatus(youtubeValidation, t)
+              return (
+                <ApiKeyField
+                  label="YouTube Data API"
+                  description={t('settings.integrations.youtube.description')}
+                  icon={<PlayCircle size={18} />}
+                  state={youtubeValidation}
+                  emptyLabel={t('settings.integrations.youtube.emptyLabel')}
+                  expanded={expandedIntegration === 'youtube'}
+                  onToggleExpanded={() => toggleIntegration('youtube')}
+                  divider={false}
+                  input={(
+                    <div className="flex flex-col gap-3">
+                      <IntegrationEducationCard
+                        title="YouTube Data API"
+                        description={t('settings.integrations.youtube.description')}
+                        enables={t('settings.integrations.youtube.enables')}
+                        bestFor={t('settings.integrations.youtube.bestFor')}
+                        setup={t('settings.integrations.youtube.setup')}
+                        privacy={t('settings.integrations.privacy.localKey')}
+                        statusLabel={educationStatus.statusLabel}
+                        statusTone={educationStatus.statusTone}
+                        icon={<PlayCircle size={18} />}
+                      />
+                      <Input
+                        type={showYoutubeKey ? 'text' : 'password'}
+                        value={youtubeKeyInput}
+                        onChange={(event) => {
+                          setYoutubeKeyInput(event.target.value)
+                          setYoutubeValidation(IDLE_KEY_STATE)
+                        }}
+                        onBlur={() => void saveYoutubeKey(youtubeKeyInput)}
+                        placeholder="AIza..."
+                        autoComplete="off"
+                        spellCheck={false}
+                        className="h-12 font-mono text-sm"
+                        rightSlot={(
+                          <KeyVisibilityButton
+                            shown={showYoutubeKey}
+                            onClick={() => setShowYoutubeKey((value) => !value)}
+                          />
+                        )}
+                      />
+                    </div>
                   )}
                 />
-              )}
-            />
+              )
+            })()}
           </SettingsGroup>
         </SettingsSection>
 
         <SettingsSection
           icon={<Info size={17} />}
-          label="Build"
-          description="Configuracoes embutidas no aplicativo."
+          label={t('settings.build.sectionLabel')}
+          description={t('settings.build.description')}
         >
           <SettingsGroup>
             <InfoRow
               icon={<Info size={18} />}
-              title="Chaves publicas do build"
-              description="Google Books e NYT Best Sellers usam variaveis VITE_ embutidas no app. Restrinja essas chaves por API, pacote/app e cota antes da Play Store."
+              title={t('settings.build.publicKeys.title')}
+              description={t('settings.build.publicKeys.description')}
               divider={false}
             />
           </SettingsGroup>
@@ -483,9 +614,33 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
       </div>
 
       <BottomSheet
+        open={appLangSheetOpen}
+        onClose={() => setAppLangSheetOpen(false)}
+        title={t('settings.appLanguage.sheetTitle')}
+      >
+        <div className="-mx-4">
+          {APP_LOCALE_PREFERENCES.map((preference) => {
+            const active = currentAppLocalePreference === preference
+            return (
+              <ListItem
+                key={preference}
+                title={getAppLocalePreferenceLabel(preference, t)}
+                meta={preference === 'auto' ? t('settings.appLanguage.autoMeta') : undefined}
+                trailing={active ? <Check size={18} className="text-purple-light" /> : undefined}
+                onClick={() => {
+                  void saveAppLocalePreference(preference)
+                }}
+                divider={preference !== APP_LOCALE_PREFERENCES[APP_LOCALE_PREFERENCES.length - 1]}
+              />
+            )
+          })}
+        </div>
+      </BottomSheet>
+
+      <BottomSheet
         open={langSheetOpen}
         onClose={() => setLangSheetOpen(false)}
-        title="Idioma padrao das traducoes"
+        title={t('settings.translation.defaultLanguage')}
       >
         <div className="-mx-4">
           {TRANSLATION_LANGUAGE_OPTIONS.map((lang) => {
@@ -509,19 +664,26 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
   )
 }
 
+function getAppLocalePreferenceLabel(preference: AppLocalePreference, t: TranslateFn): string {
+  if (preference === 'pt-BR') return t('settings.appLanguage.ptBR')
+  if (preference === 'en') return t('settings.appLanguage.en')
+  if (preference === 'es') return t('settings.appLanguage.es')
+  return t('settings.appLanguage.auto')
+}
+
 function getPlanMeta(
   entitlements: ReturnType<typeof useEntitlements>,
-  _billingAvailable: boolean,
+  t: TranslateFn,
 ): string {
   // Hoje o Pro nao esta a venda - tela serve como preview do que vem por ai.
   // Quando o Pro for ativado, este texto volta a refletir o status real do entitlement.
   if (entitlements.isPro) {
     if (entitlements.expiresAt) {
-      return `Renova em ${entitlements.expiresAt.toLocaleDateString('pt-BR')}`
+      return t('settings.plan.renewsOn', { date: entitlements.expiresAt.toLocaleDateString('pt-BR') })
     }
-    return 'Acesso vitalicio'
+    return t('settings.plan.lifetime')
   }
-  return 'Em desenvolvimento - veja o que vem por ai'
+  return t('settings.plan.metaComingSoon')
 }
 
 function SettingsSection({
@@ -671,19 +833,23 @@ function ApiKeyField({
 }
 
 function IntegrationStatus({ state }: { state: KeyValidationState }) {
-  if (state.status === 'validating') return <Badge tone="neutral">Validando</Badge>
-  if (state.status === 'valid') return <Badge tone="success">Conectado</Badge>
-  if (state.status === 'invalid') return <Badge tone="error">Invalida</Badge>
-  return <Badge tone="neutral">Nao configurado</Badge>
+  const { t } = useI18n()
+
+  if (state.status === 'validating') return <Badge tone="neutral">{t('settings.status.validating')}</Badge>
+  if (state.status === 'valid') return <Badge tone="success">{t('settings.status.connected')}</Badge>
+  if (state.status === 'invalid') return <Badge tone="error">{t('settings.status.invalid')}</Badge>
+  return <Badge tone="neutral">{t('settings.status.notConfigured')}</Badge>
 }
 
 function KeyVisibilityButton({ shown, onClick }: { shown: boolean; onClick: () => void }) {
+  const { t } = useI18n()
+
   return (
     <button
       type="button"
       onClick={onClick}
       className="p-2 text-text-muted active:opacity-60"
-      aria-label={shown ? 'Ocultar key' : 'Mostrar key'}
+      aria-label={shown ? t('settings.apiKey.hide') : t('settings.apiKey.show')}
     >
       {shown ? <EyeOff size={16} /> : <Eye size={16} />}
     </button>

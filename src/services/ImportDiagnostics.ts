@@ -1,3 +1,10 @@
+import {
+  logError as logDiagnosticsError,
+  logEvent as logDiagnosticsEvent,
+  logWarn as logDiagnosticsWarn,
+  safeDiagnosticsJson,
+} from './DiagnosticsLogger'
+
 export type ImportDiagnosticMode =
   | 'web'
   | 'web-batch'
@@ -24,6 +31,7 @@ interface ImportTimeoutOptions {
 }
 
 let diagnosticCounter = 0
+const LOCAL_TASK_LONG_MS = 250
 
 export function createImportDiagnosticContext(
   mode: ImportDiagnosticMode,
@@ -46,6 +54,7 @@ export function logImportDiagnostic(
 ): void {
   const event = buildDiagnosticEvent(contextOrMode, stage, details)
   console.info(`NeoReaderImport ${stage}`, safeDiagnosticJson(event))
+  mirrorImportDiagnostic('info', stage, event)
 }
 
 export function warnImportDiagnostic(
@@ -55,6 +64,7 @@ export function warnImportDiagnostic(
 ): void {
   const event = buildDiagnosticEvent(contextOrMode, stage, details)
   console.warn(`NeoReaderImport ${stage}`, safeDiagnosticJson(event))
+  mirrorImportDiagnostic('warn', stage, event)
 }
 
 export function errorImportDiagnostic(
@@ -68,6 +78,7 @@ export function errorImportDiagnostic(
     error: normalizeImportError(error),
   })
   console.error(`NeoReaderImport ${stage}`, safeDiagnosticJson(event))
+  mirrorImportDiagnostic('error', stage, event)
 }
 
 export async function withImportTimeout<T>(
@@ -169,9 +180,105 @@ function nowMs(): number {
 }
 
 function safeDiagnosticJson(details: Record<string, unknown>): string {
-  try {
-    return JSON.stringify(details)
-  } catch {
-    return String(details)
+  return safeDiagnosticsJson(details)
+}
+
+function mirrorImportDiagnostic(
+  level: 'info' | 'warn' | 'error',
+  stage: string,
+  event: Record<string, unknown>,
+): void {
+  const flowId = stringDetail(event.importId)
+  const durationMs = numberDetail(event.elapsedMs)
+  const status = getImportStatus(level, stage)
+  const eventName = stage === 'start'
+    ? 'import.start'
+    : status === 'failure' || status === 'timeout'
+      ? 'import.failure'
+      : 'import.stage'
+  const details = {
+    legacyStage: stage,
+    mode: event.mode,
+    importId: event.importId,
+    fileName: event.fileName,
+    fileSize: event.fileSize,
+    total: event.total,
+    current: event.current,
+    selected: event.selected,
+    storageMode: event.storageMode,
+    timedOutStage: event.timedOutStage,
+    timeoutMs: event.timeoutMs,
+    usedJSHeapMB: event.usedJSHeapMB,
+    totalJSHeapMB: event.totalJSHeapMB,
+    jsHeapLimitMB: event.jsHeapLimitMB,
+  }
+
+  if (level === 'error') {
+    const errorInfo = errorFields(event.error)
+    logDiagnosticsError(eventName, new Error(errorInfo.errorMessage ?? stage), {
+      flowId,
+      screen: 'import',
+      status,
+      durationMs,
+      errorName: errorInfo.errorName,
+      errorMessage: errorInfo.errorMessage,
+      details,
+    })
+  } else if (level === 'warn') {
+    logDiagnosticsWarn(eventName, {
+      flowId,
+      screen: 'import',
+      status,
+      durationMs,
+      details,
+    })
+  } else {
+    logDiagnosticsEvent(eventName, {
+      flowId,
+      screen: 'import',
+      status,
+      durationMs,
+      details,
+    })
+  }
+
+  if (isSlowImportStage(stage, durationMs)) {
+    logDiagnosticsWarn('import.slow-stage', {
+      flowId,
+      screen: 'import',
+      status: 'success',
+      durationMs,
+      details: {
+        legacyStage: stage,
+        mode: event.mode,
+        thresholdMs: LOCAL_TASK_LONG_MS,
+      },
+    })
+  }
+}
+
+function getImportStatus(level: 'info' | 'warn' | 'error', stage: string) {
+  if (stage === 'start' || stage.endsWith('-start')) return 'start'
+  if (stage.includes('timeout')) return 'timeout'
+  if (level === 'error' || stage.includes('failed') || stage.includes('aborted')) return 'failure'
+  if (stage.includes('finished') || stage.includes('computed') || stage.includes('parsed')) return 'success'
+  return undefined
+}
+
+function isSlowImportStage(stage: string, durationMs: number | undefined): boolean {
+  if (durationMs === undefined || durationMs <= LOCAL_TASK_LONG_MS) return false
+  return /metadata|hash|save|read|prepare|import|enrichment/i.test(stage)
+}
+
+function numberDetail(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function errorFields(error: unknown): { errorName?: string; errorMessage?: string } {
+  if (!error || typeof error !== 'object') return {}
+  const fields = error as Record<string, unknown>
+  return {
+    errorName: stringDetail(fields.name),
+    errorMessage: stringDetail(fields.message),
   }
 }

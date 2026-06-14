@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { AlertCircle, BookOpen } from 'lucide-react'
 import { Spinner } from '../components/ui'
+import { useI18n } from '../i18n'
 
 interface LoginScreenProps {
   configured: boolean
@@ -20,6 +21,7 @@ function GoogleLogo() {
 }
 
 export function LoginScreen({ configured, error, onSignInWithGoogle }: LoginScreenProps) {
+  const { t } = useI18n()
   const [localError, setLocalError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const visibleError = localError ?? error
@@ -36,7 +38,7 @@ export function LoginScreen({ configured, error, onSignInWithGoogle }: LoginScre
       setSubmitting(false)
       setLocalError(signInError instanceof Error
         ? signInError.message
-        : 'Nao foi possivel iniciar o login com Google.')
+        : t('login.googleError'))
     }
   }
 
@@ -56,10 +58,10 @@ export function LoginScreen({ configured, error, onSignInWithGoogle }: LoginScre
 
         <div className="mb-7">
           <h1 className="text-[26px] leading-tight font-extrabold text-text-primary mb-1.5">
-            Bem-vindo de volta
+            {t('login.title')}
           </h1>
           <p className="text-sm text-text-muted">
-            Entre para continuar lendo
+            {t('login.subtitle')}
           </p>
         </div>
 
@@ -70,7 +72,7 @@ export function LoginScreen({ configured, error, onSignInWithGoogle }: LoginScre
           className="w-full h-[52px] rounded-[14px] bg-white/[0.06] border border-white/[0.12] text-text-primary text-[15px] font-semibold flex items-center justify-center gap-2.5 active:bg-white/10 disabled:opacity-50 disabled:pointer-events-none transition-colors"
         >
           {submitting ? <Spinner size={18} /> : <GoogleLogo />}
-          {submitting ? 'Abrindo Google...' : 'Continuar com Google'}
+          {submitting ? t('login.googleOpening') : t('login.googleButton')}
         </button>
 
         {visibleError && (
@@ -82,7 +84,7 @@ export function LoginScreen({ configured, error, onSignInWithGoogle }: LoginScre
 
         {!configured && (
           <p className="mt-4 text-xs leading-relaxed text-text-muted">
-            Configure as variaveis VITE_FIREBASE_* no .env para habilitar o login.
+            {t('login.configWarning')}
           </p>
         )}
       </section>

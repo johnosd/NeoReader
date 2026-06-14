@@ -19,6 +19,7 @@ import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
 import { useLibraryGroups } from '../hooks/useLibraryGroups'
 import { useProfileSummary, type ProfileAchievement, type ProfileHistoryItem } from '../hooks/useProfileSummary'
 import type { AuthUser } from '../types/auth'
+import { useI18n, type MessageKey } from '../i18n'
 
 interface ProfileScreenProps {
   authUser: AuthUser
@@ -32,13 +33,14 @@ interface ProfileScreenProps {
 
 type ProfileTab = 'history' | 'achievements' | 'following'
 
-const PROFILE_TABS: { id: ProfileTab; label: string }[] = [
-  { id: 'history', label: 'Historico' },
-  { id: 'achievements', label: 'Conquistas' },
-  { id: 'following', label: 'Seguindo' },
+const PROFILE_TABS: { id: ProfileTab; labelKey: MessageKey }[] = [
+  { id: 'history', labelKey: 'profile.tab.history' },
+  { id: 'achievements', labelKey: 'profile.tab.achievements' },
+  { id: 'following', labelKey: 'profile.tab.following' },
 ]
 
 export function ProfileScreen({ authUser, onBack, onOpenHome, onOpenLibrary, onOpenDiscover, onOpenSettings, onSignOut }: ProfileScreenProps) {
+  const { t } = useI18n()
   const summary = useProfileSummary()
   const { heroBook } = useLibraryGroups()
   const [activeTab, setActiveTab] = useState<ProfileTab>('history')
@@ -66,14 +68,14 @@ export function ProfileScreen({ authUser, onBack, onOpenHome, onOpenLibrary, onO
           <button
             onClick={onBack}
             className="w-9 h-9 rounded-md bg-black/35 border border-white/10 backdrop-blur-sm flex items-center justify-center text-white active:scale-95 transition-transform"
-            aria-label="Voltar"
+            aria-label={t('common.back')}
           >
             <ArrowLeft size={19} />
           </button>
           <button
             onClick={onOpenSettings}
             className="w-9 h-9 rounded-md bg-black/35 border border-white/10 backdrop-blur-sm flex items-center justify-center text-white active:scale-95 transition-transform"
-            aria-label="Abrir configuracoes"
+            aria-label={t('profile.openSettings')}
           >
             <Settings size={18} />
           </button>
@@ -95,16 +97,16 @@ export function ProfileScreen({ authUser, onBack, onOpenHome, onOpenLibrary, onO
               }}
             >
               <Pencil size={14} className="inline mr-2" />
-              Editar perfil
+              {t('profile.editProfile')}
             </button>
           </div>
 
           <div className="mb-4">
             <h1 className="text-xl font-extrabold tracking-tight text-text-primary truncate">
-              {authUser.displayName ?? 'Leitor NeoReader'}
+              {authUser.displayName ?? t('profile.defaultName')}
             </h1>
             <p className="mt-1 text-[13px] text-text-muted truncate">
-              {authUser.email ?? 'Conta autenticada'}
+              {authUser.email ?? t('profile.defaultEmail')}
             </p>
           </div>
 
@@ -125,6 +127,7 @@ export function ProfileScreen({ authUser, onBack, onOpenHome, onOpenLibrary, onO
         <div className="mt-4 flex border-b border-white/10 px-5">
           {PROFILE_TABS.map((tab) => {
             const active = activeTab === tab.id
+            const label = t(tab.labelKey)
             return (
               <button
                 key={tab.id}
@@ -136,7 +139,7 @@ export function ProfileScreen({ authUser, onBack, onOpenHome, onOpenLibrary, onO
                   borderColor: active ? '#c084fc' : 'transparent',
                 }}
               >
-                {tab.label}
+                {label}
               </button>
             )
           })}
@@ -158,7 +161,7 @@ export function ProfileScreen({ authUser, onBack, onOpenHome, onOpenLibrary, onO
             className="h-11 w-full rounded-md border border-error/30 bg-error/10 text-error text-sm font-semibold flex items-center justify-center gap-2 active:bg-error/20 disabled:opacity-50 disabled:pointer-events-none"
           >
             <LogOut size={16} />
-            {signingOut ? 'Saindo...' : 'Sair da conta'}
+            {signingOut ? t('profile.signingOut') : t('profile.signOut')}
           </button>
         </section>
       </main>
@@ -249,11 +252,12 @@ function StatsGrid({
   favorites: number
   vocabulary: number
 }) {
+  const { t } = useI18n()
   const stats = [
-    { value: finished, label: 'Lidos' },
-    { value: reading, label: 'Lendo' },
-    { value: favorites, label: 'Favoritos' },
-    { value: vocabulary, label: 'Vocabulario' },
+    { value: finished, label: t('profile.stats.finished') },
+    { value: reading, label: t('profile.stats.reading') },
+    { value: favorites, label: t('profile.stats.favorites') },
+    { value: vocabulary, label: t('profile.stats.vocabulary') },
   ]
 
   return (
@@ -273,12 +277,14 @@ function StatsGrid({
 }
 
 function HistoryTab({ items }: { items: ProfileHistoryItem[] }) {
+  const { t } = useI18n()
+
   if (items.length === 0) {
     return (
       <EmptyState
         icon={<BookOpen size={44} />}
-        title="Sem historico ainda"
-        description="Abra um livro para iniciar seu historico de leitura."
+        title={t('profile.history.empty.title')}
+        description={t('profile.history.empty.description')}
       />
     )
   }
@@ -293,12 +299,13 @@ function HistoryTab({ items }: { items: ProfileHistoryItem[] }) {
 }
 
 function HistoryRow({ item }: { item: ProfileHistoryItem }) {
+  const { locale, t } = useI18n()
   const coverUrl = useBookCoverUrl(item.book.id)
   const status = item.readingStatus === 'finished'
-    ? 'Concluido'
+    ? t('profile.status.finished')
     : item.readingStatus === 'reading'
       ? `${item.percentage}%`
-      : 'Nao iniciado'
+      : t('profile.status.notStarted')
 
   return (
     <div className="flex gap-3 px-5 py-3 border-b border-white/[0.04]">
@@ -317,7 +324,7 @@ function HistoryRow({ item }: { item: ProfileHistoryItem }) {
           {item.pageCount && (
             <>
               <span className="text-white/20">-</span>
-              <span>{item.pageCount} pags.</span>
+              <span>{t('profile.status.pages', { count: item.pageCount })}</span>
             </>
           )}
           {item.rating && (
@@ -332,20 +339,21 @@ function HistoryRow({ item }: { item: ProfileHistoryItem }) {
         </div>
       </div>
       <time className="text-[10px] text-text-muted flex-shrink-0 pt-[2px]" dateTime={item.date.toISOString()}>
-        {formatShortDate(item.date)}
+        {formatShortDate(item.date, locale)}
       </time>
     </div>
   )
 }
 
 function AchievementsTab({ achievements }: { achievements: ProfileAchievement[] }) {
+  const { t } = useI18n()
   const unlockedCount = achievements.filter((achievement) => achievement.unlocked).length
 
   return (
     <div className="px-5 py-4">
       <div className="mb-4 flex items-center justify-between">
         <p className="text-[12px] text-text-muted">
-          {unlockedCount} de {achievements.length} desbloqueadas
+          {t('profile.achievements.progress', { unlocked: unlockedCount, total: achievements.length })}
         </p>
         <div className="w-20 h-1.5 rounded-full bg-white/10 overflow-hidden">
           <div
@@ -379,7 +387,7 @@ function AchievementsTab({ achievements }: { achievements: ProfileAchievement[] 
             {achievement.unlocked && (
               <p className="mt-3 inline-flex items-center gap-1 text-[9px] font-extrabold uppercase tracking-wider text-success">
                 <Check size={10} />
-                Desbloqueada
+                {t('profile.achievements.unlocked')}
               </p>
             )}
           </div>
@@ -390,11 +398,13 @@ function AchievementsTab({ achievements }: { achievements: ProfileAchievement[] 
 }
 
 function FollowingTab() {
+  const { t } = useI18n()
+
   return (
     <EmptyState
       icon={<Heart size={44} />}
-      title="Social indisponivel"
-      description="Recursos sociais ainda nao estao disponiveis nesta versao."
+      title={t('profile.following.empty.title')}
+      description={t('profile.following.empty.description')}
     />
   )
 }
@@ -426,8 +436,8 @@ function BookPattern() {
   )
 }
 
-function formatShortDate(date: Date): string {
-  return new Intl.DateTimeFormat('pt-BR', {
+function formatShortDate(date: Date, locale: string): string {
+  return new Intl.DateTimeFormat(locale, {
     month: 'short',
     year: 'numeric',
   }).format(date).replace('.', '')

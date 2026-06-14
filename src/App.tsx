@@ -18,13 +18,14 @@ import { AdsService } from './services/AdsService'
 import { BillingService } from './services/BillingService'
 import { BookImportService } from './services/BookImportService'
 import { cleanupNativeImportTemp } from './services/NativeLibraryImportService'
+import { createFlowId, getDiagnosticsNowMs, logEvent } from './services/DiagnosticsLogger'
 import type { Book } from './types/book'
 
 type Route =
   | { name: 'home' }
   | { name: 'library' }
   | { name: 'book-details'; book: Book }
-  | { name: 'reader'; book: Book; startHref?: string }
+  | { name: 'reader'; book: Book; startHref?: string; readerOpenFlowId?: string; readerOpenStartedAt?: number }
   | { name: 'vocabulary' }
   | { name: 'discover' }
   | { name: 'profile' }
@@ -103,6 +104,23 @@ function App() {
     setAuthScreen('login')
   }
 
+  function openReader(book: Book, startHref?: string) {
+    const flowId = createFlowId('reader-open')
+    const startedAt = getDiagnosticsNowMs()
+    logEvent('reader.open.start', {
+      flowId,
+      screen: 'book-details',
+      status: 'start',
+      details: {
+        bookId: book.id,
+        storageMode: book.storageMode,
+        hasStartHref: Boolean(startHref),
+        targetType: startHref?.startsWith('epubcfi(') ? 'cfi' : startHref ? 'href' : 'saved-progress',
+      },
+    })
+    push({ name: 'reader', book, startHref, readerOpenFlowId: flowId, readerOpenStartedAt: startedAt })
+  }
+
   if (auth.state.status === 'loading') {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-bg-base">
@@ -114,14 +132,14 @@ function App() {
   if (auth.state.status !== 'signed-in') {
     if (authScreen === 'welcome') {
       return (
-        <ErrorBoundary key="welcome">
+        <ErrorBoundary key="welcome" screen="welcome">
           <WelcomeScreen onComplete={completeWelcome} />
         </ErrorBoundary>
       )
     }
 
     return (
-      <ErrorBoundary key="login">
+      <ErrorBoundary key="login" screen="login">
         <LoginScreen
           configured={auth.state.configured}
           error={auth.state.error}
@@ -134,11 +152,11 @@ function App() {
   switch (current.name) {
     case 'book-details':
       return (
-        <ErrorBoundary key="book-details">
+        <ErrorBoundary key="book-details" screen="book-details">
           <BookDetailsScreen
             book={current.book}
             onBack={pop}
-            onRead={(book, startHref) => push({ name: 'reader', book, startHref })}
+            onRead={openReader}
             onOpenSettings={() => push({ name: 'settings' })}
           />
         </ErrorBoundary>
@@ -146,26 +164,29 @@ function App() {
 
     case 'reader':
       return (
-        <ErrorBoundary key="reader">
+        <ErrorBoundary key="reader" screen="reader">
           <ReaderScreen
             book={current.book}
             startHref={current.startHref}
+            readerOpenFlowId={current.readerOpenFlowId}
+            readerOpenStartedAt={current.readerOpenStartedAt}
             onBack={pop}
             onOpenVocabulary={() => push({ name: 'vocabulary' })}
+            onOpenSettings={() => push({ name: 'settings' })}
           />
         </ErrorBoundary>
       )
 
     case 'vocabulary':
       return (
-        <ErrorBoundary key="vocabulary">
+        <ErrorBoundary key="vocabulary" screen="vocabulary">
           <VocabularyScreen onBack={pop} />
         </ErrorBoundary>
       )
 
     case 'discover':
       return (
-        <ErrorBoundary key="discover">
+        <ErrorBoundary key="discover" screen="discover">
           <DiscoverScreen
             onBack={pop}
             onOpenHome={openHome}
@@ -177,7 +198,7 @@ function App() {
 
     case 'profile':
       return (
-        <ErrorBoundary key="profile">
+        <ErrorBoundary key="profile" screen="profile">
           <ProfileScreen
             authUser={auth.state.user}
             onBack={pop}
@@ -192,7 +213,7 @@ function App() {
 
     case 'settings':
       return (
-        <ErrorBoundary key="settings">
+        <ErrorBoundary key="settings" screen="settings">
           <SettingsScreen
             onBack={pop}
             onOpenPaywall={() => push({ name: 'paywall' })}
@@ -202,14 +223,14 @@ function App() {
 
     case 'paywall':
       return (
-        <ErrorBoundary key="paywall">
+        <ErrorBoundary key="paywall" screen="paywall">
           <PaywallScreen onBack={pop} />
         </ErrorBoundary>
       )
 
     case 'library':
       return (
-        <ErrorBoundary key="library">
+        <ErrorBoundary key="library" screen="library">
           <LibraryScreen
             onOpenBook={(book) => push({ name: 'book-details', book })}
             onOpenHome={openHome}
@@ -221,7 +242,7 @@ function App() {
 
     default:
       return (
-        <ErrorBoundary key="home">
+        <ErrorBoundary key="home" screen="home">
           <HomeScreen
             onOpenBook={(book) => push({ name: 'book-details', book })}
             onOpenBiblioteca={openLibrary}

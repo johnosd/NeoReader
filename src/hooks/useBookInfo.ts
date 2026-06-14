@@ -8,6 +8,7 @@ import {
   YouTubeReviewsProvider,
 } from '../services/bookInfo'
 import { BookFileResolver } from '../services/BookFileResolver'
+import { createFlowId, getDiagnosticsNowMs, logError } from '../services/DiagnosticsLogger'
 import type { Book } from '../types/book'
 import type {
   BookInfoProviderAttemptDiagnostic,
@@ -48,6 +49,8 @@ export function useBookInfo({
     let cancelled = false
 
     async function loadBookInfo() {
+      const flowId = createFlowId('bookinfo-details')
+      const startedAt = getDiagnosticsNowMs()
       const providerAttempts: BookInfoProviderAttemptDiagnostic[] = []
       const recordDiagnostic = (attempt: BookInfoProviderAttemptDiagnostic) => {
         providerAttempts.push(attempt)
@@ -79,7 +82,7 @@ export function useBookInfo({
             new GoogleBooksProvider(),
             new OpenLibraryProvider(),
             new YouTubeReviewsProvider({ apiKey: youtubeApiKey }),
-          ], { onProviderAttempt: recordDiagnostic }).collect(file!, {
+          ], { onProviderAttempt: recordDiagnostic, flowId, screen: 'book-details' }).collect(file!, {
             lookupHints: {
               title: book.title,
               author: book.author,
@@ -90,7 +93,7 @@ export function useBookInfo({
         } else if (needsYoutubeReviews) {
           const collected = await new BookInfoService([
             new YouTubeReviewsProvider({ apiKey: youtubeApiKey }),
-          ], { onProviderAttempt: recordDiagnostic }).collect(file!, stored)
+          ], { onProviderAttempt: recordDiagnostic, flowId, screen: 'book-details' }).collect(file!, stored)
 
           if (collected.reviews) {
             nextInfo = await patchBookInfo(book.id!, {
@@ -110,6 +113,17 @@ export function useBookInfo({
         }
       } catch (error) {
         console.warn('Book info enrichment failed in details screen.', error)
+        logError('bookinfo.collect.failure', error, {
+          flowId,
+          screen: 'book-details',
+          status: 'failure',
+          durationMs: getDiagnosticsNowMs() - startedAt,
+          details: {
+            bookId: book.id,
+            providerAttempts: providerAttempts.length,
+            hasYoutubeKey: Boolean(youtubeApiKey),
+          },
+        })
         if (!cancelled) {
           setState({
             key: requestKey,

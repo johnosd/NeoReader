@@ -7,10 +7,12 @@ import { BookImportService } from '../services/BookImportService'
 import { IMPORT_IN_PROGRESS_MESSAGE } from '../services/ImportCoordinator'
 import { logImportDiagnostic } from '../services/ImportDiagnostics'
 import { selectNativeEpubFile } from '../services/NativeLibraryImportService'
+import { useI18n } from '../i18n'
 
 // NOTA: atualmente o FAB fica dentro do BottomNav; este componente é mantido
 // como alternativa autônoma (FAB solto no canto) caso seja reutilizado.
 export function AddBookButton() {
+  const { t } = useI18n()
   const inputRef = useRef<HTMLInputElement>(null)
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -31,7 +33,7 @@ export function AddBookButton() {
     try {
       await BookImportService.importEpub(file)
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Erro ao importar o arquivo'
+      const message = err instanceof Error ? err.message : t('home.importError')
       setError(message)
     } finally {
       setImporting(false)
@@ -59,7 +61,7 @@ export function AddBookButton() {
       if (nativeFile) await BookImportService.importNativeEpub(nativeFile)
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return
-      const message = err instanceof Error ? err.message : 'Erro ao importar o arquivo'
+      const message = err instanceof Error ? err.message : t('home.importError')
       setError(message)
     } finally {
       setImporting(false)
@@ -80,7 +82,7 @@ export function AddBookButton() {
       <button
         onClick={handleAddBook}
         disabled={importBusy}
-        aria-label="Adicionar livro"
+        aria-label={t('common.addBook')}
         className="fixed bottom-6 right-6 w-14 h-14 rounded-full flex items-center justify-center
           shadow-purple-glow active:scale-95 transition-transform duration-150 disabled:opacity-60 text-white"
         style={{

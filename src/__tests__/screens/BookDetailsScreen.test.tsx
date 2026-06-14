@@ -216,6 +216,11 @@ async function openVoiceSheet() {
 describe('BookDetailsScreen chapters', () => {
   beforeEach(() => {
     mocks.liveQueryIndex = 0
+    mocks.bookSettings = {
+      bookId: 1,
+      ttsProvider: 'speechify',
+      ttsRate: 1,
+    } as BookSettings
     mocks.progress = {
       bookId: 1,
       cfi: 'epubcfi(/6/4)',
@@ -709,11 +714,57 @@ describe('BookDetailsScreen chapters', () => {
       expect(mocks.collectBookInfo).toHaveBeenCalledTimes(2)
     })
   })
+
+  it('mostra banner quando provider premium selecionado nao tem key', async () => {
+    window.localStorage.clear()
+    mocks.bookSettings = {
+      bookId: 1,
+      ttsProvider: 'elevenlabs',
+      ttsRate: 1,
+    } as BookSettings
+
+    render(
+      <BookDetailsScreen
+        book={book}
+        onBack={vi.fn()}
+        onRead={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+
+    expect(await screen.findByText('Voz premium aguardando API key')).toBeTruthy()
+    expect(screen.getByText(/continua lendo com TTS nativo/)).toBeTruthy()
+  })
+
+  it('nao mostra banner quando provider premium selecionado tem key', async () => {
+    window.localStorage.clear()
+
+    render(
+      <BookDetailsScreen
+        book={book}
+        onBack={vi.fn()}
+        onRead={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+
+    expect(await screen.findByText('Ativo')).toBeTruthy()
+    expect(screen.queryByText('Voz premium aguardando API key')).toBeNull()
+  })
 })
 
 describe('BookDetailsScreen voice settings', () => {
   beforeEach(() => {
     mocks.liveQueryIndex = 0
+    mocks.bookSettings = {
+      bookId: 1,
+      ttsProvider: 'speechify',
+      ttsRate: 1,
+    } as BookSettings
     mocks.progress = null
     mocks.updateBookSettings.mockReset()
     mocks.getStoredBookInfo.mockReset()

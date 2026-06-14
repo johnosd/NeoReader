@@ -13,6 +13,9 @@ describe('WelcomeScreen', () => {
     screen.getByRole('heading', { name: 'Leia sem limites' })
 
     fireEvent.click(screen.getByRole('button', { name: 'Proximo' }))
+    screen.getByRole('heading', { name: 'Leia com vozes' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Proximo' }))
     screen.getByRole('heading', { name: 'Acompanhe seu progresso' })
 
     fireEvent.click(screen.getByRole('button', { name: /Comecar agora/ }))

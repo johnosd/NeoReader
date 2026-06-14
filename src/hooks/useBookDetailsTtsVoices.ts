@@ -6,6 +6,7 @@ import {
 } from '../services/TtsProviderRegistry'
 import type { AppSettings } from '../types/settings'
 import type { TtsProvider, TtsVoiceOption } from '../types/tts'
+import { useI18n } from '../i18n'
 
 const INITIAL_TTS_VOICE_COUNT = 12
 
@@ -18,6 +19,7 @@ export function useBookDetailsTtsVoices({
   appSettings,
   effectiveBookLanguage,
 }: UseBookDetailsTtsVoicesOptions) {
+  const { t } = useI18n()
   const [options, setOptions] = useState<TtsVoiceOption[]>([])
   const [showAll, setShowAll] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -30,18 +32,18 @@ export function useBookDetailsTtsVoices({
     try {
       if (!isTtsProviderConfigured(provider, appSettings)) {
         setOptions([])
-        setError(`Configure a API key da ${getTtsProviderLabel(provider)} nas Configuracoes gerais.`)
+        setError(t('bookDetails.tts.configureProviderKey', { provider: getTtsProviderLabel(provider) }))
         return
       }
 
       setOptions(await listTtsProviderCompatibleVoices(provider, effectiveBookLanguage, appSettings))
     } catch {
       setOptions([])
-      setError('Nao foi possivel carregar as vozes compativeis.')
+      setError(t('bookDetails.tts.compatibleVoicesError'))
     } finally {
       setLoading(false)
     }
-  }, [appSettings, effectiveBookLanguage])
+  }, [appSettings, effectiveBookLanguage, t])
 
   const filteredOptions = useMemo(() => {
     const normalizedSearch = search.trim().toLocaleLowerCase()

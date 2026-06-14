@@ -2,6 +2,7 @@ import { BookOpen, MoreVertical } from 'lucide-react'
 import type { BookWithProgress } from '../hooks/useLibraryGroups'
 import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
 import type { Book } from '../types/book'
+import { useI18n } from '../i18n'
 
 interface ProgressCardProps {
   book: BookWithProgress
@@ -10,6 +11,7 @@ interface ProgressCardProps {
 }
 
 export function ProgressCard({ book, onPress, onOpenOptions }: ProgressCardProps) {
+  const { t } = useI18n()
   const coverUrl = useBookCoverUrl(book.id)
 
   return (
@@ -54,14 +56,14 @@ export function ProgressCard({ book, onPress, onOpenOptions }: ProgressCardProps
         {/* Status row */}
         <div className="flex items-center justify-between mt-[1px]">
           <span className="text-[10px] font-semibold" style={{ color: '#a855f7' }}>
-            {book.percentage}% concluído
+            {t('progressCard.completed', { percent: book.percentage })}
           </span>
           {onOpenOptions && (
             <button
               onClick={(e) => { e.stopPropagation(); onOpenOptions(book) }}
               className="w-5 h-5 flex items-center justify-center rounded-full active:opacity-60 transition-opacity"
               style={{ background: 'rgba(255,255,255,0.06)' }}
-              aria-label="Opções"
+              aria-label={t('hero.action.options')}
             >
               <MoreVertical size={11} className="text-white/50" />
             </button>
