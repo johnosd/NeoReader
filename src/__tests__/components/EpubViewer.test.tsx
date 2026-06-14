@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, act } from '@testing-library/react'
 import { createRef } from 'react'
 import { EpubViewer, type EpubViewerHandle } from '@/components/reader/EpubViewer'
+import { logEvent } from '@/services/DiagnosticsLogger'
 import type { Book } from '@/types/book'
 import { failNextOpen, type FoliateViewMock } from '../setup'
 
@@ -14,6 +15,17 @@ vi.mock('@/db/translations', () => ({
   getCachedTranslation: vi.fn(),
   setCachedTranslation: vi.fn(),
 }))
+
+vi.mock('@/services/DiagnosticsLogger', () => ({
+  createFlowId: vi.fn((prefix: string) => `${prefix}-test-flow`),
+  logEvent: vi.fn(),
+}))
+
+const logEventMock = vi.mocked(logEvent)
+
+beforeEach(() => {
+  logEventMock.mockClear()
+})
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -329,6 +341,46 @@ describe('EpubViewer — seleção de texto', () => {
   it('tap em parágrafo chama onTranslate', () => {
     click(paraA)
     expect(onTranslate).toHaveBeenCalledOnce()
+    expect(logEventMock.mock.calls.map(([eventName]) => eventName)).toEqual([
+      'reader.selection.start',
+      'reader.contextMenu.open',
+      'reader.translation.tap',
+    ])
+    expect(logEventMock).toHaveBeenCalledWith('reader.selection.start', expect.objectContaining({
+      flowId: 'reader-translation-test-flow',
+      screen: 'reader',
+      status: 'start',
+      details: expect.objectContaining({
+        source: 'tap',
+        sectionIndex: 0,
+        paragraphIndex: 0,
+        textLength: expect.any(Number),
+      }),
+    }))
+    expect(logEventMock).toHaveBeenCalledWith('reader.contextMenu.open', expect.objectContaining({
+      flowId: 'reader-translation-test-flow',
+      screen: 'reader',
+      status: 'success',
+      details: expect.objectContaining({
+        source: 'tap',
+        sectionIndex: 0,
+        paragraphIndex: 0,
+        textLength: expect.any(Number),
+        translationId: expect.any(String),
+      }),
+    }))
+    expect(logEventMock).toHaveBeenCalledWith('reader.translation.tap', expect.objectContaining({
+      flowId: 'reader-translation-test-flow',
+      screen: 'reader',
+      status: 'start',
+      details: expect.objectContaining({
+        source: 'tap',
+        sectionIndex: 0,
+        paragraphIndex: 0,
+        textLength: expect.any(Number),
+        translationId: expect.any(String),
+      }),
+    }))
   })
 
   it('tap na lateral direita do texto abre o menu sem traduzir', () => {
@@ -338,6 +390,23 @@ describe('EpubViewer — seleção de texto', () => {
 
     expect(onCenterTap).toHaveBeenCalledOnce()
     expect(onTranslate).not.toHaveBeenCalled()
+  })
+
+  it('tap em paragrafo na zona superior seleciona o texto', async () => {
+    const onTranslate = vi.fn()
+    const onCenterTap = vi.fn()
+    const { foliateEl } = await renderViewer({ onTranslate, onCenterTap })
+    const fakeDoc = makeFakeDoc(['First visible paragraph.'])
+    const para = fakeDoc.querySelector('p') as HTMLElement
+    setViewportWidth(fakeDoc, 360)
+    setViewportHeight(fakeDoc, 720)
+    setElementRect(para, { left: 24, top: 32, right: 336, bottom: 120, width: 312, height: 88 })
+    loadSection(foliateEl, fakeDoc, 0)
+
+    clickAt(para, 180, 40)
+
+    expect(onCenterTap).not.toHaveBeenCalled()
+    expect(onTranslate).toHaveBeenCalledWith('First visible paragraph.')
   })
 
   it('tap no texto com chrome visivel fecha o chrome e ainda chama onTranslate', async () => {
@@ -386,7 +455,7 @@ describe('EpubViewer — seleção de texto', () => {
     setViewportHeight(fakeDoc, 720)
     loadSection(foliateEl, fakeDoc, 0)
 
-    clickAt(para, 180, 40)
+    clickAt(fakeDoc.body, 180, 40)
 
     expect(onCenterTap).toHaveBeenCalledOnce()
     expect(onTranslate).not.toHaveBeenCalled()
@@ -402,7 +471,7 @@ describe('EpubViewer — seleção de texto', () => {
     setViewportHeight(fakeDoc, 720)
     loadSection(foliateEl, fakeDoc, 0)
 
-    clickAt(para, 180, 40)
+    clickAt(fakeDoc.body, 180, 40)
 
     expect(onCenterTap).toHaveBeenCalledOnce()
     expect(onTranslate).not.toHaveBeenCalled()
@@ -1327,6 +1396,19 @@ describe('EpubViewer - bloco inline de traducao', () => {
     expect(block?.textContent).not.toContain('Traduzindo')
     expect(block?.textContent).not.toContain('Preparando a traducao...')
     expect(block?.textContent?.trim()).toBe('')
+    expect(logEventMock).toHaveBeenCalledWith('reader.translation.panel.open', expect.objectContaining({
+      flowId: 'reader-translation-test-flow',
+      screen: 'reader',
+      status: 'success',
+      details: expect.objectContaining({
+        source: 'tap',
+        sectionIndex: 1,
+        paragraphIndex: 0,
+        textLength: expect.any(Number),
+        state: 'loading',
+        translationId: expect.any(String),
+      }),
+    }))
 
     act(() => { viewerRef.current?.injectTranslation('Texto traduzido') })
 
@@ -1357,6 +1439,13 @@ describe('EpubViewer - bloco inline de traducao', () => {
 
     expect(onTranslate).toHaveBeenNthCalledWith(1, 'First paragraph.')
     expect(onTranslate).toHaveBeenNthCalledWith(2, 'Second paragraph.')
+    expect(logEventMock).toHaveBeenCalledWith('reader.translation.tap', expect.objectContaining({
+      details: expect.objectContaining({
+        source: 'next',
+        sectionIndex: 0,
+        paragraphIndex: 1,
+      }),
+    }))
     expect(paras[0]?.hasAttribute('data-nr-active')).toBe(false)
     expect(paras[1]?.hasAttribute('data-nr-active')).toBe(true)
     expect(paras[1]?.querySelector('.nr-hl-sentence')?.textContent).toBe('Second paragraph.')

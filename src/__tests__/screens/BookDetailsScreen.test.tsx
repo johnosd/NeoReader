@@ -280,7 +280,7 @@ describe('BookDetailsScreen chapters', () => {
     expect(tabLabels.slice(tabsStart, tabsStart + expectedTabs.length)).toEqual(expectedTabs)
   })
 
-  it('shows nested chapters and opens groups at the first navigable child', async () => {
+  it('starts chapter groups collapsed and opens groups at the first navigable child', async () => {
     const onRead = vi.fn()
 
     render(
@@ -293,8 +293,8 @@ describe('BookDetailsScreen chapters', () => {
     )
 
     await screen.findByText('Part I')
-    expect(await screen.findByText('Chapter 1')).toBeTruthy()
-    expect(screen.getByText('Agora')).toBeTruthy()
+    expect(screen.queryByText('Chapter 1')).toBeNull()
+    expect(screen.queryByText('Agora')).toBeNull()
 
     fireEvent.click(screen.getByText('Part I'))
 
@@ -317,13 +317,13 @@ describe('BookDetailsScreen chapters', () => {
     )
 
     await screen.findByText('Part I')
-    expect(screen.getByText('Chapter 1')).toBeTruthy()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Recolher' }))
     expect(screen.queryByText('Chapter 1')).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'Expandir' }))
     expect(screen.getByText('Chapter 1')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Recolher' }))
+    expect(screen.queryByText('Chapter 1')).toBeNull()
   })
 
   it('salva a fonte original do livro sem forcar override de fonte', async () => {

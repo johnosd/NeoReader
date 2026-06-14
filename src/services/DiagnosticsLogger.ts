@@ -112,6 +112,8 @@ export function installGlobalDiagnosticsHandlers(): () => void {
   const previousOnUnhandledRejection = window.onunhandledrejection
 
   window.onerror = (message, source, lineno, colno, error) => {
+    if (isBenignResizeObserverLoopError(message, error)) return true
+
     logError('app.error.unhandled', error ?? new Error(String(message)), {
       screen: 'window',
       status: 'failure',
@@ -130,6 +132,11 @@ export function installGlobalDiagnosticsHandlers(): () => void {
   }
 
   window.onunhandledrejection = (event) => {
+    if (isBenignResizeObserverLoopError(undefined, event.reason)) {
+      event.preventDefault()
+      return undefined
+    }
+
     logError('app.error.unhandled', event.reason, {
       screen: 'window',
       status: 'failure',
@@ -149,6 +156,19 @@ export function installGlobalDiagnosticsHandlers(): () => void {
     window.onunhandledrejection = previousOnUnhandledRejection
     globalHandlersInstalled = false
   }
+}
+
+function isBenignResizeObserverLoopError(message: unknown, error: unknown): boolean {
+  const messages = [
+    typeof message === 'string' ? message : undefined,
+    error instanceof Error ? error.message : undefined,
+    typeof error === 'string' ? error : undefined,
+  ].filter(Boolean)
+
+  return messages.some((entry) => (
+    entry === 'ResizeObserver loop completed with undelivered notifications.' ||
+    entry === 'ResizeObserver loop limit exceeded'
+  ))
 }
 
 function writeDiagnosticsEvent(

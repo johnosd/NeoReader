@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createFlowId,
+  installGlobalDiagnosticsHandlers,
   logEvent,
   safeDiagnosticsJson,
   sanitizeDiagnosticsDetails,
@@ -70,5 +71,45 @@ describe('DiagnosticsLogger', () => {
     expect(sanitized.audioBase64).toBe('[redacted:audiobase64]')
     expect(sanitized.payload).toBe('[redacted:payload]')
     expect(sanitized.textLength).toBe(sensitiveText.length)
+  })
+
+  it('suprime erros benignos de ResizeObserver no handler global', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const cleanup = installGlobalDiagnosticsHandlers()
+
+    try {
+      const result = window.onerror?.(
+        'ResizeObserver loop completed with undelivered notifications.',
+        'https://localhost/',
+        0,
+        0,
+        new Error('ResizeObserver loop completed with undelivered notifications.'),
+      )
+
+      expect(result).toBe(true)
+      expect(errorSpy).not.toHaveBeenCalled()
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('registra erros globais que nao sao ResizeObserver', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const cleanup = installGlobalDiagnosticsHandlers()
+
+    try {
+      window.onerror?.(
+        'Unexpected reader failure',
+        'https://localhost/assets/index.js',
+        12,
+        3,
+        new Error('Unexpected reader failure'),
+      )
+
+      const event = lastConsoleJson(errorSpy)
+      expect(event.eventName).toBe('app.error.unhandled')
+    } finally {
+      cleanup()
+    }
   })
 })

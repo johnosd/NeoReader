@@ -635,6 +635,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
                   currentLabel={progress?.sectionLabel}
                   onSelect={(href) => openReader(href)}
                   className="pb-4"
+                  defaultExpanded={false}
                 />
               )
             )}

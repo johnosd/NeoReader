@@ -10,6 +10,7 @@ import { areTocHrefDocumentSuffixesEqual, normalizeTocHref } from '../../utils/t
 import { clampPercentage, fractionToPercentage } from '../../utils/progress'
 import { splitParagraphIntoTtsChunks } from '../../utils/ttsChunking'
 import { BookFileResolver } from '../../services/BookFileResolver'
+import { createFlowId, logEvent } from '../../services/DiagnosticsLogger'
 import { useI18n } from '../../i18n'
 
 export type { FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from '../../types/settings'
@@ -77,6 +78,7 @@ const TRANSLATION_ICON = {
 } as const
 
 type TranslationAction = 'next' | 'speak' | 'bookmark' | 'save'
+type InlineTranslationSource = 'tap' | 'next'
 
 function splitParagraphIntoTranslationUnits(text: string): Array<{ sentence: string; offset: number }> {
   const units = [...text.matchAll(/[^.!?。！？…]+(?:[.!?。！？…]+["'”’»)]*|$)/g)]
@@ -1066,6 +1068,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const activeSourceTextRef = useRef<string>('')
     const activeTranslatedTextRef = useRef<string>('')
     const activeTranslationIdSeqRef = useRef(0)
+    const activeTranslationFlowIdRef = useRef<string | null>(null)
+    const activeTranslationSourceRef = useRef<InlineTranslationSource>('tap')
     // Lock: bloqueia nova seleção enquanto a tradução HTTP anterior ainda está em voo.
     // Evita que dois parágrafos fiquem simultaneamente marcados com data-nr-active.
     const translationInProgressRef = useRef(false)
@@ -1155,6 +1159,25 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         if (content.doc === doc) return index
       }
       return null
+    }
+
+    function getInlineTranslationLogDetails(
+      para: Element,
+      sourceText: string,
+      source: InlineTranslationSource,
+      extra: Record<string, unknown> = {},
+    ): Record<string, unknown> {
+      const sectionIndex = getSectionIndexForDocument(para.ownerDocument) ?? currentSectionIdxRef.current
+      const sectionContent = getLoadedSection(sectionIndex)
+      const paragraphIndex = sectionContent?.paragraphs.indexOf(para) ?? -1
+
+      return {
+        source,
+        sectionIndex,
+        paragraphIndex: paragraphIndex >= 0 ? paragraphIndex : undefined,
+        textLength: sourceText.trim().length,
+        ...extra,
+      }
     }
 
     function getSectionHref(index: number): string | undefined {
@@ -1329,6 +1352,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         activeSourceTextRef.current = ''
         activeTranslatedTextRef.current = ''
         activeTranslationParaRef.current = null
+        activeTranslationFlowIdRef.current = null
+        activeTranslationSourceRef.current = 'tap'
       }
     }
 
@@ -1339,6 +1364,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       if (!para) {
         activeSourceTextRef.current = ''
         activeTranslatedTextRef.current = ''
+        activeTranslationFlowIdRef.current = null
+        activeTranslationSourceRef.current = 'tap'
         return
       }
 
@@ -1351,36 +1378,72 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       return splitParagraphIntoTranslationUnits(text)
     }
 
-    function selectTextForInlineTranslation(para: Element, sourceText: string): boolean {
+    function selectTextForInlineTranslation(
+      para: Element,
+      sourceText: string,
+      source: InlineTranslationSource = 'tap',
+    ): boolean {
       sourceText = sourceText.trim()
       if (!sourceText) return false
 
       const prevPara = activeTranslationParaRef.current
+      const hadPreviousSelection = Boolean(prevPara && prevPara !== para)
+      const flowId = createFlowId('reader-translation')
+      const baseLogDetails = getInlineTranslationLogDetails(para, sourceText, source, {
+        hadPreviousSelection,
+      })
+
+      logEvent('reader.selection.start', {
+        flowId,
+        screen: 'reader',
+        status: 'start',
+        details: baseLogDetails,
+      })
+
       if (prevPara && prevPara !== para) {
         clearTranslationForParagraph(prevPara)
       }
 
-      getOrCreateTranslationId(para)
+      const translationId = getOrCreateTranslationId(para)
+      const translationLogDetails = {
+        ...baseLogDetails,
+        translationId,
+      }
       para.setAttribute('data-nr-active', '1')
       highlightSentenceInParagraph(para, sourceText)
       activeTranslationParaRef.current = para
       activeSourceTextRef.current = sourceText
       activeTranslatedTextRef.current = ''
+      activeTranslationFlowIdRef.current = flowId
+      activeTranslationSourceRef.current = source
       translationInProgressRef.current = false
+
+      logEvent('reader.contextMenu.open', {
+        flowId,
+        screen: 'reader',
+        status: 'success',
+        details: translationLogDetails,
+      })
+      logEvent('reader.translation.tap', {
+        flowId,
+        screen: 'reader',
+        status: 'start',
+        details: translationLogDetails,
+      })
       onTranslateRef.current(sourceText)
       return true
     }
 
-    function selectFirstTranslationUnitInParagraph(para: Element): boolean {
+    function selectFirstTranslationUnitInParagraph(para: Element, source: InlineTranslationSource = 'tap'): boolean {
       const firstUnit = getTranslationUnitsForParagraph(para)[0]
       const sourceText = firstUnit?.sentence ?? para.textContent?.trim() ?? ''
-      return selectTextForInlineTranslation(para, sourceText)
+      return selectTextForInlineTranslation(para, sourceText, source)
     }
 
     function selectFirstParagraphForPendingInlineNext(doc: Document): boolean {
       const firstPara = getParagraphsFromDocument(doc)[0]
       if (!firstPara) return false
-      return selectFirstTranslationUnitInParagraph(firstPara)
+      return selectFirstTranslationUnitInParagraph(firstPara, 'next')
     }
 
     function translateNextParagraphFromActive(): void {
@@ -1395,12 +1458,12 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         const units = getTranslationUnitsForParagraph(activePara)
         const currentUnitIndex = units.findIndex((unit) => unit.sentence.trim() === activeSourceText)
         const nextUnit = currentUnitIndex >= 0 ? units[currentUnitIndex + 1] : null
-        if (nextUnit && selectTextForInlineTranslation(activePara, nextUnit.sentence)) return
+        if (nextUnit && selectTextForInlineTranslation(activePara, nextUnit.sentence, 'next')) return
 
         const paragraphs = getParagraphsFromDocument(doc)
         const currentIndex = paragraphs.indexOf(activePara)
         const nextPara = currentIndex >= 0 ? paragraphs[currentIndex + 1] : null
-        if (nextPara && selectFirstTranslationUnitInParagraph(nextPara)) return
+        if (nextPara && selectFirstTranslationUnitInParagraph(nextPara, 'next')) return
       }
 
       pendingInlineNextTranslationRef.current = true
@@ -2097,6 +2160,15 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             </div>
           </div>`
         para.after(block)
+        logEvent('reader.translation.panel.open', {
+          flowId: activeTranslationFlowIdRef.current ?? undefined,
+          screen: 'reader',
+          status: 'success',
+          details: getInlineTranslationLogDetails(para, activeSourceTextRef.current, activeTranslationSourceRef.current, {
+            state: 'loading',
+            translationId,
+          }),
+        })
 
         // Se há texto após a frase destacada, move-o para um <p> temporário
         // abaixo do bloco — assim o bloco aparece logo após a frase, não ao
@@ -2185,6 +2257,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       activeTranslationParaRef.current = null
       activeSourceTextRef.current = ''
       activeTranslatedTextRef.current = ''
+      activeTranslationFlowIdRef.current = null
+      activeTranslationSourceRef.current = 'tap'
       translationInProgressRef.current = false
       pendingInlineNextTranslationRef.current = false
       initialInteractiveReadyRef.current = false
@@ -2334,17 +2408,18 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
             if (isTranslationBlockTap(target, ownerDocument, ev.clientX, ev.clientY)) return
 
-            if (isVisibleChromeTapZone(ev, ownerDocument) || isRightChromeTapZone(ev, ownerDocument)) {
-              onCenterTapRef.current()
-              return
-            }
-
             const targetSectionIndex = getSectionIndexForDocument(target.ownerDocument)
             if (targetSectionIndex != null) {
               const activeSection = activateSection(targetSectionIndex)
               if (activeSection?.doc) setupScrollTracking(activeSection.doc)
             }
             const para = getTapReadableBlock(target, ownerDocument, ev.clientX, ev.clientY)
+            const tapHitsReadableText = para ? isPointInsideElement(para, ev.clientX, ev.clientY) : false
+
+            if (isRightChromeTapZone(ev, ownerDocument) || (!tapHitsReadableText && isVisibleChromeTapZone(ev, ownerDocument))) {
+              onCenterTapRef.current()
+              return
+            }
 
             if (para?.hasAttribute('data-nr-bookmark') && para.dataset.nrBookmarkId) {
               const rect = para.getBoundingClientRect()
@@ -2390,22 +2465,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             }
 
             const sourceText = getSentenceFromClick(ev, para)
-
-            // Limpa parágrafo anterior se o tap foi em um parágrafo diferente
-            const prevPara = activeTranslationParaRef.current
-            if (prevPara && prevPara !== para) {
-              clearTranslationForParagraph(prevPara)
-            }
-
-            // Toggle on: detecta a frase clicada, destaca no iframe e emite para o ReaderScreen.
-            // O ReaderScreen injeta o bloco de tradução diretamente no iframe via showTranslationLoading/injectTranslation.
-            getOrCreateTranslationId(para)
-            para.setAttribute('data-nr-active', '1')
-            highlightSentenceInParagraph(para, sourceText)
-            activeTranslationParaRef.current = para
-            activeSourceTextRef.current = sourceText
-            activeTranslatedTextRef.current = ''
-            onTranslateRef.current(sourceText)
+            selectTextForInlineTranslation(para, sourceText, 'tap')
           })
         })
 
@@ -2499,6 +2559,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         activeTranslationParaRef.current = null
         activeSourceTextRef.current = ''
         activeTranslatedTextRef.current = ''
+        activeTranslationFlowIdRef.current = null
+        activeTranslationSourceRef.current = 'tap'
         translationInProgressRef.current = false
         pendingInlineNextTranslationRef.current = false
         initialInteractiveReadyRef.current = false

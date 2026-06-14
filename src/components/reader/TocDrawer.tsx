@@ -24,6 +24,7 @@ interface TocNavigatorProps {
   currentLabel?: string | null
   onSelect: (href: string) => void
   className?: string
+  defaultExpanded?: boolean
 }
 
 const EMPTY_TOGGLED_PATHS = new Set<string>()
@@ -69,7 +70,14 @@ export function TocDrawer({ open, toc, currentHref, currentLabel, onSelect, onCl
   )
 }
 
-export function TocNavigator({ toc, currentHref, currentLabel, onSelect, className }: TocNavigatorProps) {
+export function TocNavigator({
+  toc,
+  currentHref,
+  currentLabel,
+  onSelect,
+  className,
+  defaultExpanded: defaultExpandedEnabled = true,
+}: TocNavigatorProps) {
   const { t } = useI18n()
   const [toggledState, setToggledState] = useState<{
     toc: TocItem[]
@@ -77,7 +85,10 @@ export function TocNavigator({ toc, currentHref, currentLabel, onSelect, classNa
     paths: Set<string>
   }>({ toc, currentPath: null, paths: EMPTY_TOGGLED_PATHS })
   const currentPath = findCurrentTocPath(toc, currentHref, currentLabel)
-  const defaultExpanded = useMemo(() => getDefaultExpandedPaths(toc, currentPath), [toc, currentPath])
+  const defaultExpanded = useMemo(
+    () => (defaultExpandedEnabled ? getDefaultExpandedPaths(toc, currentPath) : EMPTY_TOGGLED_PATHS),
+    [defaultExpandedEnabled, toc, currentPath],
+  )
   const toggledPaths = toggledState.toc === toc && toggledState.currentPath === currentPath
     ? toggledState.paths
     : EMPTY_TOGGLED_PATHS
