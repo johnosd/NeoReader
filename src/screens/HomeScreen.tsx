@@ -31,9 +31,14 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
   const [optionsBook, setOptionsBook] = useState<Book | null>(null)
   const [importing, setImporting] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
+  const [restoredBookmarks, setRestoredBookmarks] = useState<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const importActive = useIsImportActive()
   const importBusy = importing || importActive
+
+  function handleBookmarksRestored(count: number) {
+    if (count > 0) setRestoredBookmarks(count)
+  }
 
   useCapacitorBackButton(() => {
     if (optionsBook) { setOptionsBook(null); return }
@@ -47,8 +52,13 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
       logImportDiagnostic('ui', 'home-pending-native-file-start', { fileName: nativeFile.name, fileSize: nativeFile.size })
       setImporting(true)
       setImportError(null)
+      setRestoredBookmarks(null)
       try {
-        await BookImportService.importNativeEpub(nativeFile)
+        await BookImportService.importNativeEpub(nativeFile, {
+          onBookmarksRestored: (count) => {
+            if (active) handleBookmarksRestored(count)
+          },
+        })
       } catch (err) {
         setImportError(err instanceof Error ? err.message : t('home.importError'))
       } finally {
@@ -70,8 +80,9 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
     logImportDiagnostic('ui', 'home-web-file-import-start', { fileName: file.name, fileSize: file.size })
     setImporting(true)
     setImportError(null)
+    setRestoredBookmarks(null)
     try {
-      await BookImportService.importEpub(file)
+      await BookImportService.importEpub(file, { onBookmarksRestored: handleBookmarksRestored })
     } catch (err) {
       setImportError(err instanceof Error ? err.message : t('home.importError'))
     } finally {
@@ -95,9 +106,10 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
     setImporting(true)
     logImportDiagnostic('ui', 'home-native-file-import-start')
     setImportError(null)
+    setRestoredBookmarks(null)
     try {
       const nativeFile = await selectNativeEpubFile()
-      if (nativeFile) await BookImportService.importNativeEpub(nativeFile)
+      if (nativeFile) await BookImportService.importNativeEpub(nativeFile, { onBookmarksRestored: handleBookmarksRestored })
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return
       setImportError(err instanceof Error ? err.message : t('home.importError'))
@@ -114,6 +126,11 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
       <input ref={fileInputRef} type="file" accept=".epub" className="hidden" onChange={handleFileChange} />
 
       {importError && <Toast tone="error" onDismiss={() => setImportError(null)}>{importError}</Toast>}
+      {restoredBookmarks !== null && (
+        <Toast tone="success" onDismiss={() => setRestoredBookmarks(null)}>
+          {t('library.import.bookmarksRestored', { count: restoredBookmarks })}
+        </Toast>
+      )}
 
       {/* Normal (block) header — shown when no hero */}
       {!showFloatingHeader && (

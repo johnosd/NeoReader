@@ -29,7 +29,7 @@ const BENEFITS: BenefitItem[] = [
     icon: <CloudUpload size={18} className="text-purple-light" />,
     titleKey: 'paywall.benefit.sync.title',
     descriptionKey: 'paywall.benefit.sync.description',
-    available: false,
+    available: true,
   },
   {
     icon: <BookOpen size={18} className="text-purple-light" />,

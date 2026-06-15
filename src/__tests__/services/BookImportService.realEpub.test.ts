@@ -30,6 +30,14 @@ vi.mock('@/services/NativeLibraryImportService', async (importOriginal) => {
   }
 })
 
+vi.mock('@/services/BookmarkDriveRestoreService', () => ({
+  restoreBookBookmarksFromDrive: vi.fn(async () => ({
+    restoredCount: 0,
+    mergedCount: 0,
+    remoteBookmarkCount: 0,
+  })),
+}))
+
 const DEBUG_BOOKS_DIR = join(process.cwd(), 'debug-books')
 const shouldRunRealBookImport = process.env.NEOREADER_RUN_DEBUG_EPUBS === '1'
   || process.argv.some((arg) => arg.replace(/\\/g, '/').includes('BookImportService.realEpub.test.ts'))

@@ -66,12 +66,17 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
   const [importFlow, setImportFlow] = useState<ImportFlowState>({ step: 'closed' })
   const [importSummary, setImportSummary] = useState<ImportSummary | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
+  const [restoredBookmarks, setRestoredBookmarks] = useState<number | null>(null)
   const [importProgress, setImportProgress] = useState<ImportProgress | null>(null)
   const [importing, setImporting] = useState(false)
   const folderInputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const importActive = useIsImportActive()
   const importBusy = importing || importActive
+
+  function handleBookmarksRestored(count: number) {
+    if (count > 0) setRestoredBookmarks(count)
+  }
 
   const openNativeFolderResult = useCallback((result: { folderName: string; folderUri: string; files: NativeFolderFile[] }) => {
     setImportFlow({
@@ -110,8 +115,13 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
       logImportDiagnostic('ui', 'library-pending-native-file-start', { fileName: nativeFile.name, fileSize: nativeFile.size })
       setImporting(true)
       setImportError(null)
+      setRestoredBookmarks(null)
       try {
-        await BookImportService.importNativeEpub(nativeFile)
+        await BookImportService.importNativeEpub(nativeFile, {
+          onBookmarksRestored: (count) => {
+            if (active) handleBookmarksRestored(count)
+          },
+        })
       } catch (error) {
         setImportError(error instanceof Error ? error.message : t('library.import.errors.files'))
       } finally {
@@ -238,9 +248,10 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
     logImportDiagnostic('ui', 'library-native-file-import-start')
     setImporting(true)
     setImportError(null)
+    setRestoredBookmarks(null)
     try {
       const nativeFile = await selectNativeEpubFile()
-      if (nativeFile) await BookImportService.importNativeEpub(nativeFile)
+      if (nativeFile) await BookImportService.importNativeEpub(nativeFile, { onBookmarksRestored: handleBookmarksRestored })
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return
       setImportError(error instanceof Error ? error.message : t('library.import.errors.files'))
@@ -351,6 +362,11 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
       <input ref={fileInputRef} type="file" multiple accept=".epub,application/epub+zip" className="hidden" onChange={handleFileChange} />
 
       {importError && <Toast tone="error" onDismiss={() => setImportError(null)}>{importError}</Toast>}
+      {restoredBookmarks !== null && (
+        <Toast tone="success" onDismiss={() => setRestoredBookmarks(null)}>
+          {t('library.import.bookmarksRestored', { count: restoredBookmarks })}
+        </Toast>
+      )}
       {importSummary && (
         <Toast tone={importSummary.errors > 0 ? 'warning' : 'success'} onDismiss={() => setImportSummary(null)}>
           {formatImportSummary(importSummary, t)}
@@ -1121,14 +1137,23 @@ function formatImportSummary(summary: ImportSummary, t: TranslateFn): string {
     duplicate: summary.duplicate,
     unsupported: summary.unsupported,
     errors: summary.errors,
+    count: summary.restoredBookmarks,
   }
+  let message: string
+
   if (summary.errors > 0) {
-    return t('library.import.summary.warnings', params)
+    message = t('library.import.summary.warnings', params)
+  } else if (summary.duplicate > 0) {
+    message = t('library.import.summary.duplicates', params)
+  } else {
+    message = t('library.import.summary.success', params)
   }
-  if (summary.duplicate > 0) {
-    return t('library.import.summary.duplicates', params)
+
+  if (summary.restoredBookmarks > 0) {
+    return `${message} ${t('library.import.bookmarksRestored', { count: summary.restoredBookmarks })}`
   }
-  return t('library.import.summary.success', params)
+
+  return message
 }
 
 function formatTagDeleteMessage(usageCount: number, t: TranslateFn): string {

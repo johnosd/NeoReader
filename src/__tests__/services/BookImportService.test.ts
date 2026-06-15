@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   deleteLocalBookFile: vi.fn(),
   transaction: vi.fn(),
   booksToArray: vi.fn(),
+  restoreBookBookmarksFromDrive: vi.fn(),
 }))
 
 vi.mock('@/db/books', () => ({
@@ -61,6 +62,10 @@ vi.mock('@/services/NativeLibraryImportService', () => ({
   deleteLocalBookFile: mocks.deleteLocalBookFile,
 }))
 
+vi.mock('@/services/BookmarkDriveRestoreService', () => ({
+  restoreBookBookmarksFromDrive: mocks.restoreBookBookmarksFromDrive,
+}))
+
 import { BookImportService } from '@/services/BookImportService'
 
 describe('BookImportService', () => {
@@ -77,9 +82,15 @@ describe('BookImportService', () => {
     mocks.deleteLocalBookFile.mockReset()
     mocks.transaction.mockReset()
     mocks.booksToArray.mockReset()
+    mocks.restoreBookBookmarksFromDrive.mockReset()
     mocks.booksToArray.mockResolvedValue([])
     mocks.saveSourceFolder.mockResolvedValue(3)
     mocks.deleteLocalBookFile.mockResolvedValue(true)
+    mocks.restoreBookBookmarksFromDrive.mockResolvedValue({
+      restoredCount: 0,
+      mergedCount: 0,
+      remoteBookmarkCount: 0,
+    })
     mocks.transaction.mockImplementation((...args: unknown[]) => {
       const scope = args.at(-1)
       if (typeof scope !== 'function') throw new Error('transaction scope ausente')
@@ -135,6 +146,29 @@ describe('BookImportService', () => {
         title: 'Imported Book',
       }),
     }))
+    expect(mocks.restoreBookBookmarksFromDrive).toHaveBeenCalledWith(42)
+  })
+
+  it('notifica a UI quando bookmarks sao restaurados depois da importacao individual', async () => {
+    const file = new File(['epub'], 'book.epub', { type: 'application/epub+zip' })
+    const onBookmarksRestored = vi.fn()
+
+    mocks.parseMetadata.mockResolvedValue({
+      title: 'Imported Book',
+      author: 'Imported Author',
+      coverBlob: null,
+    })
+    mocks.addBook.mockResolvedValue(42)
+    mocks.restoreBookBookmarksFromDrive.mockResolvedValue({
+      restoredCount: 3,
+      mergedCount: 3,
+      remoteBookmarkCount: 3,
+    })
+
+    await expect(BookImportService.importEpub(file, { onBookmarksRestored })).resolves.toBe(42)
+
+    expect(mocks.restoreBookBookmarksFromDrive).toHaveBeenCalledWith(42)
+    expect(onBookmarksRestored).toHaveBeenCalledWith(3)
   })
 
   it('não cria registro de capa quando o EPUB não expõe nenhuma imagem de capa', async () => {
@@ -426,6 +460,7 @@ describe('BookImportService', () => {
       duplicate: 0,
       unsupported: 0,
       errors: 0,
+      restoredBookmarks: 0,
     })
     expect(mocks.addBook).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Native Batch Book',
@@ -497,6 +532,7 @@ describe('BookImportService', () => {
       duplicate: 1,
       unsupported: 0,
       errors: 0,
+      restoredBookmarks: 0,
     })
     expect(mocks.booksToArray).toHaveBeenCalledTimes(1)
     expect(mocks.addBook).toHaveBeenCalledTimes(1)
@@ -608,6 +644,7 @@ describe('BookImportService', () => {
       duplicate: 0,
       unsupported: 0,
       errors: 1,
+      restoredBookmarks: 0,
     })
     expect(mocks.addBook).toHaveBeenCalledTimes(1)
   })
@@ -637,6 +674,7 @@ describe('BookImportService', () => {
       duplicate: 0,
       unsupported: 1,
       errors: 0,
+      restoredBookmarks: 0,
     })
     expect(mocks.parseMetadata).not.toHaveBeenCalled()
     expect(mocks.addBook).not.toHaveBeenCalled()
