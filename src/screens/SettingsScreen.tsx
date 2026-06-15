@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { ArrowLeft, Check, ChevronDown, ChevronRight, Eye, EyeOff, Globe, Info, KeyRound, Mic2, Palette, PlayCircle, Sparkles, Volume2 } from 'lucide-react'
+import { ArrowLeft, Check, ChevronDown, ChevronRight, CloudUpload, Eye, EyeOff, Globe, Info, KeyRound, Mic2, Palette, PlayCircle, Sparkles, Volume2 } from 'lucide-react'
 import { Badge, BottomSheet, Input, ListItem, Spinner } from '../components/ui'
 import { IntegrationEducationCard } from '../components/IntegrationEducationCard'
 import { IntegrationHelpBanner } from '../components/IntegrationHelpBanner'
 import { useEntitlements, useRefreshEntitlementsOnFocus } from '../hooks/useEntitlements'
+import { useBookmarkDriveSyncStatus } from '../hooks/useBookmarkDriveSyncStatus'
 import {
   ReaderFontControl,
   ReaderFontSizeControl,
@@ -149,6 +150,7 @@ function getEducationStatus(state: KeyValidationState, t: TranslateFn): {
 
 export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
   const entitlements = useEntitlements()
+  const bookmarkSyncStatus = useBookmarkDriveSyncStatus(entitlements.isPro)
   useRefreshEntitlementsOnFocus()
   const [settings, setSettings] = useState<UserSettings | null>(null)
   const [showTtsKeys, setShowTtsKeys] = useState<Record<PremiumTtsProvider, boolean>>(EMPTY_TTS_KEY_VISIBILITY)
@@ -280,6 +282,7 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
   const readerStyleMode = !settings.readerDefaults.overrideBookFont && !settings.readerDefaults.overrideBookColors
     ? 'original'
     : 'comfortable'
+  const bookmarkSyncMeta = getBookmarkSyncMeta(bookmarkSyncStatus.code, t)
 
   function getTtsValidationHint(provider: PremiumTtsProvider) {
     const state = ttsValidation[provider]
@@ -374,6 +377,24 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
               meta={currentAppLocale}
               trailing={<ChevronRight size={18} />}
               onClick={() => setAppLangSheetOpen(true)}
+              divider={false}
+            />
+          </SettingsGroup>
+        </SettingsSection>
+
+        <SettingsSection
+          icon={<CloudUpload size={17} />}
+          label={t('settings.bookmarkSync.sectionLabel')}
+          description={t('settings.bookmarkSync.sectionDescription')}
+        >
+          <SettingsGroup>
+            <ListItem
+              leading={<CloudUpload size={20} />}
+              title={t('settings.bookmarkSync.title')}
+              meta={bookmarkSyncMeta.description}
+              trailing={(
+                <Badge tone={bookmarkSyncMeta.tone}>{bookmarkSyncMeta.label}</Badge>
+              )}
               divider={false}
             />
           </SettingsGroup>
@@ -684,6 +705,42 @@ function getPlanMeta(
     return t('settings.plan.lifetime')
   }
   return t('settings.plan.metaComingSoon')
+}
+
+function getBookmarkSyncMeta(
+  code: ReturnType<typeof useBookmarkDriveSyncStatus>['code'],
+  t: TranslateFn,
+): {
+  label: string
+  description: string
+  tone: 'success' | 'warning' | 'error' | 'purple' | 'neutral'
+} {
+  if (code === 'connected') {
+    return {
+      label: t('settings.bookmarkSync.status.connected'),
+      description: t('settings.bookmarkSync.description.connected'),
+      tone: 'success',
+    }
+  }
+  if (code === 'permission-error') {
+    return {
+      label: t('settings.bookmarkSync.status.permissionError'),
+      description: t('settings.bookmarkSync.description.permissionError'),
+      tone: 'error',
+    }
+  }
+  if (code === 'pro-required') {
+    return {
+      label: t('settings.bookmarkSync.status.proRequired'),
+      description: t('settings.bookmarkSync.description.proRequired'),
+      tone: 'purple',
+    }
+  }
+  return {
+    label: t('settings.bookmarkSync.status.pendingOffline'),
+    description: t('settings.bookmarkSync.description.pendingOffline'),
+    tone: 'warning',
+  }
 }
 
 function SettingsSection({

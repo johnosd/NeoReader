@@ -16,8 +16,13 @@ export function AddBookButton() {
   const inputRef = useRef<HTMLInputElement>(null)
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [restoredBookmarks, setRestoredBookmarks] = useState<number | null>(null)
   const importActive = useIsImportActive()
   const importBusy = importing || importActive
+
+  function handleBookmarksRestored(count: number) {
+    if (count > 0) setRestoredBookmarks(count)
+  }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -30,8 +35,9 @@ export function AddBookButton() {
     logImportDiagnostic('ui', 'add-book-web-file-import-start', { fileName: file.name, fileSize: file.size })
     setImporting(true)
     setError(null)
+    setRestoredBookmarks(null)
     try {
-      await BookImportService.importEpub(file)
+      await BookImportService.importEpub(file, { onBookmarksRestored: handleBookmarksRestored })
     } catch (err) {
       const message = err instanceof Error ? err.message : t('home.importError')
       setError(message)
@@ -56,9 +62,10 @@ export function AddBookButton() {
     setImporting(true)
     logImportDiagnostic('ui', 'add-book-native-file-import-start')
     setError(null)
+    setRestoredBookmarks(null)
     try {
       const nativeFile = await selectNativeEpubFile()
-      if (nativeFile) await BookImportService.importNativeEpub(nativeFile)
+      if (nativeFile) await BookImportService.importNativeEpub(nativeFile, { onBookmarksRestored: handleBookmarksRestored })
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return
       const message = err instanceof Error ? err.message : t('home.importError')
@@ -97,6 +104,11 @@ export function AddBookButton() {
       </button>
 
       {error && <Toast tone="error" onDismiss={() => setError(null)}>{error}</Toast>}
+      {restoredBookmarks !== null && (
+        <Toast tone="success" onDismiss={() => setRestoredBookmarks(null)}>
+          {t('library.import.bookmarksRestored', { count: restoredBookmarks })}
+        </Toast>
+      )}
     </>
   )
 }

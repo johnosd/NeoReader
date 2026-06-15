@@ -23,6 +23,7 @@ const REQUIRED_CONFIG_KEYS = [
   'VITE_FIREBASE_PROJECT_ID',
   'VITE_FIREBASE_APP_ID',
 ] as const
+export const GOOGLE_DRIVE_APPDATA_SCOPE = 'https://www.googleapis.com/auth/drive.appdata'
 
 class FirebaseAuthConfigError extends Error {
   constructor() {
@@ -33,6 +34,7 @@ class FirebaseAuthConfigError extends Error {
 
 let authInstance: Auth | null | undefined
 let persistenceReady: Promise<void> | null = null
+let googleDriveAccessToken: string | null = null
 
 function isNativeRuntime() {
   return Capacitor.isNativePlatform()
@@ -88,6 +90,14 @@ function ensureConfiguredAuth(): Auth {
   const auth = getConfiguredAuth()
   if (!auth) throw new FirebaseAuthConfigError()
   return auth
+}
+
+function rememberGoogleDriveAccessToken(accessToken?: string | null) {
+  googleDriveAccessToken = accessToken?.trim() || null
+}
+
+export function getGoogleDriveAccessToken(): string | null {
+  return googleDriveAccessToken
 }
 
 async function ensureLocalPersistence(auth: Auth) {
@@ -161,12 +171,20 @@ export async function consumeGoogleRedirectResult() {
   if (!auth) return
 
   await ensureLocalPersistence(auth)
-  await getRedirectResult(auth)
+  const result = await getRedirectResult(auth)
+  if (result) {
+    rememberGoogleDriveAccessToken(
+      GoogleAuthProvider.credentialFromResult(result)?.accessToken,
+    )
+  }
 }
 
 export async function signInWithGoogleRedirect(): Promise<AuthUser | null> {
   if (isNativeRuntime()) {
-    const result = await FirebaseAuthentication.signInWithGoogle()
+    const result = await FirebaseAuthentication.signInWithGoogle({
+      scopes: [GOOGLE_DRIVE_APPDATA_SCOPE],
+    })
+    rememberGoogleDriveAccessToken(result.credential?.accessToken)
     if (result.user) return toNativeAuthUser(result.user)
 
     const currentUser = await FirebaseAuthentication.getCurrentUser()
@@ -178,9 +196,13 @@ export async function signInWithGoogleRedirect(): Promise<AuthUser | null> {
 
   const provider = new GoogleAuthProvider()
   provider.setCustomParameters({ prompt: 'select_account' })
+  provider.addScope(GOOGLE_DRIVE_APPDATA_SCOPE)
 
   if (shouldUsePopupSignIn()) {
     const result = await signInWithPopup(auth, provider)
+    rememberGoogleDriveAccessToken(
+      GoogleAuthProvider.credentialFromResult(result)?.accessToken,
+    )
     return result.user ? toAuthUser(result.user) : null
   }
 
@@ -189,6 +211,8 @@ export async function signInWithGoogleRedirect(): Promise<AuthUser | null> {
 }
 
 export async function signOut() {
+  rememberGoogleDriveAccessToken(null)
+
   if (isNativeRuntime()) {
     await FirebaseAuthentication.signOut()
     return

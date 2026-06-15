@@ -101,6 +101,9 @@ export interface Bookmark {
   percentage: number  // para exibição na lista
   snippet?: string       // trecho inicial do ponto salvo (max 150 chars) para contexto na lista
   color?: string         // 'indigo' | 'emerald' | 'amber' | 'rose'
+  syncKey?: string       // stable cloud key derived from normalized CFI
+  syncedAt?: Date | null
+  syncError?: string | null
   updatedAt?: Date       // ausente em registros antigos — fallback para createdAt
   deletedAt?: Date | null // soft delete: bookmark removido, mas preservado para restore/futuro sync
   // Campos legados do fluxo antigo — mantidos apenas para compatibilidade com dados existentes

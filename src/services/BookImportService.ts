@@ -25,6 +25,7 @@ import {
   runExclusiveImport,
   subscribeImportActivity,
 } from './ImportCoordinator'
+import { restoreBookBookmarksFromDrive } from './BookmarkDriveRestoreService'
 import type { Book, BookStorageMode, SourceFolder } from '../types/book'
 import type { BookIdentifier, ResolvedBookInfo } from '../types/bookInfo'
 
@@ -54,6 +55,7 @@ export interface ImportSummary {
   duplicate: number
   unsupported: number
   errors: number
+  restoredBookmarks: number
 }
 
 export interface ImportProgress {
@@ -66,6 +68,10 @@ export interface ImportProgress {
   duplicate: number
   unsupported: number
   errors: number
+}
+
+export interface ImportBookOptions {
+  onBookmarksRestored?: (count: number) => void
 }
 
 interface ImportSingleEpubOptions {
@@ -106,12 +112,12 @@ const EPUB_HASH_TIMEOUT_MS = 2 * 60_000
 const EPUB_RECORD_SAVE_TIMEOUT_MS = 60_000
 
 export class BookImportService {
-  static async importEpub(file: File): Promise<number> {
-    return runExclusiveImport('web', file.name, (signal) => this.importEpubUnlocked(file, signal))
+  static async importEpub(file: File, options: ImportBookOptions = {}): Promise<number> {
+    return runExclusiveImport('web', file.name, (signal) => this.importEpubUnlocked(file, signal, options))
   }
 
-  static async importNativeEpub(nativeFile: NativeFolderFile): Promise<number> {
-    return runExclusiveImport('native-single', nativeFile.name, (signal) => this.importNativeEpubUnlocked(nativeFile, signal))
+  static async importNativeEpub(nativeFile: NativeFolderFile, options: ImportBookOptions = {}): Promise<number> {
+    return runExclusiveImport('native-single', nativeFile.name, (signal) => this.importNativeEpubUnlocked(nativeFile, signal, options))
   }
 
   static isImportInProgress(): boolean {
@@ -126,7 +132,7 @@ export class BookImportService {
     cancelActiveImport(reason)
   }
 
-  private static async importEpubUnlocked(file: File, signal: AbortSignal): Promise<number> {
+  private static async importEpubUnlocked(file: File, signal: AbortSignal, options: ImportBookOptions): Promise<number> {
     const diagnostic = createImportDiagnosticContext('web', {
       fileName: file.name,
       fileSize: file.size,
@@ -175,6 +181,7 @@ export class BookImportService {
         storageMode: 'embedded',
         diagnostic,
       })
+      await this.restoreBookmarksAfterImport(bookId, diagnostic, options)
       logImportDiagnostic(diagnostic, 'file-import-finished', {
         fileName: file.name,
         bookId,
@@ -189,7 +196,7 @@ export class BookImportService {
     }
   }
 
-  private static async importNativeEpubUnlocked(nativeFile: NativeFolderFile, signal: AbortSignal): Promise<number> {
+  private static async importNativeEpubUnlocked(nativeFile: NativeFolderFile, signal: AbortSignal, options: ImportBookOptions): Promise<number> {
     const diagnostic = createImportDiagnosticContext('native-single', {
       fileName: nativeFile.name,
       reportedSize: nativeFile.size,
@@ -231,6 +238,7 @@ export class BookImportService {
         sourceFolderId: null,
         diagnostic,
       })
+      await this.restoreBookmarksAfterImport(bookId, diagnostic, options)
       logImportDiagnostic(diagnostic, 'native-import-finished', {
         fileName: prepared.name,
         bookId,
@@ -333,6 +341,7 @@ export class BookImportService {
       duplicate: 0,
       unsupported: 0,
       errors: 0,
+      restoredBookmarks: 0,
     }
     const selectedItems = params.items.filter((item) => item.selected)
     const total = selectedItems.length
@@ -441,11 +450,12 @@ export class BookImportService {
             continue
           }
 
-          await this.importPreparedNativeEpubRecord(prepared, {
+          const bookId = await this.importPreparedNativeEpubRecord(prepared, {
             tags: params.tagIds,
             sourceFolderId,
             diagnostic,
           })
+          summary.restoredBookmarks += await this.restoreBookmarksAfterImport(bookId, diagnostic)
           this.registerDuplicate(duplicateIndex, candidate)
           summary.imported += 1
           logImportDiagnostic(diagnostic, 'batch-item-finished', {
@@ -516,7 +526,7 @@ export class BookImportService {
           continue
         }
 
-        await this.importSingleEpubRecord(file, {
+        const bookId = await this.importSingleEpubRecord(file, {
           metadata,
           fileHash,
           fileName: item.fileName,
@@ -529,6 +539,7 @@ export class BookImportService {
           deferBookInfo: true,
           diagnostic,
         })
+        summary.restoredBookmarks += await this.restoreBookmarksAfterImport(bookId, diagnostic)
         this.registerDuplicate(duplicateIndex, candidate)
         summary.imported += 1
         logImportDiagnostic(diagnostic, 'batch-item-finished', {
@@ -764,6 +775,40 @@ export class BookImportService {
       await this.collectAndSaveBookInfo(bookId, file, metadata.title, metadata.author, diagnostic, options.bookInfoContext)
     }
     return bookId
+  }
+
+  private static async restoreBookmarksAfterImport(
+    bookId: number,
+    diagnostic?: ImportDiagnosticContext,
+    options: ImportBookOptions = {},
+  ): Promise<number> {
+    if (diagnostic) {
+      logImportDiagnostic(diagnostic, 'bookmark-restore-start', { bookId })
+    }
+
+    try {
+      const result = await restoreBookBookmarksFromDrive(bookId)
+      if (result.restoredCount > 0) {
+        options.onBookmarksRestored?.(result.restoredCount)
+      }
+      if (diagnostic) {
+        logImportDiagnostic(diagnostic, 'bookmark-restore-finished', {
+          bookId,
+          restoredBookmarks: result.restoredCount,
+          mergedBookmarks: result.mergedCount,
+          skipped: result.skipped ?? false,
+          reason: result.reason,
+        })
+      }
+      return result.restoredCount
+    } catch (error) {
+      if (diagnostic) {
+        errorImportDiagnostic(diagnostic, 'bookmark-restore-failed', error, { bookId })
+      } else {
+        console.warn('Bookmark restore failed during import.', error)
+      }
+      return 0
+    }
   }
 
   private static async saveImportSource(folder: FolderImportOptions): Promise<number> {

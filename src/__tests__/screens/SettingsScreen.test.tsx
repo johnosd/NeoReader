@@ -78,6 +78,18 @@ describe('SettingsScreen', () => {
     expect(screen.getByText('Build')).not.toBeNull()
   })
 
+  it('mostra sync de bookmarks como recurso Pro nas configuracoes', async () => {
+    const onOpenPaywall = vi.fn()
+    render(<SettingsScreen onBack={vi.fn()} onOpenPaywall={onOpenPaywall} />)
+
+    await screen.findByText('Bookmarks na nuvem')
+
+    expect(screen.getByText('Backup de bookmarks')).toBeTruthy()
+    expect(screen.getByText('Recurso Pro')).toBeTruthy()
+    expect(screen.getByText(/Bookmarks locais continuam disponiveis/)).toBeTruthy()
+    expect(onOpenPaywall).not.toHaveBeenCalled()
+  })
+
   it('mantem campos de integracao compactos ate o usuario expandir', async () => {
     render(<SettingsScreen onBack={vi.fn()} />)
 
