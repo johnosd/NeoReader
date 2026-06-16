@@ -1,9 +1,25 @@
 import { getCachedAuthorRecord, setCachedAuthor } from '../db/authors'
 import type { AuthorData, AuthorBook, AuthorVideo } from '../types/author'
 import { logWarn } from './DiagnosticsLogger'
+import { FeatureQuotaService, type FeatureQuotaSnapshot } from './FeatureQuotaService'
 import { fetchWithTimeout } from './http'
 
 const AUTHOR_VIDEOS_TTL_MS = 7 * 24 * 60 * 60 * 1000
+
+export class AuthorQuotaBlockedError extends Error {
+  readonly quota: FeatureQuotaSnapshot
+
+  constructor(quota: FeatureQuotaSnapshot) {
+    super('Author quota exhausted')
+    this.name = 'AuthorQuotaBlockedError'
+    this.quota = quota
+  }
+}
+
+interface GetAuthorDataOptions {
+  enforceQuota?: boolean
+  quotaSubjectKey?: string
+}
 
 // Open Library: busca OLID (identificador interno) pelo nome do autor
 async function fetchOlid(authorName: string): Promise<string | null> {
@@ -78,6 +94,7 @@ export async function getAuthorData(
   authorName: string,
   bookId?: number,
   youtubeApiKey?: string,
+  options: GetAuthorDataOptions = {},
 ): Promise<AuthorData | null> {
   const cachedRecord = await getCachedAuthorRecord(authorName, bookId)
 
@@ -85,6 +102,9 @@ export async function getAuthorData(
     const cached = cachedRecord.data
     // Dados estaveis do autor nao expiram; apenas videos seguem TTL curto.
     if (youtubeApiKey && shouldRefreshVideos(cachedRecord.videosFetchedAt)) {
+      const quota = consumeAuthorQuota(options)
+      if (quota && !quota.allowed) return cached
+
       const videos = await fetchYoutubeVideos(authorName, youtubeApiKey)
       const updated = { ...cached, videos }
       cacheAuthorInBackground(authorName, updated, bookId, { videosFetchedAt: new Date() })
@@ -92,6 +112,9 @@ export async function getAuthorData(
     }
     return cached
   }
+
+  const quota = consumeAuthorQuota(options)
+  if (quota && !quota.allowed) throw new AuthorQuotaBlockedError(quota)
 
   const olid = await fetchOlid(authorName)
 
@@ -135,6 +158,14 @@ export async function getAuthorData(
   cacheAuthorInBackground(authorName, data, bookId, { videosFetchedAt })
 
   return data
+}
+
+function consumeAuthorQuota(options: GetAuthorDataOptions): FeatureQuotaSnapshot | null {
+  if (!options.enforceQuota) return null
+
+  return FeatureQuotaService.consume('book-intelligence', {
+    subjectKey: options.quotaSubjectKey,
+  })
 }
 
 function logAuthorCacheWriteFailure(error: unknown, authorName: string, bookId?: number): void {

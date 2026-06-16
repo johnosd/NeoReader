@@ -19,7 +19,7 @@ function getSnapshot(): BillingStatus {
 export interface EntitlementsState {
   /** true: Pro confirmado. false: free. null: ainda nao inicializou (cold start). */
   isPro: boolean | null
-  /** Para mostrar data de renovacao em Settings. undefined se lifetime ou free. */
+  /** Para mostrar data de renovacao em Settings. undefined se free ou entitlement sem expiracao. */
   expiresAt: Date | undefined
   /** Para mostrar "voce tem o plano X" em Settings. */
   activeProductId: string | undefined

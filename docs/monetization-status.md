@@ -41,40 +41,45 @@ I CredentialManager: Status changed to CANCELED
 
 ---
 
-## ⚠️ Decisão importante: Pro adiado até Drive Sync
+## Decisao atual: Pro mensal/anual simples
 
-Em 2026-05-14 decidimos **não vender o Pro ainda**. Razão: dos 3 benefícios prometidos
-(sem ads, Drive Sync, IA), só "sem ads" está implementado. Cobrar por algo que não
-existe seria desonesto.
+Em 2026-06-16 decidimos simplificar o v1 pago: **sem creditos, sem vitalicio,
+sem backend novo e sem allowlist de admin no codigo**. O Pro publico tera apenas
+mensal e anual. Acesso full de administrador deve ser concedido manualmente no
+RevenueCat como Granted Entitlement para o UID Firebase usado como `appUserID`.
 
-**Estado atual do código:**
-- `PaywallScreen` reformulada como "preview do que vem por aí" — sem fetch de offerings,
-  sem botões de compra. Cada benefício tem badge `Já disponível` ou `Em breve`.
-- `SettingsScreen` Plano section mostra "Em desenvolvimento" como meta.
-- `BillingService` mantido intacto — pronto pra ativar quando Drive Sync entrar.
-- Store description sem menção a Pro como produto à venda.
+**Estado atual do codigo:**
+- `PaywallScreen` busca o offering `default` do RevenueCat e mostra somente
+  mensal/anual.
+- `SettingsScreen` mostra status real do entitlement e status operacional de
+  Cloud bookmarks.
+- `BillingService` usa o entitlement `NeoReader Pro` como fonte de verdade.
+- Store description deve mencionar Pro apenas quando Play/RevenueCat estiverem
+  configurados e o teste de compra passar.
 
-**Quando ativar o Pro:**
-1. Drive Sync implementado (Sprint 3) e funcionando
-2. Criar produtos `pro_monthly`, `pro_annual`, `pro_lifetime` na Play Console
-3. Service account Google Cloud → linkar Play ↔ RevenueCat
-4. Configurar offering no RevenueCat com os 3 packages
-5. Reverter `PaywallScreen` pra versão completa (fetchOfferings + purchase flow)
-6. Atualizar Store description e Settings copy
-7. Subir AAB com versionCode bumpado
+**Quando ativar o Pro em producao:**
+1. Criar produtos `pro_monthly` e `pro_annual` na Play Console.
+2. Service account Google Cloud -> linkar Play <-> RevenueCat.
+3. Configurar offering `default` no RevenueCat com os 2 packages.
+4. Testar compra mensal, compra anual, restore e grant manual de admin.
+5. Atualizar Store description e Settings copy se necessario.
+6. Subir AAB com versionCode bumpado.
 
 ## Estratégia escolhida
 
-**Freemium + Ads, com Pro tier enxuto.** Três tiers:
+**Freemium + Ads, com Pro tier enxuto.** Dois planos pagos:
 
 | Tier | Preço alvo | Entrega |
 |------|------------|---------|
-| **Free** | R$ 0 | Tudo que já existe + banner em telas não-leitura |
-| **Pro Mensal** | R$ 9,90/mês | Sem ads + Google Drive Sync + futuras features IA |
-| **Pro Anual** | R$ 79,90/ano | Mesmo do mensal (~33% off) |
-| **Apoiador Vitalício** | R$ 149 | Compra única, limitada a 200 unidades nos 3 primeiros meses |
+| **Free** | R$ 0 | Leitura, biblioteca, recursos locais e quota mensal para Review/Author/Descubra |
+| **Pro Mensal** | R$ 4,90/mês | Sem ads + cloud sync + Review/Author/Descubra sem limites |
+| **Pro Anual** | R$ 39,90/ano | Mesmo do mensal com desconto |
 
-**Princípio**: nenhuma feature gratuita atual vira paga. Pro vende **remoção de ads + features novas**. TTS continua BYOK.
+**Princípio**: recursos locais e dados já cacheados continuam disponíveis no Free.
+Pro vende **remoção de ads, sync e uso ilimitado dos recursos online existentes**.
+Review/Author/Descubra usam quota mensal no Free, mas cache já carregado continua
+visível. TTS continua BYOK. "Falar com o livro" fica fora da promessa ilimitada
+ate o custo real ficar claro.
 
 ---
 
@@ -96,6 +101,7 @@ existe seria desonesto.
 - Project ID: `proja07ebd89`
 - API Key Android (`goog_`): em `.env` (`VITE_REVENUECAT_ANDROID_API_KEY`)
 - Entitlement: `NeoReader Pro` (com espaço, case-sensitive — referenciado como `PRO_ENTITLEMENT_ID` em `src/services/BillingService.ts`)
+- Admin full: conceder `NeoReader Pro` manualmente no Customer Profile do RevenueCat para o UID Firebase (`appUserID`), com expiracao longa.
 - Service account credentials JSON: **pendente** (criar quando Play Console liberar)
 
 ### Android Signing
@@ -157,8 +163,9 @@ existe seria desonesto.
   - Re-render automático quando RevenueCat emite update
   - Helpers: `useEntitlements()`, `useIsPro()`, `useRefreshEntitlementsOnFocus()`
 - `src/screens/PaywallScreen.tsx` — tela de upgrade
-  - Lista benefícios + pacotes do RevenueCat (mensal/anual destacado/lifetime)
-  - Restore purchases
+  - Busca offering `default` do RevenueCat
+  - Lista apenas mensal e anual
+  - Purchase flow e restore purchases
   - Mensagem clara em dev web (billing indisponível)
 
 **Arquivos modificados:**
@@ -182,9 +189,8 @@ existe seria desonesto.
 
 ### Bloqueados por features ainda não implementadas
 
-- **Drive Sync** (Sprint 3) — prerequisito para reativar o Pro
 - **Service account Google Cloud + link RevenueCat** — só faz sentido criar quando produtos forem ativados
-- **Criar produtos in-app** (`pro_monthly`, `pro_annual`, `pro_lifetime`) — só após Drive Sync
+- **Criar produtos in-app** (`pro_monthly`, `pro_annual`) — só após validar os benefícios Pro
 - **Configurar offering no RevenueCat** — depende dos produtos
 - **License testing + teste end-to-end de compra** — depende de tudo acima
 
@@ -193,10 +199,9 @@ existe seria desonesto.
 1. **Criar app draft** na Play Console com package `com.johnny.neoreader`
 2. **Subir AAB** pra Internal Testing track
 3. **Closed testing** (14 dias / 12 testers ativos — requisito Play pra liberar produção)
-4. **Criar 3 produtos in-app**:
-   - `pro_monthly` — Subscription R$ 9,90, base plan mensal auto-renovável
-   - `pro_annual` — Subscription R$ 79,90, base plan anual auto-renovável
-   - `pro_lifetime` — One-time R$ 149
+4. **Criar 2 produtos in-app**:
+   - `pro_monthly` — Subscription R$ 4,90, base plan mensal auto-renovável
+   - `pro_annual` — Subscription R$ 39,90, base plan anual auto-renovável
 5. **Service account no Google Cloud**:
    - Criar service account no projeto vinculado à Play Console
    - Gerar JSON de credenciais
@@ -204,7 +209,7 @@ existe seria desonesto.
    - Subir JSON no RevenueCat (Apps & providers → Configurations → Google Play)
 6. **Configurar Offering** no RevenueCat:
    - Criar offering "default"
-   - Adicionar 3 packages mapeados ao Entitlement `NeoReader Pro`
+   - Adicionar 2 packages mapeados ao Entitlement `NeoReader Pro`
 7. **Cadastrar conta de teste licenciada**:
    - Play Console → Setup → License testing → adicionar email
 8. **Primeiro teste de compra**:
@@ -212,17 +217,24 @@ existe seria desonesto.
    - Comprar Pro mensal com conta licenciada
    - Confirmar no RevenueCat dashboard que entitlement ativou
    - Confirmar no app que `useEntitlements()` retorna `isPro: true`
+9. **Acesso admin**:
+   - Entrar no app com a conta admin
+   - Buscar o UID Firebase no RevenueCat
+   - Conceder manualmente o entitlement `NeoReader Pro` com expiracao longa
+   - Reabrir Configuracoes ou restaurar compras para confirmar `isPro: true`
 
 ### Independente da Play Console
 
 - **Sprint 2 — Ads** ✅ **CONCLUÍDO** (ver seção "Sprint 2 — Ads" acima)
 
-- **Sprint 3 — Drive Sync** (depois do primeiro teste de compra):
-  - Implementar `src/services/DriveSyncService.ts` real
-  - Firebase Functions com webhook RevenueCat (redundância de entitlement)
-  - Gate Pro no Drive Sync via `useIsPro()`
+- **Sprint 3 — Drive Sync de bookmarks** ✅ **CONCLUÍDO** (`BookmarkDriveSyncService`, `GoogleDriveAppDataService`, integrado nas Settings com status de conexão)
 
-- **Sprint 4+ — Falar com livro** (escopo separado quando chegar a hora)
+- **Sprint 4 — Quotas Free para Review/Author/Descubra** ✅ **CONCLUÍDO**:
+  - `book-intelligence`: 5 livros/mes para Review + Author.
+  - `nyt-discovery`: 5 atualizacoes/mes para Descubra/NYT.
+  - Cache valido nao consome quota.
+
+- **Sprint 5+ — Falar com livro** (escopo separado quando chegar a hora)
 
 ---
 

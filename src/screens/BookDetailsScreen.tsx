@@ -5,6 +5,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { Badge, BottomSheet, Button, EmptyState, ListItem, Spinner } from '../components/ui'
 import { AuthorTab } from '../components/AuthorTab'
 import { IntegrationHelpBanner } from '../components/IntegrationHelpBanner'
+import { QuotaUsageHint } from '../components/QuotaUsageHint'
 import { db } from '../db/database'
 import { toggleFavorite } from '../db/books'
 import { softDeleteBookmark } from '../db/bookmarks'
@@ -55,12 +56,14 @@ import {
   getBookTtsVoiceSelection,
 } from '../utils/ttsVoiceSelection'
 import { useI18n, type MessageKey } from '../i18n'
+import type { FeatureQuotaSnapshot } from '../services/FeatureQuotaService'
 
 interface BookDetailsScreenProps {
   book: Book
   onBack: () => void
   onRead: (book: Book, startHref?: string) => void
   onOpenSettings: () => void
+  onOpenPaywall?: () => void
 }
 
 type Tab = 'chapters' | 'bookmarks' | 'settings' | 'details' | 'reviews' | 'autor'
@@ -88,7 +91,7 @@ function getTtsVoicePreviewText(language: string) {
   return 'This is a short voice preview in NeoReader.'
 }
 
-export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: BookDetailsScreenProps) {
+export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpenPaywall }: BookDetailsScreenProps) {
   const { locale, t } = useI18n()
   const [activeTab, setActiveTab] = useState<Tab>('chapters')
   const [descExpanded, setDescExpanded] = useState(false)
@@ -152,6 +155,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
     info: bookInfo,
     loading: bookInfoLoading,
     diagnostics: bookInfoDiagnostics,
+    quota: bookInfoQuota,
   } = useBookInfo({
     book: liveBook,
     enabled: settingsLoaded,
@@ -947,8 +951,10 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
               <BookReviewsTab
                 reviews={youtubeReviews}
                 loading={bookInfoLoading}
+                quota={bookInfoQuota}
                 youtubeApiKey={appSettings.youtubeApiKey}
                 onOpenSettings={onOpenSettings}
+                onOpenPaywall={onOpenPaywall}
               />
             )}
 
@@ -957,6 +963,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
                 book={liveBook}
                 youtubeApiKey={appSettings.youtubeApiKey}
                 onOpenSettings={onOpenSettings}
+                onOpenPaywall={onOpenPaywall}
               />
             )}
           </div>
@@ -1292,15 +1299,20 @@ function BookInfoDiagnosticsSection({
 function BookReviewsTab({
   reviews,
   loading,
+  quota,
   youtubeApiKey,
   onOpenSettings,
+  onOpenPaywall,
 }: {
   reviews: BookReview[]
   loading: boolean
+  quota: FeatureQuotaSnapshot | null
   youtubeApiKey: string
   onOpenSettings: () => void
+  onOpenPaywall?: () => void
 }) {
   const { t } = useI18n()
+  const quotaBlocked = quota?.blockedReason === 'quota-exhausted'
 
   if (loading && reviews.length === 0) {
     return (
@@ -1310,8 +1322,29 @@ function BookReviewsTab({
     )
   }
 
+  if (quotaBlocked && reviews.length === 0) {
+    return (
+      <EmptyState
+        icon={<Sparkles size={32} />}
+        title={t('bookDetails.review.quotaTitle')}
+        description={t('bookDetails.review.quotaDescription')}
+        action={(
+          <div className="flex flex-col items-center gap-3">
+            <QuotaUsageHint quota={quota} labelKey="quota.remaining.bookIntelligence" />
+            {onOpenPaywall && (
+              <Button size="sm" fullWidth={false} onClick={onOpenPaywall}>
+                {t('bookDetails.quota.action')}
+              </Button>
+            )}
+          </div>
+        )}
+      />
+    )
+  }
+
   return (
     <div className="flex flex-col gap-6 pb-4">
+      <QuotaUsageHint quota={quota} labelKey="quota.remaining.bookIntelligence" className="-mb-2 px-1" />
       {reviews.length > 0 ? (
         <VideoReviewsCarousel reviews={reviews} />
       ) : (

@@ -31,12 +31,18 @@ interface NytListResponse {
   }
 }
 
+interface FetchNytListOptions {
+  allowNetwork?: boolean
+}
+
 export class NytBooksService {
   private static BASE_URL = 'https://api.nytimes.com/svc/books/v3'
 
-  static async fetchList(listName: string): Promise<NytList> {
+  static async fetchList(listName: string, options: FetchNytListOptions = {}): Promise<NytList> {
     const cached = NytBooksService.readCache(listName)
     if (cached) return cached
+
+    if (options.allowNetwork === false) throw new Error('NYT network blocked')
 
     const apiKey = import.meta.env.VITE_NYT_API_KEY as string | undefined
     if (!apiKey) throw new Error('NYT API key missing')
@@ -55,6 +61,10 @@ export class NytBooksService {
 
     NytBooksService.writeCache(listName, list)
     return list
+  }
+
+  static hasValidCache(listName: string): boolean {
+    return NytBooksService.readCache(listName) !== null
   }
 
   private static cacheKey(listName: string) {

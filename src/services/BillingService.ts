@@ -15,7 +15,7 @@ export const PRO_ENTITLEMENT_ID = 'NeoReader Pro'
 export interface BillingStatus {
   // null quando ainda nao inicializou (cold start) ou plugin indisponivel (web sem config).
   isPro: boolean | null
-  // Data de renovacao do periodo atual (se assinatura). undefined para lifetime ou free.
+  // Data de renovacao do periodo atual (se assinatura). undefined para free ou entitlement sem expiracao.
   expiresAt: Date | undefined
   // Produto ativo (ex: 'pro_monthly'). undefined se nao tem nada.
   activeProductId: string | undefined
@@ -54,7 +54,7 @@ function toBillingStatus(info: CustomerInfo): BillingStatus {
   }
   return {
     isPro: true,
-    // expirationDate vem como string ISO. Lifetime nao tem expiracao.
+    // expirationDate vem como string ISO. Grants sem expiracao nao trazem data.
     expiresAt: entitlement.expirationDate ? new Date(entitlement.expirationDate) : undefined,
     activeProductId: entitlement.productIdentifier,
   }

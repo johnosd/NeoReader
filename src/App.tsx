@@ -162,6 +162,7 @@ function App() {
             onBack={pop}
             onRead={openReader}
             onOpenSettings={() => push({ name: 'settings' })}
+            onOpenPaywall={() => push({ name: 'paywall' })}
           />
         </ErrorBoundary>
       )
@@ -196,6 +197,7 @@ function App() {
             onOpenHome={openHome}
             onOpenLibrary={openLibrary}
             onOpenProfile={openProfile}
+            onOpenPaywall={() => push({ name: 'paywall' })}
           />
         </ErrorBoundary>
       )
