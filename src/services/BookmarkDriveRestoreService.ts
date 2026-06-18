@@ -1,5 +1,6 @@
 import { db } from '../db/database'
 import type { Bookmark } from '../types/book'
+import { BillingService } from './BillingService'
 import {
   BOOKMARK_DRIVE_SYNC_SCHEMA_VERSION,
   createBookmarkSyncKey,
@@ -62,6 +63,9 @@ export async function restoreBookBookmarksFromDrive(
   })
 
   try {
+    // Aguarda billing inicializar para evitar falso 'pro-required' logo apos login.
+    await BillingService.waitForInit()
+
     if (!hasBookmarkDriveSyncEntitlement(options.isPro)) {
       setBookmarkDriveSyncStatus('pro-required')
       return finishSkipped(flowId, startedAt, bookId, 'pro-required')

@@ -1,5 +1,6 @@
 import { db } from '../db/database'
 import type { Bookmark } from '../types/book'
+import { BillingService } from './BillingService'
 import {
   createBookmarkSyncKey,
   createRemoteBookmarkFile,
@@ -70,6 +71,8 @@ export async function syncBookBookmarks(
   const snapshots = snapshotsFromBookmarks(bookmarks)
 
   try {
+    await BillingService.waitForInit()
+
     if (!hasBookmarkDriveSyncEntitlement(options.isPro)) {
       setBookmarkDriveSyncStatus('pro-required')
       logEvent('bookmark.sync.skipped', {

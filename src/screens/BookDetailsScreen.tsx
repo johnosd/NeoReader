@@ -1,6 +1,6 @@
 ﻿import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useCallback } from 'react'
-import { ArrowLeft, Star, ChevronRight, Globe, Calendar, HardDrive, Sparkles, BookOpen, Bookmark, X, Check, Volume2, Mic2, Gauge, Search, Play, Loader2 } from 'lucide-react'
+import { ArrowLeft, Star, ChevronRight, Globe, Calendar, HardDrive, Sparkles, BookOpen, Bookmark, X, Check, Volume2, Mic2, Gauge, Search, Play, Loader2, Cloud, CloudOff } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Badge, BottomSheet, Button, EmptyState, ListItem, Spinner } from '../components/ui'
 import { AuthorTab } from '../components/AuthorTab'
@@ -11,6 +11,7 @@ import { toggleFavorite } from '../db/books'
 import { softDeleteBookmark } from '../db/bookmarks'
 import { getBookSettings, updateBookSettings } from '../db/bookSettings'
 import { getSettings } from '../db/settings'
+import { useEntitlements } from '../hooks/useEntitlements'
 import { useBookDetailsTtsVoices } from '../hooks/useBookDetailsTtsVoices'
 import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
 import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
@@ -93,6 +94,7 @@ function getTtsVoicePreviewText(language: string) {
 
 export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpenPaywall }: BookDetailsScreenProps) {
   const { locale, t } = useI18n()
+  const { isPro } = useEntitlements()
   const [activeTab, setActiveTab] = useState<Tab>('chapters')
   const [descExpanded, setDescExpanded] = useState(false)
   const [extras, setExtras] = useState<EpubExtras | null>(null)
@@ -646,16 +648,25 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
                       onClick={() => openReader(bookmark.cfi)}
                       divider={index < bookmarks.length - 1}
                       trailing={(
-                        <button
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            if (bookmark.id !== undefined) void softDeleteBookmark(bookmark.id)
-                          }}
-                          className="p-2 -m-2 text-text-muted active:text-error transition-colors"
-                          aria-label={t('bookDetails.removeBookmark')}
-                        >
-                          <X size={15} />
-                        </button>
+                        <div className="flex items-center gap-1">
+                          {isPro === true && (
+                            bookmark.syncError
+                              ? <CloudOff size={13} className="text-error" />
+                              : bookmark.syncedAt
+                                ? <Cloud size={13} className="text-success" />
+                                : <Cloud size={13} className="text-text-muted" />
+                          )}
+                          <button
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              if (bookmark.id !== undefined) void softDeleteBookmark(bookmark.id)
+                            }}
+                            className="p-2 -m-2 text-text-muted active:text-error transition-colors"
+                            aria-label={t('bookDetails.removeBookmark')}
+                          >
+                            <X size={15} />
+                          </button>
+                        </div>
                       )}
                     />
                   ))}
