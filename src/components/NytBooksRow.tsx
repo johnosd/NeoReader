@@ -6,15 +6,16 @@ import { useI18n } from '../i18n'
 
 interface NytBooksRowProps {
   listName: string
+  allowNetwork?: boolean
 }
 
 function openUrl(url: string) {
   window.open(url, '_blank', 'noopener,noreferrer')
 }
 
-export function NytBooksRow({ listName }: NytBooksRowProps) {
+export function NytBooksRow({ listName, allowNetwork = true }: NytBooksRowProps) {
   const { t } = useI18n()
-  const { books, displayName, loading, error } = useNytTrending(listName)
+  const { books, displayName, loading, error } = useNytTrending(listName, { allowNetwork })
 
   function handlePress(book: NytBook) {
     if (book.amazon_product_url) openUrl(book.amazon_product_url)

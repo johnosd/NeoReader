@@ -1,5 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { FeatureQuotaService } from '@/services/FeatureQuotaService'
 import type { Book } from '@/types/book'
 
 const mocks = vi.hoisted(() => ({
@@ -226,6 +227,7 @@ describe('App navigation and auth gate', () => {
     mocks.signInWithGoogle.mockReset()
     mocks.signOut.mockReset()
     window.localStorage.clear()
+    FeatureQuotaService.reset()
   })
 
   it('comeca na home quando autenticado', () => {
@@ -243,6 +245,27 @@ describe('App navigation and auth gate', () => {
 
     assertScreen('library')
     assertNoScreen('home')
+  })
+
+  it('mantem Biblioteca e leitura acessiveis para Free mesmo com quotas esgotadas', () => {
+    for (let index = 0; index < 5; index += 1) {
+      FeatureQuotaService.consume('book-intelligence', {
+        isPro: false,
+        subjectKey: `book:used-${index}`,
+      })
+      FeatureQuotaService.consume('nyt-discovery', { isPro: false })
+    }
+
+    render(<App />)
+
+    fireEvent.click(screen.getByTestId('open-library'))
+    assertScreen('library')
+
+    fireEvent.click(screen.getByTestId('library-open-book'))
+    assertScreen('book-details')
+
+    fireEvent.click(screen.getByTestId('read'))
+    assertScreen('reader')
   })
 
   it('Home -> BookDetails -> Reader', () => {

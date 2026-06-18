@@ -493,14 +493,24 @@ function assertGroupedTocItemsOpenUsefulTargets(
     ).toBeTruthy()
 
     if (item.href && isInternalHref(item.href) && isStubTarget(inspection, item.href)) {
-      expect(
-        splitHref(directHref).documentHref,
-        `${fileName}: agrupador stub "${item.label}" nao deve abrir a propria pagina stub`,
-      ).not.toBe(splitHref(item.href).documentHref)
-      expect(
-        isStubTarget(inspection, directHref),
-        `${fileName}: agrupador stub "${item.label}" deve abrir um capitulo util, nao outro stub`,
-      ).toBe(false)
+      const itemDocumentHref = splitHref(item.href).documentHref
+
+      // Alguns agrupadores stub (ex: Prefacio com sub-secoes via fragment anchor) tem todos
+      // os descendentes no mesmo documento — nao ha documento melhor para navegar, entao
+      // a navegacao por fragmento ja e o melhor comportamento possivel.
+      const hasDescendantInDifferentDoc = flattenTocItems(getTocSubitems(item))
+        .some(({ item: desc }) => splitHref(desc.href).documentHref !== itemDocumentHref)
+
+      if (hasDescendantInDifferentDoc) {
+        expect(
+          splitHref(directHref).documentHref,
+          `${fileName}: agrupador stub "${item.label}" nao deve abrir a propria pagina stub`,
+        ).not.toBe(itemDocumentHref)
+        expect(
+          isStubTarget(inspection, directHref),
+          `${fileName}: agrupador stub "${item.label}" deve abrir um capitulo util, nao outro stub`,
+        ).toBe(false)
+      }
     }
   }
 }

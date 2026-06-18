@@ -127,12 +127,30 @@ function toNativeAuthUser(user: NativeFirebaseUser): AuthUser {
   }
 }
 
+// Tenta reobter o token do Drive silenciosamente (sem UI) apos restaurar sessao.
+// No Android, se o usuario ja autorizou os escopos, o Google Sign-In retorna sem mostrar nada.
+async function silentlyRefreshDriveToken(): Promise<void> {
+  try {
+    const result = await FirebaseAuthentication.signInWithGoogle({
+      scopes: [GOOGLE_DRIVE_APPDATA_SCOPE],
+    })
+    rememberGoogleDriveAccessToken(result.credential?.accessToken)
+  } catch {
+    // Falha silenciosa: sync vai falhar ate o usuario fazer login manual.
+  }
+}
+
 export function observeFirebaseAuth(callback: (user: AuthUser | null) => void): Unsubscribe {
   if (isNativeRuntime()) {
     let active = true
 
     void FirebaseAuthentication.getCurrentUser().then((result) => {
       if (!active) return
+      if (result.user) {
+        // Sessao restaurada sem login interativo — Drive token nao existe em memoria.
+        // Reautentica em background para reobter o token sem bloquear o fluxo de auth.
+        void silentlyRefreshDriveToken()
+      }
       callback(result.user ? toNativeAuthUser(result.user) : null)
     }).catch(() => {
       if (!active) return

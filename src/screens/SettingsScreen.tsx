@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { ArrowLeft, Check, ChevronDown, ChevronRight, CloudUpload, Eye, EyeOff, Globe, Info, KeyRound, Mic2, Palette, PlayCircle, Sparkles, Volume2 } from 'lucide-react'
+import { ArrowLeft, Check, ChevronDown, ChevronRight, CloudUpload, Compass, Eye, EyeOff, Gauge, Globe, Info, KeyRound, Mic2, Palette, PlayCircle, Sparkles, Volume2 } from 'lucide-react'
 import { Badge, BottomSheet, Input, ListItem, Spinner } from '../components/ui'
 import { IntegrationEducationCard } from '../components/IntegrationEducationCard'
 import { IntegrationHelpBanner } from '../components/IntegrationHelpBanner'
 import { useEntitlements, useRefreshEntitlementsOnFocus } from '../hooks/useEntitlements'
 import { useBookmarkDriveSyncStatus } from '../hooks/useBookmarkDriveSyncStatus'
+import { FeatureQuotaService, type FeatureQuotaSnapshot } from '../services/FeatureQuotaService'
 import {
   ReaderFontControl,
   ReaderFontSizeControl,
@@ -283,6 +284,8 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
     ? 'original'
     : 'comfortable'
   const bookmarkSyncMeta = getBookmarkSyncMeta(bookmarkSyncStatus.code, t)
+  const bookIntelligenceQuota = FeatureQuotaService.getSnapshot('book-intelligence', { isPro: entitlements.isPro })
+  const nytDiscoveryQuota = FeatureQuotaService.getSnapshot('nyt-discovery', { isPro: entitlements.isPro })
 
   function getTtsValidationHint(provider: PremiumTtsProvider) {
     const state = ttsValidation[provider]
@@ -360,6 +363,28 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
                 </div>
               )}
               onClick={onOpenPaywall}
+              divider={false}
+            />
+          </SettingsGroup>
+        </SettingsSection>
+
+        <SettingsSection
+          icon={<Gauge size={17} />}
+          label={t('settings.quota.sectionLabel')}
+          description={t('settings.quota.sectionDescription')}
+        >
+          <SettingsGroup>
+            <ListItem
+              leading={<Sparkles size={20} className="text-purple-light" />}
+              title={t('settings.quota.bookIntelligence.title')}
+              meta={getQuotaMeta(bookIntelligenceQuota, 'book-intelligence', t)}
+              trailing={<Badge tone={getQuotaTone(bookIntelligenceQuota)}>{getQuotaBadge(bookIntelligenceQuota, t)}</Badge>}
+            />
+            <ListItem
+              leading={<Compass size={20} className="text-purple-light" />}
+              title={t('settings.quota.nytDiscovery.title')}
+              meta={getQuotaMeta(nytDiscoveryQuota, 'nyt-discovery', t)}
+              trailing={<Badge tone={getQuotaTone(nytDiscoveryQuota)}>{getQuotaBadge(nytDiscoveryQuota, t)}</Badge>}
               divider={false}
             />
           </SettingsGroup>
@@ -696,8 +721,6 @@ function getPlanMeta(
   entitlements: ReturnType<typeof useEntitlements>,
   t: TranslateFn,
 ): string {
-  // Hoje o Pro nao esta a venda - tela serve como preview do que vem por ai.
-  // Quando o Pro for ativado, este texto volta a refletir o status real do entitlement.
   if (entitlements.isPro) {
     if (entitlements.expiresAt) {
       return t('settings.plan.renewsOn', { date: entitlements.expiresAt.toLocaleDateString('pt-BR') })
@@ -741,6 +764,32 @@ function getBookmarkSyncMeta(
     description: t('settings.bookmarkSync.description.pendingOffline'),
     tone: 'warning',
   }
+}
+
+function getQuotaMeta(
+  quota: FeatureQuotaSnapshot,
+  key: 'book-intelligence' | 'nyt-discovery',
+  t: TranslateFn,
+): string {
+  if (quota.isPro) return t('settings.quota.unlimitedMeta')
+
+  const remaining = quota.remaining ?? 0
+  const limit = quota.limit ?? 0
+  if (key === 'book-intelligence') {
+    return t('settings.quota.bookIntelligence.meta', { remaining, limit })
+  }
+  return t('settings.quota.nytDiscovery.meta', { remaining, limit })
+}
+
+function getQuotaBadge(quota: FeatureQuotaSnapshot, t: TranslateFn): string {
+  if (quota.isPro) return t('settings.quota.unlimitedBadge')
+  return `${quota.remaining ?? 0}/${quota.limit ?? 0}`
+}
+
+function getQuotaTone(quota: FeatureQuotaSnapshot): 'success' | 'warning' | 'error' | 'purple' | 'neutral' {
+  if (quota.isPro) return 'success'
+  if ((quota.remaining ?? 0) <= 0) return 'warning'
+  return 'neutral'
 }
 
 function SettingsSection({

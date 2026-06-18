@@ -1,7 +1,8 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { BookDetailsScreen } from '@/screens/BookDetailsScreen'
-import type { Book, BookSettings, ReadingProgress } from '@/types/book'
+import { FeatureQuotaService } from '@/services/FeatureQuotaService'
+import type { Book, Bookmark, BookSettings, ReadingProgress } from '@/types/book'
 import { BOOK_INFO_SCHEMA_VERSION, type StoredBookInfo } from '@/types/bookInfo'
 
 const mocks = vi.hoisted(() => ({
@@ -12,6 +13,7 @@ const mocks = vi.hoisted(() => ({
     ttsRate: 1,
   } as BookSettings,
   progress: null as ReadingProgress | null,
+  bookmarks: [] as Bookmark[],
   updateBookSettings: vi.fn(),
   listSpeechifyVoices: vi.fn(),
   parseExtras: vi.fn(),
@@ -23,7 +25,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('dexie-react-hooks', () => ({
   useLiveQuery: vi.fn(() => {
-    const values = [undefined, mocks.progress, [], 0, mocks.bookSettings]
+    const values = [undefined, mocks.progress, mocks.bookmarks, 0, mocks.bookSettings]
     const value = values[mocks.liveQueryIndex % values.length]
     mocks.liveQueryIndex += 1
     return value
@@ -230,11 +232,13 @@ describe('BookDetailsScreen chapters', () => {
       sectionLabel: 'Chapter 1',
       updatedAt: new Date('2024-01-02T00:00:00Z'),
     }
+    mocks.bookmarks = []
     mocks.updateBookSettings.mockReset()
     mocks.getStoredBookInfo.mockReset()
     mocks.saveBookInfo.mockReset()
     mocks.patchBookInfo.mockReset()
     mocks.collectBookInfo.mockReset()
+    FeatureQuotaService.reset()
     mocks.getStoredBookInfo.mockResolvedValue(emptyBookInfo())
     mocks.collectBookInfo.mockResolvedValue(emptyBookInfo())
     mocks.saveBookInfo.mockImplementation(async (_bookId: number, info: StoredBookInfo) => ({
@@ -584,6 +588,94 @@ describe('BookDetailsScreen chapters', () => {
       },
     })
     expect(mocks.saveBookInfo).toHaveBeenCalledWith(1, collected)
+    expect(FeatureQuotaService.getSnapshot('book-intelligence', { isPro: false }).used).toBe(1)
+  })
+
+  it('bloqueia nova busca de reviews quando quota Free acaba e nao ha cache', async () => {
+    const onOpenPaywall = vi.fn()
+    for (let index = 0; index < 5; index += 1) {
+      FeatureQuotaService.consume('book-intelligence', {
+        isPro: false,
+        subjectKey: `book:used-${index}`,
+      })
+    }
+    mocks.getStoredBookInfo.mockResolvedValue(undefined)
+
+    render(
+      <BookDetailsScreen
+        book={book}
+        onBack={vi.fn()}
+        onRead={vi.fn()}
+        onOpenSettings={vi.fn()}
+        onOpenPaywall={onOpenPaywall}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Reviews/ }))
+
+    expect(await screen.findByText('Novas buscas pausadas este mes')).toBeTruthy()
+    expect(screen.getByText(/Restam 0 de 5 buscas/)).toBeTruthy()
+    expect(screen.getByText(/Reviews ja carregados continuam disponiveis/)).toBeTruthy()
+    expect(mocks.collectBookInfo).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ver NeoReader Pro' }))
+    expect(onOpenPaywall).toHaveBeenCalledTimes(1)
+  })
+
+  it('mantem leitura, nota em cache e bookmarks locais disponiveis para Free', async () => {
+    const onRead = vi.fn()
+    for (let index = 0; index < 5; index += 1) {
+      FeatureQuotaService.consume('book-intelligence', {
+        isPro: false,
+        subjectKey: `book:used-${index}`,
+      })
+      FeatureQuotaService.consume('nyt-discovery', { isPro: false })
+    }
+    mocks.bookmarks = [{
+      id: 77,
+      bookId: 1,
+      cfi: 'epubcfi(/6/8!/4/2/10/2,/1:0,/1:20)',
+      label: 'Capitulo salvo',
+      percentage: 32,
+      snippet: 'Trecho salvo localmente',
+      color: 'indigo',
+      syncKey: 'bookmark-key',
+      syncedAt: null,
+      syncError: null,
+      createdAt: new Date('2026-05-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-05-01T00:00:00.000Z'),
+      deletedAt: null,
+    }]
+    mocks.getStoredBookInfo.mockResolvedValue({
+      ...emptyBookInfo(),
+      rating: {
+        value: { average: 4.7, scale: 5 as const },
+        source: 'google-books',
+        confidence: 'medium',
+      },
+    })
+
+    render(
+      <BookDetailsScreen
+        book={book}
+        onBack={vi.fn()}
+        onRead={onRead}
+        onOpenSettings={vi.fn()}
+        onOpenPaywall={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Marcacoes/ }))
+    expect(screen.getByText('Capitulo salvo')).toBeTruthy()
+
+    fireEvent.click(screen.getByText('Capitulo salvo'))
+    await waitFor(() => {
+      expect(onRead).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), 'epubcfi(/6/8!/4/2/10/2,/1:0,/1:20)')
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Detalhes' }))
+    expect(await screen.findByText('4.7/5')).toBeTruthy()
+    expect(mocks.collectBookInfo).not.toHaveBeenCalled()
   })
 
   it('mostra nota indisponivel no cabecalho quando nenhuma fonte retorna rating', async () => {

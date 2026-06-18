@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SettingsScreen } from '@/screens/SettingsScreen'
+import { FeatureQuotaService } from '@/services/FeatureQuotaService'
 
 const mocks = vi.hoisted(() => ({
   getSettings: vi.fn(),
@@ -63,6 +64,7 @@ describe('SettingsScreen', () => {
     mocks.updateReaderDefaults.mockResolvedValue(undefined)
     mocks.validateSpeechifyKey.mockResolvedValue({ isValid: true, message: 'ok' })
     mocks.validateElevenLabsKey.mockResolvedValue({ isValid: true, message: 'ok' })
+    FeatureQuotaService.reset()
     vi.clearAllMocks()
   })
 
@@ -88,6 +90,19 @@ describe('SettingsScreen', () => {
     expect(screen.getByText('Recurso Pro')).toBeTruthy()
     expect(screen.getByText(/Bookmarks locais continuam disponiveis/)).toBeTruthy()
     expect(onOpenPaywall).not.toHaveBeenCalled()
+  })
+
+  it('mostra status Free e quotas restantes nas configuracoes', async () => {
+    FeatureQuotaService.consume('book-intelligence', { isPro: false, subjectKey: 'book:1' })
+
+    render(<SettingsScreen onBack={vi.fn()} />)
+
+    await screen.findByText('Uso Free')
+
+    expect(screen.getByText('Review e Autor')).toBeTruthy()
+    expect(screen.getByText(/Restam 4 de 5 livros este mes/)).toBeTruthy()
+    expect(screen.getByText('Descubra/NYT')).toBeTruthy()
+    expect(screen.getByText(/Restam 5 de 5 atualizacoes este mes/)).toBeTruthy()
   })
 
   it('mantem campos de integracao compactos ate o usuario expandir', async () => {

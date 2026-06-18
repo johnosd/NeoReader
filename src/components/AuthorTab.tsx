@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
-import { PlayCircle, User } from 'lucide-react'
-import { EmptyState, Skeleton } from './ui'
+import { PlayCircle, Sparkles, User } from 'lucide-react'
+import { Button, EmptyState, Skeleton } from './ui'
 import { IntegrationHelpBanner } from './IntegrationHelpBanner'
-import { getAuthorData } from '../services/AuthorService'
+import { QuotaUsageHint } from './QuotaUsageHint'
+import { AuthorQuotaBlockedError, getAuthorData } from '../services/AuthorService'
+import { FeatureQuotaService, buildBookIntelligenceQuotaSubject, type FeatureQuotaSnapshot } from '../services/FeatureQuotaService'
 import type { AuthorData } from '../types/author'
 import type { Book } from '../types/book'
 import { useI18n } from '../i18n'
@@ -11,32 +13,71 @@ interface AuthorTabProps {
   book: Book
   youtubeApiKey: string
   onOpenSettings: () => void
+  onOpenPaywall?: () => void
 }
 
-export function AuthorTab({ book, youtubeApiKey, onOpenSettings }: AuthorTabProps) {
+export function AuthorTab({ book, youtubeApiKey, onOpenSettings, onOpenPaywall }: AuthorTabProps) {
   const { t } = useI18n()
   const requestKey = `${book.id ?? 'new'}::${book.author}::${youtubeApiKey}`
   const [authorState, setAuthorState] = useState<{
     key: string
     loading: boolean
     data: AuthorData | null
-  }>({ key: requestKey, loading: true, data: null })
+    quota: FeatureQuotaSnapshot | null
+  }>({ key: requestKey, loading: true, data: null, quota: FeatureQuotaService.getSnapshot('book-intelligence') })
 
   useEffect(() => {
     let cancelled = false
 
-    void getAuthorData(book.author, book.id, youtubeApiKey || undefined).then((data) => {
-      if (cancelled) return
-      setAuthorState({ key: requestKey, loading: false, data })
+    void getAuthorData(book.author, book.id, youtubeApiKey || undefined, {
+      enforceQuota: true,
+      quotaSubjectKey: buildBookIntelligenceQuotaSubject({
+        bookId: book.id,
+        title: book.title,
+        author: book.author,
+      }),
     })
+      .then((data) => {
+        if (cancelled) return
+        setAuthorState({ key: requestKey, loading: false, data, quota: FeatureQuotaService.getSnapshot('book-intelligence') })
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return
+        if (error instanceof AuthorQuotaBlockedError) {
+          setAuthorState({ key: requestKey, loading: false, data: null, quota: error.quota })
+          return
+        }
+        setAuthorState({ key: requestKey, loading: false, data: null, quota: FeatureQuotaService.getSnapshot('book-intelligence') })
+      })
 
     return () => { cancelled = true }
-  }, [book.author, book.id, requestKey, youtubeApiKey])
+  }, [book.author, book.id, book.title, requestKey, youtubeApiKey])
 
   const loading = authorState.key !== requestKey || authorState.loading
   const authorData = authorState.key === requestKey ? authorState.data : null
+  const quotaBlocked = authorState.key === requestKey && authorState.quota?.blockedReason === 'quota-exhausted'
 
   if (loading) return <AuthorSkeleton hasYoutubeKey={Boolean(youtubeApiKey)} />
+
+  if (quotaBlocked) {
+    return (
+      <EmptyState
+        icon={<Sparkles size={32} />}
+        title={t('author.quota.title')}
+        description={t('author.quota.description')}
+        action={(
+          <div className="flex flex-col items-center gap-3">
+            <QuotaUsageHint quota={authorState.quota} labelKey="quota.remaining.bookIntelligence" />
+            {onOpenPaywall && (
+              <Button size="sm" fullWidth={false} onClick={onOpenPaywall}>
+                {t('bookDetails.quota.action')}
+              </Button>
+            )}
+          </div>
+        )}
+      />
+    )
+  }
 
   if (!authorData) {
     return (
@@ -50,6 +91,7 @@ export function AuthorTab({ book, youtubeApiKey, onOpenSettings }: AuthorTabProp
 
   return (
     <div className="flex flex-col gap-6 pb-4">
+      <QuotaUsageHint quota={authorState.quota} labelKey="quota.remaining.bookIntelligence" className="-mb-2 px-1" />
       <AuthorBio data={authorData} />
       {authorData.videos.length > 0 && <VideoCarousel videos={authorData.videos} />}
       {!youtubeApiKey && (

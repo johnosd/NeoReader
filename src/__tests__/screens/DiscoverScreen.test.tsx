@@ -1,5 +1,10 @@
-import { render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { FeatureQuotaService } from '@/services/FeatureQuotaService'
+
+const mocks = vi.hoisted(() => ({
+  hasValidCache: vi.fn(),
+}))
 
 vi.mock('@capacitor/app', () => ({
   App: {
@@ -8,11 +13,17 @@ vi.mock('@capacitor/app', () => ({
 }))
 
 vi.mock('@/components/NytBooksRow', () => ({
-  NytBooksRow: ({ listName }: { listName: string }) => (
-    <div data-testid="nyt-row" data-list-name={listName}>
+  NytBooksRow: ({ listName, allowNetwork }: { listName: string; allowNetwork?: boolean }) => (
+    <div data-testid="nyt-row" data-list-name={listName} data-allow-network={String(allowNetwork)}>
       {listName}
     </div>
   ),
+}))
+
+vi.mock('@/services/NytBooksService', () => ({
+  NytBooksService: {
+    hasValidCache: mocks.hasValidCache,
+  },
 }))
 
 vi.mock('@/components/BottomNav', () => ({
@@ -30,11 +41,17 @@ function renderDiscoverScreen(apiKey?: string) {
       onBack={vi.fn()}
       onOpenLibrary={vi.fn()}
       onOpenProfile={vi.fn()}
+      onOpenPaywall={vi.fn()}
     />,
   )
 }
 
 describe('DiscoverScreen', () => {
+  beforeEach(() => {
+    FeatureQuotaService.reset()
+    mocks.hasValidCache.mockReturnValue(false)
+  })
+
   afterEach(() => {
     vi.unstubAllEnvs()
   })
@@ -45,6 +62,9 @@ describe('DiscoverScreen', () => {
     expect(screen.getByText('Tendencias no Mundo')).toBeTruthy()
     expect(screen.getByText('O que as crianças estão lendo agora')).toBeTruthy()
 
+    expect(screen.getByText(/Restam 4 de 5 atualizacoes/)).toBeTruthy()
+    expect(FeatureQuotaService.getSnapshot('nyt-discovery', { isPro: false }).used).toBe(1)
+
     const rows = screen.getAllByTestId('nyt-row').map((row) => row.getAttribute('data-list-name'))
     expect(rows).toEqual([
       'advice-how-to-and-miscellaneous',
@@ -54,6 +74,14 @@ describe('DiscoverScreen', () => {
       'series-books',
       'graphic-books-and-manga',
     ])
+    expect(screen.getAllByTestId('nyt-row').map((row) => row.getAttribute('data-allow-network'))).toEqual([
+      'true',
+      'true',
+      'true',
+      'true',
+      'true',
+      'true',
+    ])
   })
 
   it('mantem EmptyState quando a chave NYT nao esta configurada', () => {
@@ -61,5 +89,60 @@ describe('DiscoverScreen', () => {
 
     expect(screen.getByText('Descobertas indisponiveis')).toBeTruthy()
     expect(screen.queryAllByTestId('nyt-row')).toHaveLength(0)
+  })
+
+  it('nao consome quota quando todas as listas NYT ja tem cache valido', () => {
+    mocks.hasValidCache.mockReturnValue(true)
+
+    renderDiscoverScreen('nyt-key')
+
+    expect(screen.getByText(/Restam 5 de 5 atualizacoes/)).toBeTruthy()
+    expect(FeatureQuotaService.getSnapshot('nyt-discovery', { isPro: false }).used).toBe(0)
+    expect(screen.getAllByTestId('nyt-row')).toHaveLength(6)
+  })
+
+  it('bloqueia Descubra com CTA quando quota acaba e nao ha cache', () => {
+    const onOpenPaywall = vi.fn()
+    for (let index = 0; index < 5; index += 1) {
+      FeatureQuotaService.consume('nyt-discovery', { isPro: false })
+    }
+    vi.stubEnv('VITE_NYT_API_KEY', 'nyt-key')
+
+    render(
+      <DiscoverScreen
+        onBack={vi.fn()}
+        onOpenLibrary={vi.fn()}
+        onOpenProfile={vi.fn()}
+        onOpenPaywall={onOpenPaywall}
+      />,
+    )
+
+    expect(screen.getByText('Novas atualizacoes pausadas este mes')).toBeTruthy()
+    expect(screen.getByText(/novas atualizacoes do Free/)).toBeTruthy()
+    expect(screen.getByText(/Restam 0 de 5 atualizacoes/)).toBeTruthy()
+    expect(screen.queryAllByTestId('nyt-row')).toHaveLength(0)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ver NeoReader Pro' }))
+    expect(onOpenPaywall).toHaveBeenCalledTimes(1)
+  })
+
+  it('mantem listas cacheadas visiveis quando quota acaba', () => {
+    for (let index = 0; index < 5; index += 1) {
+      FeatureQuotaService.consume('nyt-discovery', { isPro: false })
+    }
+    mocks.hasValidCache.mockImplementation((listName: string) => listName === 'hardcover-fiction')
+    renderDiscoverScreen('nyt-key')
+
+    expect(screen.getByText('Novas atualizacoes pausadas este mes')).toBeTruthy()
+    expect(screen.getByText(/Listas ja carregadas continuam disponiveis/)).toBeTruthy()
+    expect(screen.getAllByTestId('nyt-row')).toHaveLength(6)
+    expect(screen.getAllByTestId('nyt-row').map((row) => row.getAttribute('data-allow-network'))).toEqual([
+      'false',
+      'false',
+      'false',
+      'false',
+      'false',
+      'false',
+    ])
   })
 })

@@ -15,7 +15,7 @@ export const PRO_ENTITLEMENT_ID = 'NeoReader Pro'
 export interface BillingStatus {
   // null quando ainda nao inicializou (cold start) ou plugin indisponivel (web sem config).
   isPro: boolean | null
-  // Data de renovacao do periodo atual (se assinatura). undefined para lifetime ou free.
+  // Data de renovacao do periodo atual (se assinatura). undefined para free ou entitlement sem expiracao.
   expiresAt: Date | undefined
   // Produto ativo (ex: 'pro_monthly'). undefined se nao tem nada.
   activeProductId: string | undefined
@@ -32,6 +32,8 @@ const DISABLED_STATUS: BillingStatus = {
 // Singleton de modulo (similar aos outros services do projeto).
 let initialized = false
 let initInFlight: Promise<void> | null = null
+// Promessa persistente para getOffering() aguardar init() mesmo apos initInFlight virar null.
+let initSettled: Promise<void> | null = null
 let cachedStatus: BillingStatus = { isPro: null, expiresAt: undefined, activeProductId: undefined }
 const listeners = new Set<Listener>()
 
@@ -54,7 +56,7 @@ function toBillingStatus(info: CustomerInfo): BillingStatus {
   }
   return {
     isPro: true,
-    // expirationDate vem como string ISO. Lifetime nao tem expiracao.
+    // expirationDate vem como string ISO. Grants sem expiracao nao trazem data.
     expiresAt: entitlement.expirationDate ? new Date(entitlement.expirationDate) : undefined,
     activeProductId: entitlement.productIdentifier,
   }
@@ -87,7 +89,7 @@ export const BillingService = {
       return
     }
 
-    initInFlight = (async () => {
+    initInFlight = initSettled = (async () => {
       logImportDiagnostic('billing', 'billing-init-start', { dev: import.meta.env.DEV })
       try {
         if (import.meta.env.DEV) {
@@ -148,6 +150,10 @@ export const BillingService = {
   /** Devolve a oferta default configurada no painel RevenueCat (pacotes Mensal/Anual/Lifetime). */
   async getOffering(): Promise<PurchasesOffering | null> {
     if (!isBillingAvailable()) return null
+    // Aguarda o init() terminar para evitar "SDK not configured" caso o usuario abra o
+    // Paywall antes do configure() completar (init e chamado com void no App.tsx).
+    if (initSettled) await initSettled.catch(() => undefined)
+    if (!initialized) return null
     logImportDiagnostic('billing', 'billing-offering-start')
     const result = await Purchases.getOfferings()
     logImportDiagnostic('billing', 'billing-offering-finished', {
@@ -204,5 +210,10 @@ export const BillingService = {
   /** Indica se o billing esta habilitado (api key + plataforma). Util para esconder paywall em dev web. */
   isAvailable(): boolean {
     return isBillingAvailable()
+  },
+
+  /** Aguarda o init() terminar (util para evitar checar isPro antes da inicializacao). */
+  async waitForInit(): Promise<void> {
+    if (initSettled) await initSettled.catch(() => undefined)
   },
 }

@@ -6,8 +6,9 @@ import { HeroBanner } from '../components/HeroBanner'
 import { BookRow } from '../components/BookRow'
 import { QuickBookActionsSheet } from '../components/QuickBookActionsSheet'
 import { BottomNav } from '../components/BottomNav'
-import { EmptyState, Skeleton, Toast } from '../components/ui'
+import { Badge, EmptyState, Skeleton, Toast } from '../components/ui'
 import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
+import { useEntitlements } from '../hooks/useEntitlements'
 import { useIsImportActive } from '../hooks/useImportActivity'
 import { useLibraryGroups } from '../hooks/useLibraryGroups'
 import { BookImportService } from '../services/BookImportService'
@@ -28,6 +29,7 @@ interface HomeScreenProps {
 export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpenProfile, onOpenSettings }: HomeScreenProps) {
   const { t } = useI18n()
   const { isLoading, isEmpty, heroBook, inProgressBooks, recentBooks } = useLibraryGroups()
+  const { isPro } = useEntitlements()
   const [optionsBook, setOptionsBook] = useState<Book | null>(null)
   const [importing, setImporting] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
@@ -35,6 +37,7 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
   const fileInputRef = useRef<HTMLInputElement>(null)
   const importActive = useIsImportActive()
   const importBusy = importing || importActive
+  const isProConfirmed = isPro === true
 
   function handleBookmarksRestored(count: number) {
     if (count > 0) setRestoredBookmarks(count)
@@ -135,7 +138,7 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
       {/* Normal (block) header — shown when no hero */}
       {!showFloatingHeader && (
         <header className="px-4 pt-8 pb-3 flex items-center justify-between">
-          <LibraryLogo />
+          <LibraryLogo isPro={isProConfirmed} />
           <SettingsButton ariaLabel={t('home.settings')} onClick={onOpenSettings} />
         </header>
       )}
@@ -160,7 +163,7 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
                     className="absolute inset-0 pointer-events-none"
                     style={{ background: 'linear-gradient(180deg, rgba(7,3,12,0.96) 0%, rgba(7,3,12,0.80) 55%, transparent 100%)' }}
                   />
-                  <div className="relative"><LibraryLogo /></div>
+                  <div className="relative"><LibraryLogo isPro={isProConfirmed} /></div>
                   <div className="relative"><SettingsButton glass ariaLabel={t('home.settings')} onClick={onOpenSettings} /></div>
                 </header>
               )}
@@ -214,9 +217,9 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
   )
 }
 
-function LibraryLogo() {
+function LibraryLogo({ isPro = false }: { isPro?: boolean }) {
   return (
-    <div className="flex items-center gap-2" aria-label="NeoReader">
+    <div className="flex items-center gap-2" aria-label={isPro ? 'NeoReader Pro' : 'NeoReader'}>
       <div
         aria-hidden
         className="h-14 w-14 rounded-full flex items-center justify-center text-white shadow-[0_0_18px_rgba(168,85,247,0.38)]"
@@ -224,9 +227,16 @@ function LibraryLogo() {
       >
         <BookOpen size={28} strokeWidth={2.5} />
       </div>
-      <h1 className="text-xl font-black tracking-normal leading-none text-text-primary">
-        Neo<span className="text-purple-primary">Reader</span>
-      </h1>
+      <div className="flex items-center gap-2">
+        <h1 className="text-xl font-black tracking-normal leading-none text-text-primary">
+          Neo<span className="text-purple-primary">Reader</span>
+        </h1>
+        {isPro && (
+          <Badge tone="purple" className="px-2 py-0.5 text-[10px] leading-none">
+            PRO
+          </Badge>
+        )}
+      </div>
     </div>
   )
 }

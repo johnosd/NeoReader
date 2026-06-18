@@ -17,13 +17,16 @@ tags, pastas de origem e caches ficam no dispositivo.
 - Idiomas da interface: automatico pelo dispositivo, Portugues (BR), Ingles e
   Espanhol.
 - Formato de leitura documentado: EPUB.
-- NeoReader Pro ainda nao esta a venda. A infraestrutura de RevenueCat existe,
-  mas a tela Pro ainda funciona como previa de beneficios e pacotes.
+- NeoReader Pro usa RevenueCat com planos mensal/anual no Android nativo. O
+  paywall busca o offering `default` e mostra apenas `pro_monthly` e
+  `pro_annual`.
 - Ads com AdMob existem nas telas Biblioteca, Descubra e Vocabulario, e sao
   ocultados para usuario Pro quando o entitlement estiver ativo.
 - Drive Sync de bookmarks existe via Google Drive `appDataFolder`, bloqueado
   pelo entitlement Pro. Progresso, vocabulario, EPUB e recursos de IA ainda nao
   entram no sync.
+- Review/Author/Descubra usam quota Free mensal local-first; cache ja carregado
+  continua visivel e Pro remove a quota.
 
 ## Stack
 
@@ -254,9 +257,9 @@ ficha manualmente.
   `VITE_REVENUECAT_ANDROID_API_KEY`.
 - Entitlement esperado: `NeoReader Pro`.
 - `useEntitlements` expoe `isPro`, expiracao e produto ativo.
-- A tela Pro hoje e uma previa geral. Backup/restauracao de bookmarks aparece
-  em Planned benefits e o status operacional fica na secao Cloud bookmarks em
-  Configuracoes; recursos de IA continuam como "em breve".
+- A tela Pro busca o offering `default` no RevenueCat e exibe somente mensal e
+  anual. O entitlement `NeoReader Pro` tambem cobre grants manuais de admin no
+  RevenueCat, sem allowlist no codigo.
 - `AdsService` integra AdMob em Android quando `VITE_ADMOB_APP_ID_ANDROID` esta
   configurado.
 - Em dev, banners usam ad unit de teste oficial do Google.
@@ -596,6 +599,7 @@ Backlog de testes conhecido fica em `docs/test-backlog.md`.
 - `docs/code-review-2026-06-14.md`: revisao tecnica completa recente.
 - `docs/monetization-status.md`: estado de Ads, RevenueCat e Pro.
 - `docs/persistence-audit.md`: auditoria de persistencia.
+- `docs/pro-benefits-quota-plan.md`: plano para beneficios Pro e quotas Free.
 - `docs/qa-manual.md`: roteiro manual de QA.
 - `docs/test-backlog.md`: backlog de testes.
 
@@ -604,11 +608,18 @@ Backlog de testes conhecido fica em `docs/test-backlog.md`.
 - Atualizar docs auxiliares que ficaram desatualizadas, especialmente
   `docs/persistence-audit.md` (schema v14) e `docs/qa-manual.md` (Capacitor 8).
 - Separar `LibraryScreen.tsx` em componentes menores para importacao, sort e tags.
-- Reativar compras Pro/ofertas no RevenueCat para liberar o Drive Sync de
-  bookmarks fora de entitlements manuais.
+- Configurar na Play Console e no RevenueCat os produtos `pro_monthly` e
+  `pro_annual`, ambos mapeados ao entitlement `NeoReader Pro`.
+- Validar compra mensal/anual e grants manuais de admin no RevenueCat em build
+  Android real.
+- Adicionar notas e highlights avancados como recurso Free.
+- Adicionar exportacao Markdown/CSV de bookmarks, notas, highlights e
+  vocabulario como recurso Free.
+- Adicionar estatisticas avancadas de leitura como recurso Free.
+- Manter fora do roadmap: busca dentro de todos os livros e colecoes
+  inteligentes.
 - Adicionar cleanup do arquivo local Android ao excluir livros `storageMode=local`.
 - Criar testes para EPUB corrompido, fluxo completo de vocabulario e restauracao
   end-to-end de progresso.
 - Avaliar mover chamadas externas sensiveis para um backend se as chaves `VITE_`
   passarem a precisar de protecao real.
-- Adicionar exportacao CSV do vocabulario e, depois, SRS/flashcards.

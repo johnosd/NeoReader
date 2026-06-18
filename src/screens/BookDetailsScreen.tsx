@@ -1,15 +1,17 @@
 ﻿import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useCallback } from 'react'
-import { ArrowLeft, Star, ChevronRight, Globe, Calendar, HardDrive, Sparkles, BookOpen, Bookmark, X, Check, Volume2, Mic2, Gauge, Search, Play, Loader2 } from 'lucide-react'
+import { ArrowLeft, Star, ChevronRight, Globe, Calendar, HardDrive, Sparkles, BookOpen, Bookmark, X, Check, Volume2, Mic2, Gauge, Search, Play, Loader2, Cloud, CloudOff } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Badge, BottomSheet, Button, EmptyState, ListItem, Spinner } from '../components/ui'
 import { AuthorTab } from '../components/AuthorTab'
 import { IntegrationHelpBanner } from '../components/IntegrationHelpBanner'
+import { QuotaUsageHint } from '../components/QuotaUsageHint'
 import { db } from '../db/database'
 import { toggleFavorite } from '../db/books'
 import { softDeleteBookmark } from '../db/bookmarks'
 import { getBookSettings, updateBookSettings } from '../db/bookSettings'
 import { getSettings } from '../db/settings'
+import { useEntitlements } from '../hooks/useEntitlements'
 import { useBookDetailsTtsVoices } from '../hooks/useBookDetailsTtsVoices'
 import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
 import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
@@ -55,12 +57,14 @@ import {
   getBookTtsVoiceSelection,
 } from '../utils/ttsVoiceSelection'
 import { useI18n, type MessageKey } from '../i18n'
+import type { FeatureQuotaSnapshot } from '../services/FeatureQuotaService'
 
 interface BookDetailsScreenProps {
   book: Book
   onBack: () => void
   onRead: (book: Book, startHref?: string) => void
   onOpenSettings: () => void
+  onOpenPaywall?: () => void
 }
 
 type Tab = 'chapters' | 'bookmarks' | 'settings' | 'details' | 'reviews' | 'autor'
@@ -88,8 +92,9 @@ function getTtsVoicePreviewText(language: string) {
   return 'This is a short voice preview in NeoReader.'
 }
 
-export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: BookDetailsScreenProps) {
+export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpenPaywall }: BookDetailsScreenProps) {
   const { locale, t } = useI18n()
+  const { isPro } = useEntitlements()
   const [activeTab, setActiveTab] = useState<Tab>('chapters')
   const [descExpanded, setDescExpanded] = useState(false)
   const [extras, setExtras] = useState<EpubExtras | null>(null)
@@ -152,6 +157,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
     info: bookInfo,
     loading: bookInfoLoading,
     diagnostics: bookInfoDiagnostics,
+    quota: bookInfoQuota,
   } = useBookInfo({
     book: liveBook,
     enabled: settingsLoaded,
@@ -642,16 +648,25 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
                       onClick={() => openReader(bookmark.cfi)}
                       divider={index < bookmarks.length - 1}
                       trailing={(
-                        <button
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            if (bookmark.id !== undefined) void softDeleteBookmark(bookmark.id)
-                          }}
-                          className="p-2 -m-2 text-text-muted active:text-error transition-colors"
-                          aria-label={t('bookDetails.removeBookmark')}
-                        >
-                          <X size={15} />
-                        </button>
+                        <div className="flex items-center gap-1">
+                          {isPro === true && (
+                            bookmark.syncError
+                              ? <CloudOff size={13} className="text-error" />
+                              : bookmark.syncedAt
+                                ? <Cloud size={13} className="text-success" />
+                                : <Cloud size={13} className="text-text-muted" />
+                          )}
+                          <button
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              if (bookmark.id !== undefined) void softDeleteBookmark(bookmark.id)
+                            }}
+                            className="p-2 -m-2 text-text-muted active:text-error transition-colors"
+                            aria-label={t('bookDetails.removeBookmark')}
+                          >
+                            <X size={15} />
+                          </button>
+                        </div>
                       )}
                     />
                   ))}
@@ -947,8 +962,10 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
               <BookReviewsTab
                 reviews={youtubeReviews}
                 loading={bookInfoLoading}
+                quota={bookInfoQuota}
                 youtubeApiKey={appSettings.youtubeApiKey}
                 onOpenSettings={onOpenSettings}
+                onOpenPaywall={onOpenPaywall}
               />
             )}
 
@@ -957,6 +974,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings }: Book
                 book={liveBook}
                 youtubeApiKey={appSettings.youtubeApiKey}
                 onOpenSettings={onOpenSettings}
+                onOpenPaywall={onOpenPaywall}
               />
             )}
           </div>
@@ -1292,15 +1310,20 @@ function BookInfoDiagnosticsSection({
 function BookReviewsTab({
   reviews,
   loading,
+  quota,
   youtubeApiKey,
   onOpenSettings,
+  onOpenPaywall,
 }: {
   reviews: BookReview[]
   loading: boolean
+  quota: FeatureQuotaSnapshot | null
   youtubeApiKey: string
   onOpenSettings: () => void
+  onOpenPaywall?: () => void
 }) {
   const { t } = useI18n()
+  const quotaBlocked = quota?.blockedReason === 'quota-exhausted'
 
   if (loading && reviews.length === 0) {
     return (
@@ -1310,8 +1333,29 @@ function BookReviewsTab({
     )
   }
 
+  if (quotaBlocked && reviews.length === 0) {
+    return (
+      <EmptyState
+        icon={<Sparkles size={32} />}
+        title={t('bookDetails.review.quotaTitle')}
+        description={t('bookDetails.review.quotaDescription')}
+        action={(
+          <div className="flex flex-col items-center gap-3">
+            <QuotaUsageHint quota={quota} labelKey="quota.remaining.bookIntelligence" />
+            {onOpenPaywall && (
+              <Button size="sm" fullWidth={false} onClick={onOpenPaywall}>
+                {t('bookDetails.quota.action')}
+              </Button>
+            )}
+          </div>
+        )}
+      />
+    )
+  }
+
   return (
     <div className="flex flex-col gap-6 pb-4">
+      <QuotaUsageHint quota={quota} labelKey="quota.remaining.bookIntelligence" className="-mb-2 px-1" />
       {reviews.length > 0 ? (
         <VideoReviewsCarousel reviews={reviews} />
       ) : (

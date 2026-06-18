@@ -28,6 +28,7 @@ import {
   updateBookmarkColor,
 } from '@/db/bookmarks'
 import { createBookmarkSyncKey } from '@/services/BookmarkDriveSyncModel'
+import { FeatureQuotaService } from '@/services/FeatureQuotaService'
 
 describe('bookmarks repository', () => {
   beforeEach(() => {
@@ -35,6 +36,7 @@ describe('bookmarks repository', () => {
     mocks.get.mockClear()
     mocks.update.mockClear()
     mocks.scheduleBookmarkDriveSync.mockClear()
+    FeatureQuotaService.reset()
   })
 
   it('cria bookmark com syncKey deterministico e status pendente', async () => {
@@ -57,6 +59,17 @@ describe('bookmarks repository', () => {
       syncError: null,
       deletedAt: null,
     }))
+    expect(mocks.scheduleBookmarkDriveSync).toHaveBeenCalledWith(42)
+  })
+
+  it('mantem bookmark local gratuito sem consumir quotas Pro', async () => {
+    await addBookmark(42, 'epubcfi(/6/10!/4/2/1:0)', 'Chapter Free', 12, {
+      snippet: 'Free local bookmark',
+      color: 'emerald',
+    })
+
+    expect(FeatureQuotaService.getSnapshot('book-intelligence', { isPro: false }).used).toBe(0)
+    expect(FeatureQuotaService.getSnapshot('nyt-discovery', { isPro: false }).used).toBe(0)
     expect(mocks.scheduleBookmarkDriveSync).toHaveBeenCalledWith(42)
   })
 

@@ -9,6 +9,11 @@ import {
 } from '../services/bookInfo'
 import { BookFileResolver } from '../services/BookFileResolver'
 import { createFlowId, getDiagnosticsNowMs, logError } from '../services/DiagnosticsLogger'
+import {
+  FeatureQuotaService,
+  buildBookIntelligenceQuotaSubject,
+  type FeatureQuotaSnapshot,
+} from '../services/FeatureQuotaService'
 import type { Book } from '../types/book'
 import type {
   BookInfoProviderAttemptDiagnostic,
@@ -36,11 +41,13 @@ export function useBookInfo({
     info: StoredBookInfo | null
     loading: boolean
     diagnostics: BookInfoProviderAttemptDiagnostic[]
+    quota: FeatureQuotaSnapshot | null
   }>({
     key: requestKey,
     info: null,
     loading: true,
     diagnostics: [],
+    quota: null,
   })
 
   useEffect(() => {
@@ -69,12 +76,36 @@ export function useBookInfo({
         if (cancelled) return
 
         let nextInfo = stored ?? null
+        let quota: FeatureQuotaSnapshot | null = null
         const isOutdated = (stored?.metadataSchemaVersion ?? 1) < CURRENT_BOOK_INFO_SCHEMA_VERSION
         const needsBaseCollection = !stored || isOutdated || !hasDisplayableBookInfo(stored) || refreshToken > 0
         const needsYoutubeReviews = Boolean(youtubeApiKey)
           && !stored?.reviews?.value.some((review) => review.provider === 'youtube')
         const needsCollection = needsBaseCollection || needsYoutubeReviews
         const file = needsCollection ? await BookFileResolver.resolveFile(book) : null
+
+        if (needsCollection) {
+          quota = FeatureQuotaService.consume('book-intelligence', {
+            subjectKey: buildBookIntelligenceQuotaSubject({
+              bookId: book.id,
+              title: book.title,
+              author: book.author,
+            }),
+          })
+
+          if (!quota.allowed) {
+            if (!cancelled) {
+              setState({
+                key: requestKey,
+                info: nextInfo,
+                loading: false,
+                diagnostics: providerAttempts,
+                quota,
+              })
+            }
+            return
+          }
+        }
 
         if (needsBaseCollection) {
           const collected = await new BookInfoService([
@@ -109,6 +140,7 @@ export function useBookInfo({
             info: nextInfo,
             loading: false,
             diagnostics: providerAttempts,
+            quota,
           })
         }
       } catch (error) {
@@ -130,6 +162,7 @@ export function useBookInfo({
             info: null,
             loading: false,
             diagnostics: providerAttempts,
+            quota: null,
           })
         }
       } finally {
@@ -154,6 +187,7 @@ export function useBookInfo({
     info: state.key === requestKey ? state.info : null,
     loading: enabled ? state.key !== requestKey || state.loading : true,
     diagnostics: state.key === requestKey ? state.diagnostics : [],
+    quota: state.key === requestKey ? state.quota : null,
   }
 }
 

@@ -8,7 +8,11 @@ interface NytTrendingResult {
   error: string | null
 }
 
-export function useNytTrending(listName: string): NytTrendingResult {
+interface UseNytTrendingOptions {
+  allowNetwork?: boolean
+}
+
+export function useNytTrending(listName: string, options: UseNytTrendingOptions = {}): NytTrendingResult {
   const [books, setBooks] = useState<NytBook[]>([])
   const [displayName, setDisplayName] = useState('')
   const [loading, setLoading] = useState(true)
@@ -22,7 +26,9 @@ export function useNytTrending(listName: string): NytTrendingResult {
       setError(null)
 
       try {
-        const list = await NytBooksService.fetchList(listName)
+        const list = await NytBooksService.fetchList(listName, {
+          allowNetwork: options.allowNetwork,
+        })
         if (cancelled) return
 
         setBooks(list.books)
@@ -36,7 +42,7 @@ export function useNytTrending(listName: string): NytTrendingResult {
 
     void load()
     return () => { cancelled = true }
-  }, [listName])
+  }, [listName, options.allowNetwork])
 
   return { books, displayName, loading, error }
 }

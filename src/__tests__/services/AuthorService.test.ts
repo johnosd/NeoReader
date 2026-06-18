@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AuthorCacheRecord } from '@/types/author'
+import { FeatureQuotaService } from '@/services/FeatureQuotaService'
 
 const mocks = vi.hoisted(() => ({
   getCachedAuthorRecord: vi.fn(),
@@ -16,7 +17,7 @@ vi.mock('@/services/http', () => ({
   fetchWithTimeout: mocks.fetchWithTimeout,
 }))
 
-import { getAuthorData } from '@/services/AuthorService'
+import { AuthorQuotaBlockedError, getAuthorData } from '@/services/AuthorService'
 
 function cachedAuthor(overrides: Partial<AuthorCacheRecord> = {}): AuthorCacheRecord {
   return {
@@ -40,6 +41,7 @@ describe('AuthorService', () => {
     mocks.getCachedAuthorRecord.mockReset()
     mocks.setCachedAuthor.mockReset()
     mocks.fetchWithTimeout.mockReset()
+    FeatureQuotaService.reset()
   })
 
   afterEach(() => {
@@ -58,6 +60,25 @@ describe('AuthorService', () => {
     expect(data?.bio).toBe('Bio persistida')
     expect(mocks.fetchWithTimeout).not.toHaveBeenCalled()
     expect(mocks.setCachedAuthor).not.toHaveBeenCalled()
+  })
+
+  it('nao consome quota de book intelligence quando Author vem do cache', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-05-05T00:00:00.000Z'))
+    mocks.getCachedAuthorRecord.mockResolvedValue(cachedAuthor({
+      videosFetchedAt: new Date('2026-05-01T00:00:00.000Z'),
+    }))
+
+    const data = await getAuthorData('Autor', 42, 'youtube-key', {
+      enforceQuota: true,
+      quotaSubjectKey: 'book:42',
+    })
+    const quota = FeatureQuotaService.getSnapshot('book-intelligence', { isPro: false })
+
+    expect(data?.bio).toBe('Bio persistida')
+    expect(quota.used).toBe(0)
+    expect(quota.remaining).toBe(5)
+    expect(mocks.fetchWithTimeout).not.toHaveBeenCalled()
   })
 
   it('atualiza apenas videos quando o TTL de 7 dias expirou', async () => {
@@ -96,5 +117,43 @@ describe('AuthorService', () => {
     }), 42, {
       videosFetchedAt: new Date('2026-05-10T00:00:00.000Z'),
     })
+  })
+
+  it('bloqueia busca nova quando quota de book intelligence acabou', async () => {
+    for (let index = 0; index < 5; index += 1) {
+      FeatureQuotaService.consume('book-intelligence', {
+        isPro: false,
+        subjectKey: `book:used-${index}`,
+      })
+    }
+    mocks.getCachedAuthorRecord.mockResolvedValue(null)
+
+    await expect(getAuthorData('Autor', 42, 'youtube-key', {
+      enforceQuota: true,
+      quotaSubjectKey: 'book:42',
+    })).rejects.toBeInstanceOf(AuthorQuotaBlockedError)
+
+    expect(mocks.fetchWithTimeout).not.toHaveBeenCalled()
+  })
+
+  it('mantem autor em cache visivel quando quota acabou', async () => {
+    for (let index = 0; index < 5; index += 1) {
+      FeatureQuotaService.consume('book-intelligence', {
+        isPro: false,
+        subjectKey: `book:used-${index}`,
+      })
+    }
+    mocks.getCachedAuthorRecord.mockResolvedValue(cachedAuthor({
+      videosFetchedAt: new Date('2026-05-01T00:00:00.000Z'),
+    }))
+
+    const data = await getAuthorData('Autor', 42, 'youtube-key', {
+      enforceQuota: true,
+      quotaSubjectKey: 'book:42',
+    })
+
+    expect(data?.bio).toBe('Bio persistida')
+    expect(mocks.fetchWithTimeout).not.toHaveBeenCalled()
+    expect(mocks.setCachedAuthor).not.toHaveBeenCalled()
   })
 })
