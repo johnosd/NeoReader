@@ -33,6 +33,7 @@ import {
   ReaderModeControl,
   ReaderThemeControl,
 } from '../components/reader/ReaderAppearanceControls'
+import { Switch } from '../components/ui'
 import { translate } from '../services/TranslationService'
 import { createFlowId, getDiagnosticsNowMs, logError, logEvent } from '../services/DiagnosticsLogger'
 import type { Book } from '../types/book'
@@ -136,6 +137,7 @@ export function ReaderScreen({
   const [tocOpen, setTocOpen] = useState(false)
   const [bookmarkSheetOpen, setBookmarkSheetOpen] = useState(false)
   const [appearanceSheetOpen, setAppearanceSheetOpen] = useState(false)
+  const [focusLineEnabled, setFocusLineEnabled] = useState(() => localStorage.getItem('neoreader:focus-line') === '1')
   const [removingMissingBook, setRemovingMissingBook] = useState(false)
   const [missingBookRemovalError, setMissingBookRemovalError] = useState<string | null>(null)
   const {
@@ -802,6 +804,7 @@ export function ReaderScreen({
           fontFamily={fontFamily}
           overrideBookFont={overrideBookFont}
           overrideBookColors={overrideBookColors}
+          focusLineEnabled={focusLineEnabled}
           savedCfi={startHref ? null : savedCfi}
           initialTarget={startHref ?? null}
           onRelocate={handleRelocate}
@@ -854,6 +857,7 @@ export function ReaderScreen({
         title={book.title}
         percentage={percentage}
         chapterPercentage={chapterPercentage}
+        sectionLabel={currentTocLabel ?? null}
         fontSize={fontSize}
         bookmarkCount={activeBookmarks.length}
         onBack={handleBack}
@@ -1016,6 +1020,21 @@ export function ReaderScreen({
             <ReaderModeControl
               value={readerStyleMode}
               onChange={handleReaderStyleModeChange}
+            />
+          </div>
+
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-text-primary">{t('reader.appearance.focusLine.label')}</p>
+              <p className="mt-0.5 text-xs text-text-muted">{t('reader.appearance.focusLine.description')}</p>
+            </div>
+            <Switch
+              checked={focusLineEnabled}
+              onChange={(value) => {
+                localStorage.setItem('neoreader:focus-line', value ? '1' : '0')
+                setFocusLineEnabled(value)
+              }}
+              aria-label={t('reader.appearance.focusLine.label')}
             />
           </div>
         </div>

@@ -55,7 +55,8 @@ export function buildBookIntelligenceQuotaSubject(input: {
 }
 
 function storageKey(key: FeatureQuotaKey): string {
-  return `${STORAGE_PREFIX}${key}`
+  const uid = localStorage.getItem('neoreader:active-uid') ?? 'guest'
+  return `${STORAGE_PREFIX}${uid}:${key}`
 }
 
 function resolveIsPro(value: boolean | null | undefined): boolean {

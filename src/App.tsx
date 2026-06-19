@@ -83,6 +83,32 @@ function App() {
     })
   }, [signedInUid])
 
+  // Garante que cada conta usa seu próprio banco IndexedDB.
+  // Quando o uid muda, grava o novo uid no localStorage e recarrega —
+  // o banco é escolhido em database.ts antes do React renderizar.
+  //
+  // Lógica de banco legado (backward compat com usuários antes do update):
+  //   - rawStoredUid === null → primeira abertura após update (ou install limpo)
+  //     → o banco atual é 'NeoReaderDB' (legado, pode ter dados do usuário)
+  //     → ao detectar o uid, gravamos 'neoreader:db-name:{uid}' = 'NeoReaderDB'
+  //       para que esse usuário continue abrindo o banco legado nas próximas cargas.
+  //   - rawStoredUid !== null → já inicializado, usa o banco mapeado normalmente.
+  const authStatus = auth.state.status
+  useEffect(() => {
+    if (authStatus === 'loading') return
+    const currentUid = signedInUid ?? 'guest'
+    const rawStoredUid = localStorage.getItem('neoreader:active-uid')
+    const storedUid = rawStoredUid ?? 'guest'
+    if (storedUid !== currentUid) {
+      // Primeira transição após update: associar o uid ao banco legado.
+      if (rawStoredUid === null && currentUid !== 'guest') {
+        localStorage.setItem(`neoreader:db-name:${currentUid}`, 'NeoReaderDB')
+      }
+      localStorage.setItem('neoreader:active-uid', currentUid)
+      window.location.reload()
+    }
+  }, [authStatus, signedInUid])
+
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return
 

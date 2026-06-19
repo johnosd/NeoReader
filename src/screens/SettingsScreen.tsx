@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { ArrowLeft, Check, ChevronDown, ChevronRight, CloudUpload, Compass, Eye, EyeOff, Gauge, Globe, Info, KeyRound, Mic2, Palette, PlayCircle, Sparkles, Volume2 } from 'lucide-react'
-import { Badge, BottomSheet, Input, ListItem, Spinner } from '../components/ui'
+import { ArrowLeft, Check, ChevronDown, ChevronRight, CloudUpload, Compass, Eye, EyeOff, Gauge, Globe, Info, KeyRound, Mic2, Palette, PlayCircle, Smartphone, Sparkles, Volume2 } from 'lucide-react'
+import { Badge, BottomSheet, Input, ListItem, Spinner, Switch } from '../components/ui'
+import { WakeLockService } from '../services/WakeLockService'
 import { IntegrationEducationCard } from '../components/IntegrationEducationCard'
 import { IntegrationHelpBanner } from '../components/IntegrationHelpBanner'
 import { useEntitlements, useRefreshEntitlementsOnFocus } from '../hooks/useEntitlements'
@@ -163,6 +164,7 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
   const [youtubeValidation, setYoutubeValidation] = useState<KeyValidationState>(IDLE_KEY_STATE)
   const [appLangSheetOpen, setAppLangSheetOpen] = useState(false)
   const [langSheetOpen, setLangSheetOpen] = useState(false)
+  const [keepAwakeEnabled, setKeepAwakeEnabled] = useState(() => WakeLockService.isEnabled())
   const { localePreference, setLocalePreference, t } = useI18n()
   const ttsValidationSeqRef = useRef<Record<PremiumTtsProvider, number>>({
     speechify: 0,
@@ -522,6 +524,22 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
               title={t('settings.narration.native.title')}
               description={t('settings.narration.native.description')}
               badge={<Badge tone="success">{t('settings.plan.active')}</Badge>}
+            />
+            <ListItem
+              leading={<Smartphone size={20} />}
+              title={t('settings.narration.keepAwake.title')}
+              meta={t('settings.narration.keepAwake.description')}
+              trailing={(
+                <Switch
+                  checked={keepAwakeEnabled}
+                  onChange={(value) => {
+                    WakeLockService.setEnabled(value)
+                    setKeepAwakeEnabled(value)
+                  }}
+                  aria-label={t('settings.narration.keepAwake.title')}
+                />
+              )}
+              divider={false}
             />
           </SettingsGroup>
         </SettingsSection>

@@ -29,7 +29,18 @@ class NeoReaderDB extends Dexie {
   sourceFolders!: Table<SourceFolder, number>
 
   constructor() {
-    super('NeoReaderDB')
+    // Isolamento por conta: cada uid usa seu próprio banco.
+    // Se 'neoreader:active-uid' nunca foi gravado (primeira abertura ou após update),
+    // usamos o nome legado 'NeoReaderDB' para preservar dados existentes.
+    // O mapeamento uid→nome é persistido em 'neoreader:db-name:{uid}' pelo App.tsx.
+    const rawActiveUid = localStorage.getItem('neoreader:active-uid')
+    let dbName: string
+    if (rawActiveUid === null) {
+      dbName = 'NeoReaderDB' // banco legado / pré-update
+    } else {
+      dbName = localStorage.getItem(`neoreader:db-name:${rawActiveUid}`) ?? `NeoReaderDB-${rawActiveUid}`
+    }
+    super(dbName)
 
     // version() define o schema — similar a uma migration.
     // Os campos listados são os índices (busca rápida).

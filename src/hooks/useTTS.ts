@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { TextToSpeech } from '@capacitor-community/text-to-speech'
+import { WakeLockService } from '../services/WakeLockService'
 import type { TtsChunk } from '../components/reader/EpubViewer'
 import { NativeTtsService } from '../services/NativeTtsService'
 import { createFlowId, getDiagnosticsNowMs, logError, logEvent, logWarn } from '../services/DiagnosticsLogger'
@@ -289,6 +290,7 @@ export function useTTS(options: UseTTSOptions) {
       audioRef.current = null
 
       void TextToSpeech.stop().catch(logTtsPlaybackError)
+      void WakeLockService.allowSleep()
     }
   }, [])
 
@@ -663,6 +665,7 @@ export function useTTS(options: UseTTSOptions) {
     nativeRangeEventSeenRef.current = false
     updatePaused(false)
     setIsPlaying(true)
+    void WakeLockService.keepAwake()
 
     const resolvedProvider = await resolveConfiguredTtsProvider(configRef.current.provider).catch(() => 'native' as const)
     let playbackProvider = resolvedProvider
@@ -752,6 +755,7 @@ export function useTTS(options: UseTTSOptions) {
     const playbackDone = playbackDoneRef.current
     updatePaused(true)
     setIsPlaying(false)
+    void WakeLockService.allowSleep()
     logPlaybackEvent('tts.playback.pause', activeProviderRef.current, 'success')
 
     if (activeProviderRef.current === 'native') {
@@ -807,6 +811,7 @@ export function useTTS(options: UseTTSOptions) {
     const shouldLogStopIntent = isPlaying || isPaused || pauseRequestedRef.current || Boolean(audioRef.current || stopPremiumPlaybackRef.current)
     shouldStopRef.current = true
     updatePaused(false)
+    void WakeLockService.allowSleep()
     if (shouldLogStopIntent) {
       playbackStopReasonRef.current = 'stopped'
     }
