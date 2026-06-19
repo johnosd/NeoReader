@@ -6,6 +6,9 @@ import { IntegrationEducationCard } from '../components/IntegrationEducationCard
 import { IntegrationHelpBanner } from '../components/IntegrationHelpBanner'
 import { useEntitlements, useRefreshEntitlementsOnFocus } from '../hooks/useEntitlements'
 import { useBookmarkDriveSyncStatus } from '../hooks/useBookmarkDriveSyncStatus'
+import { useProgressDriveSyncStatus } from '../hooks/useProgressDriveSyncStatus'
+import { useVocabularyDriveSyncStatus } from '../hooks/useVocabularyDriveSyncStatus'
+import type { DriveDataSyncStatusCode } from '../services/DriveDataSyncStatus'
 import { FeatureQuotaService, type FeatureQuotaSnapshot } from '../services/FeatureQuotaService'
 import {
   ReaderFontControl,
@@ -153,6 +156,8 @@ function getEducationStatus(state: KeyValidationState, t: TranslateFn): {
 export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
   const entitlements = useEntitlements()
   const bookmarkSyncStatus = useBookmarkDriveSyncStatus(entitlements.isPro)
+  const progressSyncStatus = useProgressDriveSyncStatus(entitlements.isPro)
+  const vocabularySyncStatus = useVocabularyDriveSyncStatus(entitlements.isPro)
   useRefreshEntitlementsOnFocus()
   const [settings, setSettings] = useState<UserSettings | null>(null)
   const [showTtsKeys, setShowTtsKeys] = useState<Record<PremiumTtsProvider, boolean>>(EMPTY_TTS_KEY_VISIBILITY)
@@ -286,6 +291,8 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
     ? 'original'
     : 'comfortable'
   const bookmarkSyncMeta = getBookmarkSyncMeta(bookmarkSyncStatus.code, t)
+  const progressSyncMeta = getDataSyncMeta(progressSyncStatus.code, t, 'progress')
+  const vocabularySyncMeta = getDataSyncMeta(vocabularySyncStatus.code, t, 'vocabulary')
   const bookIntelligenceQuota = FeatureQuotaService.getSnapshot('book-intelligence', { isPro: entitlements.isPro })
   const nytDiscoveryQuota = FeatureQuotaService.getSnapshot('nyt-discovery', { isPro: entitlements.isPro })
 
@@ -411,17 +418,27 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
 
         <SettingsSection
           icon={<CloudUpload size={17} />}
-          label={t('settings.bookmarkSync.sectionLabel')}
-          description={t('settings.bookmarkSync.sectionDescription')}
+          label={t('settings.cloudSync.sectionLabel')}
+          description={t('settings.cloudSync.sectionDescription')}
         >
           <SettingsGroup>
             <ListItem
               leading={<CloudUpload size={20} />}
               title={t('settings.bookmarkSync.title')}
               meta={bookmarkSyncMeta.description}
-              trailing={(
-                <Badge tone={bookmarkSyncMeta.tone}>{bookmarkSyncMeta.label}</Badge>
-              )}
+              trailing={<Badge tone={bookmarkSyncMeta.tone}>{bookmarkSyncMeta.label}</Badge>}
+            />
+            <ListItem
+              leading={<CloudUpload size={20} />}
+              title={t('settings.progressSync.title')}
+              meta={progressSyncMeta.description}
+              trailing={<Badge tone={progressSyncMeta.tone}>{progressSyncMeta.label}</Badge>}
+            />
+            <ListItem
+              leading={<CloudUpload size={20} />}
+              title={t('settings.vocabularySync.title')}
+              meta={vocabularySyncMeta.description}
+              trailing={<Badge tone={vocabularySyncMeta.tone}>{vocabularySyncMeta.label}</Badge>}
               divider={false}
             />
           </SettingsGroup>
@@ -746,6 +763,48 @@ function getPlanMeta(
     return t('settings.plan.lifetime')
   }
   return t('settings.plan.metaComingSoon')
+}
+
+const DATA_SYNC_CONNECTED_DESC = {
+  progress: 'settings.progressSync.description.connected',
+  vocabulary: 'settings.vocabularySync.description.connected',
+} as const satisfies Record<string, Parameters<TranslateFn>[0]>
+
+function getDataSyncMeta(
+  code: DriveDataSyncStatusCode,
+  t: TranslateFn,
+  type: 'progress' | 'vocabulary',
+): {
+  label: string
+  description: string
+  tone: 'success' | 'warning' | 'error' | 'purple' | 'neutral'
+} {
+  if (code === 'connected') {
+    return {
+      label: t('settings.bookmarkSync.status.connected'),
+      description: t(DATA_SYNC_CONNECTED_DESC[type]),
+      tone: 'success',
+    }
+  }
+  if (code === 'permission-error') {
+    return {
+      label: t('settings.bookmarkSync.status.permissionError'),
+      description: t('settings.bookmarkSync.description.permissionError'),
+      tone: 'error',
+    }
+  }
+  if (code === 'pro-required') {
+    return {
+      label: t('settings.bookmarkSync.status.proRequired'),
+      description: t('settings.bookmarkSync.description.proRequired'),
+      tone: 'purple',
+    }
+  }
+  return {
+    label: t('settings.bookmarkSync.status.pendingOffline'),
+    description: t('settings.bookmarkSync.description.pendingOffline'),
+    tone: 'warning',
+  }
 }
 
 function getBookmarkSyncMeta(

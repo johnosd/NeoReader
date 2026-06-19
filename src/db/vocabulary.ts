@@ -1,12 +1,16 @@
 import { db } from './database'
 import type { VocabItem } from '../types/vocabulary'
+import { scheduleVocabularyDriveSync } from '../services/VocabularyDriveSyncService'
 
 export async function addVocabItem(item: Omit<VocabItem, 'id'>): Promise<number> {
-  return db.vocabulary.add(item)
+  const id = await db.vocabulary.add(item)
+  scheduleVocabularyDriveSync()
+  return id
 }
 
 export async function deleteVocabItem(id: number): Promise<void> {
-  return db.vocabulary.delete(id)
+  await db.vocabulary.delete(id)
+  scheduleVocabularyDriveSync()
 }
 
 // Retorna todos os itens do vocabulário, do mais recente ao mais antigo
