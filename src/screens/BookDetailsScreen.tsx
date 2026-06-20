@@ -498,7 +498,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
         <div className="px-4 flex flex-col items-center gap-4 pt-2">
           <div className="w-40 aspect-[2/3] rounded-md shadow-card overflow-hidden bg-bg-surface flex items-center justify-center shrink-0">
             {coverUrl
-              ? <img src={coverUrl} alt={liveBook.title} className="w-full h-full object-cover" />
+              ? <img src={coverUrl} alt={liveBook.title} className="w-full h-full object-cover" onContextMenu={(e) => e.preventDefault()} />
               : <BookOpen size={40} className="text-text-muted" />
             }
           </div>

@@ -28,6 +28,8 @@ const rerunBookIds = new Set<number>()
 
 export function scheduleProgressDriveSync(bookId: number): void {
   if (!Number.isFinite(bookId)) return
+  // Não tenta sync se o token está ausente/expirado — evita flood de falhas até reconexão
+  if (progressSyncStatusStore.getCached().code === 'permission-error') return
   if (inFlightBookIds.has(bookId)) {
     rerunBookIds.add(bookId)
     return

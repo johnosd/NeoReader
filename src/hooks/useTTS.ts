@@ -209,6 +209,8 @@ export function useTTS(options: UseTTSOptions) {
   const playbackFlowIdRef = useRef<string | null>(null)
   const playbackModeRef = useRef<TtsPlaybackMode | null>(null)
   const playbackStopReasonRef = useRef<TtsPlaybackStopReason | null>(null)
+  // Prevents duplicate TextToSpeech.stop() calls when stop() is invoked concurrently.
+  const nativeStopPendingRef = useRef(false)
 
   function updatePaused(next: boolean) {
     pauseRequestedRef.current = next
@@ -278,6 +280,10 @@ export function useTTS(options: UseTTSOptions) {
 
   useEffect(() => {
     return () => {
+      // Skip if stop() was already called (shouldStopRef=true) — avoids duplicate
+      // TextToSpeech.stop() / allowSleep() when the user explicitly stopped before unmount.
+      if (shouldStopRef.current) return
+
       const hasPlaybackSession = playSessionRef.current > 0 || audioRef.current || stopPremiumPlaybackRef.current
       if (!hasPlaybackSession) return
 
@@ -661,6 +667,7 @@ export function useTTS(options: UseTTSOptions) {
     })
 
     shouldStopRef.current = false
+    nativeStopPendingRef.current = false
     activeChunksRef.current = chunks
     nativeRangeEventSeenRef.current = false
     updatePaused(false)
@@ -817,12 +824,17 @@ export function useTTS(options: UseTTSOptions) {
     }
 
     if (activeProviderRef.current === 'native') {
-      try {
-        await TextToSpeech.stop()
-      } catch (error) {
-        playbackStopReasonRef.current = 'error'
-        logPlaybackError(error, { phase: 'stop' })
-        throw error
+      if (!nativeStopPendingRef.current) {
+        nativeStopPendingRef.current = true
+        try {
+          await TextToSpeech.stop()
+        } catch (error) {
+          playbackStopReasonRef.current = 'error'
+          logPlaybackError(error, { phase: 'stop' })
+          throw error
+        } finally {
+          nativeStopPendingRef.current = false
+        }
       }
     } else {
       audioRef.current?.pause()
@@ -848,6 +860,7 @@ export function useTTS(options: UseTTSOptions) {
     })
 
     shouldStopRef.current = false
+    nativeStopPendingRef.current = false
     nativeRangeEventSeenRef.current = false
     updatePaused(false)
     const resolvedProvider = await resolveConfiguredTtsProvider(configRef.current.provider).catch(() => 'native' as const)

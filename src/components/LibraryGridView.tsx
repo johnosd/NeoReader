@@ -29,7 +29,12 @@ function GridBookCard({ book, onOpenBook }: { book: LibraryBook; onOpenBook: (bo
       style={{ aspectRatio: '2 / 3' }}
     >
       {coverUrl ? (
-        <img src={coverUrl} alt={book.title} className="h-full w-full object-cover" />
+        <img
+          src={coverUrl}
+          alt={book.title}
+          className="h-full w-full object-cover"
+          onContextMenu={(e) => e.preventDefault()}
+        />
       ) : (
         <div className="flex h-full w-full items-center justify-center text-white/20">
           <BookOpen size={20} />

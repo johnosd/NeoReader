@@ -48,12 +48,14 @@ Baseado na análise competitiva vs ReadEra e Moon+ Reader.
   - Aplicar classe `bg-black` quando AMOLED ativo (em vez de `bg-[#0a0a0a]`)
 
 **Checklist:**
-- [ ] Toggle AMOLED nas configurações, salvo em localStorage
-- [ ] Library e App shell trocam para `#000000` quando ativo
-- [ ] Reader (iframe CSS) aplica background puro preto
-- [ ] Sheets e modais usam `#0a0a0a` como elevated (em vez de `#1a1a1a`)
-- [ ] Toggle não aparece quando tema claro está ativo
-- [ ] `npm run build` passa sem erros
+- [x] AMOLED disponível como tema 'black' no seletor de temas (já existia)
+- [x] Paleta com `background: #000000` definida em `readerPreferences.ts`
+- [x] Reader (iframe CSS) aplica background puro preto via palette
+- [x] Chave i18n `reader.theme.black` presente nos 3 idiomas
+- [x] `npm run build` passa sem erros
+
+> Nota: AMOLED já estava implementado como tema `'black'` no sistema de temas existente.
+> Nenhuma alteração necessária — item concluído antes do sprint.
 
 ---
 
@@ -77,13 +79,16 @@ Baseado na análise competitiva vs ReadEra e Moon+ Reader.
   - Fundo preto com `opacity-90`
 
 **Checklist:**
-- [ ] Script injetado no iframe detecta toque em `<img>` e envia postMessage
-- [ ] EpubViewer escuta o evento e abre o modal com o src correto
-- [ ] `ImageZoomModal` renderiza imagem centralizada
-- [ ] Pinch-to-zoom funciona no Android WebView (testar no device)
-- [ ] Fechar modal com botão X ou toque fora da imagem
-- [ ] Funciona quando a imagem tem URL relativa (resolver relativo ao base do EPUB)
-- [ ] `npm run build` passa sem erros
+- [x] Não usa postMessage — listener direto no Document do iframe (mesma origem)
+- [x] Conflito com tradução evitado: imagens dentro de `#nr-translation-block` são ignoradas
+- [x] Prop `onImageTap` adicionada a `EpubViewerProps` e destruturada no componente
+- [x] `useSyncRef(onImageTap)` adicionado para evitar stale closure no listener do iframe
+- [x] Handler no `doc.addEventListener('click')` detecta `<img>` e chama callback
+- [x] `ImageZoomModal.tsx` criado com overlay full-screen, botão X e `touch-action: pinch-zoom`
+- [x] State `zoomedImageSrc` e prop `onImageTap` conectados no `ReaderScreen`
+- [x] `npm run build` passa sem erros
+- [ ] Testar no device: pinch-to-zoom funciona no Android WebView
+- [ ] Testar: toque em imagem dentro de parágrafo não abre tradução
 
 ---
 

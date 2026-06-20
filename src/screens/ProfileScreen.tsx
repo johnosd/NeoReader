@@ -311,7 +311,7 @@ function HistoryRow({ item }: { item: ProfileHistoryItem }) {
     <div className="flex gap-3 px-5 py-3 border-b border-white/[0.04]">
       <div className="w-11 h-[60px] rounded-md overflow-hidden flex-shrink-0 bg-bg-surface-2 border border-white/10 flex items-center justify-center">
         {coverUrl ? (
-          <img src={coverUrl} alt="" className="w-full h-full object-cover" />
+          <img src={coverUrl} alt="" className="w-full h-full object-cover" onContextMenu={(e) => e.preventDefault()} />
         ) : (
           <BookOpen size={17} className="text-white/30" />
         )}

@@ -22,10 +22,11 @@ import { createFlowId, getDiagnosticsNowMs, logEvent } from './services/Diagnost
 import { cleanupExpiredTtsVoiceCaches } from './db/ttsVoiceCaches'
 import { scheduleVocabularyDriveSync } from './services/VocabularyDriveSyncService'
 import type { Book } from './types/book'
+import type { LibraryFilter } from './hooks/useLibraryCatalog'
 
 type Route =
   | { name: 'home' }
-  | { name: 'library' }
+  | { name: 'library'; initialFilter?: LibraryFilter }
   | { name: 'book-details'; book: Book }
   | { name: 'reader'; book: Book; startHref?: string; readerOpenFlowId?: string; readerOpenStartedAt?: number }
   | { name: 'vocabulary' }
@@ -63,7 +64,7 @@ function App() {
   const push = (route: Route) => setStack((prev) => [...prev, route])
   const pop = () => setStack((prev) => (prev.length > 1 ? prev.slice(0, -1) : prev))
   const openHome = () => setStack([{ name: 'home' }])
-  const openLibrary = () => setStack([{ name: 'home' }, { name: 'library' }])
+  const openLibrary = (initialFilter?: LibraryFilter) => setStack([{ name: 'home' }, { name: 'library', initialFilter }])
   const openDiscover = () => setStack([{ name: 'home' }, { name: 'discover' }])
   const openProfile = () => setStack([{ name: 'home' }, { name: 'profile' }])
 
@@ -279,6 +280,7 @@ function App() {
             onOpenHome={openHome}
             onOpenDiscover={openDiscover}
             onOpenProfile={openProfile}
+            initialFilter={current.initialFilter}
           />
         </ErrorBoundary>
       )
@@ -288,7 +290,7 @@ function App() {
         <ErrorBoundary key="home" screen="home">
           <HomeScreen
             onOpenBook={(book) => push({ name: 'book-details', book })}
-            onOpenBiblioteca={openLibrary}
+            onOpenBiblioteca={(genre) => openLibrary(genre ? `genre:${genre}` : undefined)}
             onOpenDiscover={openDiscover}
             onOpenProfile={openProfile}
             onOpenSettings={() => push({ name: 'settings' })}

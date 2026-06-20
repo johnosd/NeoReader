@@ -32,6 +32,7 @@ let inFlight = false
 let pendingRerun = false
 
 export function scheduleVocabularyDriveSync(): void {
+  if (vocabularySyncStatusStore.getCached().code === 'permission-error') return
   if (inFlight) {
     pendingRerun = true
     return

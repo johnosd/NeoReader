@@ -10,7 +10,9 @@ import { useProgressDriveSyncStatus } from '../hooks/useProgressDriveSyncStatus'
 import { useVocabularyDriveSyncStatus } from '../hooks/useVocabularyDriveSyncStatus'
 import type { DriveDataSyncStatusCode } from '../services/DriveDataSyncStatus'
 import { refreshDriveToken } from '../services/FirebaseAuthService'
-import { scheduleVocabularyDriveSync } from '../services/VocabularyDriveSyncService'
+import { scheduleVocabularyDriveSync, vocabularySyncStatusStore } from '../services/VocabularyDriveSyncService'
+import { progressSyncStatusStore } from '../services/ProgressDriveSyncService'
+import { setBookmarkDriveSyncStatus } from '../services/BookmarkDriveSyncStatus'
 import { FeatureQuotaService, type FeatureQuotaSnapshot } from '../services/FeatureQuotaService'
 import {
   ReaderFontControl,
@@ -190,6 +192,11 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
   async function handleReconnectDrive() {
     setDriveReconnecting(true)
     await refreshDriveToken()
+    // Reseta os 3 status stores para que os guards de permission-error não bloqueiem
+    // as novas tentativas de sync após o token ser renovado.
+    progressSyncStatusStore.set('pending-offline')
+    vocabularySyncStatusStore.set('pending-offline')
+    setBookmarkDriveSyncStatus('pending-offline')
     scheduleVocabularyDriveSync()
     setDriveReconnecting(false)
   }

@@ -32,7 +32,7 @@ export function ProgressCard({ book, onPress, onOpenOptions }: ProgressCardProps
       {/* Cover */}
       <div className="w-[72px] flex-shrink-0 relative overflow-hidden" style={{ background: '#1e0e2d' }}>
         {coverUrl ? (
-          <img src={coverUrl} alt={book.title} className="w-full h-full object-cover" />
+          <img src={coverUrl} alt={book.title} className="w-full h-full object-cover" onContextMenu={(e) => e.preventDefault()} />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
             <BookOpen size={22} className="text-white/20" />

@@ -13,6 +13,7 @@ import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
 import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
 import { useIsImportActive } from '../hooks/useImportActivity'
 import { useLibraryCatalog, type LibraryBook, type LibraryFilter, type LibrarySort } from '../hooks/useLibraryCatalog'
+import { GENRE_LABELS, type CanonicalGenre } from '../utils/categoryNormalizer'
 import { BookImportService, type FolderImportOptions, type ImportPreviewItem, type ImportProgress, type ImportSummary } from '../services/BookImportService'
 import { IMPORT_IN_PROGRESS_MESSAGE } from '../services/ImportCoordinator'
 import { logImportDiagnostic } from '../services/ImportDiagnostics'
@@ -25,6 +26,7 @@ interface LibraryScreenProps {
   onOpenHome: () => void
   onOpenDiscover: () => void
   onOpenProfile: () => void
+  initialFilter?: LibraryFilter
 }
 
 const FILTERS: Array<{ id: LibraryFilter; labelKey: MessageKey }> = [
@@ -47,7 +49,7 @@ const SORT_OPTIONS: Array<{ id: LibrarySort; labelKey: MessageKey }> = [
 
 const EPUB_FILE_PATTERN = /\.epub$/i
 
-export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenProfile }: LibraryScreenProps) {
+export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenProfile, initialFilter }: LibraryScreenProps) {
   const { t } = useI18n()
   const {
     isLoading,
@@ -61,7 +63,7 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
     setActiveFilter,
     sort,
     setSort,
-  } = useLibraryCatalog()
+  } = useLibraryCatalog(initialFilter)
   const [collectionManagerOpen, setCollectionManagerOpen] = useState(false)
   const [viewMode, setViewMode] = useState<'list' | 'grid'>(() => {
     try { return (localStorage.getItem('neoreader:library-view-mode') as 'list' | 'grid') ?? 'list' } catch { return 'list' }
@@ -441,6 +443,13 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
                 onClick={() => setActiveFilter(filter.id)}
               />
             ))}
+            {activeFilter.startsWith('genre:') && (
+              <FilterChip
+                active={true}
+                label={GENRE_LABELS[activeFilter.slice('genre:'.length) as CanonicalGenre] ?? activeFilter.slice('genre:'.length)}
+                onClick={() => setActiveFilter('all')}
+              />
+            )}
             {tags.filter((tag): tag is BookTag & { id: number } => tag.id !== undefined).map((tag) => (
               <FilterChip
                 key={tag.id}
@@ -765,7 +774,7 @@ function LibraryBookRow({ book, onOpenBook, onOpenOptions, onOpenTags }: {
         className="h-[92px] w-[62px] shrink-0 overflow-hidden rounded-md border border-white/10 bg-bg-surface-2 active:opacity-80"
       >
         {coverUrl ? (
-          <img src={coverUrl} alt="" className="h-full w-full object-cover" />
+          <img src={coverUrl} alt="" className="h-full w-full object-cover" onContextMenu={(e) => e.preventDefault()} />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-white/30">
             <BookOpen size={24} />

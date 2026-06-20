@@ -40,6 +40,7 @@ export function HeroBanner({ book, onPress, onOpenOptions }: HeroBannerProps) {
             alt=""
             aria-hidden
             className="absolute inset-0 h-full w-full scale-110 object-cover opacity-25 blur-2xl"
+            onContextMenu={(e) => e.preventDefault()}
           />
           {/* Main artwork - fills top portion */}
           <img
@@ -47,6 +48,7 @@ export function HeroBanner({ book, onPress, onOpenOptions }: HeroBannerProps) {
             alt={book.title}
             className="absolute top-0 left-0 right-0 w-full object-cover object-top"
             style={{ height: '68%' }}
+            onContextMenu={(e) => e.preventDefault()}
           />
         </>
       ) : (
