@@ -1,5 +1,5 @@
-import { ArrowLeft, BookOpen, CheckCircle2, CloudUpload, Compass, CreditCard, RefreshCw, Sparkles } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
+import { ArrowLeft, AlertCircle, BookOpen, CheckCircle2, CloudUpload, Compass, CreditCard, RefreshCw, Sparkles } from 'lucide-react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { PACKAGE_TYPE, type PurchasesOffering, type PurchasesPackage } from '@revenuecat/purchases-capacitor'
 import { Badge, Button, Spinner } from '../components/ui'
 import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
@@ -128,44 +128,41 @@ export function PaywallScreen({ onBack }: PaywallScreenProps) {
   const [processingPlan, setProcessingPlan] = useState<PlanKey | null>(null)
   const [restoring, setRestoring] = useState(false)
   const [message, setMessage] = useState<ActionMessage | null>(null)
+  const [offerLoadCount, setOfferLoadCount] = useState(0)
   useCapacitorBackButton(onBack)
 
-  useEffect(() => {
-    let cancelled = false
+  const loadOffering = useCallback(async (cancelled: { current: boolean }) => {
+    if (!BillingService.isAvailable()) {
+      setLoadState('unavailable')
+      return
+    }
 
-    async function loadOffering() {
-      if (!BillingService.isAvailable()) {
-        setLoadState('unavailable')
+    setLoadState('loading')
+    setMessage(null)
+
+    try {
+      const offering = await BillingService.getOffering()
+      if (cancelled.current) return
+
+      if (!offering) {
+        setPlans([])
+        setLoadState('empty')
         return
       }
 
-      setLoadState('loading')
-      setMessage(null)
-
-      try {
-        const offering = await BillingService.getOffering()
-        if (cancelled) return
-
-        if (!offering) {
-          setPlans([])
-          setLoadState('empty')
-          return
-        }
-
-        const nextPlans = buildPlanOptions(offering)
-        setPlans(nextPlans)
-        setLoadState(nextPlans.length > 0 ? 'ready' : 'empty')
-      } catch {
-        if (!cancelled) setLoadState('error')
-      }
-    }
-
-    void loadOffering()
-
-    return () => {
-      cancelled = true
+      const nextPlans = buildPlanOptions(offering)
+      setPlans(nextPlans)
+      setLoadState(nextPlans.length > 0 ? 'ready' : 'empty')
+    } catch {
+      if (!cancelled.current) setLoadState('error')
     }
   }, [])
+
+  useEffect(() => {
+    const cancelled = { current: false }
+    void loadOffering(cancelled)
+    return () => { cancelled.current = true }
+  }, [loadOffering, offerLoadCount])
 
   async function handlePurchase(plan: PlanOption) {
     setProcessingPlan(plan.key)
@@ -230,10 +227,25 @@ export function PaywallScreen({ onBack }: PaywallScreenProps) {
 
     if (loadState === 'error') {
       return (
-        <PaywallNotice
-          title={t('paywall.error.title')}
-          description={t('paywall.error.description')}
-        />
+        <section className="rounded-md border border-border bg-bg-surface p-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle size={18} className="mt-0.5 text-error" />
+            <div className="flex-1">
+              <h2 className="text-sm font-semibold text-text-primary">{t('paywall.error.title')}</h2>
+              <p className="mt-1 text-xs leading-relaxed text-text-muted">{t('paywall.error.description')}</p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="mt-3 -ml-2"
+                leftIcon={<RefreshCw size={14} />}
+                onClick={() => setOfferLoadCount((n) => n + 1)}
+              >
+                {t('paywall.error.retry')}
+              </Button>
+            </div>
+          </div>
+        </section>
       )
     }
 
