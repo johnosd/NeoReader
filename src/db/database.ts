@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie'
-import type { Book, BookCover, ReadingProgress, Bookmark, BookSettings, BookTag, SourceFolder } from '../types/book'
+import type { Book, BookCollection, BookCover, ReadingProgress, Bookmark, BookSettings, BookTag, SourceFolder } from '../types/book'
 import type { VocabItem, TranslationCache } from '../types/vocabulary'
 import type { UserSettings } from '../types/settings'
 import type { TtsVoiceCacheRecord } from '../types/tts'
@@ -27,6 +27,7 @@ class NeoReaderDB extends Dexie {
   epubExtras!: Table<StoredEpubExtras, number>
   tags!: Table<BookTag, number>
   sourceFolders!: Table<SourceFolder, number>
+  collections!: Table<BookCollection, number>
 
   constructor() {
     // Isolamento por conta: cada uid usa seu próprio banco.
@@ -273,6 +274,26 @@ class NeoReaderDB extends Dexie {
         book.storageMode = book.storageMode ?? (book.fileBlob ? 'embedded' : 'external')
         book.fileSize = book.fileSize ?? book.fileBlob?.size ?? 0
       })
+    })
+
+    // v15: coleções (prateleiras) — organização manual de livros em grupos nomeados.
+    // collectionId em books é indexado para filtros rápidos por coleção.
+    this.version(15).stores({
+      books:         '++id, title, author, addedAt, importedAt, lastOpenedAt, fileName, fileSize, fileHash, format, readingStatus, isFavorite, *tags, sourceFolderId, missingFile, storageMode, collectionId',
+      bookCovers:    'bookId, updatedAt, source',
+      progress:      '++id, bookId, updatedAt',
+      bookmarks:     '++id, bookId, createdAt, updatedAt, deletedAt',
+      vocabulary:    '++id, bookId, createdAt',
+      translations:  '++id, textHash, createdAt',
+      settings:      '++id',
+      bookSettings:  '++id, bookId',
+      ttsVoiceCaches:'++id, &cacheKey, provider, language, updatedAt',
+      authors:       '&authorName, *bookIds, fetchedAt, videosFetchedAt',
+      bookInfo:      '&bookId, updatedAt',
+      epubExtras:    '&bookId, updatedAt',
+      tags:          '++id, &name, createdAt, updatedAt',
+      sourceFolders: '++id, name, uri, createdAt, lastScannedAt',
+      collections:   '++id, &name, createdAt, updatedAt',
     })
   }
 }

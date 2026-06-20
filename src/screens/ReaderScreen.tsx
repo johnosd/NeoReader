@@ -21,7 +21,7 @@ import { useChromeAutoHide } from '../hooks/useChromeAutoHide'
 import type { ProgressSavePayload } from '../db/progress'
 import { deleteBook, updateLastOpened } from '../db/books'
 import { addBookmark, restoreBookmark, softDeleteBookmark, updateBookmarkColor } from '../db/bookmarks'
-import { addVocabItem } from '../db/vocabulary'
+import { addVocabItem, getVocabSourceTextsByBookId } from '../db/vocabulary'
 import { db } from '../db/database'
 import { useTTS } from '../hooks/useTTS'
 import { TtsMiniPlayer } from '../components/reader/TtsMiniPlayer'
@@ -310,6 +310,12 @@ export function ReaderScreen({
     [book.id],
   ) ?? []
   const activeBookmarks = bookmarks.filter((bookmark) => !bookmark.deletedAt)
+
+  // Vocabulário salvo: frases originais para highlight passivo no texto
+  const vocabWords = useLiveQuery(
+    () => book.id ? getVocabSourceTextsByBookId(book.id) : Promise.resolve([]),
+    [book.id],
+  ) ?? []
 
   // Limpa o store ao desmontar para não vazar estado entre livros
   useEffect(() => { return () => reset() }, [reset])
@@ -844,6 +850,7 @@ export function ReaderScreen({
           ttsGlobalActive={ttsPlayerVisible}
           onBookmarkTap={(id) => { void softDeleteBookmark(id) }}
           onBookmarkParagraph={handleParagraphBookmark}
+          vocabWords={vocabWords}
           />
         )}
       </div>

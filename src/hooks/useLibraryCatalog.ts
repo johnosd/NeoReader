@@ -3,9 +3,9 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/database'
 import { resolveReadingState } from '../utils/readingState'
 import { includesNormalizedText, normalizeLibraryText } from '../utils/librarySearch'
-import type { Book, BookTag, ReadingProgress, ReadingStatus } from '../types/book'
+import type { Book, BookCollection, BookTag, ReadingProgress, ReadingStatus } from '../types/book'
 
-export type LibraryFilter = 'all' | 'reading' | 'unread' | 'finished' | 'favorites' | 'untagged' | `tag:${number}`
+export type LibraryFilter = 'all' | 'reading' | 'unread' | 'finished' | 'favorites' | 'untagged' | `tag:${number}` | `collection:${number}`
 export type LibrarySort = 'recent' | 'title' | 'author' | 'importedAt' | 'format' | 'fileName'
 
 export interface LibraryBook extends Book {
@@ -42,12 +42,13 @@ export function useLibraryCatalog() {
   const [sort, setSortState] = useState<LibrarySort>(() => getStoredLibrarySort())
 
   const data = useLiveQuery(async () => {
-    const [books, progress, tags] = await Promise.all([
+    const [books, progress, tags, collections] = await Promise.all([
       db.books.toArray(),
       db.progress.toArray(),
       db.tags.orderBy('name').toArray(),
+      db.collections.orderBy('name').toArray(),
     ])
-    return { books, progress, tags }
+    return { books, progress, tags, collections }
   }, [])
 
   function setSort(nextSort: LibrarySort) {
@@ -62,6 +63,7 @@ export function useLibraryCatalog() {
         books: [] as LibraryBook[],
         filteredBooks: [] as LibraryBook[],
         tags: [] as BookTag[],
+        collections: [] as BookCollection[],
       }
     }
 
@@ -91,6 +93,7 @@ export function useLibraryCatalog() {
       books,
       filteredBooks: sortBooks(filterBooks(books, activeFilter, search), sort),
       tags: data.tags,
+      collections: data.collections,
     }
   }, [activeFilter, data, search, sort])
 
@@ -105,6 +108,8 @@ export function useLibraryCatalog() {
   }
 }
 
+export type { BookCollection }
+
 function filterBooks(books: LibraryBook[], filter: LibraryFilter, search: string): LibraryBook[] {
   const searched = search.trim()
     ? books.filter((book) => matchesSearch(book, search))
@@ -116,6 +121,13 @@ function filterBooks(books: LibraryBook[], filter: LibraryFilter, search: string
   if (filter === 'finished') return searched.filter((book) => book.readingStatus === 'finished')
   if (filter === 'favorites') return searched.filter((book) => book.isFavorite)
   if (filter === 'untagged') return searched.filter((book) => (book.tags ?? []).length === 0)
+
+  if (filter.startsWith('collection:')) {
+    const collectionId = Number(filter.replace('collection:', ''))
+    return searched
+      .filter((book) => book.collectionId === collectionId)
+      .sort((a, b) => (a.collectionOrder ?? 0) - (b.collectionOrder ?? 0))
+  }
 
   const tagId = Number(filter.replace('tag:', ''))
   return searched.filter((book) => (book.tags ?? []).includes(tagId))

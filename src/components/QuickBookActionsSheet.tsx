@@ -1,13 +1,14 @@
 import { useRef, useState, type ReactNode } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { BookOpen, Check, DatabaseZap, ImagePlus, RefreshCw, Tags, Trash2 } from 'lucide-react'
+import { BookOpen, Check, DatabaseZap, FolderOpen, ImagePlus, RefreshCw, Tags, Trash2 } from 'lucide-react'
 import { db } from '../db/database'
 import { deleteBook, setBookTags, updateReadingStatus } from '../db/books'
+import { setBookCollection } from '../db/collections'
 import { createTag } from '../db/tags'
 import { BookImportService } from '../services/BookImportService'
 import { BookInfoRefreshService } from '../services/bookInfo'
 import { BottomSheet, Button, Checkbox, Spinner } from './ui'
-import type { Book, BookTag } from '../types/book'
+import type { Book, BookCollection, BookTag } from '../types/book'
 import { useI18n } from '../i18n'
 
 interface QuickBookActionsSheetProps {
@@ -18,10 +19,12 @@ interface QuickBookActionsSheetProps {
 export function QuickBookActionsSheet({ book, onClose }: QuickBookActionsSheetProps) {
   const { t } = useI18n()
   const tags = useLiveQuery(() => db.tags.orderBy('name').toArray(), []) ?? []
+  const collections = useLiveQuery(() => db.collections.orderBy('name').toArray(), []) ?? []
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [tagsOpen, setTagsOpen] = useState(false)
+  const [collectionOpen, setCollectionOpen] = useState(false)
   const [newTagName, setNewTagName] = useState('')
   const imageInputRef = useRef<HTMLInputElement>(null)
 
@@ -34,6 +37,7 @@ export function QuickBookActionsSheet({ book, onClose }: QuickBookActionsSheetPr
     setError(null)
     setConfirmDelete(false)
     setTagsOpen(false)
+    setCollectionOpen(false)
     setNewTagName('')
     onClose()
   }
@@ -153,7 +157,7 @@ export function QuickBookActionsSheet({ book, onClose }: QuickBookActionsSheetPr
             icon={<Tags size={18} />}
             title={t('quickActions.tags.title')}
             description={t('quickActions.tags.description')}
-            onClick={() => setTagsOpen((value) => !value)}
+            onClick={() => { setTagsOpen((v) => !v); setCollectionOpen(false) }}
             disabled={loading}
           />
 
@@ -166,6 +170,26 @@ export function QuickBookActionsSheet({ book, onClose }: QuickBookActionsSheetPr
               onNewTagNameChange={setNewTagName}
               onToggleTag={(tag) => void toggleTag(tag)}
               onCreateTag={() => void handleCreateTag()}
+            />
+          )}
+
+          <ActionRow
+            icon={<FolderOpen size={18} />}
+            title={t('quickActions.collection.title')}
+            description={t('quickActions.collection.description')}
+            onClick={() => { setCollectionOpen((v) => !v); setTagsOpen(false) }}
+            disabled={loading}
+          />
+
+          {collectionOpen && (
+            <CollectionPicker
+              book={book}
+              collections={collections}
+              disabled={loading}
+              onPick={(collectionId) => void runAction(
+                () => setBookCollection(book!.id!, collectionId),
+                { closeOnSuccess: false },
+              )}
             />
           )}
 
@@ -260,6 +284,48 @@ function TagEditor({
           {t('quickActions.createTag')}
         </button>
       </div>
+    </div>
+  )
+}
+
+function CollectionPicker({
+  book,
+  collections,
+  disabled,
+  onPick,
+}: {
+  book: Book | null
+  collections: BookCollection[]
+  disabled: boolean
+  onPick: (collectionId: number | null) => void
+}) {
+  const { t } = useI18n()
+  const currentCollectionId = book?.collectionId ?? null
+
+  return (
+    <div className="rounded-md border border-border bg-white/5 p-3">
+      {collections.length === 0 ? (
+        <p className="text-xs text-text-muted">{t('quickActions.collection.none')}</p>
+      ) : (
+        <div className="space-y-2">
+          {/* Opção para remover de qualquer coleção */}
+          <Checkbox
+            checked={currentCollectionId === null}
+            disabled={disabled}
+            onChange={() => onPick(null)}
+            label={t('quickActions.collection.none')}
+          />
+          {collections.map((col) => (
+            <Checkbox
+              key={col.id}
+              checked={col.id !== undefined && currentCollectionId === col.id}
+              disabled={disabled || col.id === undefined}
+              onChange={() => col.id !== undefined && onPick(col.id)}
+              label={col.name}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

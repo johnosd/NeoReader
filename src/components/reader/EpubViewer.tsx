@@ -603,6 +603,53 @@ function installPassiveEpubContentTransform(view: View): () => void {
   }
 }
 
+// Injeta spans .nr-vocab ao redor de frases do vocabulário salvo no documento do iframe.
+// Usa walk recursivo em nós de texto para evitar quebrar elementos inline (<em>, <a>, etc).
+// Seguro re-executar: verifica se o span já existe antes de processar o nó.
+function injectVocabHighlight(doc: Document, words: string[]): void {
+  if (!words.length || !doc.body) return
+  // Escapa chars especiais de regex e ordena por comprimento desc (frase antes de palavra)
+  const escaped = words
+    .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .sort((a, b) => b.length - a.length)
+  const pattern = new RegExp(`(${escaped.join('|')})`, 'gi')
+
+  function wrapNode(node: Text): void {
+    const text = node.textContent ?? ''
+    if (!pattern.test(text)) return
+    pattern.lastIndex = 0
+    const frag = doc.createDocumentFragment()
+    let last = 0
+    let m: RegExpExecArray | null
+    while ((m = pattern.exec(text)) !== null) {
+      if (m.index > last) frag.appendChild(doc.createTextNode(text.slice(last, m.index)))
+      const span = doc.createElement('span')
+      span.className = 'nr-vocab'
+      span.textContent = m[0]
+      frag.appendChild(span)
+      last = m.index + m[0].length
+    }
+    if (last < text.length) frag.appendChild(doc.createTextNode(text.slice(last)))
+    node.parentNode?.replaceChild(frag, node)
+  }
+
+  function walk(node: Node): void {
+    if (node.nodeType === Node.TEXT_NODE) {
+      wrapNode(node as Text)
+      return
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return
+    const el = node as Element
+    // Não processar script/style e elements já marcados
+    if (['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(el.tagName)) return
+    if (el.classList.contains('nr-vocab')) return
+    // Snapshot dos filhos antes de modificar o DOM para evitar iteração infinita
+    for (const child of Array.from(node.childNodes)) walk(child)
+  }
+
+  walk(doc.body)
+}
+
 // CSS injetado dentro do iframe do foliate para tema escuro + tamanho de fonte.
 // Precisa usar !important porque o EPUB tem seus próprios estilos inline e no <link>.
 // As classes .nr-* são usadas para highlight e tradução inline sem conflito com o EPUB.
@@ -956,6 +1003,12 @@ function buildReaderCSS(
       background: ${palette.isDark ? 'rgba(255,255,255,0.03)' : 'rgba(15,23,42,0.03)'} !important;
       z-index: 9997 !important;
     }` : ''}
+    /* Vocabulário salvo: sublinhado pontilhado índigo nas frases/palavras já estudadas */
+    .nr-vocab {
+      text-decoration: underline dotted #6366f1 !important;
+      text-underline-offset: 3px !important;
+      cursor: pointer !important;
+    }
   `
 }
 
@@ -1059,6 +1112,8 @@ interface EpubViewerProps {
   onBookmarkTap?: (bookmarkId: number) => void
   // Bookmarks: toggle no parágrafo atualmente selecionado no bloco de tradução inline.
   onBookmarkParagraph?: (payload: ParagraphBookmarkPayload) => void
+  // Vocabulário: frases originais já salvas pelo usuário para highlight passivo
+  vocabWords?: string[]
 }
 
 // forwardRef: padrão React para expor métodos imperativos ao componente pai.
@@ -1072,6 +1127,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       onSpeakOne, onParagraphTapForTts, onTtsUserScrollAway, ttsGlobalActive,
       chromeVisible,
       onBookmarkTap, onBookmarkParagraph,
+      vocabWords,
     },
     ref,
   ) => {
@@ -1109,6 +1165,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     // Refs para os callbacks mais recentes — evita stale closure nos listeners do iframe.
     // Os listeners são criados uma vez por seção (no evento 'load'), mas os callbacks
     // podem mudar entre renders. useSyncRef mantém sempre a versão atual sem recriar o listener.
+    const vocabWordsRef = useSyncRef(vocabWords ?? [])
     const onSaveVocabRef = useSyncRef(onSaveVocab)
     const onCenterTapRef = useSyncRef(onCenterTap)
     const onTranslateRef = useSyncRef(onTranslate)
@@ -2409,6 +2466,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             }, 400)
           }
           renderBookmarkMarkers(doc)
+          injectVocabHighlight(doc, vocabWordsRef.current)
 
           // didScroll: Android WebView dispara 'click' mesmo após scroll curto.
           // Rastreamos touchmove para distinguir tap intencional de fim de scroll.

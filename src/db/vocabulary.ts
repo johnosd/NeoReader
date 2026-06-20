@@ -17,3 +17,9 @@ export async function deleteVocabItem(id: number): Promise<void> {
 export async function getAllVocabItems(): Promise<VocabItem[]> {
   return db.vocabulary.orderBy('createdAt').reverse().toArray()
 }
+
+// Retorna as frases originais salvas para um livro específico (para highlight no leitor)
+export async function getVocabSourceTextsByBookId(bookId: number): Promise<string[]> {
+  const items = await db.vocabulary.where('bookId').equals(bookId).toArray()
+  return items.map((item) => item.sourceText).filter((t): t is string => Boolean(t))
+}
