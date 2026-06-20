@@ -20,6 +20,7 @@ import { BookImportService } from './services/BookImportService'
 import { cleanupNativeImportTemp } from './services/NativeLibraryImportService'
 import { createFlowId, getDiagnosticsNowMs, logEvent } from './services/DiagnosticsLogger'
 import { cleanupExpiredTtsVoiceCaches } from './db/ttsVoiceCaches'
+import { scheduleVocabularyDriveSync } from './services/VocabularyDriveSyncService'
 import type { Book } from './types/book'
 
 type Route =
@@ -81,6 +82,9 @@ function App() {
     void cleanupExpiredTtsVoiceCaches().catch((err) => {
       console.warn('[TTS] Falha ao limpar cache de vozes:', err)
     })
+    // Sincroniza vocabulário imediatamente ao logar — garante status 'connected'
+    // mesmo antes do usuário adicionar ou deletar palavras.
+    scheduleVocabularyDriveSync()
   }, [signedInUid])
 
   // Garante que cada conta usa seu próprio banco IndexedDB.
@@ -100,10 +104,17 @@ function App() {
     const rawStoredUid = localStorage.getItem('neoreader:active-uid')
     const storedUid = rawStoredUid ?? 'guest'
     if (storedUid !== currentUid) {
-      // Primeira transição após update: associar o uid ao banco legado.
-      if (rawStoredUid === null && currentUid !== 'guest') {
-        localStorage.setItem(`neoreader:db-name:${currentUid}`, 'NeoReaderDB')
+      if (rawStoredUid === null) {
+        // Primeira inicialização: DB já é NeoReaderDB, só salvar o mapeamento.
+        // NÃO recarregar — interromperia o fluxo de login e zeraria o token Drive,
+        // causando double-login e quebrando todos os syncs.
+        if (currentUid !== 'guest') {
+          localStorage.setItem(`neoreader:db-name:${currentUid}`, 'NeoReaderDB')
+          localStorage.setItem('neoreader:active-uid', currentUid)
+        }
+        return
       }
+      // Troca de conta ou logout: recarregar para abrir o banco correto.
       localStorage.setItem('neoreader:active-uid', currentUid)
       window.location.reload()
     }

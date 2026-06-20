@@ -74,41 +74,60 @@ Análise competitiva baseada em 100 reviews do ReadEra (4.8★) e Moon+ Reader (
 
 ## Fase 4 — Sync expandido
 
-- [ ] **Sync de progresso de leitura na nuvem**
+- [x] **Sync de progresso de leitura na nuvem**
 
   Sync é pedido #1 em ambos os concorrentes. NeoReader já sincroniza bookmarks via Drive — a infra existe.
-  - Criar `src/services/ProgressDriveSyncService.ts` modelado em `BookmarkDriveSyncService.ts`
-  - Trigger de sync em `src/hooks/useCapacitorAppListener.ts` (ao entrar em foreground)
-  - Status em `src/screens/SettingsScreen.tsx`
+  - `src/services/ProgressDriveSyncService.ts` + `ProgressDriveSyncModel.ts` criados
+  - `src/db/progress.ts` — `upsertProgress()` dispara `scheduleProgressDriveSync()`
+  - `src/hooks/useProgressDriveSyncStatus.ts` — status reativo via `useSyncExternalStore`
+  - `src/screens/SettingsScreen.tsx` — 3 linhas de status (bookmarks, progresso, vocabulário)
+  - `src/services/DriveDataSyncStatus.ts` — factory compartilhada entre os três serviços
 
-- [ ] **Sync de vocabulário na nuvem**
+- [x] **Sync de vocabulário na nuvem**
 
   Mesmo padrão do anterior.
-  - Criar `src/services/VocabularyDriveSyncService.ts`
-  - Integrar nos mesmos pontos de trigger
+  - `src/services/VocabularyDriveSyncService.ts` + `VocabularyDriveSyncModel.ts` criados
+  - `src/db/vocabulary.ts` — `addVocabItem()` e `deleteVocabItem()` disparam sync
+  - `src/hooks/useVocabularyDriveSyncStatus.ts` — status reativo
+  - Sync inicial disparado em `App.tsx` ao logar (garante status 'connected' sem ação do usuário)
+
+- [x] **[FIX] Regressões pós-Fase 4: double login + syncs pending/offline**
+
+  Causa raiz: `window.location.reload()` disparava durante o próprio fluxo de login (`null → uid`), zerando o token Drive em memória.
+  - `src/App.tsx` — reload só ocorre em troca de conta (`rawStoredUid !== null`), não no primeiro login
+  - `src/services/FirebaseAuthService.ts` — guard `silentDriveRefreshAttempted` impede segunda chamada quando `useAuth` re-renderiza (ex: troca de locale)
 
 ---
 
-## Fase 5 — Organização e retenção
+## Fase 5 — Organização, descoberta e imersão
+
+- [ ] **Visualização em Grade Diagonal 3D**
+
+  A biblioteca ganha um segundo modo de visualização: as capas são exibidas em uma grade com perspectiva CSS 3D, toda inclinada em um plano diagonal descendente da esquerda para a direita. Os livros "extrapolam" as bordas da tela, criando profundidade visual. Toggle no header da LibraryScreen, preferência salva em `localStorage`.
+
+  **Técnica:** `perspective: 800px` no container pai + `rotateX(15deg) rotateY(-20deg) rotateZ(-3deg)` no grid + `overflow: visible` para o efeito de sangria. Capas em portrait 2:3 com sombra pronunciada.
+
+  - `src/components/DiagonalBookGrid.tsx` — novo componente: grid 3D + cards simplificados (capa + título)
+  - `src/screens/LibraryScreen.tsx` — botão toggle lista ↔ grade no header, salvar `neoreader:library-view-mode` em localStorage
 
 - [ ] **Coleções/Prateleiras com ordem fixa**
 
-  ReadEra: "organização em pastas" é feature amada (freq: 6). Moon+: "estante embaralha sozinha" é bug crítico. NeoReader tem tags, mas não prateleiras com ordem persistente.
-  - Schema DB v15: tabela `collections` + campo `collectionId` em `books`
-  - `src/screens/LibraryScreen.tsx` — view "Por coleção"
-  - `src/hooks/useLibraryCatalog.ts` — filtro por coleção
+  ReadEra: "organização em pastas" é feature amada (freq: 6). Moon+: "estante embaralha sozinha" é bug crítico. Tags já existem no NeoReader, mas não prateleiras com ordem manual persistente por livro.
 
-- [ ] **Streak de leitura e metas diárias**
-
-  Nenhum concorrente tem. `ProfileScreen` já tem stats. Gamificação leve aumenta retenção para o público de aprendizado.
-  - Calcular streak diário a partir de `progress.updatedAt`
-  - Exibir no `HomeScreen` (hero banner contextual) e `ProfileScreen`
+  - Schema DB v15: tabela `collections` (`++id, &name, createdAt, updatedAt`) + campos `collectionId?: number` e `collectionOrder?: number` em `books`
+  - `src/db/collections.ts` — CRUD de coleções (criar, renomear, deletar, listar)
+  - `src/screens/LibraryScreen.tsx` — filtro "Por coleção" no FilterBar existente
+  - `src/hooks/useLibraryCatalog.ts` — filtro `activeFilter === 'collection:{id}'`
+  - UI: long press num livro → "Adicionar à coleção" no `BookOptionsSheet`
 
 - [ ] **Destaque visual de vocabulário salvo**
 
-  Diferencial único de aprendizado: palavras já salvas aparecem sublinhadas pontilhadas ao reler o livro.
-  - `src/components/reader/EpubViewer.tsx` — injetar CSS/JS no iframe
-  - `src/db/vocabulary.ts` — buscar palavras salvas por bookId
+  Diferencial único de aprendizado: palavras já salvas no vocabulário aparecem sublinhadas pontilhadas (⋯) ao reler o livro — reforço passivo sem interrupção. Toque na palavra abre o VocabBottomSheet com a tradução.
+
+  A infra de injeção já existe em `EpubViewer.tsx` (CSS/JS no iframe). Só precisa de dados + lógica de match.
+
+  - `src/db/vocabulary.ts` — nova função `getVocabByBookId(bookId)` retornando `sourceText[]`
+  - `src/components/reader/EpubViewer.tsx` — recebe prop `vocabWords: string[]`; injeta CSS (`.nr-vocab { text-decoration: underline dotted #6366f1 }`) + JS que percorre textNodes e wrapa matches
 
 ---
 
@@ -120,4 +139,4 @@ Análise competitiva baseada em 100 reviews do ReadEra (4.8★) e Moon+ Reader (
 | 2 | Cores de highlight + número de página | ~1 dia |
 | 3 | TTS wake lock + régua de leitura | ~4 dias |
 | 4 | Sync de progresso + vocabulário | ~1 semana |
-| 5 | Coleções + streak + vocabulário destacado | ~1,5 semana |
+| 5 | Grade diagonal 3D + Coleções + vocabulário destacado | ~1,5 semana |

@@ -9,6 +9,8 @@ import { useBookmarkDriveSyncStatus } from '../hooks/useBookmarkDriveSyncStatus'
 import { useProgressDriveSyncStatus } from '../hooks/useProgressDriveSyncStatus'
 import { useVocabularyDriveSyncStatus } from '../hooks/useVocabularyDriveSyncStatus'
 import type { DriveDataSyncStatusCode } from '../services/DriveDataSyncStatus'
+import { refreshDriveToken } from '../services/FirebaseAuthService'
+import { scheduleVocabularyDriveSync } from '../services/VocabularyDriveSyncService'
 import { FeatureQuotaService, type FeatureQuotaSnapshot } from '../services/FeatureQuotaService'
 import {
   ReaderFontControl,
@@ -170,6 +172,7 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
   const [appLangSheetOpen, setAppLangSheetOpen] = useState(false)
   const [langSheetOpen, setLangSheetOpen] = useState(false)
   const [keepAwakeEnabled, setKeepAwakeEnabled] = useState(() => WakeLockService.isEnabled())
+  const [driveReconnecting, setDriveReconnecting] = useState(false)
   const { localePreference, setLocalePreference, t } = useI18n()
   const ttsValidationSeqRef = useRef<Record<PremiumTtsProvider, number>>({
     speechify: 0,
@@ -178,6 +181,18 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
   })
 
   useCapacitorBackButton(onBack)
+
+  const hasPermissionError =
+    bookmarkSyncStatus.code === 'permission-error' ||
+    progressSyncStatus.code === 'permission-error' ||
+    vocabularySyncStatus.code === 'permission-error'
+
+  async function handleReconnectDrive() {
+    setDriveReconnecting(true)
+    await refreshDriveToken()
+    scheduleVocabularyDriveSync()
+    setDriveReconnecting(false)
+  }
 
   const saveAppSettings = useCallback(async (patch: Partial<AppSettings>) => {
     await updateAppSettings(patch)
@@ -439,8 +454,18 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
               title={t('settings.vocabularySync.title')}
               meta={vocabularySyncMeta.description}
               trailing={<Badge tone={vocabularySyncMeta.tone}>{vocabularySyncMeta.label}</Badge>}
-              divider={false}
+              divider={hasPermissionError}
             />
+            {hasPermissionError && (
+              <ListItem
+                leading={driveReconnecting ? <Spinner tone="purple" label="" /> : <CloudUpload size={20} />}
+                title={t('settings.cloudSync.reconnect.title')}
+                meta={t('settings.cloudSync.reconnect.description')}
+                trailing={<ChevronRight size={18} className="text-text-subtle" />}
+                divider={false}
+                onClick={driveReconnecting ? undefined : () => { void handleReconnectDrive() }}
+              />
+            )}
           </SettingsGroup>
         </SettingsSection>
 
@@ -770,6 +795,11 @@ const DATA_SYNC_CONNECTED_DESC = {
   vocabulary: 'settings.vocabularySync.description.connected',
 } as const satisfies Record<string, Parameters<TranslateFn>[0]>
 
+const DATA_SYNC_PENDING_DESC = {
+  progress: 'settings.progressSync.description.pendingOffline',
+  vocabulary: 'settings.vocabularySync.description.pendingOffline',
+} as const satisfies Record<string, Parameters<TranslateFn>[0]>
+
 function getDataSyncMeta(
   code: DriveDataSyncStatusCode,
   t: TranslateFn,
@@ -801,9 +831,9 @@ function getDataSyncMeta(
     }
   }
   return {
-    label: t('settings.bookmarkSync.status.pendingOffline'),
-    description: t('settings.bookmarkSync.description.pendingOffline'),
-    tone: 'warning',
+    label: t('settings.dataSync.status.pendingOffline'),
+    description: t(DATA_SYNC_PENDING_DESC[type]),
+    tone: 'neutral',
   }
 }
 
