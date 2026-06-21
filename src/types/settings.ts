@@ -27,6 +27,7 @@ export interface UserSettings {
   id?: number
   appSettings: AppSettings
   readerDefaults: ReaderDefaults
+  driveImportCount?: number
   updatedAt: Date
 }
 
@@ -72,6 +73,7 @@ export function normalizeUserSettings(record?: SettingsRecord | null): UserSetti
 
   return {
     ...(record?.id !== undefined ? { id: record.id } : {}),
+    driveImportCount: record?.driveImportCount ?? 0,
     appSettings: {
       ...DEFAULT_APP_SETTINGS,
       appLocale: normalizeAppLocalePreference(record?.appSettings?.appLocale),

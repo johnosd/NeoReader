@@ -26,7 +26,7 @@ import {
   subscribeImportActivity,
 } from './ImportCoordinator'
 import { restoreBookBookmarksFromDrive } from './BookmarkDriveRestoreService'
-import type { Book, BookStorageMode, SourceFolder } from '../types/book'
+import type { Book, BookImportSource, BookStorageMode, SourceFolder } from '../types/book'
 import type { BookIdentifier, ResolvedBookInfo } from '../types/bookInfo'
 
 export interface FolderImportOptions {
@@ -72,6 +72,7 @@ export interface ImportProgress {
 
 export interface ImportBookOptions {
   onBookmarksRestored?: (count: number) => void
+  importSource?: BookImportSource
 }
 
 interface ImportSingleEpubOptions {
@@ -85,6 +86,7 @@ interface ImportSingleEpubOptions {
   uri?: string | null
   originalUri?: string | null
   storageMode?: BookStorageMode
+  importSource?: BookImportSource
   deferBookInfo?: boolean
   diagnostic?: ImportDiagnosticContext
   bookInfoContext?: Partial<ResolvedBookInfo>
@@ -236,6 +238,7 @@ export class BookImportService {
       const bookId = await this.importPreparedNativeEpubRecord(prepared, {
         tags: [],
         sourceFolderId: null,
+        importSource: options.importSource,
         diagnostic,
       })
       await this.restoreBookmarksAfterImport(bookId, diagnostic, options)
@@ -591,6 +594,7 @@ export class BookImportService {
     options: {
       tags: number[]
       sourceFolderId: number | null
+      importSource?: BookImportSource
       diagnostic: ImportDiagnosticContext
     },
   ): Promise<number> {
@@ -608,6 +612,7 @@ export class BookImportService {
       uri: prepared.localUri,
       originalUri: prepared.originalUri,
       storageMode: 'local',
+      importSource: options.importSource,
       deferBookInfo: true,
       diagnostic: options.diagnostic,
       bookInfoContext,
@@ -722,6 +727,7 @@ export class BookImportService {
         uri: options.uri ?? undefined,
         originalUri: options.originalUri ?? undefined,
         missingFile: false,
+        importSource: options.importSource,
       })
 
       if (metadata.coverBlob) {

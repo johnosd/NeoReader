@@ -295,6 +295,32 @@ class NeoReaderDB extends Dexie {
       sourceFolders: '++id, name, uri, createdAt, lastScannedAt',
       collections:   '++id, &name, createdAt, updatedAt',
     })
+
+    // v16: adiciona driveImportCount ao registro de settings (contador freemium de imports do Drive).
+    this.version(16).stores({
+      books:         '++id, title, author, addedAt, importedAt, lastOpenedAt, fileName, fileSize, fileHash, format, readingStatus, isFavorite, *tags, sourceFolderId, missingFile, storageMode, collectionId',
+      bookCovers:    'bookId, updatedAt, source',
+      progress:      '++id, bookId, updatedAt',
+      bookmarks:     '++id, bookId, createdAt, updatedAt, deletedAt',
+      vocabulary:    '++id, bookId, createdAt',
+      translations:  '++id, textHash, createdAt',
+      settings:      '++id',
+      bookSettings:  '++id, bookId',
+      ttsVoiceCaches:'++id, &cacheKey, provider, language, updatedAt',
+      authors:       '&authorName, *bookIds, fetchedAt, videosFetchedAt',
+      bookInfo:      '&bookId, updatedAt',
+      epubExtras:    '&bookId, updatedAt',
+      tags:          '++id, &name, createdAt, updatedAt',
+      sourceFolders: '++id, name, uri, createdAt, lastScannedAt',
+      collections:   '++id, &name, createdAt, updatedAt',
+    }).upgrade(async (tx) => {
+      const settingsTable = tx.table('settings') as Table<UserSettings>
+      await settingsTable.toCollection().modify((record) => {
+        if (record.driveImportCount === undefined) {
+          record.driveImportCount = 0
+        }
+      })
+    })
   }
 }
 
