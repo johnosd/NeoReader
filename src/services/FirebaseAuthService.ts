@@ -175,9 +175,7 @@ export function observeFirebaseAuth(callback: (user: AuthUser | null) => void): 
     void FirebaseAuthentication.getCurrentUser().then((result) => {
       if (!active) return
       if (result.user) {
-        // Sessao restaurada sem login interativo — Drive token nao existe em memoria.
-        // Reautentica em background para reobter o token sem bloquear o fluxo de auth.
-        void silentlyRefreshDriveToken()
+        // Drive token nao persiste — usuario precisa re-autenticar manualmente via Settings.
       }
       callback(result.user ? toNativeAuthUser(result.user) : null)
     }).catch(() => {

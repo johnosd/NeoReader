@@ -44,3 +44,4 @@ export async function updateAppSettings(patch: Partial<AppSettings>): Promise<vo
 export async function updateReaderDefaults(patch: Partial<ReaderDefaults>): Promise<void> {
   await upsertSettings({ readerDefaults: patch })
 }
+
