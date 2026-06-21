@@ -24,10 +24,19 @@ export interface Book {
   importedAt?: Date
   lastOpenedAt: Date | null
   readingStatus?: ReadingStatus
-  isFavorite?: boolean    // marcado pelo usuÃ¡rio na tela de detalhes
+  isFavorite?: boolean    // marcado pelo usuário na tela de detalhes
   tags?: number[]
   sourceFolderId?: number | null
   missingFile?: boolean
+  collectionId?: number | null   // coleção (prateleira) à qual o livro pertence
+  collectionOrder?: number       // posição dentro da coleção (ordem manual)
+}
+
+export interface BookCollection {
+  id?: number
+  name: string
+  createdAt: Date
+  updatedAt: Date
 }
 
 export interface BookCover {

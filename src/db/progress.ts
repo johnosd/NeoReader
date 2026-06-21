@@ -2,6 +2,7 @@ import { db } from './database'
 import type { ReadingProgress } from '../types/book'
 import { clampPercentage, fractionToPercentage, normalizeFraction } from '../utils/progress'
 import { deriveReadingStatus } from '../utils/readingState'
+import { scheduleProgressDriveSync } from '../services/ProgressDriveSyncService'
 
 export interface ProgressSavePayload {
   cfi: string
@@ -51,4 +52,6 @@ export async function upsertProgress(
       })
     }
   })
+
+  scheduleProgressDriveSync(bookId)
 }

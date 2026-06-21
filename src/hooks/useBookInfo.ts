@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { getStoredBookInfo, patchBookInfo, saveBookInfo } from '../db/bookInfo'
 import {
   BookInfoService,
@@ -27,6 +27,7 @@ interface UseBookInfoOptions {
   enabled: boolean
   youtubeApiKey: string
   refreshToken: number
+  isPro: boolean | null
 }
 
 export function useBookInfo({
@@ -34,7 +35,12 @@ export function useBookInfo({
   enabled,
   youtubeApiKey,
   refreshToken,
+  isPro,
 }: UseBookInfoOptions) {
+  // Ref: lê isPro atualizado dentro do effect sem torná-lo dep (evita re-runs).
+  // O service-level billingLoading já protege contra consumo errado quando isPro=null.
+  const isProRef = useRef(isPro)
+  isProRef.current = isPro
   const requestKey = `${book.id ?? 'new'}::${refreshToken}::${youtubeApiKey}`
   const [state, setState] = useState<{
     key: string
@@ -86,6 +92,7 @@ export function useBookInfo({
 
         if (needsCollection) {
           quota = FeatureQuotaService.consume('book-intelligence', {
+            isPro: isProRef.current,
             subjectKey: buildBookIntelligenceQuotaSubject({
               bookId: book.id,
               title: book.title,

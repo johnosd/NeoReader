@@ -1,21 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Capacitor } from '@capacitor/core'
-import { ArrowUpDown, BookOpen, Check, FileText, FolderOpen, MoreVertical, Plus, Search, Star, Tag, Trash2, X } from 'lucide-react'
+import { ArrowUpDown, BookOpen, Check, FileText, FolderOpen, LayoutGrid, LayoutList, MoreVertical, Plus, Search, Star, Tag, Trash2, X } from 'lucide-react'
 import { AdBannerSlot } from '../components/AdBannerSlot'
 import { BottomNav } from '../components/BottomNav'
+import { LibraryGridView } from '../components/LibraryGridView'
 import { QuickBookActionsSheet } from '../components/QuickBookActionsSheet'
 import { BottomSheet, Button, Checkbox, EmptyState, Input, Skeleton, Spinner, Toast } from '../components/ui'
 import { setBookTags, toggleFavorite } from '../db/books'
+import { createCollection, deleteCollection } from '../db/collections'
 import { createTag, deleteTag } from '../db/tags'
 import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
 import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
 import { useIsImportActive } from '../hooks/useImportActivity'
 import { useLibraryCatalog, type LibraryBook, type LibraryFilter, type LibrarySort } from '../hooks/useLibraryCatalog'
+import { GENRE_LABELS, type CanonicalGenre } from '../utils/categoryNormalizer'
 import { BookImportService, type FolderImportOptions, type ImportPreviewItem, type ImportProgress, type ImportSummary } from '../services/BookImportService'
 import { IMPORT_IN_PROGRESS_MESSAGE } from '../services/ImportCoordinator'
 import { logImportDiagnostic } from '../services/ImportDiagnostics'
 import { consumePendingNativeFileSelection, consumePendingNativeFolderSelection, selectNativeEpubFile, selectNativeEpubFolder, type NativeFolderFile } from '../services/NativeLibraryImportService'
-import type { Book, BookTag } from '../types/book'
+import type { Book, BookCollection, BookTag } from '../types/book'
 import { useI18n, type MessageKey, type TranslateFn } from '../i18n'
 
 interface LibraryScreenProps {
@@ -23,6 +26,7 @@ interface LibraryScreenProps {
   onOpenHome: () => void
   onOpenDiscover: () => void
   onOpenProfile: () => void
+  initialFilter?: LibraryFilter
 }
 
 const FILTERS: Array<{ id: LibraryFilter; labelKey: MessageKey }> = [
@@ -45,20 +49,25 @@ const SORT_OPTIONS: Array<{ id: LibrarySort; labelKey: MessageKey }> = [
 
 const EPUB_FILE_PATTERN = /\.epub$/i
 
-export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenProfile }: LibraryScreenProps) {
+export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenProfile, initialFilter }: LibraryScreenProps) {
   const { t } = useI18n()
   const {
     isLoading,
     books,
     filteredBooks,
     tags,
+    collections,
     search,
     setSearch,
     activeFilter,
     setActiveFilter,
     sort,
     setSort,
-  } = useLibraryCatalog()
+  } = useLibraryCatalog(initialFilter)
+  const [collectionManagerOpen, setCollectionManagerOpen] = useState(false)
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>(() => {
+    try { return (localStorage.getItem('neoreader:library-view-mode') as 'list' | 'grid') ?? 'list' } catch { return 'list' }
+  })
   const [actionSheetOpen, setActionSheetOpen] = useState(false)
   const [sortSheetOpen, setSortSheetOpen] = useState(false)
   const [optionsBook, setOptionsBook] = useState<LibraryBook | null>(null)
@@ -379,21 +388,35 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
             <h1 className="text-2xl font-bold tracking-tight">{t('library.title')}</h1>
             <p className="mt-1 text-sm text-text-secondary">{subtitle}</p>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              if (importBusy) {
-                setImportError(IMPORT_IN_PROGRESS_MESSAGE)
-                return
-              }
-              setActionSheetOpen(true)
-            }}
-            disabled={importBusy}
-            aria-label={t('library.importButton')}
-            className="flex h-11 w-11 items-center justify-center rounded-md bg-purple-primary text-white shadow-purple-glow transition-transform active:scale-95 disabled:opacity-60"
-          >
-            <Plus size={22} strokeWidth={2.5} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                const next = viewMode === 'list' ? 'grid' : 'list'
+                setViewMode(next)
+                try { localStorage.setItem('neoreader:library-view-mode', next) } catch { /* ok */ }
+              }}
+              aria-label={viewMode === 'list' ? t('library.viewMode.grid') : t('library.viewMode.list')}
+              className="flex h-11 w-11 items-center justify-center rounded-md border border-border bg-white/5 text-text-secondary transition-transform active:scale-95"
+            >
+              {viewMode === 'list' ? <LayoutGrid size={18} /> : <LayoutList size={18} />}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (importBusy) {
+                  setImportError(IMPORT_IN_PROGRESS_MESSAGE)
+                  return
+                }
+                setActionSheetOpen(true)
+              }}
+              disabled={importBusy}
+              aria-label={t('library.importButton')}
+              className="flex h-11 w-11 items-center justify-center rounded-md bg-purple-primary text-white shadow-purple-glow transition-transform active:scale-95 disabled:opacity-60"
+            >
+              <Plus size={22} strokeWidth={2.5} />
+            </button>
+          </div>
         </div>
 
         <div className="mt-5">
@@ -420,6 +443,13 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
                 onClick={() => setActiveFilter(filter.id)}
               />
             ))}
+            {activeFilter.startsWith('genre:') && (
+              <FilterChip
+                active={true}
+                label={GENRE_LABELS[activeFilter.slice('genre:'.length) as CanonicalGenre] ?? activeFilter.slice('genre:'.length)}
+                onClick={() => setActiveFilter('all')}
+              />
+            )}
             {tags.filter((tag): tag is BookTag & { id: number } => tag.id !== undefined).map((tag) => (
               <FilterChip
                 key={tag.id}
@@ -428,6 +458,23 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
                 onClick={() => setActiveFilter(`tag:${tag.id}`)}
               />
             ))}
+            {/* Separador visual entre tags e coleções */}
+            {collections.length > 0 && (
+              <div className="mx-1 my-auto h-5 w-px shrink-0 bg-white/10" />
+            )}
+            {collections.filter((c): c is BookCollection & { id: number } => c.id !== undefined).map((col) => (
+              <FilterChip
+                key={col.id}
+                active={activeFilter === `collection:${col.id}`}
+                label={`📚 ${col.name}`}
+                onClick={() => setActiveFilter(`collection:${col.id}`)}
+              />
+            ))}
+            <FilterChip
+              active={false}
+              label={t('library.collection.manage')}
+              onClick={() => setCollectionManagerOpen(true)}
+            />
           </div>
         </div>
 
@@ -478,8 +525,12 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
           />
         )}
 
-        {!isLoading && filteredBooks.length > 0 && (
-          <div className="divide-y divide-white/[0.05]">
+        {!isLoading && filteredBooks.length > 0 && viewMode === 'grid' && (
+          <LibraryGridView books={filteredBooks} onOpenBook={onOpenBook} />
+        )}
+
+        {!isLoading && filteredBooks.length > 0 && viewMode === 'list' && (
+          <div className="divide-y divide-white/5">
             {filteredBooks.map((book) => (
               <LibraryBookRow
                 key={book.id}
@@ -535,6 +586,14 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
         onBuildPreview={buildPreview}
         onConfirmImport={confirmImport}
       />
+      <CollectionManagerSheet
+        open={collectionManagerOpen}
+        collections={collections}
+        books={books}
+        activeFilter={activeFilter}
+        onClose={() => setCollectionManagerOpen(false)}
+        onFilterChange={(filter) => { setActiveFilter(filter); setCollectionManagerOpen(false) }}
+      />
     </div>
   )
 }
@@ -561,6 +620,119 @@ interface ImportPreviewState extends Omit<ImportOptionsState, 'step'> {
   step: 'preview'
   preview: ImportPreviewItem[]
   selectedTagIds: number[]
+}
+
+function CollectionManagerSheet({
+  open,
+  collections,
+  books,
+  activeFilter,
+  onClose,
+  onFilterChange,
+}: {
+  open: boolean
+  collections: BookCollection[]
+  books: LibraryBook[]
+  activeFilter: LibraryFilter
+  onClose: () => void
+  onFilterChange: (filter: LibraryFilter) => void
+}) {
+  const { t } = useI18n()
+  const [newName, setNewName] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  function bookCountForCollection(id: number) {
+    return books.filter((b) => b.collectionId === id).length
+  }
+
+  async function handleCreate() {
+    const name = newName.trim()
+    if (!name) return
+    setSaving(true)
+    setError(null)
+    try {
+      const id = await createCollection(name)
+      setNewName('')
+      onFilterChange(`collection:${id}`)
+    } catch {
+      setError(t('library.collection.error'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleDelete(col: BookCollection) {
+    if (!col.id) return
+    setSaving(true)
+    try {
+      await deleteCollection(col.id)
+      if (activeFilter === `collection:${col.id}`) onFilterChange('all')
+    } catch {
+      setError(t('library.collection.error'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <BottomSheet open={open} onClose={onClose} title={t('library.collection.manage')}>
+      <div className="space-y-4">
+        {collections.length > 0 ? (
+          <div className="rounded-md border border-border bg-white/5">
+            {collections.map((col, i) => (
+              <div
+                key={col.id}
+                className={['flex items-center gap-3 px-4 py-3', i > 0 && 'border-t border-white/5'].filter(Boolean).join(' ')}
+              >
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 text-left"
+                  onClick={() => { if (col.id) onFilterChange(`collection:${col.id}`) }}
+                >
+                  <span className="block text-sm font-semibold text-text-primary">{col.name}</span>
+                  <span className="mt-0.5 block text-xs text-text-muted">
+                    {t('library.collection.bookCount', { count: bookCountForCollection(col.id!) })}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => void handleDelete(col)}
+                  className="h-8 w-8 shrink-0 flex items-center justify-center rounded-md text-text-muted active:text-error disabled:opacity-40"
+                  aria-label={t('library.collection.delete')}
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-center text-sm text-text-muted">{t('library.collection.empty')}</p>
+        )}
+
+        <div className="flex gap-2">
+          <input
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') void handleCreate() }}
+            placeholder={t('library.collection.namePlaceholder')}
+            disabled={saving}
+            className="h-10 min-w-0 flex-1 rounded-md border border-border bg-bg-base px-3 text-sm text-text-primary outline-none focus:border-purple-primary disabled:opacity-50"
+          />
+          <button
+            type="button"
+            onClick={() => void handleCreate()}
+            disabled={saving || !newName.trim()}
+            className="h-10 rounded-md bg-purple-primary px-3 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {t('library.collection.create')}
+          </button>
+        </div>
+        {error && <p className="text-center text-sm text-error">{error}</p>}
+      </div>
+    </BottomSheet>
+  )
 }
 
 function FilterChip({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
@@ -602,7 +774,7 @@ function LibraryBookRow({ book, onOpenBook, onOpenOptions, onOpenTags }: {
         className="h-[92px] w-[62px] shrink-0 overflow-hidden rounded-md border border-white/10 bg-bg-surface-2 active:opacity-80"
       >
         {coverUrl ? (
-          <img src={coverUrl} alt="" className="h-full w-full object-cover" />
+          <img src={coverUrl} alt="" className="h-full w-full object-cover" onContextMenu={(e) => e.preventDefault()} />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-white/30">
             <BookOpen size={24} />

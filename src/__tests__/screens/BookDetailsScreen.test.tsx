@@ -86,6 +86,16 @@ vi.mock('@/hooks/useBookCoverUrl', () => ({
   useBookCoverUrl: vi.fn(() => null),
 }))
 
+vi.mock('@/hooks/useEntitlements', () => ({
+  useEntitlements: () => ({
+    isPro: false,
+    isLoading: false,
+    expiresAt: undefined,
+    activeProductId: undefined,
+    refresh: vi.fn(),
+  }),
+}))
+
 vi.mock('@/services/EpubService', () => ({
   EpubService: {
     parseExtras: mocks.parseExtras,

@@ -1,10 +1,19 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { ArrowLeft, Check, ChevronDown, ChevronRight, CloudUpload, Compass, Eye, EyeOff, Gauge, Globe, Info, KeyRound, Mic2, Palette, PlayCircle, Sparkles, Volume2 } from 'lucide-react'
-import { Badge, BottomSheet, Input, ListItem, Spinner } from '../components/ui'
+import { ArrowLeft, Check, ChevronDown, ChevronRight, CloudUpload, Compass, Eye, EyeOff, Gauge, Globe, Info, KeyRound, Mic2, Palette, PlayCircle, Smartphone, Sparkles, Volume2 } from 'lucide-react'
+import { Badge, BottomSheet, Input, ListItem, Spinner, Switch } from '../components/ui'
+import { WakeLockService } from '../services/WakeLockService'
 import { IntegrationEducationCard } from '../components/IntegrationEducationCard'
 import { IntegrationHelpBanner } from '../components/IntegrationHelpBanner'
 import { useEntitlements, useRefreshEntitlementsOnFocus } from '../hooks/useEntitlements'
 import { useBookmarkDriveSyncStatus } from '../hooks/useBookmarkDriveSyncStatus'
+import { useProgressDriveSyncStatus } from '../hooks/useProgressDriveSyncStatus'
+import { useVocabularyDriveSyncStatus } from '../hooks/useVocabularyDriveSyncStatus'
+import type { DriveDataSyncStatusCode } from '../services/DriveDataSyncStatus'
+import { refreshDriveToken } from '../services/FirebaseAuthService'
+import { scheduleVocabularyDriveSync, vocabularySyncStatusStore } from '../services/VocabularyDriveSyncService'
+import { progressSyncStatusStore, scheduleProgressDriveSync } from '../services/ProgressDriveSyncService'
+import { setBookmarkDriveSyncStatus } from '../services/BookmarkDriveSyncStatus'
+import { scheduleBookmarkDriveSync } from '../services/BookmarkDriveSyncService'
 import { FeatureQuotaService, type FeatureQuotaSnapshot } from '../services/FeatureQuotaService'
 import {
   ReaderFontControl,
@@ -152,6 +161,8 @@ function getEducationStatus(state: KeyValidationState, t: TranslateFn): {
 export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
   const entitlements = useEntitlements()
   const bookmarkSyncStatus = useBookmarkDriveSyncStatus(entitlements.isPro)
+  const progressSyncStatus = useProgressDriveSyncStatus(entitlements.isPro)
+  const vocabularySyncStatus = useVocabularyDriveSyncStatus(entitlements.isPro)
   useRefreshEntitlementsOnFocus()
   const [settings, setSettings] = useState<UserSettings | null>(null)
   const [showTtsKeys, setShowTtsKeys] = useState<Record<PremiumTtsProvider, boolean>>(EMPTY_TTS_KEY_VISIBILITY)
@@ -163,6 +174,8 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
   const [youtubeValidation, setYoutubeValidation] = useState<KeyValidationState>(IDLE_KEY_STATE)
   const [appLangSheetOpen, setAppLangSheetOpen] = useState(false)
   const [langSheetOpen, setLangSheetOpen] = useState(false)
+  const [keepAwakeEnabled, setKeepAwakeEnabled] = useState(() => WakeLockService.isEnabled())
+  const [driveReconnecting, setDriveReconnecting] = useState(false)
   const { localePreference, setLocalePreference, t } = useI18n()
   const ttsValidationSeqRef = useRef<Record<PremiumTtsProvider, number>>({
     speechify: 0,
@@ -171,6 +184,34 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
   })
 
   useCapacitorBackButton(onBack)
+
+  const hasPermissionError =
+    bookmarkSyncStatus.code === 'permission-error' ||
+    progressSyncStatus.code === 'permission-error' ||
+    vocabularySyncStatus.code === 'permission-error'
+
+  async function handleReconnectDrive() {
+    setDriveReconnecting(true)
+    await refreshDriveToken()
+    // Reseta os 3 status stores para que os guards de permission-error não bloqueiem
+    // as novas tentativas de sync após o token ser renovado.
+    progressSyncStatusStore.set('pending-offline')
+    vocabularySyncStatusStore.set('pending-offline')
+    setBookmarkDriveSyncStatus('pending-offline')
+    scheduleVocabularyDriveSync()
+
+    // Retry bookmarks que falharam enquanto o token estava inválido
+    const failedBookmarks = await db.bookmarks.filter((b) => b.syncError != null).toArray()
+    const bookmarkBookIds = [...new Set(failedBookmarks.map((b) => b.bookId))]
+    for (const bookId of bookmarkBookIds) scheduleBookmarkDriveSync(bookId)
+
+    // Retry progress de todos os livros — não há rastreamento de falha por registro
+    const progressRecords = await db.progress.toArray()
+    const progressBookIds = [...new Set(progressRecords.map((p) => p.bookId))]
+    for (const bookId of progressBookIds) scheduleProgressDriveSync(bookId)
+
+    setDriveReconnecting(false)
+  }
 
   const saveAppSettings = useCallback(async (patch: Partial<AppSettings>) => {
     await updateAppSettings(patch)
@@ -284,6 +325,8 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
     ? 'original'
     : 'comfortable'
   const bookmarkSyncMeta = getBookmarkSyncMeta(bookmarkSyncStatus.code, t)
+  const progressSyncMeta = getDataSyncMeta(progressSyncStatus.code, t, 'progress')
+  const vocabularySyncMeta = getDataSyncMeta(vocabularySyncStatus.code, t, 'vocabulary')
   const bookIntelligenceQuota = FeatureQuotaService.getSnapshot('book-intelligence', { isPro: entitlements.isPro })
   const nytDiscoveryQuota = FeatureQuotaService.getSnapshot('nyt-discovery', { isPro: entitlements.isPro })
 
@@ -409,19 +452,39 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
 
         <SettingsSection
           icon={<CloudUpload size={17} />}
-          label={t('settings.bookmarkSync.sectionLabel')}
-          description={t('settings.bookmarkSync.sectionDescription')}
+          label={t('settings.cloudSync.sectionLabel')}
+          description={t('settings.cloudSync.sectionDescription')}
         >
           <SettingsGroup>
             <ListItem
               leading={<CloudUpload size={20} />}
               title={t('settings.bookmarkSync.title')}
               meta={bookmarkSyncMeta.description}
-              trailing={(
-                <Badge tone={bookmarkSyncMeta.tone}>{bookmarkSyncMeta.label}</Badge>
-              )}
-              divider={false}
+              trailing={<Badge tone={bookmarkSyncMeta.tone}>{bookmarkSyncMeta.label}</Badge>}
             />
+            <ListItem
+              leading={<CloudUpload size={20} />}
+              title={t('settings.progressSync.title')}
+              meta={progressSyncMeta.description}
+              trailing={<Badge tone={progressSyncMeta.tone}>{progressSyncMeta.label}</Badge>}
+            />
+            <ListItem
+              leading={<CloudUpload size={20} />}
+              title={t('settings.vocabularySync.title')}
+              meta={vocabularySyncMeta.description}
+              trailing={<Badge tone={vocabularySyncMeta.tone}>{vocabularySyncMeta.label}</Badge>}
+              divider={hasPermissionError}
+            />
+            {hasPermissionError && (
+              <ListItem
+                leading={driveReconnecting ? <Spinner tone="purple" label="" /> : <CloudUpload size={20} />}
+                title={t('settings.cloudSync.reconnect.title')}
+                meta={t('settings.cloudSync.reconnect.description')}
+                trailing={<ChevronRight size={18} className="text-text-subtle" />}
+                divider={false}
+                onClick={driveReconnecting ? undefined : () => { void handleReconnectDrive() }}
+              />
+            )}
           </SettingsGroup>
         </SettingsSection>
 
@@ -522,6 +585,22 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
               title={t('settings.narration.native.title')}
               description={t('settings.narration.native.description')}
               badge={<Badge tone="success">{t('settings.plan.active')}</Badge>}
+            />
+            <ListItem
+              leading={<Smartphone size={20} />}
+              title={t('settings.narration.keepAwake.title')}
+              meta={t('settings.narration.keepAwake.description')}
+              trailing={(
+                <Switch
+                  checked={keepAwakeEnabled}
+                  onChange={(value) => {
+                    WakeLockService.setEnabled(value)
+                    setKeepAwakeEnabled(value)
+                  }}
+                  aria-label={t('settings.narration.keepAwake.title')}
+                />
+              )}
+              divider={false}
             />
           </SettingsGroup>
         </SettingsSection>
@@ -728,6 +807,53 @@ function getPlanMeta(
     return t('settings.plan.lifetime')
   }
   return t('settings.plan.metaComingSoon')
+}
+
+const DATA_SYNC_CONNECTED_DESC = {
+  progress: 'settings.progressSync.description.connected',
+  vocabulary: 'settings.vocabularySync.description.connected',
+} as const satisfies Record<string, Parameters<TranslateFn>[0]>
+
+const DATA_SYNC_PENDING_DESC = {
+  progress: 'settings.progressSync.description.pendingOffline',
+  vocabulary: 'settings.vocabularySync.description.pendingOffline',
+} as const satisfies Record<string, Parameters<TranslateFn>[0]>
+
+function getDataSyncMeta(
+  code: DriveDataSyncStatusCode,
+  t: TranslateFn,
+  type: 'progress' | 'vocabulary',
+): {
+  label: string
+  description: string
+  tone: 'success' | 'warning' | 'error' | 'purple' | 'neutral'
+} {
+  if (code === 'connected') {
+    return {
+      label: t('settings.bookmarkSync.status.connected'),
+      description: t(DATA_SYNC_CONNECTED_DESC[type]),
+      tone: 'success',
+    }
+  }
+  if (code === 'permission-error') {
+    return {
+      label: t('settings.bookmarkSync.status.permissionError'),
+      description: t('settings.bookmarkSync.description.permissionError'),
+      tone: 'error',
+    }
+  }
+  if (code === 'pro-required') {
+    return {
+      label: t('settings.bookmarkSync.status.proRequired'),
+      description: t('settings.bookmarkSync.description.proRequired'),
+      tone: 'purple',
+    }
+  }
+  return {
+    label: t('settings.dataSync.status.pendingOffline'),
+    description: t(DATA_SYNC_PENDING_DESC[type]),
+    tone: 'neutral',
+  }
 }
 
 function getBookmarkSyncMeta(

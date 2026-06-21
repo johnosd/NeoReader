@@ -99,7 +99,7 @@ export const BillingService = {
           apiKey: getApiKey(),
           appUserID: firebaseUid,
         })
-        // Listener nativo - dispara sempre que o RC recebe novo CustomerInfo.
+        // Listener nativo - dispara sempre que o RC recebe novo CustomerInfo (inclui resposta do configure).
         await Purchases.addCustomerInfoUpdateListener((info) => {
           const next = toBillingStatus(info)
           logImportDiagnostic('billing', 'billing-customer-info-updated', {
@@ -109,8 +109,12 @@ export const BillingService = {
           emit(next)
         })
         initialized = true
-        await BillingService.refresh()
         logImportDiagnostic('billing', 'billing-init-finished')
+        // refresh() em background — não bloqueia initSettled.
+        // Se refresh travar (rede lenta/Google Play timeout), getOffering() ainda consegue prosseguir.
+        void BillingService.refresh().catch((err) => {
+          errorImportDiagnostic('billing', 'billing-refresh-after-init-failed', err)
+        })
       } catch (error) {
         errorImportDiagnostic('billing', 'billing-init-failed', error)
         throw error
@@ -152,15 +156,24 @@ export const BillingService = {
     if (!isBillingAvailable()) return null
     // Aguarda o init() terminar para evitar "SDK not configured" caso o usuario abra o
     // Paywall antes do configure() completar (init e chamado com void no App.tsx).
-    if (initSettled) await initSettled.catch(() => undefined)
+    // Timeout de 12s garante que o spinner nunca trava se o init travar (ex: rede lenta).
+    if (initSettled) {
+      const timeout = new Promise<void>((resolve) => setTimeout(resolve, 12_000))
+      await Promise.race([initSettled.catch(() => undefined), timeout])
+    }
     if (!initialized) return null
     logImportDiagnostic('billing', 'billing-offering-start')
-    const result = await Purchases.getOfferings()
-    logImportDiagnostic('billing', 'billing-offering-finished', {
-      hasCurrent: Boolean(result.current),
-      packages: result.current?.availablePackages.length ?? 0,
-    })
-    return result.current ?? null
+    try {
+      const result = await Purchases.getOfferings()
+      logImportDiagnostic('billing', 'billing-offering-finished', {
+        hasCurrent: Boolean(result.current),
+        packages: result.current?.availablePackages.length ?? 0,
+      })
+      return result.current ?? null
+    } catch (error) {
+      errorImportDiagnostic('billing', 'billing-offering-failed', error)
+      throw error
+    }
   },
 
   /** Inicia compra de um package. RC abre o sheet nativo do Google Play. */

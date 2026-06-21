@@ -11,6 +11,7 @@ import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
 import { useEntitlements } from '../hooks/useEntitlements'
 import { useIsImportActive } from '../hooks/useImportActivity'
 import { useLibraryGroups } from '../hooks/useLibraryGroups'
+import { useCategoryGroups } from '../hooks/useCategoryGroups'
 import { BookImportService } from '../services/BookImportService'
 import { IMPORT_IN_PROGRESS_MESSAGE } from '../services/ImportCoordinator'
 import { logImportDiagnostic } from '../services/ImportDiagnostics'
@@ -20,7 +21,7 @@ import { useI18n } from '../i18n'
 
 interface HomeScreenProps {
   onOpenBook: (book: Book) => void
-  onOpenBiblioteca: () => void
+  onOpenBiblioteca: (genre?: string) => void
   onOpenDiscover: () => void
   onOpenProfile: () => void
   onOpenSettings: () => void
@@ -29,6 +30,7 @@ interface HomeScreenProps {
 export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpenProfile, onOpenSettings }: HomeScreenProps) {
   const { t } = useI18n()
   const { isLoading, isEmpty, heroBook, inProgressBooks, recentBooks } = useLibraryGroups()
+  const { groups: categoryGroups } = useCategoryGroups()
   const { isPro } = useEntitlements()
   const [optionsBook, setOptionsBook] = useState<Book | null>(null)
   const [importing, setImporting] = useState(false)
@@ -179,6 +181,17 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
 
             <BookRow title={t('home.continueReading')} books={inProgressBooks} onPress={onOpenBook} onOpenOptions={setOptionsBook} variant="progress" />
             <BookRow title={t('home.myBooks')} books={recentBooks} onPress={onOpenBook} onOpenOptions={setOptionsBook} />
+
+            {categoryGroups.map(group => (
+              <BookRow
+                key={group.genre}
+                title={group.label}
+                books={group.books}
+                onPress={onOpenBook}
+                onOpenOptions={setOptionsBook}
+                onViewAll={() => onOpenBiblioteca(group.genre)}
+              />
+            ))}
           </>
         )}
       </main>

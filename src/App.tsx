@@ -20,11 +20,13 @@ import { BookImportService } from './services/BookImportService'
 import { cleanupNativeImportTemp } from './services/NativeLibraryImportService'
 import { createFlowId, getDiagnosticsNowMs, logEvent } from './services/DiagnosticsLogger'
 import { cleanupExpiredTtsVoiceCaches } from './db/ttsVoiceCaches'
+import { scheduleVocabularyDriveSync } from './services/VocabularyDriveSyncService'
 import type { Book } from './types/book'
+import type { LibraryFilter } from './hooks/useLibraryCatalog'
 
 type Route =
   | { name: 'home' }
-  | { name: 'library' }
+  | { name: 'library'; initialFilter?: LibraryFilter }
   | { name: 'book-details'; book: Book }
   | { name: 'reader'; book: Book; startHref?: string; readerOpenFlowId?: string; readerOpenStartedAt?: number }
   | { name: 'vocabulary' }
@@ -62,7 +64,7 @@ function App() {
   const push = (route: Route) => setStack((prev) => [...prev, route])
   const pop = () => setStack((prev) => (prev.length > 1 ? prev.slice(0, -1) : prev))
   const openHome = () => setStack([{ name: 'home' }])
-  const openLibrary = () => setStack([{ name: 'home' }, { name: 'library' }])
+  const openLibrary = (initialFilter?: LibraryFilter) => setStack([{ name: 'home' }, { name: 'library', initialFilter }])
   const openDiscover = () => setStack([{ name: 'home' }, { name: 'discover' }])
   const openProfile = () => setStack([{ name: 'home' }, { name: 'profile' }])
 
@@ -81,7 +83,43 @@ function App() {
     void cleanupExpiredTtsVoiceCaches().catch((err) => {
       console.warn('[TTS] Falha ao limpar cache de vozes:', err)
     })
+    // Sincroniza vocabulário imediatamente ao logar — garante status 'connected'
+    // mesmo antes do usuário adicionar ou deletar palavras.
+    scheduleVocabularyDriveSync()
   }, [signedInUid])
+
+  // Garante que cada conta usa seu próprio banco IndexedDB.
+  // Quando o uid muda, grava o novo uid no localStorage e recarrega —
+  // o banco é escolhido em database.ts antes do React renderizar.
+  //
+  // Lógica de banco legado (backward compat com usuários antes do update):
+  //   - rawStoredUid === null → primeira abertura após update (ou install limpo)
+  //     → o banco atual é 'NeoReaderDB' (legado, pode ter dados do usuário)
+  //     → ao detectar o uid, gravamos 'neoreader:db-name:{uid}' = 'NeoReaderDB'
+  //       para que esse usuário continue abrindo o banco legado nas próximas cargas.
+  //   - rawStoredUid !== null → já inicializado, usa o banco mapeado normalmente.
+  const authStatus = auth.state.status
+  useEffect(() => {
+    if (authStatus === 'loading') return
+    const currentUid = signedInUid ?? 'guest'
+    const rawStoredUid = localStorage.getItem('neoreader:active-uid')
+    const storedUid = rawStoredUid ?? 'guest'
+    if (storedUid !== currentUid) {
+      if (rawStoredUid === null) {
+        // Primeira inicialização: DB já é NeoReaderDB, só salvar o mapeamento.
+        // NÃO recarregar — interromperia o fluxo de login e zeraria o token Drive,
+        // causando double-login e quebrando todos os syncs.
+        if (currentUid !== 'guest') {
+          localStorage.setItem(`neoreader:db-name:${currentUid}`, 'NeoReaderDB')
+          localStorage.setItem('neoreader:active-uid', currentUid)
+        }
+        return
+      }
+      // Troca de conta ou logout: recarregar para abrir o banco correto.
+      localStorage.setItem('neoreader:active-uid', currentUid)
+      window.location.reload()
+    }
+  }, [authStatus, signedInUid])
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return
@@ -242,6 +280,7 @@ function App() {
             onOpenHome={openHome}
             onOpenDiscover={openDiscover}
             onOpenProfile={openProfile}
+            initialFilter={current.initialFilter}
           />
         </ErrorBoundary>
       )
@@ -251,7 +290,7 @@ function App() {
         <ErrorBoundary key="home" screen="home">
           <HomeScreen
             onOpenBook={(book) => push({ name: 'book-details', book })}
-            onOpenBiblioteca={openLibrary}
+            onOpenBiblioteca={(genre) => openLibrary(genre ? `genre:${genre}` : undefined)}
             onOpenDiscover={openDiscover}
             onOpenProfile={openProfile}
             onOpenSettings={() => push({ name: 'settings' })}

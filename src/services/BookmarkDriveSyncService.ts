@@ -13,6 +13,7 @@ import {
 } from './GoogleDriveAppDataService'
 import { createFlowId, getDiagnosticsNowMs, logEvent, logWarn } from './DiagnosticsLogger'
 import {
+  getCachedBookmarkDriveSyncStatus,
   hasBookmarkDriveSyncEntitlement,
   normalizeBookmarkDriveSyncError,
   setBookmarkDriveSyncStatus,
@@ -42,12 +43,11 @@ const rerunBookIds = new Set<number>()
 
 export function scheduleBookmarkDriveSync(bookId: number): void {
   if (!Number.isFinite(bookId)) return
-
+  if (getCachedBookmarkDriveSyncStatus().code === 'permission-error') return
   if (inFlightBookIds.has(bookId)) {
     rerunBookIds.add(bookId)
     return
   }
-
   void runScheduledBookmarkDriveSync(bookId)
 }
 

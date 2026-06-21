@@ -10,11 +10,12 @@ interface BookRowProps {
   books: BookWithProgress[]
   onPress: (book: Book) => void
   onOpenOptions?: (book: Book) => void
+  onViewAll?: () => void
   /** 'progress' → horizontal ProgressCard; 'default' → vertical BookCard */
   variant?: 'default' | 'progress'
 }
 
-export function BookRow({ title, books, onPress, onOpenOptions, variant = 'default' }: BookRowProps) {
+export function BookRow({ title, books, onPress, onOpenOptions, onViewAll, variant = 'default' }: BookRowProps) {
   const { t } = useI18n()
 
   if (books.length === 0) return null
@@ -30,7 +31,11 @@ export function BookRow({ title, books, onPress, onOpenOptions, variant = 'defau
           {title}
         </h2>
         <button
-          className="flex items-center gap-[2px] text-[11px] font-semibold active:opacity-60 transition-opacity"
+          onClick={onViewAll}
+          className={[
+            'flex items-center gap-[2px] text-[11px] font-semibold transition-opacity',
+            onViewAll ? 'active:opacity-60' : 'opacity-30 pointer-events-none',
+          ].join(' ')}
           style={{ color: '#a855f7' }}
           aria-label={t('bookRow.viewAllIn', { title })}
         >

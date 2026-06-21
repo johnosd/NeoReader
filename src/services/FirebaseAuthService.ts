@@ -34,7 +34,24 @@ class FirebaseAuthConfigError extends Error {
 
 let authInstance: Auth | null | undefined
 let persistenceReady: Promise<void> | null = null
-let googleDriveAccessToken: string | null = null
+
+// Token Drive salvo no localStorage para sobreviver cold starts (expira em ~55min).
+// Tokens Google OAuth duram 1h; guardamos com margem de 5min para evitar usar token prestes a expirar.
+const DRIVE_TOKEN_KEY = 'neoreader:drive-access-token'
+const DRIVE_TOKEN_EXPIRY_KEY = 'neoreader:drive-token-expiry'
+const DRIVE_TOKEN_TTL_MS = 55 * 60 * 1000
+
+function loadPersistedDriveToken(): string | null {
+  try {
+    const token = localStorage.getItem(DRIVE_TOKEN_KEY)
+    const expiry = parseInt(localStorage.getItem(DRIVE_TOKEN_EXPIRY_KEY) ?? '0', 10)
+    return token && Date.now() < expiry ? token : null
+  } catch {
+    return null
+  }
+}
+
+let googleDriveAccessToken: string | null = loadPersistedDriveToken()
 
 function isNativeRuntime() {
   return Capacitor.isNativePlatform()
@@ -93,7 +110,17 @@ function ensureConfiguredAuth(): Auth {
 }
 
 function rememberGoogleDriveAccessToken(accessToken?: string | null) {
-  googleDriveAccessToken = accessToken?.trim() || null
+  const token = accessToken?.trim() || null
+  googleDriveAccessToken = token
+  try {
+    if (token) {
+      localStorage.setItem(DRIVE_TOKEN_KEY, token)
+      localStorage.setItem(DRIVE_TOKEN_EXPIRY_KEY, String(Date.now() + DRIVE_TOKEN_TTL_MS))
+    } else {
+      localStorage.removeItem(DRIVE_TOKEN_KEY)
+      localStorage.removeItem(DRIVE_TOKEN_EXPIRY_KEY)
+    }
+  } catch { /* localStorage indisponível */ }
 }
 
 export function getGoogleDriveAccessToken(): string | null {
@@ -127,16 +154,17 @@ function toNativeAuthUser(user: NativeFirebaseUser): AuthUser {
   }
 }
 
-// Tenta reobter o token do Drive silenciosamente (sem UI) apos restaurar sessao.
-// No Android, se o usuario ja autorizou os escopos, o Google Sign-In retorna sem mostrar nada.
-async function silentlyRefreshDriveToken(): Promise<void> {
+// Solicita novo token Drive ao Google. Mostra seletor de conta no Android —
+// chamar apenas em resposta a ação explícita do usuário (ex: botão em Settings).
+// Não chamar no startup para evitar seletor de conta inesperado ao abrir o app.
+export async function refreshDriveToken(): Promise<void> {
   try {
     const result = await FirebaseAuthentication.signInWithGoogle({
       scopes: [GOOGLE_DRIVE_APPDATA_SCOPE],
     })
     rememberGoogleDriveAccessToken(result.credential?.accessToken)
   } catch {
-    // Falha silenciosa: sync vai falhar ate o usuario fazer login manual.
+    // Usuário cancelou ou falha silenciosa.
   }
 }
 

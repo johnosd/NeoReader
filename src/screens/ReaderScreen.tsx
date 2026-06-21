@@ -21,7 +21,7 @@ import { useChromeAutoHide } from '../hooks/useChromeAutoHide'
 import type { ProgressSavePayload } from '../db/progress'
 import { deleteBook, updateLastOpened } from '../db/books'
 import { addBookmark, restoreBookmark, softDeleteBookmark, updateBookmarkColor } from '../db/bookmarks'
-import { addVocabItem } from '../db/vocabulary'
+import { addVocabItem, getVocabSourceTextsByBookId } from '../db/vocabulary'
 import { db } from '../db/database'
 import { useTTS } from '../hooks/useTTS'
 import { TtsMiniPlayer } from '../components/reader/TtsMiniPlayer'
@@ -33,6 +33,7 @@ import {
   ReaderModeControl,
   ReaderThemeControl,
 } from '../components/reader/ReaderAppearanceControls'
+import { Switch } from '../components/ui'
 import { translate } from '../services/TranslationService'
 import { createFlowId, getDiagnosticsNowMs, logError, logEvent } from '../services/DiagnosticsLogger'
 import type { Book } from '../types/book'
@@ -136,6 +137,7 @@ export function ReaderScreen({
   const [tocOpen, setTocOpen] = useState(false)
   const [bookmarkSheetOpen, setBookmarkSheetOpen] = useState(false)
   const [appearanceSheetOpen, setAppearanceSheetOpen] = useState(false)
+  const [focusLineEnabled, setFocusLineEnabled] = useState(() => localStorage.getItem('neoreader:focus-line') === '1')
   const [removingMissingBook, setRemovingMissingBook] = useState(false)
   const [missingBookRemovalError, setMissingBookRemovalError] = useState<string | null>(null)
   const {
@@ -308,6 +310,12 @@ export function ReaderScreen({
     [book.id],
   ) ?? []
   const activeBookmarks = bookmarks.filter((bookmark) => !bookmark.deletedAt)
+
+  // Vocabulário salvo: frases originais para highlight passivo no texto
+  const vocabWords = useLiveQuery(
+    () => book.id ? getVocabSourceTextsByBookId(book.id) : Promise.resolve([]),
+    [book.id],
+  ) ?? []
 
   // Limpa o store ao desmontar para não vazar estado entre livros
   useEffect(() => { return () => reset() }, [reset])
@@ -802,6 +810,7 @@ export function ReaderScreen({
           fontFamily={fontFamily}
           overrideBookFont={overrideBookFont}
           overrideBookColors={overrideBookColors}
+          focusLineEnabled={focusLineEnabled}
           savedCfi={startHref ? null : savedCfi}
           initialTarget={startHref ?? null}
           onRelocate={handleRelocate}
@@ -841,6 +850,7 @@ export function ReaderScreen({
           ttsGlobalActive={ttsPlayerVisible}
           onBookmarkTap={(id) => { void softDeleteBookmark(id) }}
           onBookmarkParagraph={handleParagraphBookmark}
+          vocabWords={vocabWords}
           />
         )}
       </div>
@@ -854,6 +864,7 @@ export function ReaderScreen({
         title={book.title}
         percentage={percentage}
         chapterPercentage={chapterPercentage}
+        sectionLabel={currentTocLabel ?? null}
         fontSize={fontSize}
         bookmarkCount={activeBookmarks.length}
         onBack={handleBack}
@@ -1016,6 +1027,21 @@ export function ReaderScreen({
             <ReaderModeControl
               value={readerStyleMode}
               onChange={handleReaderStyleModeChange}
+            />
+          </div>
+
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-text-primary">{t('reader.appearance.focusLine.label')}</p>
+              <p className="mt-0.5 text-xs text-text-muted">{t('reader.appearance.focusLine.description')}</p>
+            </div>
+            <Switch
+              checked={focusLineEnabled}
+              onChange={(value) => {
+                localStorage.setItem('neoreader:focus-line', value ? '1' : '0')
+                setFocusLineEnabled(value)
+              }}
+              aria-label={t('reader.appearance.focusLine.label')}
             />
           </div>
         </div>

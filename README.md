@@ -364,8 +364,8 @@ npm run android:run
 Fluxo manual:
 
 ```bash
-npm run build
-npx cap sync android
+npm run build &&
+npx cap sync android &&
 npx cap run android
 ```
 

@@ -16,6 +16,8 @@ export interface FeatureQuotaSnapshot {
   used: number
   remaining: number | null
   isPro: boolean
+  /** true enquanto o BillingService ainda nao terminou o cold start (isPro era null). */
+  billingLoading: boolean
   hasValidCache: boolean
   allowed: boolean
   blockedReason: 'quota-exhausted' | null
@@ -55,12 +57,15 @@ export function buildBookIntelligenceQuotaSubject(input: {
 }
 
 function storageKey(key: FeatureQuotaKey): string {
-  return `${STORAGE_PREFIX}${key}`
+  const uid = localStorage.getItem('neoreader:active-uid') ?? 'guest'
+  return `${STORAGE_PREFIX}${uid}:${key}`
 }
 
-function resolveIsPro(value: boolean | null | undefined): boolean {
-  if (typeof value === 'boolean') return value
-  return BillingService.getCachedStatus().isPro === true
+// Retorna null quando o BillingService ainda nao terminou de inicializar (cold start).
+// null e diferente de false: significa "entitlement desconhecido, adiar decisao".
+function resolveIsPro(value: boolean | null | undefined): boolean | null {
+  if (value === true || value === false) return value
+  return BillingService.getCachedStatus().isPro
 }
 
 function readStorage(key: string): string | null {
@@ -133,13 +138,16 @@ function buildSnapshot(
 ): FeatureQuotaSnapshot {
   const now = options.now ?? new Date()
   const monthKey = formatFeatureQuotaMonth(now)
-  const isPro = resolveIsPro(options.isPro)
+  const rawIsPro = resolveIsPro(options.isPro)
+  const billingLoading = rawIsPro === null
+  const isPro = rawIsPro === true
   const hasValidCache = options.hasValidCache === true
   const stored = readStoredQuota(key, monthKey)
   const subjectAlreadyUsed = Boolean(options.subjectKey && stored.subjects?.includes(options.subjectKey))
   const limit = isPro ? null : FEATURE_QUOTA_LIMITS[key]
   const remaining = limit === null ? null : Math.max(0, limit - stored.used)
-  const allowed = isPro || hasValidCache || subjectAlreadyUsed || remaining === null || remaining > 0
+  // Enquanto o billing carrega, permite a acao para nao bloquear usuario Pro incorretamente.
+  const allowed = billingLoading || isPro || hasValidCache || subjectAlreadyUsed || remaining === null || remaining > 0
 
   return {
     key,
@@ -148,6 +156,7 @@ function buildSnapshot(
     used: stored.used,
     remaining,
     isPro,
+    billingLoading,
     hasValidCache,
     allowed,
     blockedReason: allowed ? null : 'quota-exhausted',
@@ -166,7 +175,8 @@ export const FeatureQuotaService = {
     // Move this to backend/Firebase if server-side enforcement becomes necessary.
     const subjectAlreadyUsed = Boolean(options.subjectKey && readStoredQuota(key, snapshot.monthKey).subjects?.includes(options.subjectKey))
 
-    if (!snapshot.allowed || snapshot.isPro || snapshot.hasValidCache || subjectAlreadyUsed) {
+    // Nao decrementa quota enquanto billing nao inicializou: entitlement ainda desconhecido.
+    if (!snapshot.allowed || snapshot.isPro || snapshot.hasValidCache || subjectAlreadyUsed || snapshot.billingLoading) {
       return { ...snapshot, consumed: false }
     }
 

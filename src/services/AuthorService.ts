@@ -19,6 +19,7 @@ export class AuthorQuotaBlockedError extends Error {
 interface GetAuthorDataOptions {
   enforceQuota?: boolean
   quotaSubjectKey?: string
+  isPro?: boolean | null
 }
 
 // Open Library: busca OLID (identificador interno) pelo nome do autor
@@ -165,6 +166,7 @@ function consumeAuthorQuota(options: GetAuthorDataOptions): FeatureQuotaSnapshot
 
   return FeatureQuotaService.consume('book-intelligence', {
     subjectKey: options.quotaSubjectKey,
+    isPro: options.isPro,
   })
 }
 

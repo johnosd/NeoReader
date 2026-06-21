@@ -9,6 +9,7 @@ interface ReaderChromeProps {
   title: string
   percentage: number
   chapterPercentage?: number | null
+  sectionLabel?: string | null
   fontSize: FontSize
   bookmarkCount: number
   ttsIsPlaying: boolean
@@ -37,6 +38,7 @@ export function ReaderChrome({
   title,
   percentage,
   chapterPercentage,
+  sectionLabel,
   fontSize,
   bookmarkCount,
   ttsIsPlaying,
@@ -90,11 +92,6 @@ export function ReaderChrome({
                 <span className={pvBadgeReadClass}>
                   {t('readerChrome.bookProgress', { percent: percentage })}
                 </span>
-                {chapterPercentage !== null && chapterPercentage !== undefined && (
-                  <span className={pvBadgeReadClass}>
-                    {t('readerChrome.chapterProgress', { percent: chapterPercentage })}
-                  </span>
-                )}
                 <span className={bookmarkCount > 0 ? pvBadgeBookmarkClass : pvBadgeNeutralClass}>
                   {bookmarkLabel}
                 </span>
@@ -159,6 +156,15 @@ export function ReaderChrome({
                 )}
               </button>
             </div>
+
+            {chapterPercentage != null && (
+              <div className="mt-2.5 border-t border-white/8 pt-2.5 text-center">
+                <p className="truncate text-[11px] tabular-nums text-text-muted">
+                  {sectionLabel ? `${sectionLabel} · ` : ''}
+                  {t('readerChrome.chapterProgress', { percent: chapterPercentage })}
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </div>

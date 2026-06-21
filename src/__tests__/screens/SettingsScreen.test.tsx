@@ -17,6 +17,17 @@ vi.mock('@capacitor/app', () => ({
   },
 }))
 
+vi.mock('@/hooks/useEntitlements', () => ({
+  useEntitlements: () => ({
+    isPro: false,
+    isLoading: false,
+    expiresAt: undefined,
+    activeProductId: undefined,
+    refresh: vi.fn(),
+  }),
+  useRefreshEntitlementsOnFocus: () => undefined,
+}))
+
 vi.mock('@/db/settings', () => ({
   getSettings: mocks.getSettings,
   updateAppSettings: mocks.updateAppSettings,
@@ -84,11 +95,13 @@ describe('SettingsScreen', () => {
     const onOpenPaywall = vi.fn()
     render(<SettingsScreen onBack={vi.fn()} onOpenPaywall={onOpenPaywall} />)
 
-    await screen.findByText('Bookmarks na nuvem')
+    await screen.findByText('Backup de bookmarks')
 
     expect(screen.getByText('Backup de bookmarks')).toBeTruthy()
-    expect(screen.getByText('Recurso Pro')).toBeTruthy()
-    expect(screen.getByText(/Bookmarks locais continuam disponiveis/)).toBeTruthy()
+    // Os três itens de sync (bookmarks, progress, vocabulary) mostram "Recurso Pro" quando isPro=false
+    expect(screen.getAllByText('Recurso Pro').length).toBeGreaterThan(0)
+    // getDataSyncMeta reutiliza a mesma descrição pro-required para os três tipos de sync
+    expect(screen.getAllByText(/Bookmarks locais continuam disponiveis/).length).toBeGreaterThan(0)
     expect(onOpenPaywall).not.toHaveBeenCalled()
   })
 

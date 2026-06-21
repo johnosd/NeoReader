@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { TextToSpeech } from '@capacitor-community/text-to-speech'
+import { WakeLockService } from '../services/WakeLockService'
 import type { TtsChunk } from '../components/reader/EpubViewer'
 import { NativeTtsService } from '../services/NativeTtsService'
 import { createFlowId, getDiagnosticsNowMs, logError, logEvent, logWarn } from '../services/DiagnosticsLogger'
@@ -208,6 +209,8 @@ export function useTTS(options: UseTTSOptions) {
   const playbackFlowIdRef = useRef<string | null>(null)
   const playbackModeRef = useRef<TtsPlaybackMode | null>(null)
   const playbackStopReasonRef = useRef<TtsPlaybackStopReason | null>(null)
+  // Prevents duplicate TextToSpeech.stop() calls when stop() is invoked concurrently.
+  const nativeStopPendingRef = useRef(false)
 
   function updatePaused(next: boolean) {
     pauseRequestedRef.current = next
@@ -277,6 +280,10 @@ export function useTTS(options: UseTTSOptions) {
 
   useEffect(() => {
     return () => {
+      // Skip if stop() was already called (shouldStopRef=true) — avoids duplicate
+      // TextToSpeech.stop() / allowSleep() when the user explicitly stopped before unmount.
+      if (shouldStopRef.current) return
+
       const hasPlaybackSession = playSessionRef.current > 0 || audioRef.current || stopPremiumPlaybackRef.current
       if (!hasPlaybackSession) return
 
@@ -289,6 +296,7 @@ export function useTTS(options: UseTTSOptions) {
       audioRef.current = null
 
       void TextToSpeech.stop().catch(logTtsPlaybackError)
+      void WakeLockService.allowSleep()
     }
   }, [])
 
@@ -659,10 +667,12 @@ export function useTTS(options: UseTTSOptions) {
     })
 
     shouldStopRef.current = false
+    nativeStopPendingRef.current = false
     activeChunksRef.current = chunks
     nativeRangeEventSeenRef.current = false
     updatePaused(false)
     setIsPlaying(true)
+    void WakeLockService.keepAwake()
 
     const resolvedProvider = await resolveConfiguredTtsProvider(configRef.current.provider).catch(() => 'native' as const)
     let playbackProvider = resolvedProvider
@@ -752,6 +762,7 @@ export function useTTS(options: UseTTSOptions) {
     const playbackDone = playbackDoneRef.current
     updatePaused(true)
     setIsPlaying(false)
+    void WakeLockService.allowSleep()
     logPlaybackEvent('tts.playback.pause', activeProviderRef.current, 'success')
 
     if (activeProviderRef.current === 'native') {
@@ -807,17 +818,23 @@ export function useTTS(options: UseTTSOptions) {
     const shouldLogStopIntent = isPlaying || isPaused || pauseRequestedRef.current || Boolean(audioRef.current || stopPremiumPlaybackRef.current)
     shouldStopRef.current = true
     updatePaused(false)
+    void WakeLockService.allowSleep()
     if (shouldLogStopIntent) {
       playbackStopReasonRef.current = 'stopped'
     }
 
     if (activeProviderRef.current === 'native') {
-      try {
-        await TextToSpeech.stop()
-      } catch (error) {
-        playbackStopReasonRef.current = 'error'
-        logPlaybackError(error, { phase: 'stop' })
-        throw error
+      if (!nativeStopPendingRef.current) {
+        nativeStopPendingRef.current = true
+        try {
+          await TextToSpeech.stop()
+        } catch (error) {
+          playbackStopReasonRef.current = 'error'
+          logPlaybackError(error, { phase: 'stop' })
+          throw error
+        } finally {
+          nativeStopPendingRef.current = false
+        }
       }
     } else {
       audioRef.current?.pause()
@@ -843,6 +860,7 @@ export function useTTS(options: UseTTSOptions) {
     })
 
     shouldStopRef.current = false
+    nativeStopPendingRef.current = false
     nativeRangeEventSeenRef.current = false
     updatePaused(false)
     const resolvedProvider = await resolveConfiguredTtsProvider(configRef.current.provider).catch(() => 'native' as const)
