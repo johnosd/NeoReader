@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Compass, Sparkles } from 'lucide-react'
 import { AdBannerSlot } from '../components/AdBannerSlot'
 import { BottomNav } from '../components/BottomNav'
@@ -6,6 +6,7 @@ import { NytBooksRow } from '../components/NytBooksRow'
 import { QuotaUsageHint } from '../components/QuotaUsageHint'
 import { Button, EmptyState } from '../components/ui'
 import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
+import { useEntitlements } from '../hooks/useEntitlements'
 import { useI18n } from '../i18n'
 import { FeatureQuotaService, type FeatureQuotaConsumeResult } from '../services/FeatureQuotaService'
 import { NytBooksService } from '../services/NytBooksService'
@@ -32,15 +33,20 @@ interface DiscoverScreenProps {
 
 export function DiscoverScreen({ onBack, onOpenHome, onOpenLibrary, onOpenProfile, onOpenPaywall }: DiscoverScreenProps) {
   const { t } = useI18n()
+  const { isPro } = useEntitlements()
   useCapacitorBackButton(onBack)
   const hasNytApiKey = Boolean(import.meta.env.VITE_NYT_API_KEY)
-  const [quotaState] = useState<FeatureQuotaConsumeResult | null>(() => {
-    if (!hasNytApiKey) return null
+  // useState sem initializer: quota e avaliada no useEffect abaixo para ser reativa
+  // ao isPro (que pode ser null durante o cold start do RevenueCat).
+  const [quotaState, setQuotaState] = useState<FeatureQuotaConsumeResult | null>(null)
 
-    return FeatureQuotaService.consume('nyt-discovery', {
+  useEffect(() => {
+    if (!hasNytApiKey) return
+    setQuotaState(FeatureQuotaService.consume('nyt-discovery', {
+      isPro,
       hasValidCache: ALL_NYT_LISTS.every((listName) => NytBooksService.hasValidCache(listName)),
-    })
-  })
+    }))
+  }, [hasNytApiKey, isPro])
   const hasAnyNytCache = hasNytApiKey && ALL_NYT_LISTS.some((listName) => NytBooksService.hasValidCache(listName))
   const quotaBlocked = quotaState?.blockedReason === 'quota-exhausted'
   const allowNytNetwork = hasNytApiKey && quotaState?.allowed !== false

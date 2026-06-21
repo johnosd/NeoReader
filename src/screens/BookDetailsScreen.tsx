@@ -163,6 +163,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
     enabled: settingsLoaded,
     youtubeApiKey: appSettings.youtubeApiKey,
     refreshToken: bookInfoRefreshToken,
+    isPro,
   })
 
   useEffect(() => {
@@ -973,6 +974,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
               <AuthorTab
                 book={liveBook}
                 youtubeApiKey={appSettings.youtubeApiKey}
+                isPro={isPro}
                 onOpenSettings={onOpenSettings}
                 onOpenPaywall={onOpenPaywall}
               />

@@ -130,6 +130,7 @@ describe('AuthorService', () => {
 
     await expect(getAuthorData('Autor', 42, 'youtube-key', {
       enforceQuota: true,
+      isPro: false,
       quotaSubjectKey: 'book:42',
     })).rejects.toBeInstanceOf(AuthorQuotaBlockedError)
 
@@ -149,6 +150,7 @@ describe('AuthorService', () => {
 
     const data = await getAuthorData('Autor', 42, 'youtube-key', {
       enforceQuota: true,
+      isPro: false,
       quotaSubjectKey: 'book:42',
     })
 

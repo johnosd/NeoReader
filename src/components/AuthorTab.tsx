@@ -12,11 +12,12 @@ import { useI18n } from '../i18n'
 interface AuthorTabProps {
   book: Book
   youtubeApiKey: string
+  isPro: boolean | null
   onOpenSettings: () => void
   onOpenPaywall?: () => void
 }
 
-export function AuthorTab({ book, youtubeApiKey, onOpenSettings, onOpenPaywall }: AuthorTabProps) {
+export function AuthorTab({ book, youtubeApiKey, isPro, onOpenSettings, onOpenPaywall }: AuthorTabProps) {
   const { t } = useI18n()
   const requestKey = `${book.id ?? 'new'}::${book.author}::${youtubeApiKey}`
   const [authorState, setAuthorState] = useState<{
@@ -24,13 +25,14 @@ export function AuthorTab({ book, youtubeApiKey, onOpenSettings, onOpenPaywall }
     loading: boolean
     data: AuthorData | null
     quota: FeatureQuotaSnapshot | null
-  }>({ key: requestKey, loading: true, data: null, quota: FeatureQuotaService.getSnapshot('book-intelligence') })
+  }>({ key: requestKey, loading: true, data: null, quota: FeatureQuotaService.getSnapshot('book-intelligence', { isPro }) })
 
   useEffect(() => {
     let cancelled = false
 
     void getAuthorData(book.author, book.id, youtubeApiKey || undefined, {
       enforceQuota: true,
+      isPro,
       quotaSubjectKey: buildBookIntelligenceQuotaSubject({
         bookId: book.id,
         title: book.title,
@@ -39,7 +41,7 @@ export function AuthorTab({ book, youtubeApiKey, onOpenSettings, onOpenPaywall }
     })
       .then((data) => {
         if (cancelled) return
-        setAuthorState({ key: requestKey, loading: false, data, quota: FeatureQuotaService.getSnapshot('book-intelligence') })
+        setAuthorState({ key: requestKey, loading: false, data, quota: FeatureQuotaService.getSnapshot('book-intelligence', { isPro }) })
       })
       .catch((error: unknown) => {
         if (cancelled) return
@@ -47,15 +49,15 @@ export function AuthorTab({ book, youtubeApiKey, onOpenSettings, onOpenPaywall }
           setAuthorState({ key: requestKey, loading: false, data: null, quota: error.quota })
           return
         }
-        setAuthorState({ key: requestKey, loading: false, data: null, quota: FeatureQuotaService.getSnapshot('book-intelligence') })
+        setAuthorState({ key: requestKey, loading: false, data: null, quota: FeatureQuotaService.getSnapshot('book-intelligence', { isPro }) })
       })
 
     return () => { cancelled = true }
-  }, [book.author, book.id, book.title, requestKey, youtubeApiKey])
+  }, [book.author, book.id, book.title, isPro, requestKey, youtubeApiKey])
 
   const loading = authorState.key !== requestKey || authorState.loading
   const authorData = authorState.key === requestKey ? authorState.data : null
-  const quotaBlocked = authorState.key === requestKey && authorState.quota?.blockedReason === 'quota-exhausted'
+  const quotaBlocked = authorState.key === requestKey && !authorData && authorState.quota?.blockedReason === 'quota-exhausted'
 
   if (loading) return <AuthorSkeleton hasYoutubeKey={Boolean(youtubeApiKey)} />
 

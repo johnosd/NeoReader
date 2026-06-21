@@ -6,6 +6,16 @@ const mocks = vi.hoisted(() => ({
   hasValidCache: vi.fn(),
 }))
 
+vi.mock('@/hooks/useEntitlements', () => ({
+  useEntitlements: () => ({
+    isPro: false,
+    isLoading: false,
+    expiresAt: undefined,
+    activeProductId: undefined,
+    refresh: vi.fn(),
+  }),
+}))
+
 vi.mock('@capacitor/app', () => ({
   App: {
     addListener: vi.fn(async () => ({ remove: vi.fn() })),

@@ -11,8 +11,9 @@ import { useVocabularyDriveSyncStatus } from '../hooks/useVocabularyDriveSyncSta
 import type { DriveDataSyncStatusCode } from '../services/DriveDataSyncStatus'
 import { refreshDriveToken } from '../services/FirebaseAuthService'
 import { scheduleVocabularyDriveSync, vocabularySyncStatusStore } from '../services/VocabularyDriveSyncService'
-import { progressSyncStatusStore } from '../services/ProgressDriveSyncService'
+import { progressSyncStatusStore, scheduleProgressDriveSync } from '../services/ProgressDriveSyncService'
 import { setBookmarkDriveSyncStatus } from '../services/BookmarkDriveSyncStatus'
+import { scheduleBookmarkDriveSync } from '../services/BookmarkDriveSyncService'
 import { FeatureQuotaService, type FeatureQuotaSnapshot } from '../services/FeatureQuotaService'
 import {
   ReaderFontControl,
@@ -198,6 +199,17 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
     vocabularySyncStatusStore.set('pending-offline')
     setBookmarkDriveSyncStatus('pending-offline')
     scheduleVocabularyDriveSync()
+
+    // Retry bookmarks que falharam enquanto o token estava inválido
+    const failedBookmarks = await db.bookmarks.filter((b) => b.syncError != null).toArray()
+    const bookmarkBookIds = [...new Set(failedBookmarks.map((b) => b.bookId))]
+    for (const bookId of bookmarkBookIds) scheduleBookmarkDriveSync(bookId)
+
+    // Retry progress de todos os livros — não há rastreamento de falha por registro
+    const progressRecords = await db.progress.toArray()
+    const progressBookIds = [...new Set(progressRecords.map((p) => p.bookId))]
+    for (const bookId of progressBookIds) scheduleProgressDriveSync(bookId)
+
     setDriveReconnecting(false)
   }
 
