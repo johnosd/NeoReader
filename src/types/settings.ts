@@ -73,7 +73,7 @@ export function normalizeUserSettings(record?: SettingsRecord | null): UserSetti
 
   return {
     ...(record?.id !== undefined ? { id: record.id } : {}),
-    driveImportCount: record?.driveImportCount ?? 0,
+    ...(record?.driveImportCount !== undefined ? { driveImportCount: record.driveImportCount } : {}),
     appSettings: {
       ...DEFAULT_APP_SETTINGS,
       appLocale: normalizeAppLocalePreference(record?.appSettings?.appLocale),

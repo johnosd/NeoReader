@@ -72,8 +72,8 @@ describe('DiscoverScreen', () => {
     expect(screen.getByText('Tendencias no Mundo')).toBeTruthy()
     expect(screen.getByText('O que as crianças estão lendo agora')).toBeTruthy()
 
-    expect(screen.getByText(/Restam 4 de 5 atualizacoes/)).toBeTruthy()
-    expect(FeatureQuotaService.getSnapshot('nyt-discovery', { isPro: false }).used).toBe(1)
+    expect(screen.getByText(/Restam 5 de 5 atualizacoes/)).toBeTruthy()
+    expect(FeatureQuotaService.getSnapshot('nyt-discovery', { isPro: false }).used).toBe(0)
 
     const rows = screen.getAllByTestId('nyt-row').map((row) => row.getAttribute('data-list-name'))
     expect(rows).toEqual([

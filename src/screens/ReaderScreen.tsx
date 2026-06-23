@@ -140,6 +140,7 @@ export function ReaderScreen({
   const [focusLineEnabled, setFocusLineEnabled] = useState(() => localStorage.getItem('neoreader:focus-line') === '1')
   const [removingMissingBook, setRemovingMissingBook] = useState(false)
   const [missingBookRemovalError, setMissingBookRemovalError] = useState<string | null>(null)
+  const [detectedMissingFile, setDetectedMissingFile] = useState(false)
   const {
     isReady: readerAppearanceReady,
     fontSize,
@@ -633,10 +634,11 @@ export function ReaderScreen({
       const { cfi: newCfi, percentage: newPercentage, chapterPercentage: newChapterPercentage, tocLabel, sectionHref, fraction, sectionIndex } = location
       const pendingStartHref = pendingStartHrefRef.current
       if (pendingStartHref) {
-        if (!initialStartNavigationTriggeredRef.current) return
-
+        // Aceita o relocate da navegação inicial (vinda do EpubViewer via initialTarget)
+        // sem exigir que a flag esteja setada — basta o location bater com o alvo.
         if (!isRelocateAtStartTarget(pendingStartHref, location)) return
 
+        initialStartNavigationTriggeredRef.current = true
         completeInitialStartNavigation()
       }
 
@@ -811,15 +813,16 @@ export function ReaderScreen({
 
   const readerPalette = getReaderThemePalette(readerTheme)
   const readerStyleMode = !overrideBookFont && !overrideBookColors ? 'original' : 'comfortable'
-  const missingFileMessage = book.missingFile ? t('reader.missingFile.description') : null
+  const effectiveMissingFile = book.missingFile || detectedMissingFile
+  const missingFileMessage = effectiveMissingFile ? t('reader.missingFile.description') : null
   const visibleError = error ?? missingFileMessage
 
   return (
     <div className="fixed inset-0" style={{ backgroundColor: readerPalette.background }}>
-      {isLoading && !book.missingFile && <ReaderSkeleton />}
+      {isLoading && !effectiveMissingFile && <ReaderSkeleton />}
 
       <div className="absolute inset-0">
-        {!book.missingFile && (
+        {!effectiveMissingFile && (
           <EpubViewer
           ref={viewerRef}
           book={book}
@@ -838,11 +841,12 @@ export function ReaderScreen({
           onSectionReady={handleReaderSectionReady}
           onLoad={() => {
             finishReaderOpen('success')
-            // Navega para o capítulo selecionado na tela de detalhes (se houver)
             if (startHref && !initialStartNavigationTriggeredRef.current) {
+              // EpubViewer já navegou via initialTarget. Seta a flag para que
+              // handleRelocate aceite o relocate inicial. O fallback libera o
+              // loading se nenhum relocate chegar em START_NAVIGATION_FALLBACK_MS.
               initialStartNavigationTriggeredRef.current = true
               scheduleStartNavigationFallback()
-              viewerRef.current?.goTo(startHref)
               hideInitialLoading()
               return
             } else {
@@ -851,6 +855,9 @@ export function ReaderScreen({
             releaseInitialLoading()
           }}
           onError={(err) => {
+            if (err.message.includes('movido') || err.message.includes('permissao de acesso')) {
+              setDetectedMissingFile(true)
+            }
             finishReaderOpen('failure', err)
             pendingStartHrefRef.current = null
             releaseInitialLoading()
@@ -1070,7 +1077,7 @@ export function ReaderScreen({
       {visibleError && (
         <div className="absolute inset-0 z-40 bg-bg-reader flex flex-col items-center justify-center gap-4 px-8">
           <div className="flex max-w-sm flex-col items-center gap-2 text-center">
-            {book.missingFile && (
+            {effectiveMissingFile && (
               <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-error">
                 {t('reader.missingFile.title')}
               </p>
@@ -1081,7 +1088,7 @@ export function ReaderScreen({
             )}
           </div>
           <div className="flex flex-col items-center gap-3">
-            {book.missingFile && book.id !== undefined && (
+            {effectiveMissingFile && book.id !== undefined && (
               <button
                 type="button"
                 onClick={() => void handleRemoveMissingBook()}
