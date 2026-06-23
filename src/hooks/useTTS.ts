@@ -228,6 +228,11 @@ export function useTTS(options: UseTTSOptions) {
   // Prevents duplicate TextToSpeech.stop() calls when stop() is invoked concurrently.
   const nativeStopPendingRef = useRef(false)
   const premiumSynthesisAbortControllerRef = useRef<AbortController | null>(null)
+  // Resolve function registrado pelo speakWithNative ativo. Quando TextToSpeech.stop()
+  // confirma o stop no Android, chamamos este resolver para desbloquear o Promise.race
+  // dentro de speakWithNative — o speak() nativo nunca rejeita/resolve por conta própria
+  // ao ser interrompido, causando deadlock no await playbackDone dentro de stop().
+  const nativeSpeakStopAckRef = useRef<(() => void)>(() => {})
 
   function updatePaused(next: boolean) {
     pauseRequestedRef.current = next
@@ -600,12 +605,23 @@ export function useTTS(options: UseTTSOptions) {
 
     try {
       const voice = await NativeTtsService.resolveVoiceIndex(config.nativeVoiceKey, language)
-      await TextToSpeech.speak({
-        text,
-        lang: language,
-        rate,
-        ...(voice !== undefined ? { voice } : {}),
-      })
+      // Promise.race: desbloqueia quando o TTS termina OU quando stop() confirma o stop no Android.
+      // O plugin Capacitor TextToSpeech.speak() não rejeita/resolve ao ser interrompido por stop(),
+      // causando deadlock quando stop() espera playbackDone. O nativeSpeakStopAckRef permite que
+      // stop() sinalize aqui para desbloquear sem precisar de timeout.
+      let stopAckResolve: () => void = () => {}
+      const stopAckPromise = new Promise<void>((resolve) => { stopAckResolve = resolve })
+      nativeSpeakStopAckRef.current = stopAckResolve
+      await Promise.race([
+        TextToSpeech.speak({
+          text,
+          lang: language,
+          rate,
+          ...(voice !== undefined ? { voice } : {}),
+        }),
+        stopAckPromise,
+      ])
+      nativeSpeakStopAckRef.current = () => {}
       if (shouldStopRef.current || playSessionRef.current !== session) return
       logEvent('tts.synthesize.success', {
         flowId,
@@ -618,6 +634,7 @@ export function useTTS(options: UseTTSOptions) {
         },
       })
     } catch (error) {
+      nativeSpeakStopAckRef.current = () => {}
       logError('tts.synthesize.failure', error, {
         flowId,
         provider: 'native',
@@ -923,6 +940,10 @@ export function useTTS(options: UseTTSOptions) {
         nativeStopPendingRef.current = true
         try {
           await TextToSpeech.stop()
+          // Android confirmou o stop — desbloqueia o Promise.race em speakWithNative
+          // para que o play loop termine e playbackDone resolva.
+          nativeSpeakStopAckRef.current()
+          nativeSpeakStopAckRef.current = () => {}
         } catch (error) {
           playbackStopReasonRef.current = 'error'
           logPlaybackError(error, { phase: 'stop' })

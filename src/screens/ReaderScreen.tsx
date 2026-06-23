@@ -375,7 +375,8 @@ export function ReaderScreen({
       viewerRef.current?.clearTts()
     },
     onError: () => {
-      setTtsPlayerVisible(false)
+      // Não esconde o player: mantém visível para o usuário poder tentar novamente.
+      // O onStop (chamado no finally do play()) já limpa o estado de highlight e backToLocation.
       setShowBackToTtsLocation(false)
     },
     // Fim natural da seção (último parágrafo lido) — esconde player e mostra notificação
@@ -423,7 +424,12 @@ export function ReaderScreen({
   }
 
   async function handleTtsProviderChange(provider: TtsProvider) {
-    if (provider === ttsConfig.provider || !ttsProviderAvailability[provider]) return
+    // Compara contra o provider efetivo (o que o select exibe), não o configurado.
+    // Quando há fallback ativo (ttsProviderFallback != null), activeProvider = 'native'
+    // mesmo que ttsConfig.provider ainda seja o provider premium — precisamos permitir
+    // que o usuário re-selecione o provider premium para tentar novamente.
+    const effectiveProvider = ttsProviderFallback ? 'native' : ttsEngine
+    if (provider === effectiveProvider || !ttsProviderAvailability[provider]) return
 
     setTtsFallbackNotice(null)
     setTtsProviderFallback(null)
