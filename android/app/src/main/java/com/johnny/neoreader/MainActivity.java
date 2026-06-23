@@ -10,4 +10,5 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(NeoReaderLibraryPlugin.class);
         super.onCreate(savedInstanceState);
     }
+
 }

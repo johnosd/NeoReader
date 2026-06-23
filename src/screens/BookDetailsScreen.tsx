@@ -425,6 +425,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
           rate: 1,
           voiceId: voice.id,
         })
+        if (ttsVoicePreviewSessionRef.current !== session) return
         await playGeneratedVoicePreview(result.audioBlob, session)
       } else {
         ttsVoicePreviewModeRef.current = 'native'

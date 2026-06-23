@@ -1158,6 +1158,15 @@ public class NeoReaderLibraryPlugin extends Plugin {
     }
 
     @Override
+    protected void handleOnPause() {
+        // O BridgeActivity.onPause() chama webView.onPause(), que suspende o JS
+        // e interrompe o HTMLAudioElement — o TTS premium para de tocar.
+        // Chamamos webView.onResume() logo depois para anular a suspensão,
+        // mantendo o áudio rodando com a tela bloqueada.
+        bridge.getWebView().post(() -> bridge.getWebView().onResume());
+    }
+
+    @Override
     protected void handleOnDestroy() {
         for (FileReadSession session : fileReadSessions.values()) {
             closeQuietly(session);

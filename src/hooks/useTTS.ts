@@ -37,9 +37,10 @@ const NATIVE_RANGE_FALLBACK_DELAY_MS = 180
 interface UseTTSOptions extends TtsPlaybackConfig {
   onWordHighlight: (paraIdx: number, start: number, end: number) => void
   onParagraphChange: (paraIdx: number) => void
-  onProviderFallback?: (payload: { provider: TtsProvider; fallbackProvider: 'native'; reason: string }) => void
+  onProviderFallback?: (payload: { provider: TtsProvider; fallbackProvider: 'native'; reason: string; transient: boolean }) => void
   onStop: () => void
   onFinished?: () => void
+  onError?: (error: unknown) => void
 }
 
 function replaceSpeechControlCharacters(text: string) {
@@ -122,6 +123,20 @@ function getPremiumFallbackReason(provider: TtsProvider, error: unknown, t: Tran
   return t('tts.fallbackReason.unexpected', { provider: providerLabel })
 }
 
+// Erros transientes: AbortError (WebView suspensa, timeout) e erros de rede.
+// Nesses casos o provider premium pode ter sucesso na próxima tentativa,
+// então o loop não troca permanentemente para native.
+function isTransientTtsFailure(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === 'AbortError') return true
+  const message = getErrorMessage(error)
+  const normalized = message.toLowerCase()
+  return (
+    normalized.includes('aborted') ||
+    normalized.includes('failed to fetch') ||
+    normalized.includes('networkerror')
+  )
+}
+
 function getAudioDurationMs(audio: HTMLAudioElement): number | null {
   const durationMs = audio.duration * 1000
   return Number.isFinite(durationMs) && durationMs > 0 ? durationMs : null
@@ -188,6 +203,7 @@ export function useTTS(options: UseTTSOptions) {
     onProviderFallback: options.onProviderFallback,
     onStop: options.onStop,
     onFinished: options.onFinished,
+    onError: options.onError,
   })
   const configRef = useRef<TtsPlaybackConfig>({
     provider: options.provider,
@@ -211,6 +227,7 @@ export function useTTS(options: UseTTSOptions) {
   const playbackStopReasonRef = useRef<TtsPlaybackStopReason | null>(null)
   // Prevents duplicate TextToSpeech.stop() calls when stop() is invoked concurrently.
   const nativeStopPendingRef = useRef(false)
+  const premiumSynthesisAbortControllerRef = useRef<AbortController | null>(null)
 
   function updatePaused(next: boolean) {
     pauseRequestedRef.current = next
@@ -255,8 +272,9 @@ export function useTTS(options: UseTTSOptions) {
       onProviderFallback: options.onProviderFallback,
       onStop: options.onStop,
       onFinished: options.onFinished,
+      onError: options.onError,
     }
-  }, [options.onFinished, options.onParagraphChange, options.onProviderFallback, options.onStop, options.onWordHighlight])
+  }, [options.onError, options.onFinished, options.onParagraphChange, options.onProviderFallback, options.onStop, options.onWordHighlight])
 
   useEffect(() => {
     configRef.current = {
@@ -308,6 +326,7 @@ export function useTTS(options: UseTTSOptions) {
     offsetInPara: number,
     session: number,
     trackPlaybackState = true,
+    onPlayStarted?: () => void,
   ) {
     if (shouldStopRef.current || playSessionRef.current !== session) return
 
@@ -391,6 +410,7 @@ export function useTTS(options: UseTTSOptions) {
           setIsPlaying(true)
         }
         scheduleMarks()
+        onPlayStarted?.()
       }
 
       function handleMetadata() {
@@ -420,6 +440,7 @@ export function useTTS(options: UseTTSOptions) {
     offsetInPara: number,
     session: number,
     trackPlaybackState = true,
+    onPlayStarted?: () => void,
   ) {
     const config = configRef.current
     const apiKey = await getPremiumTtsApiKey(provider)
@@ -474,9 +495,13 @@ export function useTTS(options: UseTTSOptions) {
           cacheHit: true,
         },
       })
-      await playAudioBlob(text, cachedResult.audioBlob, cachedResult.speechMarks, paraIdx, offsetInPara, session, trackPlaybackState)
+      await playAudioBlob(text, cachedResult.audioBlob, cachedResult.speechMarks, paraIdx, offsetInPara, session, trackPlaybackState, onPlayStarted)
       return
     }
+
+    premiumSynthesisAbortControllerRef.current?.abort()
+    const premiumSynthesisAbortController = new AbortController()
+    premiumSynthesisAbortControllerRef.current = premiumSynthesisAbortController
 
     let result: Awaited<ReturnType<typeof synthesizePremiumTts>>
     try {
@@ -485,6 +510,7 @@ export function useTTS(options: UseTTSOptions) {
         language: config.language,
         rate: config.rate,
         voiceId,
+        signal: premiumSynthesisAbortController.signal,
       })
     } catch (error) {
       logError('tts.synthesize.failure', error, {
@@ -512,7 +538,7 @@ export function useTTS(options: UseTTSOptions) {
       },
     })
 
-    await playAudioBlob(text, result.audioBlob, result.speechMarks, paraIdx, offsetInPara, session, trackPlaybackState)
+    await playAudioBlob(text, result.audioBlob, result.speechMarks, paraIdx, offsetInPara, session, trackPlaybackState, onPlayStarted)
   }
 
   function scheduleSyntheticWordHighlights(
@@ -623,16 +649,18 @@ export function useTTS(options: UseTTSOptions) {
     session: number,
     trackPlaybackState: boolean,
     onFallback: (provider: TtsProvider, error: unknown) => void,
+    onPlayStarted?: () => void,
   ): Promise<{ sessionEnded: boolean; usedProvider: TtsProvider }> {
     if (isPremiumTtsProvider(provider)) {
       activeProviderRef.current = provider
       try {
-        await speakWithPremium(provider, text, paraIdx, offsetInPara, session, trackPlaybackState)
+        await speakWithPremium(provider, text, paraIdx, offsetInPara, session, trackPlaybackState, onPlayStarted)
         return { sessionEnded: false, usedProvider: provider }
       } catch (error) {
         if (shouldStopRef.current || playSessionRef.current !== session) {
           return { sessionEnded: true, usedProvider: provider }
         }
+        const transient = isTransientTtsFailure(error)
         logPremiumTtsFallback(provider, error)
         logWarn('tts.provider.fallback', {
           provider,
@@ -642,17 +670,62 @@ export function useTTS(options: UseTTSOptions) {
             fallbackProvider: 'native',
             textLength: text.length,
             paraIdx,
+            transient,
           },
         })
         onFallback(provider, error)
         await fallbackToNative(text, session, nativeParaIdx, offsetInPara)
-        return { sessionEnded: false, usedProvider: 'native' }
+        // Transiente (AbortError/rede): retorna o provider original → loop retenta premium no próximo chunk.
+        // Permanente (API error, auth, etc.): retorna 'native' → play() troca playbackProvider definitivamente.
+        return { sessionEnded: false, usedProvider: transient ? provider : 'native' }
       }
     }
 
     activeProviderRef.current = 'native'
     await speakWithNative(text, session, nativeParaIdx, offsetInPara)
     return { sessionEnded: false, usedProvider: 'native' }
+  }
+
+  // Pré-sintetiza o próximo chunk enquanto o atual ainda está tocando.
+  // O resultado vai para o TtsAudioCache — quando o loop chega no chunk,
+  // é cache hit e não precisa de requisição HTTP nova.
+  // Garante continuidade com a tela desligada: o próximo chunk já está pronto
+  // antes do atual terminar, eliminando o gap onde a WebView poderia estar suspensa.
+  async function prefetchPremiumChunk(
+    provider: Exclude<TtsProvider, 'native'>,
+    chunk: TtsChunk,
+    session: number,
+  ) {
+    const text = normalizeChunkText(chunk.text)
+    if (!text) return
+    const config = configRef.current
+    const apiKey = await getPremiumTtsApiKey(provider)
+    if (!apiKey) return
+    // Aborta se a sessão mudou (stop chamado ou novo play iniciado)
+    if (shouldStopRef.current || playSessionRef.current !== session) return
+    const voiceId = getPlaybackTtsVoiceId(config, provider)
+    const cacheParams: PremiumTtsAudioCacheParams = {
+      provider,
+      voiceId,
+      language: config.language,
+      rate: config.rate,
+      text,
+    }
+    if (getCachedPremiumTtsAudio(cacheParams)) return
+    try {
+      const result = await synthesizePremiumTts(provider, text, {
+        apiKey,
+        language: config.language,
+        rate: config.rate,
+        voiceId,
+        // Sem AbortSignal: o prefetch não deve ser cancelado pelo abort do chunk principal
+      })
+      // Verifica novamente após await — sessão pode ter mudado durante a síntese
+      if (shouldStopRef.current || playSessionRef.current !== session) return
+      setCachedPremiumTtsAudio(cacheParams, result)
+    } catch {
+      // Falha silenciosa — o loop principal sintetiza normalmente quando chegar no chunk
+    }
   }
 
   async function play(chunks: TtsChunk[], startIdx = 0) {
@@ -694,6 +767,7 @@ export function useTTS(options: UseTTSOptions) {
         provider,
         fallbackProvider: 'native',
         reason: getPremiumFallbackReason(provider, error, t),
+        transient: isTransientTtsFailure(error),
       })
     }
 
@@ -720,18 +794,36 @@ export function useTTS(options: UseTTSOptions) {
           callbacksRef.current.onParagraphChange(chunk.paraIdx)
         }
 
+        // Lookahead: quando o áudio deste chunk INICIAR, dispara síntese do próximo
+        const nextChunk = chunks[index + 1]
+        const lookahead = isPremiumTtsProvider(playbackProvider) && nextChunk
+          ? () => { void prefetchPremiumChunk(playbackProvider as Exclude<TtsProvider, 'native'>, nextChunk, mySession) }
+          : undefined
+
         const { sessionEnded, usedProvider } = await speakChunk(
           playbackProvider, text, chunk.paraIdx, chunk.paraIdx,
-          chunk.offsetInPara, mySession, true, notifyProviderFallback,
+          chunk.offsetInPara, mySession, true, notifyProviderFallback, lookahead,
         )
         if (sessionEnded) break
-        if (usedProvider === 'native' && playbackProvider !== 'native') playbackProvider = 'native'
+        if (usedProvider === 'native' && playbackProvider !== 'native') {
+          playbackProvider = 'native'
+          // Registra listener de palavra para chunks nativos seguintes ao fallback
+          if (!nativeHandle) {
+            nativeHandle = await TextToSpeech.addListener('onRangeStart', ({ start, end }) => {
+              if (shouldStopRef.current || playSessionRef.current !== mySession) return
+              nativeRangeEventSeenRef.current = true
+              const chunk = currentChunkRef.current
+              callbacksRef.current.onWordHighlight(chunk.paraIdx, chunk.offsetInPara + start, chunk.offsetInPara + end)
+            })
+          }
+        }
       }
     } catch (error) {
       playbackError = error
       playbackStopReasonRef.current = 'error'
       logPlaybackError(error, { phase: 'continuous-playback' })
       logTtsPlaybackError(error)
+      callbacksRef.current.onError?.(error)
     } finally {
       resolvePlaybackDone()
       await nativeHandle?.remove()
@@ -802,6 +894,7 @@ export function useTTS(options: UseTTSOptions) {
     shouldStopRef.current = false
     updatePaused(false)
     setIsPlaying(true)
+    void WakeLockService.keepAwake()
     try {
       await audio.play()
       logPlaybackEvent('tts.playback.resume', activeProviderRef.current, 'success')
@@ -819,6 +912,8 @@ export function useTTS(options: UseTTSOptions) {
     shouldStopRef.current = true
     updatePaused(false)
     void WakeLockService.allowSleep()
+    premiumSynthesisAbortControllerRef.current?.abort()
+    premiumSynthesisAbortControllerRef.current = null
     if (shouldLogStopIntent) {
       playbackStopReasonRef.current = 'stopped'
     }
@@ -879,6 +974,7 @@ export function useTTS(options: UseTTSOptions) {
         provider,
         fallbackProvider: 'native',
         reason: getPremiumFallbackReason(provider, error, t),
+        transient: isTransientTtsFailure(error),
       })
     }
 

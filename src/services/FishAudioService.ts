@@ -21,6 +21,11 @@ const VOICE_PROMISE_CACHE_TTL_MS = 5 * 60 * 1000
 const VOICE_PROMISE_CACHE_MAX = 5
 const TIMESTAMP_FALLBACK_STATUSES = new Set([400, 402, 404, 405, 409, 422])
 
+// Cache em memória para voz padrão — garante consistência dentro da sessão
+// independente de latência ou variação de ordem na Dexie cache.
+// Chave: `${language}:${apiKey}` → voiceId resolvido (null = sem voz disponível)
+const sessionDefaultVoiceId = new Map<string, string | null>()
+
 interface FishAudioModelSample {
   audio?: string | null
   text?: string | null
@@ -71,6 +76,7 @@ interface FishAudioSpeechOptions {
   language: string
   rate: number
   voiceId?: string | null
+  signal?: AbortSignal
 }
 
 interface FishAudioRequestInput {
@@ -80,6 +86,7 @@ interface FishAudioRequestInput {
   body?: unknown
   responseType?: HttpResponseType
   timeoutMs: number
+  cancelSignal?: AbortSignal
 }
 
 export interface FishAudioResult {
@@ -335,7 +342,7 @@ async function fishAudioRequest(input: FishAudioRequestInput) {
     return responseFromNativeHttp(response, input.responseType)
   }
 
-  const timeout = withTimeout(input.timeoutMs)
+  const timeout = withTimeout(input.timeoutMs, input.cancelSignal)
   try {
     return await fetch(input.url, {
       method: input.method,
@@ -348,9 +355,10 @@ async function fishAudioRequest(input: FishAudioRequestInput) {
   }
 }
 
-function withTimeout(ms: number) {
+function withTimeout(ms: number, externalSignal?: AbortSignal) {
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), ms)
+  externalSignal?.addEventListener('abort', () => controller.abort())
   return {
     signal: controller.signal,
     clear: () => clearTimeout(timeoutId),
@@ -537,22 +545,22 @@ async function fetchFishAudioVoices(apiKey: string, language: string) {
   return [...byId.values()]
 }
 
+function isAbortError(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === 'AbortError') return true
+  if (error instanceof Error && error.message.toLowerCase().includes('aborted')) return true
+  return false
+}
+
 function shouldFallbackToSimpleTts(error: unknown) {
+  // AbortError significa cancelamento intencional (usuário ou stop) — não
+  // deve cair no endpoint simples; o check de sessão em speakChunk já trata.
+  if (isAbortError(error)) return false
   if (error instanceof SyntaxError) return true
   if (error instanceof TypeError) return true
-  if (error instanceof DOMException && (error.name === 'AbortError' || error.message.toLowerCase().includes('aborted'))) {
-    return true
-  }
-  if (error instanceof Error) {
-    const normalizedMessage = error.message.toLowerCase()
-    if (
-      normalizedMessage.includes('failed to fetch') ||
-      normalizedMessage.includes('networkerror') ||
-      normalizedMessage.includes('aborted')
-    ) {
-      return true
-    }
-  }
+  if (error instanceof Error && (
+    error.message.toLowerCase().includes('failed to fetch') ||
+    error.message.toLowerCase().includes('networkerror')
+  )) return true
   return error instanceof FishAudioApiError && TIMESTAMP_FALLBACK_STATUSES.has(error.status)
 }
 
@@ -561,6 +569,7 @@ async function requestFishAudioWithTimestamps(input: {
   model: string
   requestBody: ReturnType<typeof buildTtsRequestBody>
   text: string
+  cancelSignal?: AbortSignal
 }) {
   const response = await fishAudioRequest({
     url: getFishAudioEndpoint(TTS_WITH_TIMESTAMPS_PATH),
@@ -574,6 +583,7 @@ async function requestFishAudioWithTimestamps(input: {
     body: input.requestBody,
     responseType: 'text',
     timeoutMs: 15_000,
+    cancelSignal: input.cancelSignal,
   })
 
   if (!response.ok) await throwFishAudioApiError(response, getFishAudioEndpoint(TTS_WITH_TIMESTAMPS_PATH))
@@ -584,6 +594,7 @@ async function requestFishAudioSimple(input: {
   apiKey: string
   model: string
   requestBody: ReturnType<typeof buildTtsRequestBody>
+  cancelSignal?: AbortSignal
 }) {
   const response = await fishAudioRequest({
     url: getFishAudioEndpoint(TTS_PATH),
@@ -597,6 +608,7 @@ async function requestFishAudioSimple(input: {
     body: input.requestBody,
     responseType: 'arraybuffer',
     timeoutMs: 15_000,
+    cancelSignal: input.cancelSignal,
   })
 
   if (!response.ok) await throwFishAudioApiError(response, getFishAudioEndpoint(TTS_PATH))
@@ -717,7 +729,22 @@ export const FishAudioService = {
   async synthesize(text: string, options: FishAudioSpeechOptions): Promise<FishAudioResult> {
     const trimmedText = normalizeSpeechInput(text).slice(0, MAX_CHARS)
     if (!trimmedText) throw new Error('Fish Audio error: empty input')
-    const voiceId = options.voiceId || null
+
+    // Sem voz selecionada → resolve a mais bem rankeada para o idioma.
+    // Cache de sessão (Map em memória) garante o mesmo voiceId em todos os chunks,
+    // sem depender de timing da Dexie cache ou variação de ordem da API.
+    let voiceId = options.voiceId || null
+    if (!voiceId) {
+      const sessionKey = `${options.language}:${options.apiKey}`
+      if (sessionDefaultVoiceId.has(sessionKey)) {
+        voiceId = sessionDefaultVoiceId.get(sessionKey) ?? null
+      } else {
+        const voices = await this.listCompatibleVoices(options.language, options.apiKey)
+        voiceId = voices[0]?.id ?? null
+        sessionDefaultVoiceId.set(sessionKey, voiceId)
+      }
+    }
+
     const model = voiceId ? VOICE_TTS_MODEL : DEFAULT_TTS_MODEL
     const requestBody = buildTtsRequestBody(trimmedText, voiceId, options.rate)
 
@@ -728,6 +755,7 @@ export const FishAudioService = {
           model,
           requestBody,
           text: trimmedText,
+          cancelSignal: options.signal,
         })
       } catch (error) {
         if (!shouldFallbackToSimpleTts(error)) throw error
@@ -738,6 +766,7 @@ export const FishAudioService = {
       apiKey: options.apiKey,
       model,
       requestBody,
+      cancelSignal: options.signal,
     })
   },
 }

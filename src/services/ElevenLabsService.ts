@@ -64,6 +64,7 @@ interface ElevenLabsSpeechOptions {
   language: string
   rate: number
   voiceId?: string | null
+  signal?: AbortSignal
 }
 
 export interface ElevenLabsResult {
@@ -138,9 +139,10 @@ function debugElevenLabs(label: string, payload: Record<string, unknown>) {
   if (import.meta.env.DEV && import.meta.env.MODE !== 'test') console.debug(label, payload)
 }
 
-function withTimeout(ms: number) {
+function withTimeout(ms: number, externalSignal?: AbortSignal) {
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), ms)
+  externalSignal?.addEventListener('abort', () => controller.abort())
   return {
     signal: controller.signal,
     clear: () => clearTimeout(timeoutId),
@@ -206,9 +208,16 @@ async function throwElevenLabsApiError(response: Response, input: {
   })
 }
 
-function shouldFallbackToSimpleTts(error: unknown) {
-  if (error instanceof SyntaxError) return true
+function isAbortError(error: unknown): boolean {
   if (error instanceof DOMException && error.name === 'AbortError') return true
+  if (error instanceof Error && error.message.toLowerCase().includes('aborted')) return true
+  return false
+}
+
+function shouldFallbackToSimpleTts(error: unknown) {
+  // AbortError = timeout ou cancelamento — não é falha da API, não deve tentar endpoint simples
+  if (isAbortError(error)) return false
+  if (error instanceof SyntaxError) return true
   return error instanceof ElevenLabsApiError && FALLBACK_TTS_STATUSES.has(error.status)
 }
 
@@ -644,7 +653,7 @@ export const ElevenLabsService = {
     })
 
     try {
-      const timeout = withTimeout(SYNTHESIZE_TIMEOUT_MS)
+      const timeout = withTimeout(SYNTHESIZE_TIMEOUT_MS, options.signal)
       try {
         const response = await fetch(timestampsEndpoint, {
           method: 'POST',

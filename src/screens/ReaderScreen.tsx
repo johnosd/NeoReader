@@ -359,17 +359,23 @@ export function ReaderScreen({
       viewerRef.current?.highlightTts(paraIdx, 0, 0)
       viewerRef.current?.scrollToParagraph(paraIdx)
     },
-    onProviderFallback: ({ provider, reason }) => {
+    onProviderFallback: ({ provider, reason, transient }) => {
       if (!ttsFallbackNoticeShownRef.current.has(provider)) {
         ttsFallbackNoticeShownRef.current.add(provider)
         setTtsFallbackNotice({ provider, reason })
-        switchToNativeTts()
+        // Só persiste 'native' no banco em falhas permanentes (key inválida, sem créditos, etc.)
+        // Erros transientes (timeout, rede) não mudam a config do livro permanentemente
+        if (!transient) switchToNativeTts()
       }
       setTtsProviderFallback({ provider })
     },
     onStop: () => {
       setShowBackToTtsLocation(false)
       viewerRef.current?.clearTts()
+    },
+    onError: () => {
+      setTtsPlayerVisible(false)
+      setShowBackToTtsLocation(false)
     },
     // Fim natural da seção (último parágrafo lido) — esconde player e mostra notificação
     onFinished: () => {
@@ -395,7 +401,8 @@ export function ReaderScreen({
 
   useEffect(() => {
     const restartIdx = pendingTtsConfigRestartRef.current
-    if (restartIdx == null) return
+    // Não reinicia enquanto pausado — handleTtsToggle consome o restart ao retomar
+    if (restartIdx == null || tts.isPaused) return
 
     pendingTtsConfigRestartRef.current = null
     void Promise.resolve().then(() => {
@@ -403,28 +410,31 @@ export function ReaderScreen({
       if (chunks.length === 0) return
       startPlay(chunks, Math.min(restartIdx, chunks.length - 1))
     })
-  }, [getTtsChunks, startPlay, ttsConfig.provider, ttsConfig.rate])
+  }, [getTtsChunks, startPlay, ttsConfig.provider, ttsConfig.rate, tts.isPaused])
 
-  function scheduleTtsConfigRestartIfPlaying() {
-    if (!tts.isPlaying) return
-    pendingTtsConfigRestartRef.current = tts.lastChunkIdx.current
-    void tts.stop()
+  async function scheduleTtsConfigRestartIfPlaying() {
+    if (!tts.isPlaying && !tts.isPaused) return
+    const idx = tts.lastChunkIdx.current
+    if (tts.isPlaying) {
+      await tts.stop()
+    }
+    pendingTtsConfigRestartRef.current = idx
   }
 
-  function handleTtsProviderChange(provider: TtsProvider) {
+  async function handleTtsProviderChange(provider: TtsProvider) {
     if (provider === ttsConfig.provider || !ttsProviderAvailability[provider]) return
 
     setTtsFallbackNotice(null)
     setTtsProviderFallback(null)
-    scheduleTtsConfigRestartIfPlaying()
+    await scheduleTtsConfigRestartIfPlaying()
     applyTtsConfigPatch({ provider })
   }
 
-  function handleTtsRateChange(rate: number) {
+  async function handleTtsRateChange(rate: number) {
     const nextRate = clampTtsRate(rate)
     if (nextRate === ttsConfig.rate) return
 
-    scheduleTtsConfigRestartIfPlaying()
+    await scheduleTtsConfigRestartIfPlaying()
     applyTtsConfigPatch({ rate: nextRate })
   }
 
@@ -489,13 +499,22 @@ export function ReaderScreen({
     if (tts.isPlaying) {
       void tts.pause()
     } else if (tts.isPaused) {
-      void tts.resume().then((resumed) => {
-        if (resumed) return
+      const pendingRestart = pendingTtsConfigRestartRef.current
+      if (pendingRestart != null) {
+        // Config mudou enquanto pausado — para sessão anterior antes de reiniciar
+        // (libera audioRef, object URL e listeners do audio pausado)
+        pendingTtsConfigRestartRef.current = null
         const chunks = getTtsChunks()
-        if (chunks.length === 0) return
-        const startIdx = Math.min(tts.lastChunkIdx.current, Math.max(0, chunks.length - 1))
-        startPlay(chunks, startIdx)
-      })
+        if (chunks.length > 0) void tts.stop().then(() => startPlay(chunks, Math.min(pendingRestart, chunks.length - 1)))
+      } else {
+        void tts.resume().then((resumed) => {
+          if (resumed) return
+          const chunks = getTtsChunks()
+          if (chunks.length === 0) return
+          const startIdx = Math.min(tts.lastChunkIdx.current, Math.max(0, chunks.length - 1))
+          startPlay(chunks, startIdx)
+        })
+      }
     } else {
       const chunks = getTtsChunks()
       const lastIdx = tts.lastChunkIdx.current
@@ -510,6 +529,7 @@ export function ReaderScreen({
   // ⏮ Volta ao início do parágrafo anterior (ou início do atual se já não for o primeiro chunk dele)
   function handleTtsPrev() {
     const chunks = getTtsChunks()
+    if (chunks.length === 0) return
     const currIdx = tts.lastChunkIdx.current
     const currParaIdx = chunks[currIdx]?.paraIdx ?? 0
     const currParaStart = chunks.findIndex(c => c.paraIdx === currParaIdx)
@@ -524,7 +544,7 @@ export function ReaderScreen({
         ? chunks.findIndex(c => c.paraIdx === chunks[currParaStart - 1].paraIdx)
         : 0
     }
-    void tts.stop().then(() => startPlay(chunks, targetIdx))
+    void tts.stop().then(() => startPlay(chunks, Math.max(0, targetIdx)))
   }
 
   function handleTtsPrevSentence() {

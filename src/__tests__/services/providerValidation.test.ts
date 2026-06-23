@@ -680,6 +680,8 @@ describe('provider API key validation', () => {
   })
 
   it('sintetiza Fish Audio com voz padrao sem resolver reference_id', async () => {
+    // Força lista de vozes vazia → voiceId fica null → usa modelo s1 sem reference_id
+    const listVoicesSpy = vi.spyOn(FishAudioService, 'listCompatibleVoices').mockResolvedValue([])
     const fetchMock = vi.fn(async () => new Response('mp3-bytes', {
       status: 200,
       headers: { 'content-type': 'audio/mpeg' },
@@ -691,6 +693,7 @@ describe('provider API key validation', () => {
       language: 'en-US',
       rate: 1,
     })
+    listVoicesSpy.mockRestore()
 
     expect(await result.audioBlob.text()).toBe('mp3-bytes')
     expect(fetchMock).toHaveBeenCalledOnce()
