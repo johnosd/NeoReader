@@ -19,6 +19,7 @@ type MockTtsOptions = {
 const mocks = vi.hoisted(() => {
   const viewerHandle = {
     goTo: vi.fn(),
+    getVisibleLocation: vi.fn(() => ({ cfi: null })),
     getSentenceChunks: vi.fn<() => TtsChunk[]>(),
     getFirstVisibleParagraphIndex: vi.fn(() => 0),
     resetTtsScroll: vi.fn(),
@@ -47,6 +48,7 @@ const mocks = vi.hoisted(() => {
     readerStore: {
       cfi: '',
       percentage: 0,
+      chapterPercentage: null as number | null,
       toc: [],
       tocLabel: '',
       setCfi: vi.fn(),
@@ -65,6 +67,10 @@ const mocks = vi.hoisted(() => {
       lastChunkIdx: { current: 0 },
       resetPosition: vi.fn(),
     },
+    capacitorListeners: {
+      backButton: null as ((event?: unknown) => void) | null,
+      appStateChange: null as ((state: { isActive: boolean }) => void) | null,
+    },
   }
 })
 
@@ -74,9 +80,17 @@ vi.mock('dexie-react-hooks', () => ({
 
 vi.mock('@capacitor/app', () => ({
   App: {
-    addListener: vi.fn(async () => ({
-      remove: vi.fn(),
-    })),
+    addListener: vi.fn(async (eventName: 'backButton' | 'appStateChange', handler: (payload: unknown) => void) => {
+      if (eventName === 'backButton') {
+        mocks.capacitorListeners.backButton = handler
+      } else {
+        mocks.capacitorListeners.appStateChange = handler as (state: { isActive: boolean }) => void
+      }
+
+      return {
+        remove: vi.fn(),
+      }
+    }),
   },
 }))
 
@@ -192,6 +206,7 @@ vi.mock('@/components/reader/TtsMiniPlayer', () => ({
     fallbackFromProvider,
     providerAvailability,
     ttsRate,
+    bottomOffsetPx,
     onPrevParagraph,
     onPrevSentence,
     onNextSentence,
@@ -206,6 +221,7 @@ vi.mock('@/components/reader/TtsMiniPlayer', () => ({
     fallbackFromProvider?: TtsProvider | null
     providerAvailability: Record<TtsProvider, boolean>
     ttsRate: number
+    bottomOffsetPx?: number
     onPrevParagraph: () => void
     onPrevSentence: () => void
     onNextSentence: () => void
@@ -220,6 +236,7 @@ vi.mock('@/components/reader/TtsMiniPlayer', () => ({
       <span>{`provider:${activeProvider}`}</span>
       <span>{fallbackFromProvider ? `fallback:${fallbackFromProvider}` : 'fallback:none'}</span>
       <span>{`rate:${ttsRate.toFixed(1)}`}</span>
+      <span>{`offset:${bottomOffsetPx ?? 0}`}</span>
       <span>{providerAvailability.speechify ? 'speechify:enabled' : 'speechify:disabled'}</span>
       <span>{providerAvailability.elevenlabs ? 'elevenlabs:enabled' : 'elevenlabs:disabled'}</span>
       {showBackToTtsLocation && (
@@ -290,9 +307,14 @@ describe('ReaderScreen', () => {
   beforeEach(() => {
     mocks.epubViewerProps = null
     mocks.tocDrawerProps = null
+    mocks.capacitorListeners.backButton = null
+    mocks.capacitorListeners.appStateChange = null
     mocks.readerProgress.savedCfi = null
     mocks.readerProgress.savedProgress = null
     mocks.readerProgress.initialLoadDone = true
+    mocks.readerStore.percentage = 0
+    mocks.readerStore.chapterPercentage = null
+    mocks.readerStore.toc = []
     mocks.readerStore.tocLabel = ''
     mocks.readerProgress.saveProgress.mockClear()
     mocks.readerProgress.flushProgress.mockClear()
@@ -311,6 +333,7 @@ describe('ReaderScreen', () => {
     mocks.tts.lastChunkIdx.current = 0
     mocks.ttsOptions = null
     mocks.viewerHandle.goTo.mockClear()
+    mocks.viewerHandle.getVisibleLocation.mockClear()
     mocks.viewerHandle.goToNextTtsSection.mockReset()
     mocks.viewerHandle.goToNextTtsSection.mockReturnValue(false)
     mocks.viewerHandle.getSentenceChunks.mockReset()
@@ -371,6 +394,151 @@ describe('ReaderScreen', () => {
 
     expect(mocks.tocDrawerProps?.currentHref).toBe('chapter-2.xhtml')
     expect(mocks.tocDrawerProps?.currentLabel).toBe('Chapter 2')
+  })
+
+  it('mostra o footer fixo com capitulo atual e progresso do capitulo', async () => {
+    mocks.readerStore.tocLabel = 'Chapter 7'
+    mocks.readerStore.chapterPercentage = 64
+
+    render(
+      <ReaderScreen
+        book={book}
+        onBack={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+
+    await flushAsyncWork()
+
+    expect(screen.getByTestId('reader-progress-footer')).toBeTruthy()
+    expect(screen.getByText('Chapter 7')).toBeTruthy()
+    expect(screen.getByText('Cap. 64%')).toBeTruthy()
+  })
+
+  it('usa o capitulo pai no footer quando o toc atual aponta para um subcapitulo', async () => {
+    mocks.readerStore.toc = [
+      {
+        label: 'Part I',
+        href: 'Text/chapter.xhtml#part',
+        subitems: [
+          { label: 'Chapter 1', href: 'Text/chapter.xhtml#chapter-1' },
+          { label: 'Chapter 2', href: 'Text/chapter.xhtml#chapter-2' },
+        ],
+      },
+    ]
+    mocks.readerStore.tocLabel = 'Chapter 2'
+    mocks.readerStore.chapterPercentage = 64
+    mocks.readerProgress.savedProgress = {
+      sectionHref: 'Text/chapter.xhtml',
+      sectionLabel: 'Chapter 2',
+    }
+
+    render(
+      <ReaderScreen
+        book={book}
+        onBack={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+
+    await flushAsyncWork()
+
+    expect(screen.getByText('Part I')).toBeTruthy()
+    expect(screen.queryByText('Chapter 2')).toBeNull()
+    expect(screen.getByText('Cap. 64%')).toBeTruthy()
+  })
+
+  it('abre e fecha a visualizacao de imagem enviada pelo EpubViewer', async () => {
+    const imageSrc = 'blob:reader-image-test'
+    const imageAlt = 'Mapa do capitulo'
+
+    render(
+      <ReaderScreen
+        book={book}
+        onBack={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+
+    await flushAsyncWork()
+
+    expect(typeof mocks.epubViewerProps?.onOpenImage).toBe('function')
+
+    await act(async () => {
+      ;(mocks.epubViewerProps?.onOpenImage as (payload: { src: string; alt?: string }) => void)({
+        src: imageSrc,
+        alt: imageAlt,
+      })
+    })
+
+    expect(screen.getByRole('dialog', { name: 'Imagem do leitor' })).toBeTruthy()
+    expect(screen.getByRole('img', { name: imageAlt })).toBeTruthy()
+    expect(screen.getByLabelText('Fechar')).toBeTruthy()
+    expect(document.querySelector(`img[src="${imageSrc}"]`)).toBeTruthy()
+
+    fireEvent.click(screen.getByLabelText('Fechar'))
+
+    expect(document.querySelector(`img[src="${imageSrc}"]`)).toBeNull()
+  })
+
+  it('fecha a visualizacao de imagem pelo Back do Android antes de sair do leitor', async () => {
+    const imageSrc = 'blob:reader-image-test'
+    const onBack = vi.fn()
+
+    render(
+      <ReaderScreen
+        book={book}
+        onBack={onBack}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+
+    await flushAsyncWork()
+
+    await act(async () => {
+      ;(mocks.epubViewerProps?.onOpenImage as (payload: { src: string }) => void)({ src: imageSrc })
+    })
+
+    expect(document.querySelector(`img[src="${imageSrc}"]`)).toBeTruthy()
+
+    await act(async () => {
+      mocks.capacitorListeners.backButton?.()
+    })
+
+    expect(document.querySelector(`img[src="${imageSrc}"]`)).toBeNull()
+    expect(onBack).not.toHaveBeenCalled()
+  })
+
+  it('abrir a visualizacao de imagem nao salva progresso nem troca a localizacao do leitor', async () => {
+    render(
+      <ReaderScreen
+        book={book}
+        onBack={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+
+    await flushAsyncWork()
+
+    const viewerNode = screen.getByTestId('epub-viewer')
+    mocks.readerProgress.saveProgress.mockClear()
+    mocks.readerProgress.flushProgress.mockClear()
+    mocks.readerStore.setCfi.mockClear()
+    mocks.readerStore.setToc.mockClear()
+    mocks.viewerHandle.getVisibleLocation.mockClear()
+
+    await act(async () => {
+      ;(mocks.epubViewerProps?.onOpenImage as (payload: { src: string }) => void)({
+        src: 'blob:reader-image-test',
+      })
+    })
+
+    expect(screen.getByTestId('epub-viewer')).toBe(viewerNode)
+    expect(mocks.readerProgress.saveProgress).not.toHaveBeenCalled()
+    expect(mocks.readerProgress.flushProgress).not.toHaveBeenCalled()
+    expect(mocks.readerStore.setCfi).not.toHaveBeenCalled()
+    expect(mocks.readerStore.setToc).not.toHaveBeenCalled()
+    expect(mocks.viewerHandle.getVisibleLocation).not.toHaveBeenCalled()
   })
 
   it('ignora o progresso salvo ate concluir a navegacao inicial por startHref', async () => {
@@ -585,6 +753,7 @@ describe('ReaderScreen', () => {
     fireEvent.click(screen.getByText('toggle-tts'))
     expect(mocks.tts.play).toHaveBeenCalledTimes(1)
     expect(screen.getByTestId('tts-mini-player')).toBeTruthy()
+    expect(screen.getByText('offset:22')).toBeTruthy()
 
     mocks.tts.lastChunkIdx.current = 1
 

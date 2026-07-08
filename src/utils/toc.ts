@@ -182,6 +182,19 @@ export function findCurrentTocPath(
   return best?.path ?? null
 }
 
+export function findTopLevelTocLabel(
+  items: TocItem[],
+  currentHref?: string | null,
+  currentLabel?: string | null,
+): string | null {
+  const currentPath = findCurrentTocPath(items, currentHref, currentLabel)
+  if (!currentPath) return null
+
+  const [topLevelIndex] = currentPath.split('.')
+  const topLevelItem = items[Number(topLevelIndex)]
+  return topLevelItem?.label?.trim() || null
+}
+
 export function hasTocChildren(item: TocItem): boolean {
   return getTocChildren(item).length > 0
 }

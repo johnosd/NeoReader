@@ -14,6 +14,7 @@ interface TtsMiniPlayerProps {
   providerAvailability: Record<TtsProvider, boolean>
   ttsRate: number
   showBackToTtsLocation: boolean
+  bottomOffsetPx?: number
   onPlayPause: () => void
   onBackToTtsLocation: () => void
   onPrevParagraph: () => void
@@ -41,6 +42,7 @@ export function TtsMiniPlayer({
   providerAvailability,
   ttsRate,
   showBackToTtsLocation,
+  bottomOffsetPx = 0,
   onPlayPause,
   onBackToTtsLocation,
   onPrevParagraph,
@@ -58,7 +60,11 @@ export function TtsMiniPlayer({
   return (
     <div
       className="absolute bottom-0 left-0 right-0 z-30 px-2 pt-0.5"
-      style={{ paddingBottom: 'max(0.35rem, env(safe-area-inset-bottom))' }}
+      data-testid="tts-mini-player"
+      style={{
+        bottom: `${bottomOffsetPx}px`,
+        paddingBottom: 'max(0.35rem, env(safe-area-inset-bottom))',
+      }}
     >
       <div className="rounded-xl border border-white/10 bg-[rgba(15,7,24,0.9)] px-2.5 py-2 shadow-nav backdrop-blur-xl">
         <div className="flex items-center justify-between gap-2">

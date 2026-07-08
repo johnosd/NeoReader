@@ -1,0 +1,4 @@
+interface:
+  display_name: "Plan Feature"
+  short_description: "Planeja e acompanha fases de features"
+  default_prompt: "Use $plan-feature to plan or resume a software feature with phases, tests, strategic commit suggestions, progress updates, and future-session handoff."

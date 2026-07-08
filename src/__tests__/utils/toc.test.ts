@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   areTocHrefDocumentSuffixesEqual,
   findCurrentTocPath,
+  findTopLevelTocLabel,
   flattenVisibleTocItems,
   getTocAncestorPaths,
   normalizeTocHref,
@@ -40,6 +41,21 @@ describe('toc utilities', () => {
     ]
 
     expect(findCurrentTocPath(toc, 'Text/chapter.xhtml', 'Chapter 2')).toBe('0.1')
+  })
+
+  it('returns the top-level toc label for nested current items', () => {
+    const toc: TocItem[] = [
+      {
+        label: 'Part I',
+        href: 'Text/chapter.xhtml#part',
+        subitems: [
+          { label: 'Chapter 1', href: 'Text/chapter.xhtml#chapter-1' },
+          { label: 'Chapter 2', href: 'Text/chapter.xhtml#chapter-2' },
+        ],
+      },
+    ]
+
+    expect(findTopLevelTocLabel(toc, 'Text/chapter.xhtml', 'Chapter 2')).toBe('Part I')
   })
 
   it('matches hrefs when one side has an OPF-relative prefix', () => {
