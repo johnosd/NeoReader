@@ -55,11 +55,15 @@ describe('provider API key validation', () => {
       message: 'API key inválida ou sem permissão.',
     })
     expect(fetchMock).toHaveBeenCalledOnce()
-    expect(String(fetchMock.mock.calls[0][0])).toContain('page_size=20')
+    expect(String(fetchMock.mock.calls[0][0])).toContain('page_size=100')
   })
 
   it('usa uma voz compatível da ElevenLabs quando o livro está com voz padrão', async () => {
     const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify([
+        { model_id: 'eleven_v3', can_do_text_to_speech: true },
+        { model_id: 'eleven_multilingual_v2', can_do_text_to_speech: true },
+      ]), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
         voices: [
           {
@@ -100,10 +104,11 @@ describe('provider API key validation', () => {
     })
 
     expect(result.audioBlob).toBeInstanceOf(Blob)
-    expect(fetchMock).toHaveBeenCalledTimes(3)
-    expect(String(fetchMock.mock.calls[0][0])).toContain('/v2/voices')
-    expect(String(fetchMock.mock.calls[1][0])).toContain('/v1/voices/voice-pt')
-    expect(String(fetchMock.mock.calls[2][0])).toContain('/v1/text-to-speech/voice-pt/with-timestamps')
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/v1/models')
+    expect(String(fetchMock.mock.calls[1][0])).toContain('/v2/voices')
+    expect(String(fetchMock.mock.calls[2][0])).toContain('/v1/voices/voice-pt')
+    expect(String(fetchMock.mock.calls[3][0])).toContain('/v1/text-to-speech/voice-pt/with-timestamps')
   })
 
   it('usa alignment original da ElevenLabs antes do normalized_alignment para offsets de karaoke', async () => {
@@ -219,6 +224,10 @@ describe('provider API key validation', () => {
           message: 'Voice not found.',
         },
       }), { status: 404 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([
+        { model_id: 'eleven_v3', can_do_text_to_speech: true },
+        { model_id: 'eleven_multilingual_v2', can_do_text_to_speech: true },
+      ]), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
         voices: [
           {
@@ -254,9 +263,10 @@ describe('provider API key validation', () => {
 
     expect(result.audioBlob).toBeInstanceOf(Blob)
     expect(String(fetchMock.mock.calls[0][0])).toContain('/v1/voices/paid-voice')
-    expect(String(fetchMock.mock.calls[1][0])).toContain('/v2/voices')
-    expect(String(fetchMock.mock.calls[2][0])).toContain('/v1/voices/free-voice')
-    expect(String(fetchMock.mock.calls[3][0])).toContain('/v1/text-to-speech/free-voice/with-timestamps')
+    expect(String(fetchMock.mock.calls[1][0])).toContain('/v1/models')
+    expect(String(fetchMock.mock.calls[2][0])).toContain('/v2/voices')
+    expect(String(fetchMock.mock.calls[3][0])).toContain('/v1/voices/free-voice')
+    expect(String(fetchMock.mock.calls[4][0])).toContain('/v1/text-to-speech/free-voice/with-timestamps')
   })
 
   it('cai para o endpoint simples quando with-timestamps falha', async () => {
@@ -396,21 +406,27 @@ describe('provider API key validation', () => {
   })
 
   it('salva vozes compativeis da ElevenLabs no cache persistido', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
-      voices: [
-        {
-          voice_id: 'voice-pt',
-          name: 'Luna',
-          labels: { accent: 'BR', gender: 'female' },
-          preview_url: 'https://cdn.example/luna.mp3',
-          verified_languages: [
-            { language: 'pt', model_id: 'eleven_multilingual_v2', locale: 'pt-BR' },
-          ],
-        },
-      ],
-      has_more: false,
-      next_page_token: null,
-    }), { status: 200 })))
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify([
+        { model_id: 'eleven_v3', can_do_text_to_speech: true },
+        { model_id: 'eleven_multilingual_v2', can_do_text_to_speech: true },
+      ]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        voices: [
+          {
+            voice_id: 'voice-pt',
+            name: 'Luna',
+            labels: { accent: 'BR', gender: 'female' },
+            preview_url: 'https://cdn.example/luna.mp3',
+            verified_languages: [
+              { language: 'pt', model_id: 'eleven_multilingual_v2', locale: 'pt-BR' },
+            ],
+          },
+        ],
+        has_more: false,
+        next_page_token: null,
+      }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
 
     const result = await ElevenLabsService.listCompatibleVoices('pt-BR', 'eleven-key')
 
@@ -422,7 +438,7 @@ describe('provider API key validation', () => {
         provider: 'elevenlabs',
         previewUrl: 'https://cdn.example/luna.mp3',
         meta: 'BR · female',
-        modelId: 'eleven_multilingual_v2',
+        modelId: 'eleven_v3',
       },
     ])
     expect(mockSetCachedTtsVoiceOptions).toHaveBeenCalledWith({
@@ -431,6 +447,87 @@ describe('provider API key validation', () => {
       language: 'pt-BR',
       voices: result,
     })
+  })
+
+  it('pagina todas as vozes da ElevenLabs e inclui vozes sem metadados com eleven_v3', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify([
+        { model_id: 'eleven_v3', can_do_text_to_speech: true },
+        { model_id: 'eleven_multilingual_sts_v2', can_do_text_to_speech: false },
+      ]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        voices: [
+          {
+            voice_id: 'voice-empty',
+            name: 'Adam',
+            preview_url: 'https://cdn.example/adam.mp3',
+            high_quality_base_model_ids: [],
+            verified_languages: [],
+          },
+        ],
+        has_more: true,
+        next_page_token: 'page-2',
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        voices: [
+          {
+            voice_id: 'voice-verified',
+            name: 'Luna',
+            verified_languages: [
+              { language: 'pt', model_id: 'eleven_multilingual_v2', locale: 'pt-BR' },
+            ],
+          },
+        ],
+        has_more: false,
+        next_page_token: null,
+      }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await ElevenLabsService.listCompatibleVoices('pt-BR', 'eleven-key')
+
+    expect(result.map((voice) => voice.id)).toEqual(['voice-empty', 'voice-verified'])
+    expect(result[0]).toMatchObject({
+      id: 'voice-empty',
+      label: 'Adam',
+      locale: 'pt-BR',
+      provider: 'elevenlabs',
+      previewUrl: 'https://cdn.example/adam.mp3',
+      modelId: 'eleven_v3',
+    })
+    expect(result[1]).toMatchObject({
+      id: 'voice-verified',
+      label: 'Luna',
+      locale: 'pt-BR',
+      provider: 'elevenlabs',
+      modelId: 'eleven_v3',
+    })
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/v1/models')
+    expect(String(fetchMock.mock.calls[1][0])).toContain('/v2/voices')
+    expect(new URL(String(fetchMock.mock.calls[1][0])).searchParams.get('page_size')).toBe('100')
+    expect(new URL(String(fetchMock.mock.calls[2][0])).searchParams.get('next_page_token')).toBe('page-2')
+    expect(mockSetCachedTtsVoiceOptions).toHaveBeenCalledWith({
+      cacheKey: 12345,
+      provider: 'elevenlabs',
+      language: 'pt-BR',
+      voices: result,
+    })
+  })
+
+  it('lista apenas modelos ElevenLabs que suportam TTS', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify([
+      { model_id: 'eleven_multilingual_sts_v2', can_do_text_to_speech: false },
+      { model_id: 'eleven_v2_flash', can_do_text_to_speech: true },
+      { model_id: 'eleven_v3', can_do_text_to_speech: true },
+      { model_id: 'eleven_multilingual_v1', can_do_text_to_speech: true },
+    ]), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(ElevenLabsService.listTextToSpeechModels('eleven-key')).resolves.toEqual([
+      'eleven_v3',
+      'eleven_flash_v2',
+      'eleven_multilingual_v1',
+    ])
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/v1/models')
   })
 
   it('normaliza vozes da Speechify em snake_case para a UI', async () => {
