@@ -315,11 +315,11 @@ describe('useTTS', () => {
     expect(FakeAudio.instances[0]?.play).toHaveBeenCalledOnce()
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock')
     expect(textToSpeechMock.speak).toHaveBeenCalledOnce()
-    expect(callbacks.onProviderFallback).toHaveBeenCalledWith({
+    expect(callbacks.onProviderFallback).toHaveBeenCalledWith(expect.objectContaining({
       provider: 'speechify',
       fallbackProvider: 'native',
       reason: 'Speechify falhou por um erro inesperado.',
-    })
+    }))
     const playbackErrors = getConsoleEvents(errorSpy, 'tts.playback.error')
     expect(playbackErrors).toHaveLength(1)
     expect(playbackErrors[0]).toEqual(expect.objectContaining({
@@ -379,18 +379,19 @@ describe('useTTS', () => {
     })
 
     expect(callbacks.onStop).toHaveBeenCalled()
-    expect(speechifyMock.synthesize).toHaveBeenNthCalledWith(1, 'First paragraph.', {
+    // Lookahead pode ter sintetizado 'Second paragraph.' concorrentemente — verificamos por inclusão
+    expect(speechifyMock.synthesize).toHaveBeenCalledWith('First paragraph.', expect.objectContaining({
       apiKey: 'speechify-key',
       language: 'en-US',
       rate: 1,
       voiceId: undefined,
-    })
-    expect(speechifyMock.synthesize).toHaveBeenNthCalledWith(2, 'Inline snippet.', {
+    }))
+    expect(speechifyMock.synthesize).toHaveBeenCalledWith('Inline snippet.', expect.objectContaining({
       apiKey: 'speechify-key',
       language: 'en-US',
       rate: 1,
       voiceId: undefined,
-    })
+    }))
   })
 
   it('pausa e retoma audio premium sem sintetizar o chunk novamente', async () => {
@@ -553,12 +554,12 @@ describe('useTTS', () => {
 
     expect(FakeAudio.instances).toHaveLength(2)
     expect(speechifyMock.synthesize).toHaveBeenCalledTimes(1)
-    expect(speechifyMock.synthesize).toHaveBeenCalledWith('Repeat cached paragraph.', {
+    expect(speechifyMock.synthesize).toHaveBeenCalledWith('Repeat cached paragraph.', expect.objectContaining({
       apiKey: 'speechify-key',
       language: 'en-US',
       rate: 1,
       voiceId: 'speechify-voice-a',
-    })
+    }))
     expect(textToSpeechMock.speak).not.toHaveBeenCalled()
   })
 
@@ -603,12 +604,12 @@ describe('useTTS', () => {
     })
 
     expect(speechifyMock.synthesize).toHaveBeenCalledTimes(2)
-    expect(speechifyMock.synthesize).toHaveBeenNthCalledWith(2, 'Repeat cached paragraph.', {
+    expect(speechifyMock.synthesize).toHaveBeenNthCalledWith(2, 'Repeat cached paragraph.', expect.objectContaining({
       apiKey: 'speechify-key',
       language: 'en-US',
       rate: 1.25,
       voiceId: 'speechify-voice-a',
-    })
+    }))
   })
 
   it('permite ElevenLabs com voz padrao sem exigir voiceId salvo no livro', async () => {
@@ -633,12 +634,12 @@ describe('useTTS', () => {
     })
     await flushMicrotasks()
 
-    expect(elevenLabsMock.synthesize).toHaveBeenCalledWith('Primeiro paragrafo.', {
+    expect(elevenLabsMock.synthesize).toHaveBeenCalledWith('Primeiro paragrafo.', expect.objectContaining({
       apiKey: 'eleven-key',
       language: 'pt-BR',
       rate: 1,
       voiceId: null,
-    })
+    }))
     expect(textToSpeechMock.speak).not.toHaveBeenCalled()
     expect(callbacks.onProviderFallback).not.toHaveBeenCalled()
 
@@ -811,11 +812,11 @@ describe('useTTS', () => {
       text: 'Speechify fails here.',
       lang: 'en-US',
     }))
-    expect(callbacks.onProviderFallback).toHaveBeenCalledWith({
+    expect(callbacks.onProviderFallback).toHaveBeenCalledWith(expect.objectContaining({
       provider: 'speechify',
       fallbackProvider: 'native',
       reason: 'Speechify está indisponível no momento.',
-    })
+    }))
     expect(callbacks.onFinished).toHaveBeenCalledOnce()
     const diagnosticCall = warnSpy.mock.calls.find((call) => (
       String(call[0]).startsWith('NeoReaderEvent tts.provider.fallback')

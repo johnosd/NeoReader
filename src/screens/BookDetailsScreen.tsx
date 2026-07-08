@@ -425,6 +425,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
           rate: 1,
           voiceId: voice.id,
         })
+        if (ttsVoicePreviewSessionRef.current !== session) return
         await playGeneratedVoicePreview(result.audioBlob, session)
       } else {
         ttsVoicePreviewModeRef.current = 'native'
@@ -535,7 +536,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
         </div>
 
         <div className="px-4 flex flex-col gap-3">
-          <Button variant="primary" tone="purple" fullWidth onClick={() => openReader()}>
+          <Button variant="primary" fullWidth onClick={() => openReader()}>
             {readingStatus === 'finished'
               ? t('bookDetails.action.readAgain')
               : readingStatus === 'reading'
@@ -543,7 +544,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
                 : t('bookDetails.action.start')}
           </Button>
           <Button
-            variant="outline" tone="purple" fullWidth disabled
+            variant="outline" fullWidth disabled
             leftIcon={<Sparkles size={16} />}
             rightIcon={<Badge tone="neutral">{t('bookDetails.comingSoon')}</Badge>}
           >

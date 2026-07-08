@@ -374,8 +374,8 @@ Dados atuais do projeto Android:
 | Campo | Valor |
 |---|---|
 | `appId` / package | `com.johnny.neoreader` |
-| `versionName` | `1.0.10` |
-| `versionCode` | `12` |
+| `versionName` | `1.0.14` |
+| `versionCode` | `18` |
 | `minSdk` | `24` |
 | `compileSdk` / `targetSdk` | `36` |
 | Backup Android | desativado (`allowBackup=false`) |
@@ -414,7 +414,7 @@ npx @capacitor/assets generate --android
 
 ## Persistencia local
 
-O banco local usa Dexie em `NeoReaderDB`. O schema atual esta na versao 14.
+O banco local usa Dexie em `NeoReaderDB`. O schema atual esta na versao 16.
 
 | Tabela | Conteudo |
 |---|---|

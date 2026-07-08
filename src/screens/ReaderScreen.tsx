@@ -140,6 +140,7 @@ export function ReaderScreen({
   const [focusLineEnabled, setFocusLineEnabled] = useState(() => localStorage.getItem('neoreader:focus-line') === '1')
   const [removingMissingBook, setRemovingMissingBook] = useState(false)
   const [missingBookRemovalError, setMissingBookRemovalError] = useState<string | null>(null)
+  const [detectedMissingFile, setDetectedMissingFile] = useState(false)
   const {
     isReady: readerAppearanceReady,
     fontSize,
@@ -359,17 +360,24 @@ export function ReaderScreen({
       viewerRef.current?.highlightTts(paraIdx, 0, 0)
       viewerRef.current?.scrollToParagraph(paraIdx)
     },
-    onProviderFallback: ({ provider, reason }) => {
+    onProviderFallback: ({ provider, reason, transient }) => {
       if (!ttsFallbackNoticeShownRef.current.has(provider)) {
         ttsFallbackNoticeShownRef.current.add(provider)
         setTtsFallbackNotice({ provider, reason })
-        switchToNativeTts()
+        // Só persiste 'native' no banco em falhas permanentes (key inválida, sem créditos, etc.)
+        // Erros transientes (timeout, rede) não mudam a config do livro permanentemente
+        if (!transient) switchToNativeTts()
       }
       setTtsProviderFallback({ provider })
     },
     onStop: () => {
       setShowBackToTtsLocation(false)
       viewerRef.current?.clearTts()
+    },
+    onError: () => {
+      // Não esconde o player: mantém visível para o usuário poder tentar novamente.
+      // O onStop (chamado no finally do play()) já limpa o estado de highlight e backToLocation.
+      setShowBackToTtsLocation(false)
     },
     // Fim natural da seção (último parágrafo lido) — esconde player e mostra notificação
     onFinished: () => {
@@ -395,7 +403,8 @@ export function ReaderScreen({
 
   useEffect(() => {
     const restartIdx = pendingTtsConfigRestartRef.current
-    if (restartIdx == null) return
+    // Não reinicia enquanto pausado — handleTtsToggle consome o restart ao retomar
+    if (restartIdx == null || tts.isPaused) return
 
     pendingTtsConfigRestartRef.current = null
     void Promise.resolve().then(() => {
@@ -403,28 +412,36 @@ export function ReaderScreen({
       if (chunks.length === 0) return
       startPlay(chunks, Math.min(restartIdx, chunks.length - 1))
     })
-  }, [getTtsChunks, startPlay, ttsConfig.provider, ttsConfig.rate])
+  }, [getTtsChunks, startPlay, ttsConfig.provider, ttsConfig.rate, tts.isPaused])
 
-  function scheduleTtsConfigRestartIfPlaying() {
-    if (!tts.isPlaying) return
-    pendingTtsConfigRestartRef.current = tts.lastChunkIdx.current
-    void tts.stop()
+  async function scheduleTtsConfigRestartIfPlaying() {
+    if (!tts.isPlaying && !tts.isPaused) return
+    const idx = tts.lastChunkIdx.current
+    if (tts.isPlaying) {
+      await tts.stop()
+    }
+    pendingTtsConfigRestartRef.current = idx
   }
 
-  function handleTtsProviderChange(provider: TtsProvider) {
-    if (provider === ttsConfig.provider || !ttsProviderAvailability[provider]) return
+  async function handleTtsProviderChange(provider: TtsProvider) {
+    // Compara contra o provider efetivo (o que o select exibe), não o configurado.
+    // Quando há fallback ativo (ttsProviderFallback != null), activeProvider = 'native'
+    // mesmo que ttsConfig.provider ainda seja o provider premium — precisamos permitir
+    // que o usuário re-selecione o provider premium para tentar novamente.
+    const effectiveProvider = ttsProviderFallback ? 'native' : ttsEngine
+    if (provider === effectiveProvider || !ttsProviderAvailability[provider]) return
 
     setTtsFallbackNotice(null)
     setTtsProviderFallback(null)
-    scheduleTtsConfigRestartIfPlaying()
+    await scheduleTtsConfigRestartIfPlaying()
     applyTtsConfigPatch({ provider })
   }
 
-  function handleTtsRateChange(rate: number) {
+  async function handleTtsRateChange(rate: number) {
     const nextRate = clampTtsRate(rate)
     if (nextRate === ttsConfig.rate) return
 
-    scheduleTtsConfigRestartIfPlaying()
+    await scheduleTtsConfigRestartIfPlaying()
     applyTtsConfigPatch({ rate: nextRate })
   }
 
@@ -489,13 +506,22 @@ export function ReaderScreen({
     if (tts.isPlaying) {
       void tts.pause()
     } else if (tts.isPaused) {
-      void tts.resume().then((resumed) => {
-        if (resumed) return
+      const pendingRestart = pendingTtsConfigRestartRef.current
+      if (pendingRestart != null) {
+        // Config mudou enquanto pausado — para sessão anterior antes de reiniciar
+        // (libera audioRef, object URL e listeners do audio pausado)
+        pendingTtsConfigRestartRef.current = null
         const chunks = getTtsChunks()
-        if (chunks.length === 0) return
-        const startIdx = Math.min(tts.lastChunkIdx.current, Math.max(0, chunks.length - 1))
-        startPlay(chunks, startIdx)
-      })
+        if (chunks.length > 0) void tts.stop().then(() => startPlay(chunks, Math.min(pendingRestart, chunks.length - 1)))
+      } else {
+        void tts.resume().then((resumed) => {
+          if (resumed) return
+          const chunks = getTtsChunks()
+          if (chunks.length === 0) return
+          const startIdx = Math.min(tts.lastChunkIdx.current, Math.max(0, chunks.length - 1))
+          startPlay(chunks, startIdx)
+        })
+      }
     } else {
       const chunks = getTtsChunks()
       const lastIdx = tts.lastChunkIdx.current
@@ -510,6 +536,7 @@ export function ReaderScreen({
   // ⏮ Volta ao início do parágrafo anterior (ou início do atual se já não for o primeiro chunk dele)
   function handleTtsPrev() {
     const chunks = getTtsChunks()
+    if (chunks.length === 0) return
     const currIdx = tts.lastChunkIdx.current
     const currParaIdx = chunks[currIdx]?.paraIdx ?? 0
     const currParaStart = chunks.findIndex(c => c.paraIdx === currParaIdx)
@@ -524,7 +551,7 @@ export function ReaderScreen({
         ? chunks.findIndex(c => c.paraIdx === chunks[currParaStart - 1].paraIdx)
         : 0
     }
-    void tts.stop().then(() => startPlay(chunks, targetIdx))
+    void tts.stop().then(() => startPlay(chunks, Math.max(0, targetIdx)))
   }
 
   function handleTtsPrevSentence() {
@@ -613,10 +640,11 @@ export function ReaderScreen({
       const { cfi: newCfi, percentage: newPercentage, chapterPercentage: newChapterPercentage, tocLabel, sectionHref, fraction, sectionIndex } = location
       const pendingStartHref = pendingStartHrefRef.current
       if (pendingStartHref) {
-        if (!initialStartNavigationTriggeredRef.current) return
-
+        // Aceita o relocate da navegação inicial (vinda do EpubViewer via initialTarget)
+        // sem exigir que a flag esteja setada — basta o location bater com o alvo.
         if (!isRelocateAtStartTarget(pendingStartHref, location)) return
 
+        initialStartNavigationTriggeredRef.current = true
         completeInitialStartNavigation()
       }
 
@@ -791,15 +819,16 @@ export function ReaderScreen({
 
   const readerPalette = getReaderThemePalette(readerTheme)
   const readerStyleMode = !overrideBookFont && !overrideBookColors ? 'original' : 'comfortable'
-  const missingFileMessage = book.missingFile ? t('reader.missingFile.description') : null
+  const effectiveMissingFile = book.missingFile || detectedMissingFile
+  const missingFileMessage = effectiveMissingFile ? t('reader.missingFile.description') : null
   const visibleError = error ?? missingFileMessage
 
   return (
     <div className="fixed inset-0" style={{ backgroundColor: readerPalette.background }}>
-      {isLoading && !book.missingFile && <ReaderSkeleton />}
+      {isLoading && !effectiveMissingFile && <ReaderSkeleton />}
 
       <div className="absolute inset-0">
-        {!book.missingFile && (
+        {!effectiveMissingFile && (
           <EpubViewer
           ref={viewerRef}
           book={book}
@@ -818,11 +847,12 @@ export function ReaderScreen({
           onSectionReady={handleReaderSectionReady}
           onLoad={() => {
             finishReaderOpen('success')
-            // Navega para o capítulo selecionado na tela de detalhes (se houver)
             if (startHref && !initialStartNavigationTriggeredRef.current) {
+              // EpubViewer já navegou via initialTarget. Seta a flag para que
+              // handleRelocate aceite o relocate inicial. O fallback libera o
+              // loading se nenhum relocate chegar em START_NAVIGATION_FALLBACK_MS.
               initialStartNavigationTriggeredRef.current = true
               scheduleStartNavigationFallback()
-              viewerRef.current?.goTo(startHref)
               hideInitialLoading()
               return
             } else {
@@ -831,6 +861,9 @@ export function ReaderScreen({
             releaseInitialLoading()
           }}
           onError={(err) => {
+            if (err.message.includes('movido') || err.message.includes('permissao de acesso')) {
+              setDetectedMissingFile(true)
+            }
             finishReaderOpen('failure', err)
             pendingStartHrefRef.current = null
             releaseInitialLoading()
@@ -1050,7 +1083,7 @@ export function ReaderScreen({
       {visibleError && (
         <div className="absolute inset-0 z-40 bg-bg-reader flex flex-col items-center justify-center gap-4 px-8">
           <div className="flex max-w-sm flex-col items-center gap-2 text-center">
-            {book.missingFile && (
+            {effectiveMissingFile && (
               <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-error">
                 {t('reader.missingFile.title')}
               </p>
@@ -1061,7 +1094,7 @@ export function ReaderScreen({
             )}
           </div>
           <div className="flex flex-col items-center gap-3">
-            {book.missingFile && book.id !== undefined && (
+            {effectiveMissingFile && book.id !== undefined && (
               <button
                 type="button"
                 onClick={() => void handleRemoveMissingBook()}

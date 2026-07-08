@@ -467,7 +467,6 @@ describe('EpubViewer — seleção de texto', () => {
     const onCenterTap = vi.fn()
     const { foliateEl } = await renderViewer({ chromeVisible: true, onTranslate, onCenterTap })
     const fakeDoc = makeFakeDoc(['First sentence. Second.'])
-    const para = fakeDoc.querySelector('p') as HTMLElement
     setViewportWidth(fakeDoc, 360)
     setViewportHeight(fakeDoc, 720)
     loadSection(foliateEl, fakeDoc, 0)
@@ -487,7 +486,6 @@ describe('EpubViewer — seleção de texto', () => {
     const onCenterTap = vi.fn()
     const { foliateEl } = await renderViewer({ onTranslate, onCenterTap })
     const fakeDoc = makeFakeDoc(['First sentence. Second.'])
-    const para = fakeDoc.querySelector('p') as HTMLElement
     setViewportWidth(fakeDoc, 360)
     setViewportHeight(fakeDoc, 720)
     loadSection(foliateEl, fakeDoc, 0)

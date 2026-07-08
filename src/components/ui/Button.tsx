@@ -2,20 +2,17 @@ import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import { cn } from '../../utils/cn'
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'outline'
-type Tone = 'purple'
 type Size = 'md' | 'sm'
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant
-  tone?: Tone
   size?: Size
   fullWidth?: boolean
   leftIcon?: ReactNode
   rightIcon?: ReactNode
 }
 
-// Monta classes por variante. `tone` só afeta primary/outline (onde a cor de destaque aparece).
-function variantClasses(variant: Variant, _tone: Tone): string {
+function variantClasses(variant: Variant): string {
   switch (variant) {
     case 'primary':
       return 'bg-purple-primary active:bg-purple-light text-white'
@@ -33,7 +30,6 @@ function variantClasses(variant: Variant, _tone: Tone): string {
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   {
     variant = 'primary',
-    tone = 'purple',
     size = 'md',
     fullWidth = true,
     leftIcon,
@@ -57,7 +53,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
         'disabled:opacity-50 disabled:pointer-events-none',
         fullWidth && 'w-full',
         sizeClasses,
-        variantClasses(variant, tone),
+        variantClasses(variant),
         className,
       )}
       {...rest}

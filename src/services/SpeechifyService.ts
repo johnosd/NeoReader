@@ -66,6 +66,7 @@ interface SpeechifySpeechOptions {
   language: string
   rate: number
   voiceId?: string | null
+  signal?: AbortSignal
 }
 
 export interface SpeechifyResult {
@@ -324,6 +325,7 @@ export const SpeechifyService = {
     const voiceId = options.voiceId || DEFAULT_VOICE_ID
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 10_000)
+    options.signal?.addEventListener('abort', () => controller.abort())
     const response = await fetch(API_URL, {
       method: 'POST',
       headers: {

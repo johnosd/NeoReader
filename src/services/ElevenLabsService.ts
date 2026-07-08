@@ -5,10 +5,10 @@ import { clampTtsRate, getBaseLanguage, isLanguageCompatible, normalizeLanguageT
 
 const VOICES_URL = 'https://api.elevenlabs.io/v2/voices'
 const VOICE_URL = 'https://api.elevenlabs.io/v1/voices'
+const MODELS_URL = 'https://api.elevenlabs.io/v1/models'
 const API_URL = 'https://api.elevenlabs.io/v1/text-to-speech'
 const MAX_CHARS = 2400
-const VOICES_PAGE_SIZE = 20
-const MAX_VOICE_PAGES = 3
+const VOICES_PAGE_SIZE = 100
 const VOICE_CACHE_TTL_MS = 24 * 60 * 60 * 1000
 const VOICE_DETAIL_TIMEOUT_MS = 8_000
 const SYNTHESIZE_TIMEOUT_MS = 15_000
@@ -16,13 +16,20 @@ const DEFAULT_MODEL_ID = 'eleven_v3'
 const DEFAULT_OUTPUT_FORMAT = 'mp3_44100_128'
 const FALLBACK_TTS_STATUSES = new Set([400, 401, 402, 403, 404, 409, 422])
 
-const SUPPORTED_MODELS = new Set([
-  'eleven_multilingual_v2',
-  'eleven_turbo_v2',
-  'eleven_turbo_v2_5',
-  'eleven_flash_v2',
-  'eleven_flash_v2_5',
+const FALLBACK_TTS_MODEL_IDS = new Set([
   'eleven_v3',
+  'eleven_multilingual_v2',
+  'eleven_flash_v2_5',
+  'eleven_turbo_v2_5',
+  'eleven_turbo_v2',
+  'eleven_flash_v2',
+  'eleven_monolingual_v1',
+  'eleven_multilingual_v1',
+])
+
+const MODEL_ID_ALIASES = new Map([
+  ['eleven_v2_flash', 'eleven_flash_v2'],
+  ['eleven_v2_5_flash', 'eleven_flash_v2_5'],
 ])
 
 interface ElevenLabsVoiceLanguage {
@@ -53,6 +60,11 @@ interface ElevenLabsVoicesResponse {
   next_page_token?: string | null
 }
 
+interface ElevenLabsModel {
+  model_id: string
+  can_do_text_to_speech: boolean
+}
+
 interface ElevenLabsAlignment {
   characters: string[]
   character_start_times_seconds: number[]
@@ -64,6 +76,7 @@ interface ElevenLabsSpeechOptions {
   language: string
   rate: number
   voiceId?: string | null
+  signal?: AbortSignal
 }
 
 export interface ElevenLabsResult {
@@ -138,9 +151,10 @@ function debugElevenLabs(label: string, payload: Record<string, unknown>) {
   if (import.meta.env.DEV && import.meta.env.MODE !== 'test') console.debug(label, payload)
 }
 
-function withTimeout(ms: number) {
+function withTimeout(ms: number, externalSignal?: AbortSignal) {
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), ms)
+  externalSignal?.addEventListener('abort', () => controller.abort())
   return {
     signal: controller.signal,
     clear: () => clearTimeout(timeoutId),
@@ -206,9 +220,16 @@ async function throwElevenLabsApiError(response: Response, input: {
   })
 }
 
-function shouldFallbackToSimpleTts(error: unknown) {
-  if (error instanceof SyntaxError) return true
+function isAbortError(error: unknown): boolean {
   if (error instanceof DOMException && error.name === 'AbortError') return true
+  if (error instanceof Error && error.message.toLowerCase().includes('aborted')) return true
+  return false
+}
+
+function shouldFallbackToSimpleTts(error: unknown) {
+  // AbortError = timeout ou cancelamento — não é falha da API, não deve tentar endpoint simples
+  if (isAbortError(error)) return false
+  if (error instanceof SyntaxError) return true
   return error instanceof ElevenLabsApiError && FALLBACK_TTS_STATUSES.has(error.status)
 }
 
@@ -360,26 +381,64 @@ function getModelPriority(modelId: string): number {
   return major + minor
 }
 
+function normalizeElevenLabsModelId(modelId: string) {
+  return MODEL_ID_ALIASES.get(modelId) ?? modelId
+}
+
+function pickDefaultModelId(supportedModelIds = FALLBACK_TTS_MODEL_IDS) {
+  if (supportedModelIds.has(DEFAULT_MODEL_ID)) return DEFAULT_MODEL_ID
+  if (supportedModelIds.has('eleven_multilingual_v2')) return 'eleven_multilingual_v2'
+
+  const [firstModelId] = [...supportedModelIds].sort((left, right) =>
+    getModelPriority(right) - getModelPriority(left),
+  )
+  return firstModelId ?? DEFAULT_MODEL_ID
+}
+
 // verified_languages.model_id frequentemente indica v2 mesmo que a voz suporte v3.
 // high_quality_base_model_ids lista todos os modelos HQ disponíveis — usamos o melhor.
-function pickBestModelId(verifiedModelId: string, highQualityModelIds?: string[] | null): string {
-  if (!highQualityModelIds?.length) return verifiedModelId
-  const candidates = [verifiedModelId, ...highQualityModelIds.filter((id) => SUPPORTED_MODELS.has(id))]
+function pickBestModelId(
+  verifiedModelId: string,
+  highQualityModelIds?: string[] | null,
+  supportedModelIds = FALLBACK_TTS_MODEL_IDS,
+): string {
+  const normalizedVerifiedModelId = normalizeElevenLabsModelId(verifiedModelId)
+  const candidates = [
+    ...(supportedModelIds.has(DEFAULT_MODEL_ID) ? [DEFAULT_MODEL_ID] : []),
+    ...(supportedModelIds.has(normalizedVerifiedModelId) ? [normalizedVerifiedModelId] : []),
+    ...(
+      highQualityModelIds
+        ?.map(normalizeElevenLabsModelId)
+        .filter((id, index, ids) => supportedModelIds.has(id) && ids.indexOf(id) === index) ?? []
+    ),
+  ]
+  if (!candidates.length) return pickDefaultModelId(supportedModelIds)
+
   return candidates.reduce((best, modelId) =>
     getModelPriority(modelId) > getModelPriority(best) ? modelId : best,
   )
 }
 
 // Retorna o melhor modelo suportado dentre os high_quality_base_model_ids, ou null se nenhum.
-function pickBestSupportedModelId(highQualityModelIds?: string[] | null): string | null {
-  const supported = highQualityModelIds?.filter((id) => SUPPORTED_MODELS.has(id)) ?? []
+function pickBestSupportedModelId(
+  highQualityModelIds?: string[] | null,
+  supportedModelIds = FALLBACK_TTS_MODEL_IDS,
+): string | null {
+  const supported = highQualityModelIds
+    ?.map(normalizeElevenLabsModelId)
+    .filter((id, index, ids) => supportedModelIds.has(id) && ids.indexOf(id) === index) ?? []
   if (!supported.length) return null
+
   return supported.reduce((best, modelId) =>
     getModelPriority(modelId) > getModelPriority(best) ? modelId : best,
   )
 }
 
-function toCompatibleVoiceOption(voice: ElevenLabsVoice, normalizedLanguage: string): TtsVoiceOption | null {
+function toCompatibleVoiceOption(
+  voice: ElevenLabsVoice,
+  normalizedLanguage: string,
+  supportedModelIds = FALLBACK_TTS_MODEL_IDS,
+): TtsVoiceOption | null {
   const verifiedLanguage = pickVerifiedLanguage(voice, normalizedLanguage)
 
   if (verifiedLanguage) {
@@ -390,14 +449,18 @@ function toCompatibleVoiceOption(voice: ElevenLabsVoice, normalizedLanguage: str
       provider: 'elevenlabs' as const,
       previewUrl: verifiedLanguage.preview_url ?? voice.preview_url,
       meta: buildVoiceMeta(voice),
-      modelId: pickBestModelId(verifiedLanguage.model_id, voice.high_quality_base_model_ids),
+      modelId: pickBestModelId(
+        verifiedLanguage.model_id,
+        voice.high_quality_base_model_ids,
+        supportedModelIds,
+      ),
     }
   }
 
   // Fallback: voz sem verified_languages para este idioma mas com eleven_v3
   // em high_quality_base_model_ids (eleven_v3 suporta 70+ idiomas nativamente)
-  const bestModel = pickBestSupportedModelId(voice.high_quality_base_model_ids)
-  if (!bestModel) return null
+  const bestModel = pickBestSupportedModelId(voice.high_quality_base_model_ids, supportedModelIds)
+    ?? pickDefaultModelId(supportedModelIds)
 
   return {
     id: voice.voice_id,
@@ -407,6 +470,36 @@ function toCompatibleVoiceOption(voice: ElevenLabsVoice, normalizedLanguage: str
     previewUrl: voice.preview_url,
     meta: buildVoiceMeta(voice),
     modelId: bestModel,
+  }
+}
+
+async function fetchTextToSpeechModelIds(apiKey: string): Promise<Set<string>> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 8_000)
+  const response = await fetch(MODELS_URL, {
+    method: 'GET',
+    headers: {
+      'xi-api-key': apiKey,
+    },
+    signal: controller.signal,
+  }).finally(() => clearTimeout(timeoutId))
+
+  if (!response.ok) throw new Error(`ElevenLabs models error:${response.status}`)
+
+  const models = await response.json() as ElevenLabsModel[]
+  return new Set(
+    models
+      .filter((model) => model.can_do_text_to_speech)
+      .map((model) => normalizeElevenLabsModelId(model.model_id)),
+  )
+}
+
+async function resolveTextToSpeechModelIds(apiKey: string): Promise<Set<string>> {
+  try {
+    const modelIds = await fetchTextToSpeechModelIds(apiKey)
+    return modelIds.size > 0 ? modelIds : FALLBACK_TTS_MODEL_IDS
+  } catch {
+    return FALLBACK_TTS_MODEL_IDS
   }
 }
 
@@ -530,6 +623,13 @@ export const ElevenLabsService = {
     }
   },
 
+  async listTextToSpeechModels(apiKey: string): Promise<string[]> {
+    return [...await fetchTextToSpeechModelIds(apiKey)].sort((left, right) => {
+      const priorityDiff = getModelPriority(right) - getModelPriority(left)
+      return priorityDiff !== 0 ? priorityDiff : left.localeCompare(right)
+    })
+  },
+
   async listCompatibleVoices(language: string, apiKey?: string): Promise<TtsVoiceOption[]> {
     const normalizedLanguage = normalizeLanguageTag(language)
     const resolvedApiKey = apiKey ?? await this.getApiKey()
@@ -539,24 +639,27 @@ export const ElevenLabsService = {
     const cached = await getCachedTtsVoiceOptions(cacheKey, VOICE_CACHE_TTL_MS)
     if (cached) return cached
 
+    const supportedModelIds = await resolveTextToSpeechModelIds(resolvedApiKey)
     const compatibleVoices: TtsVoiceOption[] = []
     let nextPageToken: string | null | undefined
-    let pagesFetched = 0
+    const seenPageTokens = new Set<string>()
 
     do {
       const page = await fetchVoicesPage(resolvedApiKey, nextPageToken)
       compatibleVoices.push(
         ...page.voices
-          .map((voice) => toCompatibleVoiceOption(voice, normalizedLanguage))
+          .map((voice) => toCompatibleVoiceOption(voice, normalizedLanguage, supportedModelIds))
           .filter((voice): voice is TtsVoiceOption => Boolean(voice)),
       )
-      pagesFetched += 1
-      nextPageToken = page.has_more && pagesFetched < MAX_VOICE_PAGES
-        ? page.next_page_token
+      const candidateNextPageToken = page.has_more ? page.next_page_token : null
+      nextPageToken = candidateNextPageToken && !seenPageTokens.has(candidateNextPageToken)
+        ? candidateNextPageToken
         : null
+      if (nextPageToken) seenPageTokens.add(nextPageToken)
     } while (nextPageToken)
 
-    const sortedVoices = compatibleVoices.sort((left, right) => {
+    const dedupedVoices = [...new Map(compatibleVoices.map((voice) => [voice.id, voice])).values()]
+    const sortedVoices = dedupedVoices.sort((left, right) => {
       const priorityDiff = getModelPriority(right.modelId ?? '') - getModelPriority(left.modelId ?? '')
       return priorityDiff !== 0 ? priorityDiff : left.label.localeCompare(right.label)
     })
@@ -644,7 +747,7 @@ export const ElevenLabsService = {
     })
 
     try {
-      const timeout = withTimeout(SYNTHESIZE_TIMEOUT_MS)
+      const timeout = withTimeout(SYNTHESIZE_TIMEOUT_MS, options.signal)
       try {
         const response = await fetch(timestampsEndpoint, {
           method: 'POST',

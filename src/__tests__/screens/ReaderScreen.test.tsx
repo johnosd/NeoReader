@@ -410,7 +410,8 @@ describe('ReaderScreen', () => {
       ;(mocks.epubViewerProps?.onLoad as () => void)()
     })
 
-    expect(mocks.viewerHandle.goTo).toHaveBeenCalledWith('chapter-2.xhtml#frag')
+    // EpubViewer já navegou via initialTarget; onLoad apenas seta a flag, não chama goTo novamente
+    expect(mocks.viewerHandle.goTo).not.toHaveBeenCalled()
     expect(screen.queryByTestId('reader-loading')).toBeNull()
 
     await act(async () => {
@@ -480,7 +481,8 @@ describe('ReaderScreen', () => {
       ;(mocks.epubViewerProps?.onLoad as () => void)()
     })
 
-    expect(mocks.viewerHandle.goTo).toHaveBeenCalledWith('OPS/Text/chapter-2.xhtml#frag')
+    // EpubViewer já navegou via initialTarget; onLoad apenas seta a flag, não chama goTo novamente
+    expect(mocks.viewerHandle.goTo).not.toHaveBeenCalled()
 
     await act(async () => {
       ;(mocks.epubViewerProps?.onRelocate as (payload: unknown) => void)({
@@ -539,7 +541,8 @@ describe('ReaderScreen', () => {
       ;(mocks.epubViewerProps?.onLoad as () => void)()
     })
 
-    expect(mocks.viewerHandle.goTo).toHaveBeenCalledWith(bookmarkCfi)
+    // EpubViewer já navegou via initialTarget; onLoad apenas seta a flag, não chama goTo novamente
+    expect(mocks.viewerHandle.goTo).not.toHaveBeenCalled()
     expect(screen.queryByTestId('reader-loading')).toBeNull()
 
     await act(async () => {

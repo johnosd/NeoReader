@@ -5,6 +5,7 @@ export type ReadingStatus = 'unread' | 'reading' | 'finished'
 export type BookFormat = 'EPUB'
 export type BookCoverSource = 'epub-extracted' | 'manual-upload' | 'legacy-inline'
 export type BookStorageMode = 'embedded' | 'external' | 'local'
+export type BookImportSource = 'local' | 'drive'
 
 // Representa um livro armazenado no IndexedDB
 export interface Book {
@@ -30,6 +31,7 @@ export interface Book {
   missingFile?: boolean
   collectionId?: number | null   // coleção (prateleira) à qual o livro pertence
   collectionOrder?: number       // posição dentro da coleção (ordem manual)
+  importSource?: BookImportSource
 }
 
 export interface BookCollection {

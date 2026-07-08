@@ -180,7 +180,7 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
             </div>
 
             <BookRow title={t('home.continueReading')} books={inProgressBooks} onPress={onOpenBook} onOpenOptions={setOptionsBook} variant="progress" />
-            <BookRow title={t('home.myBooks')} books={recentBooks} onPress={onOpenBook} onOpenOptions={setOptionsBook} />
+            <BookRow title={t('home.myBooks')} books={recentBooks} onPress={onOpenBook} onOpenOptions={setOptionsBook} onViewAll={() => onOpenBiblioteca('all')} />
 
             {categoryGroups.map(group => (
               <BookRow

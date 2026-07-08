@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react'
 import { Compass, Sparkles } from 'lucide-react'
 import { AdBannerSlot } from '../components/AdBannerSlot'
 import { BottomNav } from '../components/BottomNav'
@@ -8,7 +7,7 @@ import { Button, EmptyState } from '../components/ui'
 import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
 import { useEntitlements } from '../hooks/useEntitlements'
 import { useI18n } from '../i18n'
-import { FeatureQuotaService, type FeatureQuotaConsumeResult } from '../services/FeatureQuotaService'
+import { FeatureQuotaService } from '../services/FeatureQuotaService'
 import { NytBooksService } from '../services/NytBooksService'
 
 const TRENDING_LISTS = [
@@ -36,18 +35,17 @@ export function DiscoverScreen({ onBack, onOpenHome, onOpenLibrary, onOpenProfil
   const { isPro } = useEntitlements()
   useCapacitorBackButton(onBack)
   const hasNytApiKey = Boolean(import.meta.env.VITE_NYT_API_KEY)
-  // useState sem initializer: quota e avaliada no useEffect abaixo para ser reativa
-  // ao isPro (que pode ser null durante o cold start do RevenueCat).
-  const [quotaState, setQuotaState] = useState<FeatureQuotaConsumeResult | null>(null)
-
-  useEffect(() => {
-    if (!hasNytApiKey) return
-    setQuotaState(FeatureQuotaService.consume('nyt-discovery', {
-      isPro,
-      hasValidCache: ALL_NYT_LISTS.every((listName) => NytBooksService.hasValidCache(listName)),
-    }))
-  }, [hasNytApiKey, isPro])
   const hasAnyNytCache = hasNytApiKey && ALL_NYT_LISTS.some((listName) => NytBooksService.hasValidCache(listName))
+
+  // getSnapshot é síncrono e sem efeitos colaterais: derivar direto no render
+  // garante reatividade a isPro (null → false/true no cold start do RevenueCat)
+  // sem precisar de useState/useEffect.
+  const quotaState = hasNytApiKey
+    ? FeatureQuotaService.getSnapshot('nyt-discovery', {
+        isPro,
+        hasValidCache: ALL_NYT_LISTS.every((listName) => NytBooksService.hasValidCache(listName)),
+      })
+    : null
   const quotaBlocked = quotaState?.blockedReason === 'quota-exhausted'
   const allowNytNetwork = hasNytApiKey && quotaState?.allowed !== false
 

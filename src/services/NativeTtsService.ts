@@ -25,7 +25,14 @@ function toVoiceOption(voice: SpeechSynthesisVoice): TtsVoiceOption {
 let voicesPromise: Promise<SpeechSynthesisVoice[]> | null = null
 
 async function getVoices() {
-  voicesPromise ??= TextToSpeech.getSupportedVoices().then((result) => result.voices)
+  if (!voicesPromise) {
+    voicesPromise = TextToSpeech.getSupportedVoices()
+      .then((result) => result.voices)
+      .catch((error) => {
+        voicesPromise = null  // limpa para permitir retry na próxima chamada
+        throw error
+      })
+  }
   return voicesPromise
 }
 

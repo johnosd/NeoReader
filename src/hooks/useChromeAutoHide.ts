@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 export interface UseChromeAutoHideResult {
   chromeVisible: boolean
@@ -25,6 +25,8 @@ export function useChromeAutoHide(delayMs = 2500): UseChromeAutoHideResult {
       return !v
     })
   }, [resetAutoHide])
+
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
 
   return { chromeVisible, setChromeVisible, resetAutoHide, handleCenterTap }
 }
