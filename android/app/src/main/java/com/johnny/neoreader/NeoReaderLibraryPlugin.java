@@ -160,6 +160,21 @@ public class NeoReaderLibraryPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void consumePendingExternalEpubIntent(PluginCall call) {
+        String pendingResult = ExternalEpubIntentStore.consumePending(getContext());
+        if (pendingResult == null) {
+            call.resolve(new JSObject());
+            return;
+        }
+
+        try {
+            call.resolve(new JSObject(pendingResult));
+        } catch (Exception error) {
+            call.reject("Erro ao restaurar o EPUB externo recebido.", error);
+        }
+    }
+
+    @PluginMethod
     public void listSelectedFolderFiles(PluginCall call) {
         int offset = call.getInt("offset", 0);
         int limit = call.getInt("limit", FILE_PAGE_SIZE);
@@ -444,6 +459,15 @@ public class NeoReaderLibraryPlugin extends Plugin {
         }
 
         handleFileSelected(call, resultCode, data);
+    }
+
+    @Override
+    protected void handleOnNewIntent(Intent intent) {
+        if (ExternalEpubIntentStore.storeFromIntent(getContext(), intent)) {
+            JSObject data = new JSObject();
+            data.put("available", true);
+            notifyListeners("externalEpubIntent", data, true);
+        }
     }
 
     private void handleFileSelected(PluginCall call, int resultCode, Intent data) {

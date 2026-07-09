@@ -1,4 +1,4 @@
-import { Capacitor, registerPlugin } from '@capacitor/core'
+import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core'
 import {
   createImportDiagnosticContext,
   errorImportDiagnostic,
@@ -74,10 +74,12 @@ export interface NativePreparedEpub {
 }
 
 interface NeoReaderLibraryPlugin {
+  addListener?(eventName: 'externalEpubIntent', listenerFunc: () => void): Promise<PluginListenerHandle>
   selectEpubFolder(): Promise<NativeFolderResult>
   selectEpubFile(): Promise<NativeFolderFile>
   consumePendingFolderSelection(): Promise<Partial<NativeFolderResult>>
   consumePendingFileSelection(): Promise<Partial<NativeFolderFile>>
+  consumePendingExternalEpubIntent?(): Promise<Partial<NativeFolderFile>>
   listSelectedFolderFiles(options: { offset: number; limit: number }): Promise<NativeFolderFilesPage>
   readFile(file: NativeFolderFile): Promise<NativeFolderFile & { base64: string }>
   readFileChunk(options: NativeFolderFile & { offset: number; length: number; sessionId?: string }): Promise<NativeFileChunk>
@@ -160,7 +162,33 @@ export async function consumePendingNativeFileSelection(): Promise<NativeFolderF
   if (!Capacitor.isNativePlatform()) return null
 
   const result = await NeoReaderLibrary.consumePendingFileSelection()
-  if (!result.name || !result.uri) return null
+  return normalizeNativeFolderFile(result)
+}
+
+export async function consumePendingExternalEpubIntent(): Promise<NativeFolderFile | null> {
+  if (!Capacitor.isNativePlatform()) return null
+  if (typeof NeoReaderLibrary.consumePendingExternalEpubIntent !== 'function') return null
+
+  const result = await NeoReaderLibrary.consumePendingExternalEpubIntent()
+  const nativeFile = normalizeNativeFolderFile(result)
+  if (nativeFile) {
+    logImportDiagnostic('native-read', 'external-epub-intent-consumed', {
+      fileName: nativeFile.name,
+      reportedSize: nativeFile.size,
+      hasPath: Boolean(nativeFile.path),
+    })
+  }
+  return nativeFile
+}
+
+export async function addExternalEpubIntentListener(listener: () => void): Promise<PluginListenerHandle | null> {
+  if (!Capacitor.isNativePlatform()) return null
+  if (typeof NeoReaderLibrary.addListener !== 'function') return null
+  return NeoReaderLibrary.addListener('externalEpubIntent', listener)
+}
+
+function normalizeNativeFolderFile(result: Partial<NativeFolderFile> | null | undefined): NativeFolderFile | null {
+  if (!result || !result.name || !result.uri) return null
   return {
     name: result.name,
     uri: result.uri,

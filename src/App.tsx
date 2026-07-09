@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { App as CapApp } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
 import { HomeScreen } from './screens/HomeScreen'
@@ -12,14 +12,19 @@ import { ProfileScreen } from './screens/ProfileScreen'
 import { WelcomeScreen } from './screens/WelcomeScreen'
 import { LoginScreen } from './screens/LoginScreen'
 import { PaywallScreen } from './screens/PaywallScreen'
-import { ErrorBoundary, Spinner } from './components/ui'
+import { ErrorBoundary, Spinner, Toast } from './components/ui'
 import { useAuth } from './hooks/useAuth'
 import { AdsService } from './services/AdsService'
 import { BillingService } from './services/BillingService'
 import { BookImportService } from './services/BookImportService'
-import { cleanupNativeImportTemp } from './services/NativeLibraryImportService'
+import {
+  addExternalEpubIntentListener,
+  cleanupNativeImportTemp,
+  consumePendingExternalEpubIntent,
+} from './services/NativeLibraryImportService'
 import { createFlowId, getDiagnosticsNowMs, logEvent } from './services/DiagnosticsLogger'
 import { cleanupExpiredTtsVoiceCaches } from './db/ttsVoiceCaches'
+import { getBookById } from './db/books'
 import { scheduleVocabularyDriveSync } from './services/VocabularyDriveSyncService'
 import type { Book } from './types/book'
 import type { LibraryFilter } from './hooks/useLibraryCatalog'
@@ -59,6 +64,9 @@ function App() {
     getWelcomeSeen() ? 'login' : 'welcome'
   ))
   const [stack, setStack] = useState<Route[]>([{ name: 'home' }])
+  const [externalImporting, setExternalImporting] = useState(false)
+  const [externalImportError, setExternalImportError] = useState<string | null>(null)
+  const [externalIntentSignal, setExternalIntentSignal] = useState(0)
   const current = stack[stack.length - 1]
 
   const push = (route: Route) => setStack((prev) => [...prev, route])
@@ -141,6 +149,71 @@ function App() {
     }
   }, [])
 
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return
+
+    let disposed = false
+    let listener: { remove: () => Promise<void> } | null = null
+    void addExternalEpubIntentListener(() => {
+      if (!disposed) setExternalIntentSignal((value) => value + 1)
+    })
+      .then((handle) => {
+        listener = handle
+      })
+      .catch(() => undefined)
+
+    return () => {
+      disposed = true
+      void Promise.resolve(listener?.remove()).catch(() => undefined)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform() || authStatus !== 'signed-in') return
+
+    let active = true
+    void (async () => {
+      if (BookImportService.isImportInProgress()) return
+
+      const nativeFile = await consumePendingExternalEpubIntent()
+      if (!active || !nativeFile) return
+
+      setExternalImporting(true)
+      setExternalImportError(null)
+      try {
+        const bookId = await BookImportService.importNativeEpub(nativeFile, { importSource: 'local' })
+        const book = await getBookById(bookId)
+        if (!active) return
+        if (!book) throw new Error('Livro importado nao encontrado.')
+
+        const flowId = createFlowId('reader-open')
+        const startedAt = getDiagnosticsNowMs()
+        logEvent('reader.open.start', {
+          flowId,
+          screen: 'external-epub-intent',
+          status: 'start',
+          details: {
+            bookId: book.id,
+            storageMode: book.storageMode,
+            hasStartHref: false,
+            targetType: 'saved-progress',
+          },
+        })
+        setStack((prev) => [...prev, { name: 'reader', book, readerOpenFlowId: flowId, readerOpenStartedAt: startedAt }])
+      } catch (error) {
+        if (active) setExternalImportError(externalImportErrorMessage(error))
+      } finally {
+        if (active) setExternalImporting(false)
+      }
+    })().catch((error) => {
+      if (active) setExternalImportError(externalImportErrorMessage(error))
+    })
+
+    return () => {
+      active = false
+    }
+  }, [authStatus, externalIntentSignal])
+
   function completeWelcome() {
     setWelcomeSeen()
     setAuthScreen('login')
@@ -161,6 +234,24 @@ function App() {
       },
     })
     push({ name: 'reader', book, startHref, readerOpenFlowId: flowId, readerOpenStartedAt: startedAt })
+  }
+
+  function renderWithExternalImportFeedback(content: ReactNode) {
+    return (
+      <>
+        {content}
+        {externalImporting && (
+          <div className="fixed inset-0 z-[1400] flex items-center justify-center bg-bg-base/70">
+            <Spinner tone="purple" label="Importando EPUB" />
+          </div>
+        )}
+        {externalImportError && (
+          <Toast tone="error" durationMs={6000} onDismiss={() => setExternalImportError(null)}>
+            {externalImportError}
+          </Toast>
+        )}
+      </>
+    )
   }
 
   if (auth.state.status === 'loading') {
@@ -191,7 +282,8 @@ function App() {
     )
   }
 
-  switch (current.name) {
+  return renderWithExternalImportFeedback((() => {
+    switch (current.name) {
     case 'book-details':
       return (
         <ErrorBoundary key="book-details" screen="book-details">
@@ -297,7 +389,16 @@ function App() {
           />
         </ErrorBoundary>
       )
+    }
+  })())
+}
+
+function externalImportErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  if (message.toLowerCase().includes('permission') || message.toLowerCase().includes('permiss')) {
+    return 'Nao foi possivel acessar o EPUB recebido. Abra o arquivo novamente pelo Android.'
   }
+  return message || 'Nao foi possivel importar o EPUB recebido.'
 }
 
 export default App

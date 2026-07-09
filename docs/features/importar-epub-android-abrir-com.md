@@ -4,7 +4,7 @@
 
 - Feature: NeoReader como app de abertura para arquivos EPUB no Android.
 - Data: 2026-07-09.
-- Status geral: Not started.
+- Status geral: In progress.
 - Contexto de autoria: plano criado com a skill `plan-feature` a partir da duvida sobre aparecer na lista de apps ao abrir um EPUB baixado no Android.
 - Escopo alvo: Android via Capacitor.
 
@@ -109,7 +109,7 @@ Hardening opcional:
 
 ## Fase 1: Intent Filter E Captura Nativa
 
-Status: Not started.
+Status: Done.
 
 Proposito:
 
@@ -124,23 +124,29 @@ Arquivos/areas provaveis:
 
 Checklist de implementacao:
 
-- [ ] Adicionar `intent-filter` para `android.intent.action.VIEW`.
-- [ ] Incluir `android.intent.category.DEFAULT`.
-- [ ] Aceitar `application/epub+zip` para `content` e, se necessario, `file`.
-- [ ] Nao adicionar `ACTION_SEND` nesta fase.
-- [ ] Implementar captura em `onCreate` e `onNewIntent`, respeitando `launchMode="singleTask"`.
-- [ ] Validar que o `Intent` possui `data` ou payload equivalente.
-- [ ] Extrair `name`, `uri`, `path`, `size` com log diagnostico sem registrar conteudo sensivel.
-- [ ] Salvar payload em uma chave pendente especifica para intent externo.
-- [ ] Tentar `takePersistableUriPermission` apenas quando a flag persistable existir; aceitar fallback de permissao temporaria.
-- [ ] Garantir que intents nao EPUB sejam ignorados ou resultem em erro controlado.
+- [x] Adicionar `intent-filter` para `android.intent.action.VIEW`.
+- [x] Incluir `android.intent.category.DEFAULT`.
+- [x] Aceitar `application/epub+zip` para `content` e, se necessario, `file`.
+- [x] Nao adicionar `ACTION_SEND` nesta fase.
+- [x] Implementar captura em `onCreate` e `onNewIntent`, respeitando `launchMode="singleTask"`.
+- [x] Validar que o `Intent` possui `data` ou payload equivalente.
+- [x] Extrair `name`, `uri`, `path`, `size` com log diagnostico sem registrar conteudo sensivel.
+- [x] Salvar payload em uma chave pendente especifica para intent externo.
+- [x] Tentar `takePersistableUriPermission` apenas quando a flag persistable existir; aceitar fallback de permissao temporaria.
+- [x] Garantir que intents nao EPUB sejam ignorados ou resultem em erro controlado.
 
 Testes:
 
-- [ ] Adicionar teste nativo se houver infraestrutura viavel; caso contrario registrar que a validacao nativa sera manual/adb.
+- [x] Adicionar teste nativo se houver infraestrutura viavel; caso contrario registrar que a validacao nativa sera manual/adb.
 - [ ] Verificar com `adb shell cmd package query-intent-activities -a android.intent.action.VIEW -t application/epub+zip` que o NeoReader aparece.
 - [ ] Validar manualmente abrindo um EPUB pelo app Files/Downloads.
 - [ ] Validar que tocar no icone normal ainda abre o app pela home.
+
+Evidencia 2026-07-09:
+
+- Implementado `ExternalEpubIntentStore`, captura via `NeoReaderLibraryPlugin.handleOnNewIntent` e evento retido `externalEpubIntent`.
+- `.\gradlew.bat :app:assembleDebug` passou, validando compilacao Java e processamento do manifest.
+- Nao houve QA manual/adb em device nesta sessao; estes itens seguem pendentes na Fase 5.
 
 Acceptance criteria:
 
@@ -160,7 +166,7 @@ Riscos e validacao:
 
 ## Fase 2: Ponte JS Para Intent Externo
 
-Status: Not started.
+Status: Done.
 
 Proposito:
 
@@ -173,19 +179,25 @@ Arquivos/areas provaveis:
 
 Checklist de implementacao:
 
-- [ ] Estender a interface `NeoReaderLibraryPlugin` com `consumePendingExternalEpubIntent`.
-- [ ] Criar export TS `consumePendingExternalEpubIntent`.
-- [ ] Normalizar resposta para `NativeFolderFile`.
-- [ ] Retornar `null` fora de plataforma nativa.
-- [ ] Manter `consumePendingNativeFileSelection` sem mudanca semantica.
-- [ ] Adicionar logs diagnosticos de consumo externo.
+- [x] Estender a interface `NeoReaderLibraryPlugin` com `consumePendingExternalEpubIntent`.
+- [x] Criar export TS `consumePendingExternalEpubIntent`.
+- [x] Normalizar resposta para `NativeFolderFile`.
+- [x] Retornar `null` fora de plataforma nativa.
+- [x] Manter `consumePendingNativeFileSelection` sem mudanca semantica.
+- [x] Adicionar logs diagnosticos de consumo externo.
+- [x] Adicionar listener TS `addExternalEpubIntentListener` para intents recebidos com o app aberto.
 
 Testes:
 
-- [ ] Testar retorno `null` quando nao ha pendente.
-- [ ] Testar normalizacao de `{ name, uri, path, size }`.
-- [ ] Testar que nao chama plugin fora de plataforma nativa.
-- [ ] Rodar `npm test -- src/__tests__/services/NativeLibraryImportService.test.ts`.
+- [x] Testar retorno `null` quando nao ha pendente.
+- [x] Testar normalizacao de `{ name, uri, path, size }`.
+- [x] Testar que nao chama plugin fora de plataforma nativa.
+- [x] Testar registro do listener `externalEpubIntent`.
+- [x] Rodar `npm test -- src/__tests__/services/NativeLibraryImportService.test.ts`.
+
+Evidencia 2026-07-09:
+
+- `npm test -- src/__tests__/services/NativeLibraryImportService.test.ts` passou com 23 testes.
 
 Acceptance criteria:
 
@@ -203,7 +215,7 @@ Riscos e validacao:
 
 ## Fase 3: Coordenador Raiz De Importar E Abrir
 
-Status: Not started.
+Status: Done.
 
 Proposito:
 
@@ -219,24 +231,34 @@ Arquivos/areas provaveis:
 
 Checklist de implementacao:
 
-- [ ] Adicionar helper `getBookById(id: number)` em `src/db/books.ts` ou usar padrao existente equivalente.
-- [ ] Em `App.tsx`, adicionar efeito que roda apenas em plataforma nativa.
-- [ ] O efeito deve aguardar `auth.state.status === 'signed-in'` antes de importar.
-- [ ] Se houver pending external EPUB enquanto nao logado, manter Login/Welcome e nao iniciar importacao.
-- [ ] Ao importar com sucesso, buscar o livro por `bookId` e chamar o mesmo fluxo de `openReader`.
-- [ ] Exibir estado de carregamento global curto durante importacao externa.
-- [ ] Em erro de duplicidade, exibir toast/mensagem "Este livro ja esta na biblioteca.".
-- [ ] Em erro de permissao/arquivo inacessivel, exibir mensagem orientando abrir o EPUB novamente.
-- [ ] Evitar importacao concorrente usando `BookImportService.isImportInProgress`.
-- [ ] Evitar reprocessar o mesmo intent se o componente renderizar novamente.
+- [x] Adicionar helper `getBookById(id: number)` em `src/db/books.ts` ou usar padrao existente equivalente.
+- [x] Em `App.tsx`, adicionar efeito que roda apenas em plataforma nativa.
+- [x] O efeito deve aguardar `auth.state.status === 'signed-in'` antes de importar.
+- [x] Se houver pending external EPUB enquanto nao logado, manter Login/Welcome e nao iniciar importacao.
+- [x] Ao importar com sucesso, buscar o livro por `bookId` e chamar o mesmo fluxo de `openReader`.
+- [x] Exibir estado de carregamento global curto durante importacao externa.
+- [x] Em erro de duplicidade, exibir toast/mensagem "Este livro ja esta na biblioteca.".
+- [x] Em erro de permissao/arquivo inacessivel, exibir mensagem orientando abrir o EPUB novamente.
+- [x] Evitar importacao concorrente usando `BookImportService.isImportInProgress`.
+- [x] Evitar reprocessar o mesmo intent se o componente renderizar novamente.
 
 Testes:
 
-- [ ] Testar que usuario nao logado nao dispara importacao.
-- [ ] Testar que, apos login, consome pending external EPUB, chama `importNativeEpub`, busca o livro e renderiza `ReaderScreen`.
-- [ ] Testar erro de duplicidade exibido.
-- [ ] Testar importacao concorrente bloqueada.
-- [ ] Rodar `npm test -- src/__tests__/App.test.tsx src/__tests__/services/BookImportService.test.ts`.
+- [x] Testar que usuario nao logado nao dispara importacao.
+- [x] Testar que, apos login, consome pending external EPUB, chama `importNativeEpub`, busca o livro e renderiza `ReaderScreen`.
+- [x] Testar erro de duplicidade exibido.
+- [x] Testar importacao concorrente bloqueada.
+- [x] Rodar `npm test -- src/__tests__/App.test.tsx src/__tests__/services/BookImportService.test.ts`.
+
+Evidencia 2026-07-09:
+
+- `npm test -- src/__tests__/App.test.tsx` passou com 20 testes.
+- `npm test -- src/__tests__/services/BookImportService.test.ts` passou com 18 testes.
+- `npm test -- src/__tests__/services/NativeLibraryImportService.test.ts src/__tests__/App.test.tsx` passou com 42 testes.
+- `npm run lint` passou.
+- `npm run build` passou.
+- `npm test` completo falhou por timeout de 5s em `src/__tests__/screens/BookDetailsScreen.test.tsx`, fora do escopo desta feature; o arquivo passou isoladamente.
+- Tentativas com `npm test -- --testTimeout=10000` e `npm test -- --test-timeout=10000` ainda mantiveram timeout efetivo de 5s nesse arquivo e falharam sob carga da suite completa.
 
 Acceptance criteria:
 
@@ -413,9 +435,9 @@ Ao executar este plano:
 
 Proximo passo recomendado:
 
-1. Confirmar com o usuario se `ACTION_VIEW` apenas esta aprovado para a primeira versao.
-2. Confirmar se o primeiro build deve aceitar apenas `application/epub+zip`.
-3. Iniciar Fase 1 editando `AndroidManifest.xml` e adicionando captura em `MainActivity`/helper nativo.
+1. Rodar QA em device/emulador: instalar o debug build, abrir um EPUB via Files/Downloads e confirmar que NeoReader aparece em "Abrir com".
+2. Se o app nao aparecer para EPUBs baixados no app alvo, executar Fase 4 e adicionar fallback controlado para `application/octet-stream`.
+3. Se o app aparecer, executar Fase 5: `npx cap sync android`, `npx cap run android` em device e checklist manual completo.
 
 Comandos uteis:
 
@@ -429,3 +451,4 @@ Comandos uteis:
 Risco principal ainda aberto:
 
 - Permissao temporaria de `content://` durante login. Se aparecer em QA, implementar staging nativo antes de tentar importar apos autenticacao.
+- A resolucao real do intent depende do provedor Android; `assembleDebug` validou manifest/Java, mas nao substitui teste com app Files/Downloads.

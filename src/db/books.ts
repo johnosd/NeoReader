@@ -24,6 +24,10 @@ export async function getAllBooks(): Promise<Book[]> {
   return db.books.orderBy('addedAt').reverse().toArray()
 }
 
+export async function getBookById(id: number): Promise<Book | undefined> {
+  return db.books.get(id)
+}
+
 export async function deleteBook(id: number): Promise<void> {
   // Apaga o livro e todos os dados relacionados numa transação atômica.
   // Sem isso, progresso, marcadores, vocabulário e assets ficam órfãos no IndexedDB.

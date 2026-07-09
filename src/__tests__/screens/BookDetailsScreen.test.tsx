@@ -181,6 +181,8 @@ const book: Book = {
   isFavorite: false,
 }
 
+const SLOW_BOOK_DETAILS_TEST_TIMEOUT_MS = 15_000
+
 function emptyBookInfo(): StoredBookInfo {
   return {
     bookId: 1,
@@ -563,7 +565,7 @@ describe('BookDetailsScreen chapters', () => {
 
     expect(screen.getByText('Review em video')).toBeTruthy()
     expect(screen.getByText('Canal de livros')).toBeTruthy()
-  })
+  }, SLOW_BOOK_DETAILS_TEST_TIMEOUT_MS)
 
   it('coleta informacoes usando titulo e autor salvos quando livro antigo ainda nao tem bookInfo', async () => {
     const collected = {
@@ -915,7 +917,7 @@ describe('BookDetailsScreen voice settings', () => {
 
     expect(screen.getByText('Carlos')).toBeTruthy()
     expect(screen.queryByText('Luna')).toBeNull()
-  })
+  }, SLOW_BOOK_DETAILS_TEST_TIMEOUT_MS)
 
   it('toca amostra da voz sem selecionar a voz', async () => {
     await openVoiceSheet()

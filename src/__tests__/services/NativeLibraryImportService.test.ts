@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   isNativePlatform: vi.fn(() => true),
+  addListener: vi.fn(),
   readFileChunk: vi.fn(),
   readFile: vi.fn(),
   openFileReadSession: vi.fn(),
@@ -14,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   selectEpubFile: vi.fn(),
   consumePendingFolderSelection: vi.fn(),
   consumePendingFileSelection: vi.fn(),
+  consumePendingExternalEpubIntent: vi.fn(),
   listSelectedFolderFiles: vi.fn(),
 }))
 
@@ -22,6 +24,7 @@ vi.mock('@capacitor/core', () => ({
     isNativePlatform: mocks.isNativePlatform,
   },
   registerPlugin: vi.fn(() => ({
+    addListener: mocks.addListener,
     readFileChunk: mocks.readFileChunk,
     readFile: mocks.readFile,
     openFileReadSession: mocks.openFileReadSession,
@@ -34,13 +37,16 @@ vi.mock('@capacitor/core', () => ({
     selectEpubFile: mocks.selectEpubFile,
     consumePendingFolderSelection: mocks.consumePendingFolderSelection,
     consumePendingFileSelection: mocks.consumePendingFileSelection,
+    consumePendingExternalEpubIntent: mocks.consumePendingExternalEpubIntent,
     listSelectedFolderFiles: mocks.listSelectedFolderFiles,
   })),
 }))
 
 import {
   NATIVE_FILE_CHUNK_SIZE,
+  addExternalEpubIntentListener,
   cleanupNativeImportTemp,
+  consumePendingExternalEpubIntent,
   deleteLocalBookFile,
   prepareLocalEpubImport,
   readNativeFolderFile,
@@ -52,6 +58,7 @@ const CHUNK_SIZE = NATIVE_FILE_CHUNK_SIZE
 describe('NativeLibraryImportService', () => {
   beforeEach(() => {
     mocks.readFileChunk.mockReset()
+    mocks.addListener.mockReset()
     mocks.readFile.mockReset()
     mocks.openFileReadSession.mockReset()
     mocks.closeFileReadSession.mockReset()
@@ -59,6 +66,47 @@ describe('NativeLibraryImportService', () => {
     mocks.cancelImport.mockReset()
     mocks.deleteLocalBookFile.mockReset()
     mocks.cleanupImportTemp.mockReset()
+    mocks.consumePendingExternalEpubIntent.mockReset()
+    mocks.isNativePlatform.mockReturnValue(true)
+  })
+
+  it('consome EPUB externo pendente recebido por intent Android', async () => {
+    mocks.consumePendingExternalEpubIntent.mockResolvedValue({
+      name: 'external.epub',
+      uri: 'content://downloads/external',
+      path: 'external.epub',
+      size: 2048,
+    })
+
+    await expect(consumePendingExternalEpubIntent()).resolves.toEqual({
+      name: 'external.epub',
+      uri: 'content://downloads/external',
+      path: 'external.epub',
+      size: 2048,
+    })
+  })
+
+  it('retorna null quando nao ha EPUB externo pendente', async () => {
+    mocks.consumePendingExternalEpubIntent.mockResolvedValue({})
+
+    await expect(consumePendingExternalEpubIntent()).resolves.toBeNull()
+  })
+
+  it('nao consulta intents externos fora de plataforma nativa', async () => {
+    mocks.isNativePlatform.mockReturnValue(false)
+
+    await expect(consumePendingExternalEpubIntent()).resolves.toBeNull()
+    expect(mocks.consumePendingExternalEpubIntent).not.toHaveBeenCalled()
+  })
+
+  it('registra listener para novo intent EPUB externo em plataforma nativa', async () => {
+    const remove = vi.fn()
+    const listener = vi.fn()
+    mocks.addListener.mockResolvedValue({ remove })
+
+    await expect(addExternalEpubIntentListener(listener)).resolves.toEqual({ remove })
+
+    expect(mocks.addListener).toHaveBeenCalledWith('externalEpubIntent', listener)
   })
 
   it('prepara importacao local nativa sem ler chunks por base64', async () => {
