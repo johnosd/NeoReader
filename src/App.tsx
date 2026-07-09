@@ -29,7 +29,7 @@ type Route =
   | { name: 'library'; initialFilter?: LibraryFilter }
   | { name: 'book-details'; book: Book }
   | { name: 'reader'; book: Book; startHref?: string; readerOpenFlowId?: string; readerOpenStartedAt?: number }
-  | { name: 'vocabulary' }
+  | { name: 'vocabulary'; bookId?: number }
   | { name: 'discover' }
   | { name: 'profile' }
   | { name: 'settings' }
@@ -214,7 +214,7 @@ function App() {
             readerOpenFlowId={current.readerOpenFlowId}
             readerOpenStartedAt={current.readerOpenStartedAt}
             onBack={pop}
-            onOpenVocabulary={() => push({ name: 'vocabulary' })}
+            onOpenVocabulary={() => push({ name: 'vocabulary', bookId: current.book.id })}
             onOpenSettings={() => push({ name: 'settings' })}
           />
         </ErrorBoundary>
@@ -223,7 +223,7 @@ function App() {
     case 'vocabulary':
       return (
         <ErrorBoundary key="vocabulary" screen="vocabulary">
-          <VocabularyScreen onBack={pop} />
+          <VocabularyScreen onBack={pop} bookId={current.bookId} />
         </ErrorBoundary>
       )
 

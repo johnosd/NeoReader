@@ -9,6 +9,7 @@ import { getSettings } from '@/db/settings'
 import { translate } from '@/services/TranslationService'
 import { addVocabItem } from '@/db/vocabulary'
 import { deleteBook } from '@/db/books'
+import { setReaderImmersiveMode } from '@/services/NativeSystemUiService'
 
 type MockTtsOptions = {
   onFinished?: () => void
@@ -56,6 +57,7 @@ const mocks = vi.hoisted(() => {
       reset: vi.fn(),
     },
     ttsOptions: null as MockTtsOptions | null,
+    setReaderImmersiveMode: vi.fn().mockResolvedValue(undefined),
     tts: {
       isPlaying: false,
       isPaused: false,
@@ -166,6 +168,10 @@ vi.mock('@/services/SpeechifyService', () => ({
 
 vi.mock('@/services/TranslationService', () => ({
   translate: vi.fn(async () => 'Texto traduzido'),
+}))
+
+vi.mock('@/services/NativeSystemUiService', () => ({
+  setReaderImmersiveMode: mocks.setReaderImmersiveMode,
 }))
 
 vi.mock('@/services/EpubService', () => ({
@@ -316,6 +322,7 @@ describe('ReaderScreen', () => {
     mocks.readerStore.chapterPercentage = null
     mocks.readerStore.toc = []
     mocks.readerStore.tocLabel = ''
+    mocks.setReaderImmersiveMode.mockClear()
     mocks.readerProgress.saveProgress.mockClear()
     mocks.readerProgress.flushProgress.mockClear()
     mocks.readerStore.setCfi.mockClear()
@@ -394,6 +401,44 @@ describe('ReaderScreen', () => {
 
     expect(mocks.tocDrawerProps?.currentHref).toBe('chapter-2.xhtml')
     expect(mocks.tocDrawerProps?.currentLabel).toBe('Chapter 2')
+  })
+
+  it('ativa modo imersivo nativo enquanto o leitor esta montado', async () => {
+    const { unmount } = render(
+      <ReaderScreen
+        book={book}
+        onBack={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+
+    await flushAsyncWork()
+
+    expect(setReaderImmersiveMode).toHaveBeenCalledWith(true)
+
+    unmount()
+
+    expect(setReaderImmersiveMode).toHaveBeenCalledWith(false)
+  })
+
+  it('reativa modo imersivo nativo quando o app volta para primeiro plano', async () => {
+    render(
+      <ReaderScreen
+        book={book}
+        onBack={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+
+    await flushAsyncWork()
+    vi.mocked(setReaderImmersiveMode).mockClear()
+
+    await act(async () => {
+      mocks.capacitorListeners.appStateChange?.({ isActive: true })
+      await Promise.resolve()
+    })
+
+    expect(setReaderImmersiveMode).toHaveBeenCalledWith(true)
   })
 
   it('mostra o footer fixo com capitulo atual e progresso do capitulo', async () => {

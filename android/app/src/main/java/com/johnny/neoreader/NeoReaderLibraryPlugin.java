@@ -12,8 +12,12 @@ import android.os.ParcelFileDescriptor;
 import android.provider.DocumentsContract;
 import android.util.Base64;
 import android.util.Log;
+import android.view.Window;
 
 import androidx.documentfile.provider.DocumentFile;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
@@ -72,6 +76,25 @@ public class NeoReaderLibraryPlugin extends Plugin {
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
     private final Map<String, FileReadSession> fileReadSessions = new ConcurrentHashMap<>();
     private final Set<String> canceledImports = ConcurrentHashMap.newKeySet();
+
+    @PluginMethod
+    public void setReaderImmersiveMode(PluginCall call) {
+        boolean enabled = Boolean.TRUE.equals(call.getBoolean("enabled", false));
+        Activity activity = getActivity();
+        if (activity == null) {
+            call.reject("Activity nativa indisponivel.");
+            return;
+        }
+
+        activity.runOnUiThread(() -> {
+            try {
+                applyReaderImmersiveMode(activity, enabled);
+                call.resolve();
+            } catch (Exception error) {
+                call.reject("Nao foi possivel atualizar o modo imersivo do leitor.", error);
+            }
+        });
+    }
 
     @SuppressWarnings("deprecation")
     @PluginMethod
@@ -1119,6 +1142,22 @@ public class NeoReaderLibraryPlugin extends Plugin {
 
     private String shortSessionId(String sessionId) {
         return sessionId != null && sessionId.length() > 8 ? sessionId.substring(0, 8) : sessionId;
+    }
+
+    private void applyReaderImmersiveMode(Activity activity, boolean enabled) {
+        Window window = activity.getWindow();
+        if (window == null) return;
+
+        WindowCompat.setDecorFitsSystemWindows(window, !enabled);
+        WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(window, window.getDecorView());
+
+        if (enabled) {
+            controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+            controller.hide(WindowInsetsCompat.Type.systemBars());
+        } else {
+            controller.show(WindowInsetsCompat.Type.systemBars());
+            WindowCompat.setDecorFitsSystemWindows(window, true);
+        }
     }
 
     private long getLongOption(PluginCall call, String name, long defaultValue) {

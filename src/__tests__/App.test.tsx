@@ -320,6 +320,7 @@ describe('App navigation and auth gate', () => {
     fireEvent.click(screen.getByTestId('read'))
     fireEvent.click(screen.getByTestId('open-vocabulary'))
     assertScreen('vocabulary')
+    expect(mocks.vocabularyProps?.bookId).toBe(1)
 
     fireEvent.click(screen.getByTestId('back'))
     assertScreen('reader')

@@ -42,6 +42,7 @@ import {
 import { Switch } from '../components/ui'
 import { translate } from '../services/TranslationService'
 import { createFlowId, getDiagnosticsNowMs, logError, logEvent } from '../services/DiagnosticsLogger'
+import { setReaderImmersiveMode } from '../services/NativeSystemUiService'
 import type { Book } from '../types/book'
 import type { TtsProvider } from '../types/tts'
 import { areCfisEquivalent, isCfiInLocation, normalizeCfi } from '../utils/cfi'
@@ -290,7 +291,9 @@ export function ReaderScreen({
   // Inicia o auto-hide assim que o leitor monta
   useEffect(() => {
     resetAutoHide()
+    void setReaderImmersiveMode(true)
     return () => {
+      void setReaderImmersiveMode(false)
       if (sectionChangeTimerRef.current) clearTimeout(sectionChangeTimerRef.current)
       clearStartNavigationFallbackTimer()
       // auto-hide e sleep timer cleanup são responsabilidade dos hooks respectivos
@@ -734,7 +737,12 @@ export function ReaderScreen({
   })
 
   useCapacitorAppStateChange(({ isActive }) => {
-    if (!isActive) void flushCurrentProgress()
+    if (isActive) {
+      void setReaderImmersiveMode(true)
+      return
+    }
+
+    void flushCurrentProgress()
   })
 
   useEffect(() => {
