@@ -51,7 +51,6 @@ Permitir que o NeoReader apareca na lista de apps do Android ao tocar em um arqu
 
 ## Perguntas Abertas
 
-- Confirmar se o primeiro escopo deve ficar em `ACTION_VIEW` apenas ou tambem incluir `ACTION_SEND`.
 - Confirmar apos teste em aparelho real se `application/epub+zip` basta para EPUBs baixados no app alvo, ou se precisa de `application/octet-stream`.
 - Decidir se vale implementar staging nativo pre-login ja na primeira versao para reduzir risco de perda da permissao temporaria do `content://`.
 
@@ -257,8 +256,8 @@ Evidencia 2026-07-09:
 - `npm test -- src/__tests__/services/NativeLibraryImportService.test.ts src/__tests__/App.test.tsx` passou com 42 testes.
 - `npm run lint` passou.
 - `npm run build` passou.
-- `npm test` completo falhou por timeout de 5s em `src/__tests__/screens/BookDetailsScreen.test.tsx`, fora do escopo desta feature; o arquivo passou isoladamente.
-- Tentativas com `npm test -- --testTimeout=10000` e `npm test -- --test-timeout=10000` ainda mantiveram timeout efetivo de 5s nesse arquivo e falharam sob carga da suite completa.
+- `npm test -- src/__tests__/screens/BookDetailsScreen.test.tsx` passou com 18 testes apos ajustar timeout explicito para dois cenarios lentos sob carga da suite completa.
+- `npm test` completo passou com 70 arquivos de teste, 2 skipped, 511 testes passados e 2 skipped.
 
 Acceptance criteria:
 
@@ -323,7 +322,7 @@ Riscos e validacao:
 
 ## Fase 5: QA Final, Documentacao E Release Notes
 
-Status: Not started.
+Status: In progress.
 
 Proposito:
 
@@ -337,17 +336,17 @@ Arquivos/areas provaveis:
 
 Checklist de implementacao:
 
-- [ ] Atualizar este plano com evidencias de testes.
-- [ ] Documentar comandos de build/run se necessario.
-- [ ] Registrar decisoes finais sobre `ACTION_SEND` e MIME fallback.
-- [ ] Confirmar que nenhum arquivo secreto/log pesado foi alterado sem necessidade.
+- [x] Atualizar este plano com evidencias de testes.
+- [x] Documentar comandos de build/run se necessario.
+- [x] Registrar decisoes finais sobre `ACTION_SEND` e MIME fallback.
+- [x] Confirmar que nenhum arquivo secreto/log pesado foi alterado sem necessidade.
 
 Testes:
 
-- [ ] `npm run lint`
-- [ ] `npm test`
-- [ ] `npm run build`
-- [ ] `npx cap sync android`
+- [x] `npm run lint`
+- [x] `npm test`
+- [x] `npm run build`
+- [x] `npx cap sync android`
 - [ ] `npx cap run android` ou build/run equivalente em device.
 - [ ] QA manual: abrir EPUB com app fechado.
 - [ ] QA manual: abrir EPUB com app em background.
@@ -355,6 +354,17 @@ Testes:
 - [ ] QA manual: abrir EPUB deslogado e concluir login.
 - [ ] QA manual: abrir EPUB duplicado.
 - [ ] QA manual: abrir arquivo nao EPUB se fallback MIME for adicionado.
+
+Evidencia 2026-07-09:
+
+- `npx cap sync android` passou e atualizou/copiou os assets Android.
+- `adb devices` nao listou nenhum device/emulador conectado; por isso `npx cap run android` e QA manual seguem pendentes.
+- `npm run lint` passou.
+- `npm test` completo passou com 70 arquivos de teste, 2 skipped, 511 testes passados e 2 skipped.
+- `npm run build` passou.
+- `.\gradlew.bat :app:assembleDebug` passou.
+- O escopo final continua sem `ACTION_SEND`.
+- O MIME final da primeira entrega continua restrito a `application/epub+zip`; `application/octet-stream` fica pendente apenas se QA real mostrar que o NeoReader nao aparece no seletor.
 
 Acceptance criteria:
 
@@ -435,9 +445,10 @@ Ao executar este plano:
 
 Proximo passo recomendado:
 
-1. Rodar QA em device/emulador: instalar o debug build, abrir um EPUB via Files/Downloads e confirmar que NeoReader aparece em "Abrir com".
-2. Se o app nao aparecer para EPUBs baixados no app alvo, executar Fase 4 e adicionar fallback controlado para `application/octet-stream`.
-3. Se o app aparecer, executar Fase 5: `npx cap sync android`, `npx cap run android` em device e checklist manual completo.
+1. Conectar um device/emulador Android e rodar `npx cap run android` ou instalar o APK debug equivalente.
+2. Abrir um EPUB via Files/Downloads e confirmar que NeoReader aparece em "Abrir com".
+3. Se o app nao aparecer para EPUBs baixados no app alvo, executar Fase 4 e adicionar fallback controlado para `application/octet-stream`.
+4. Se o app aparecer, concluir a Fase 5 com o checklist manual completo.
 
 Comandos uteis:
 
