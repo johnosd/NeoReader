@@ -5,12 +5,14 @@ import {
   EpubViewer,
   type EpubViewerHandle,
   type ParagraphBookmarkPayload,
+  type ReaderImageOpenPayload,
   type ReaderRelocatePayload,
   type VisibleReadingLocation,
 } from '../components/reader/EpubViewer'
 import { ReaderChrome } from '../components/reader/ReaderChrome'
 import { TocDrawer } from '../components/reader/TocDrawer'
 import { BookmarkSheet } from '../components/reader/BookmarkSheet'
+import { ImageZoomModal } from '../components/reader/ImageZoomModal'
 import { BottomSheet } from '../components/ui'
 import { IntegrationHelpBanner } from '../components/IntegrationHelpBanner'
 import { useReaderProgress } from '../hooks/useReaderProgress'
@@ -25,6 +27,10 @@ import { addVocabItem, getVocabSourceTextsByBookId } from '../db/vocabulary'
 import { db } from '../db/database'
 import { useTTS } from '../hooks/useTTS'
 import { TtsMiniPlayer } from '../components/reader/TtsMiniPlayer'
+import {
+  READER_PROGRESS_FOOTER_HEIGHT_PX,
+  ReaderProgressFooter,
+} from '../components/reader/ReaderProgressFooter'
 import { getTtsProviderLabel, isPremiumTtsProvider } from '../services/TtsProviderRegistry'
 import {
   ReaderFontControl,
@@ -36,10 +42,11 @@ import {
 import { Switch } from '../components/ui'
 import { translate } from '../services/TranslationService'
 import { createFlowId, getDiagnosticsNowMs, logError, logEvent } from '../services/DiagnosticsLogger'
+import { setReaderImmersiveMode } from '../services/NativeSystemUiService'
 import type { Book } from '../types/book'
 import type { TtsProvider } from '../types/tts'
 import { areCfisEquivalent, isCfiInLocation, normalizeCfi } from '../utils/cfi'
-import { areTocHrefDocumentSuffixesEqual } from '../utils/toc'
+import { areTocHrefDocumentSuffixesEqual, findTopLevelTocLabel } from '../utils/toc'
 import { getReaderThemePalette } from '../utils/readerPreferences'
 import { clampTtsRate } from '../utils/language'
 import { useI18n } from '../i18n'
@@ -137,6 +144,7 @@ export function ReaderScreen({
   const [tocOpen, setTocOpen] = useState(false)
   const [bookmarkSheetOpen, setBookmarkSheetOpen] = useState(false)
   const [appearanceSheetOpen, setAppearanceSheetOpen] = useState(false)
+  const [readerImagePreview, setReaderImagePreview] = useState<ReaderImageOpenPayload | null>(null)
   const [focusLineEnabled, setFocusLineEnabled] = useState(() => localStorage.getItem('neoreader:focus-line') === '1')
   const [removingMissingBook, setRemovingMissingBook] = useState(false)
   const [missingBookRemovalError, setMissingBookRemovalError] = useState<string | null>(null)
@@ -283,7 +291,9 @@ export function ReaderScreen({
   // Inicia o auto-hide assim que o leitor monta
   useEffect(() => {
     resetAutoHide()
+    void setReaderImmersiveMode(true)
     return () => {
+      void setReaderImmersiveMode(false)
       if (sectionChangeTimerRef.current) clearTimeout(sectionChangeTimerRef.current)
       clearStartNavigationFallbackTimer()
       // auto-hide e sleep timer cleanup são responsabilidade dos hooks respectivos
@@ -304,6 +314,7 @@ export function ReaderScreen({
     currentTocHref = savedProgress?.sectionHref ?? null
   }
   const currentTocLabel = tocLabel || (!startHref ? savedProgress?.sectionLabel : undefined)
+  const footerTocLabel = findTopLevelTocLabel(toc, currentTocHref, currentTocLabel) ?? currentTocLabel
 
   // Marcadores do livro atual — useLiveQuery: reativo, atualiza automaticamente
   const bookmarks = useLiveQuery(
@@ -635,6 +646,11 @@ export function ReaderScreen({
       .catch(() => viewerRef.current?.injectTranslation(t('reader.translation.error')))
   }
 
+  const handleOpenImage = useCallback((payload: ReaderImageOpenPayload) => {
+    resetAutoHide()
+    setReaderImagePreview(payload)
+  }, [resetAutoHide])
+
   const handleRelocate = useCallback(
     (location: ReaderRelocatePayload) => {
       const { cfi: newCfi, percentage: newPercentage, chapterPercentage: newChapterPercentage, tocLabel, sectionHref, fraction, sectionIndex } = location
@@ -713,6 +729,7 @@ export function ReaderScreen({
 
   // Intercepta o botão Back físico do Android (via plugin Capacitor)
   useCapacitorBackButton(() => {
+    if (readerImagePreview) { setReaderImagePreview(null); return }
     if (bookmarkSheetOpen) { setBookmarkSheetOpen(false); return }
     if (appearanceSheetOpen) { setAppearanceSheetOpen(false); return }
     if (tocOpen) { setTocOpen(false); return }
@@ -720,7 +737,12 @@ export function ReaderScreen({
   })
 
   useCapacitorAppStateChange(({ isActive }) => {
-    if (!isActive) void flushCurrentProgress()
+    if (isActive) {
+      void setReaderImmersiveMode(true)
+      return
+    }
+
+    void flushCurrentProgress()
   })
 
   useEffect(() => {
@@ -883,6 +905,7 @@ export function ReaderScreen({
           ttsGlobalActive={ttsPlayerVisible}
           onBookmarkTap={(id) => { void softDeleteBookmark(id) }}
           onBookmarkParagraph={handleParagraphBookmark}
+          onOpenImage={handleOpenImage}
           vocabWords={vocabWords}
           />
         )}
@@ -914,14 +937,16 @@ export function ReaderScreen({
         onDismiss={() => setChromeVisible(false)}
       />
 
-      {/* Faixa de progresso sempre visível — 2px na base da tela, fora do chrome.
-          pointer-events-none: não bloqueia nenhum toque. z-[12]: abaixo do chrome (z-20). */}
-      <div className="absolute bottom-0 left-0 right-0 z-[12] pointer-events-none" style={{ height: '2px' }}>
-        <div
-          className="h-full bg-indigo-primary/60 transition-all duration-500"
-          style={{ width: `${percentage}%` }}
-        />
-      </div>
+      <ReaderProgressFooter
+        sectionLabel={footerTocLabel ?? null}
+        chapterPercentage={chapterPercentage}
+      />
+
+      <ImageZoomModal
+        src={readerImagePreview?.src ?? null}
+        alt={readerImagePreview?.alt ?? null}
+        onClose={() => setReaderImagePreview(null)}
+      />
 
       {/* Indicador discreto de troca de seção no modo corrido. */}
       {sectionChangeLabel && !ttsPlayerVisible && (
@@ -963,6 +988,7 @@ export function ReaderScreen({
           providerAvailability={ttsProviderAvailability}
           ttsRate={ttsConfig.rate}
           showBackToTtsLocation={showBackToTtsLocation}
+          bottomOffsetPx={READER_PROGRESS_FOOTER_HEIGHT_PX}
           onPlayPause={handleTtsToggle}
           onBackToTtsLocation={handleBackToTtsLocation}
           onPrevParagraph={handleTtsPrev}

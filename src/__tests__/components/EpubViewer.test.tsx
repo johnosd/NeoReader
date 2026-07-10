@@ -114,6 +114,20 @@ function clickAt(el: Element, clientX: number, clientY = 360) {
   })
 }
 
+function touchAt(el: Element, type: 'touchstart' | 'touchmove' | 'touchend', clientX: number, clientY: number) {
+  act(() => {
+    const event = new Event(type, {
+      bubbles: true,
+      cancelable: true,
+    })
+    Object.defineProperty(event, 'touches', {
+      configurable: true,
+      value: type === 'touchend' ? [] : [{ clientX, clientY }],
+    })
+    el.dispatchEvent(event)
+  })
+}
+
 function expectTapIgnored(reason: string, details: Record<string, unknown> = {}) {
   expect(logEventMock).toHaveBeenCalledWith('reader.tap.ignored', expect.objectContaining({
     screen: 'reader',
@@ -1627,5 +1641,149 @@ describe('EpubViewer - bloco inline de traducao', () => {
     expect(onTranslate).toHaveBeenNthCalledWith(1, 'Last paragraph in chapter 2.')
     expect(onTranslate).toHaveBeenNthCalledWith(2, 'First paragraph in chapter 3.')
     expect(secondDoc.querySelector('p')?.hasAttribute('data-nr-active')).toBe(true)
+  })
+})
+
+describe('EpubViewer - imagens do leitor', () => {
+  function appendImage(doc: Document, parent: Element = doc.body, src = 'https://example.test/images/figure.jpg') {
+    const image = doc.createElement('img')
+    image.src = src
+    image.alt = 'Mapa do capitulo'
+    Object.defineProperty(image, 'naturalWidth', {
+      configurable: true,
+      value: 640,
+    })
+    Object.defineProperty(image, 'naturalHeight', {
+      configurable: true,
+      value: 480,
+    })
+    parent.appendChild(image)
+    return image
+  }
+
+  it('tap em img abre a visualizacao sem traduzir nem alternar chrome', async () => {
+    const onOpenImage = vi.fn()
+    const onTranslate = vi.fn()
+    const onCenterTap = vi.fn()
+    const { foliateEl } = await renderViewer({ onOpenImage, onTranslate, onCenterTap })
+    const fakeDoc = makeFakeDoc(['Paragraph with image.'])
+    const para = fakeDoc.querySelector('p') as HTMLElement
+    const imageSrc = 'https://example.test/images/figure.jpg'
+    const image = appendImage(fakeDoc, para, imageSrc)
+
+    loadSection(foliateEl, fakeDoc, 0)
+    click(image)
+
+    expect(onOpenImage).toHaveBeenCalledWith({
+      src: imageSrc,
+      alt: 'Mapa do capitulo',
+      naturalWidth: 640,
+      naturalHeight: 480,
+      sectionIndex: 0,
+    })
+    expect(onTranslate).not.toHaveBeenCalled()
+    expect(onCenterTap).not.toHaveBeenCalled()
+    expect(logEventMock).toHaveBeenCalledWith('reader.image.open', expect.objectContaining({
+      screen: 'reader',
+      status: 'success',
+      details: expect.objectContaining({
+        sectionIndex: 0,
+        hasAlt: true,
+        naturalWidth: 640,
+        naturalHeight: 480,
+        sourceType: 'external',
+      }),
+    }))
+    expect(JSON.stringify(logEventMock.mock.calls)).not.toContain(imageSrc)
+  })
+
+  it('detecta imagem pelo elementFromPoint quando o alvo direto nao e a imagem', async () => {
+    const onOpenImage = vi.fn()
+    const { foliateEl } = await renderViewer({ onOpenImage })
+    const fakeDoc = makeFakeDoc(['Hi'])
+    const imageSrc = 'blob:reader-image'
+    const image = appendImage(fakeDoc, fakeDoc.body, imageSrc)
+    Object.defineProperty(fakeDoc, 'elementFromPoint', {
+      configurable: true,
+      value: () => image,
+    })
+
+    loadSection(foliateEl, fakeDoc, 0)
+    clickAt(fakeDoc.body, 180, 360)
+
+    expect(onOpenImage).toHaveBeenCalledWith(expect.objectContaining({
+      src: imageSrc,
+      sectionIndex: 0,
+    }))
+  })
+
+  it('tap em img com chrome visivel e TTS ativo nao navega TTS nem fecha chrome', async () => {
+    const onOpenImage = vi.fn()
+    const onCenterTap = vi.fn()
+    const onTranslate = vi.fn()
+    const onParagraphTapForTts = vi.fn()
+    const { foliateEl } = await renderViewer({
+      chromeVisible: true,
+      ttsGlobalActive: true,
+      onOpenImage,
+      onCenterTap,
+      onTranslate,
+      onParagraphTapForTts,
+    })
+    const fakeDoc = makeFakeDoc(['Paragraph with image.'])
+    const para = fakeDoc.querySelector('p') as HTMLElement
+    const image = appendImage(fakeDoc, para)
+
+    loadSection(foliateEl, fakeDoc, 0)
+    click(image)
+
+    expect(onOpenImage).toHaveBeenCalledOnce()
+    expect(onCenterTap).not.toHaveBeenCalled()
+    expect(onTranslate).not.toHaveBeenCalled()
+    expect(onParagraphTapForTts).not.toHaveBeenCalled()
+    expect(logEventMock).not.toHaveBeenCalledWith('reader.tap.ignored', expect.objectContaining({
+      details: expect.objectContaining({ reason: 'tts-active' }),
+    }))
+  })
+
+  it('gesto de scroll sobre img nao abre a visualizacao', async () => {
+    const onOpenImage = vi.fn()
+    const { foliateEl } = await renderViewer({ onOpenImage })
+    const fakeDoc = makeFakeDoc(['Paragraph with image.'])
+    const image = appendImage(fakeDoc, fakeDoc.querySelector('p') as HTMLElement)
+
+    loadSection(foliateEl, fakeDoc, 0)
+    touchAt(image, 'touchstart', 80, 80)
+    touchAt(image, 'touchmove', 80, 120)
+    click(image)
+
+    expect(onOpenImage).not.toHaveBeenCalled()
+    expectTapIgnored('scroll-gesture')
+  })
+
+  it('imagem dentro do bloco de traducao continua sendo tratada como toque no bloco', async () => {
+    const onOpenImage = vi.fn()
+    const onTranslate = vi.fn()
+    const onCenterTap = vi.fn()
+    const { viewerRef, foliateEl } = await renderViewer({ onOpenImage, onTranslate, onCenterTap })
+    const fakeDoc = makeFakeDoc(['Paragraph for translation.'])
+    const para = fakeDoc.querySelector('p') as HTMLElement
+
+    loadSection(foliateEl, fakeDoc, 0)
+    click(para)
+    act(() => { viewerRef.current?.showTranslationLoading() })
+    act(() => { viewerRef.current?.injectTranslation('Texto traduzido') })
+
+    const block = fakeDoc.getElementById('nr-translation-block') as HTMLElement
+    const image = appendImage(fakeDoc, block)
+    click(image)
+
+    expect(onOpenImage).not.toHaveBeenCalled()
+    expect(onCenterTap).not.toHaveBeenCalled()
+    expect(onTranslate).toHaveBeenCalledOnce()
+    expectTapIgnored('translation-block', {
+      sectionIndex: 0,
+      paragraphIndex: 0,
+    })
   })
 })

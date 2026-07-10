@@ -3,21 +3,21 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useMemo, useState } from 'react'
 import { AdBannerSlot } from '../components/AdBannerSlot'
 import { EmptyState, Input, Spinner } from '../components/ui'
-import { db } from '../db/database'
-import { deleteVocabItem } from '../db/vocabulary'
+import { deleteVocabItem, getAllVocabItems, getVocabItemsByBookId } from '../db/vocabulary'
 import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
 import { useI18n } from '../i18n'
 
 interface VocabularyScreenProps {
   onBack: () => void
+  bookId?: number
 }
 
-export function VocabularyScreen({ onBack }: VocabularyScreenProps) {
+export function VocabularyScreen({ onBack, bookId }: VocabularyScreenProps) {
   const { t } = useI18n()
   // Reativo: atualiza automaticamente quando um item é apagado
   const items = useLiveQuery(
-    () => db.vocabulary.orderBy('createdAt').reverse().toArray(),
-    [],
+    () => (bookId === undefined ? getAllVocabItems() : getVocabItemsByBookId(bookId)),
+    [bookId],
   )
   const [query, setQuery] = useState('')
 

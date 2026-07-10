@@ -88,6 +88,8 @@ type ReaderTapIgnoredReason =
   | 'translation-loading'
   | 'tts-active'
 
+type ReaderImageSourceType = 'blob' | 'data' | 'external' | 'relative'
+
 function splitParagraphIntoTranslationUnits(text: string): Array<{ sentence: string; offset: number }> {
   const units = [...text.matchAll(/[^.!?。！？…]+(?:[.!?。！？…]+["'”’»)]*|$)/g)]
     .map((match) => {
@@ -1065,6 +1067,14 @@ export interface ReaderRelocatePayload extends VisibleReadingLocation {
   sectionIndex: number
 }
 
+export interface ReaderImageOpenPayload {
+  src: string
+  alt?: string
+  naturalWidth?: number
+  naturalHeight?: number
+  sectionIndex?: number
+}
+
 interface LoadedSectionContent {
   index: number
   doc: Document
@@ -1112,6 +1122,7 @@ interface EpubViewerProps {
   onBookmarkTap?: (bookmarkId: number) => void
   // Bookmarks: toggle no parágrafo atualmente selecionado no bloco de tradução inline.
   onBookmarkParagraph?: (payload: ParagraphBookmarkPayload) => void
+  onOpenImage?: (payload: ReaderImageOpenPayload) => void
   // Vocabulário: frases originais já salvas pelo usuário para highlight passivo
   vocabWords?: string[]
 }
@@ -1127,6 +1138,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       onSpeakOne, onParagraphTapForTts, onTtsUserScrollAway, ttsGlobalActive,
       chromeVisible,
       onBookmarkTap, onBookmarkParagraph,
+      onOpenImage,
       vocabWords,
     },
     ref,
@@ -1173,6 +1185,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const onParagraphTapForTtsRef = useSyncRef(onParagraphTapForTts)
     const onSectionReadyRef = useSyncRef(onSectionReady)
     const onTtsUserScrollAwayRef = useSyncRef(onTtsUserScrollAway)
+    const onOpenImageRef = useSyncRef(onOpenImage)
     // ttsGlobalActive: modo leitura contínua ativo (inclui pausado) — gating do clique
     const ttsGlobalActiveRef = useSyncRef(ttsGlobalActive)
     const chromeVisibleRef = useSyncRef(chromeVisible)
@@ -1388,6 +1401,79 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
     function getElementFromPoint(doc: Document, clientX: number, clientY: number): Element | null {
       return doc.elementFromPoint?.(clientX, clientY) ?? null
+    }
+
+    function getSafeImageSource(value?: string | null): string | null {
+      const source = value?.trim()
+      if (!source || /^javascript:/i.test(source)) return null
+      return source
+    }
+
+    function getImageSourceType(source: string): ReaderImageSourceType {
+      if (/^blob:/i.test(source)) return 'blob'
+      if (/^data:/i.test(source)) return 'data'
+      if (/^[a-z][a-z0-9+.-]*:/i.test(source) || /^\/\//.test(source)) return 'external'
+      return 'relative'
+    }
+
+    function getPositiveDimension(value: number): number | undefined {
+      return Number.isFinite(value) && value > 0 ? value : undefined
+    }
+
+    function getHtmlImagePayload(img: HTMLImageElement, sectionIndex?: number): ReaderImageOpenPayload | null {
+      const src = getSafeImageSource(img.currentSrc || img.src || img.getAttribute('src'))
+      if (!src) return null
+
+      return {
+        src,
+        alt: img.getAttribute('alt')?.trim() || undefined,
+        naturalWidth: getPositiveDimension(img.naturalWidth),
+        naturalHeight: getPositiveDimension(img.naturalHeight),
+        sectionIndex,
+      }
+    }
+
+    function getSvgImagePayload(image: Element, sectionIndex?: number): ReaderImageOpenPayload | null {
+      const href = getSafeImageSource(
+        image.getAttribute('href') ||
+        image.getAttribute('xlink:href'),
+      )
+      if (!href) return null
+
+      return {
+        src: href,
+        sectionIndex,
+      }
+    }
+
+    function getImagePayloadFromElement(element: Element | null, sectionIndex?: number): ReaderImageOpenPayload | null {
+      if (!element || element.closest('#nr-translation-block')) return null
+
+      const image = element instanceof HTMLImageElement
+        ? element
+        : element.closest('img') as HTMLImageElement | null
+      if (image) return getHtmlImagePayload(image, sectionIndex)
+
+      const pictureImage = element.closest('picture')?.querySelector('img')
+      if (pictureImage) return getHtmlImagePayload(pictureImage, sectionIndex)
+
+      const svgImage = element.tagName.toLowerCase() === 'image'
+        ? element
+        : element.closest('image')
+      if (svgImage) return getSvgImagePayload(svgImage, sectionIndex)
+
+      return null
+    }
+
+    function getImageTapPayload(
+      target: Element,
+      doc: Document,
+      clientX: number,
+      clientY: number,
+      sectionIndex?: number,
+    ): ReaderImageOpenPayload | null {
+      return getImagePayloadFromElement(target, sectionIndex)
+        ?? getImagePayloadFromElement(getElementFromPoint(doc, clientX, clientY), sectionIndex)
     }
 
     function getTranslationActionAtPoint(target: Element, doc: Document, clientX: number, clientY: number): HTMLElement | null {
@@ -2546,6 +2632,28 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               const activeSection = activateSection(targetSectionIndex)
               if (activeSection?.doc) setupScrollTracking(activeSection.doc)
             }
+
+            const imagePayload = onOpenImageRef.current
+              ? getImageTapPayload(target, ownerDocument, ev.clientX, ev.clientY, targetSectionIndex ?? undefined)
+              : null
+            if (imagePayload) {
+              ev.preventDefault()
+              ev.stopPropagation()
+              logEvent('reader.image.open', {
+                screen: 'reader',
+                status: 'success',
+                details: {
+                  sectionIndex: imagePayload.sectionIndex,
+                  hasAlt: Boolean(imagePayload.alt),
+                  naturalWidth: imagePayload.naturalWidth,
+                  naturalHeight: imagePayload.naturalHeight,
+                  sourceType: getImageSourceType(imagePayload.src),
+                },
+              })
+              onOpenImageRef.current?.(imagePayload)
+              return
+            }
+
             const para = getTapReadableBlock(target, ownerDocument, ev.clientX, ev.clientY)
             const tapHitsReadableText = para ? isPointInsideElement(para, ev.clientX, ev.clientY) : false
 

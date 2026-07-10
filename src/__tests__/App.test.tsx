@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { FeatureQuotaService } from '@/services/FeatureQuotaService'
 import type { Book } from '@/types/book'
@@ -24,6 +24,15 @@ const mocks = vi.hoisted(() => ({
   } as Record<string, unknown>,
   signInWithGoogle: vi.fn(),
   signOut: vi.fn(),
+  isNativePlatform: vi.fn(() => false),
+  appAddListener: vi.fn(async () => ({ remove: vi.fn() })),
+  addExternalEpubIntentListener: vi.fn(async () => ({ remove: vi.fn() })),
+  cleanupNativeImportTemp: vi.fn(async () => 0),
+  consumePendingExternalEpubIntent: vi.fn(async () => null),
+  importNativeEpub: vi.fn(),
+  isImportInProgress: vi.fn(() => false),
+  cancelActiveImport: vi.fn(),
+  getBookById: vi.fn(),
 }))
 
 const testBook: Book = {
@@ -179,7 +188,56 @@ vi.mock('@/screens/LoginScreen', () => ({
 
 vi.mock('@/components/ui', () => ({
   Spinner: () => <div data-testid="spinner" />,
+  Toast: ({ children }: { children: React.ReactNode }) => <div role="status">{children}</div>,
   ErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}))
+
+vi.mock('@capacitor/core', () => ({
+  Capacitor: {
+    isNativePlatform: mocks.isNativePlatform,
+  },
+  registerPlugin: vi.fn(() => ({})),
+}))
+
+vi.mock('@capacitor/app', () => ({
+  App: {
+    addListener: mocks.appAddListener,
+  },
+}))
+
+vi.mock('@/services/NativeLibraryImportService', () => ({
+  addExternalEpubIntentListener: mocks.addExternalEpubIntentListener,
+  cleanupNativeImportTemp: mocks.cleanupNativeImportTemp,
+  consumePendingExternalEpubIntent: mocks.consumePendingExternalEpubIntent,
+}))
+
+vi.mock('@/services/BookImportService', () => ({
+  BookImportService: {
+    importNativeEpub: mocks.importNativeEpub,
+    isImportInProgress: mocks.isImportInProgress,
+    cancelActiveImport: mocks.cancelActiveImport,
+  },
+}))
+
+vi.mock('@/services/BillingService', () => ({
+  BillingService: {
+    init: vi.fn(async () => undefined),
+    waitForInit: vi.fn(async () => undefined),
+  },
+}))
+
+vi.mock('@/services/AdsService', () => ({
+  AdsService: {
+    init: vi.fn(async () => undefined),
+  },
+}))
+
+vi.mock('@/services/VocabularyDriveSyncService', () => ({
+  scheduleVocabularyDriveSync: vi.fn(),
+}))
+
+vi.mock('@/db/books', () => ({
+  getBookById: mocks.getBookById,
 }))
 
 vi.mock('@/hooks/useAuth', () => ({
@@ -226,6 +284,21 @@ describe('App navigation and auth gate', () => {
     }
     mocks.signInWithGoogle.mockReset()
     mocks.signOut.mockReset()
+    mocks.isNativePlatform.mockReset()
+    mocks.isNativePlatform.mockReturnValue(false)
+    mocks.appAddListener.mockReset()
+    mocks.appAddListener.mockResolvedValue({ remove: vi.fn() })
+    mocks.addExternalEpubIntentListener.mockReset()
+    mocks.addExternalEpubIntentListener.mockResolvedValue({ remove: vi.fn() })
+    mocks.cleanupNativeImportTemp.mockReset()
+    mocks.cleanupNativeImportTemp.mockResolvedValue(0)
+    mocks.consumePendingExternalEpubIntent.mockReset()
+    mocks.consumePendingExternalEpubIntent.mockResolvedValue(null)
+    mocks.importNativeEpub.mockReset()
+    mocks.isImportInProgress.mockReset()
+    mocks.isImportInProgress.mockReturnValue(false)
+    mocks.cancelActiveImport.mockReset()
+    mocks.getBookById.mockReset()
     window.localStorage.clear()
     FeatureQuotaService.reset()
   })
@@ -320,6 +393,7 @@ describe('App navigation and auth gate', () => {
     fireEvent.click(screen.getByTestId('read'))
     fireEvent.click(screen.getByTestId('open-vocabulary'))
     assertScreen('vocabulary')
+    expect(mocks.vocabularyProps?.bookId).toBe(1)
 
     fireEvent.click(screen.getByTestId('back'))
     assertScreen('reader')
@@ -376,6 +450,73 @@ describe('App navigation and auth gate', () => {
     fireEvent.click(screen.getByTestId('read'))
 
     expect(mocks.readerProps?.book).toEqual(expect.objectContaining({ id: 1, title: 'Livro de Teste' }))
+  })
+
+  it('importa EPUB externo pendente no Android e abre o leitor quando autenticado', async () => {
+    const nativeFile = {
+      name: 'externo.epub',
+      uri: 'content://downloads/externo',
+      path: 'externo.epub',
+      size: 1234,
+    }
+    const importedBook: Book = {
+      ...testBook,
+      id: 42,
+      title: 'Livro Externo',
+      storageMode: 'local',
+      uri: 'file:///data/books/externo.epub',
+    }
+    mocks.isNativePlatform.mockReturnValue(true)
+    mocks.consumePendingExternalEpubIntent.mockResolvedValue(nativeFile)
+    mocks.importNativeEpub.mockResolvedValue(42)
+    mocks.getBookById.mockResolvedValue(importedBook)
+
+    render(<App />)
+
+    await waitFor(() => {
+      expect(mocks.importNativeEpub).toHaveBeenCalledWith(nativeFile, { importSource: 'local' })
+    })
+    await waitFor(() => assertScreen('reader'))
+    expect(mocks.readerProps?.book).toEqual(expect.objectContaining({ id: 42, title: 'Livro Externo' }))
+  })
+
+  it('nao consome EPUB externo enquanto usuario nao esta autenticado', async () => {
+    mocks.isNativePlatform.mockReturnValue(true)
+    mocks.authState = { status: 'signed-out', configured: true, user: null }
+
+    render(<App />)
+
+    assertScreen('welcome')
+    expect(mocks.consumePendingExternalEpubIntent).not.toHaveBeenCalled()
+    expect(mocks.importNativeEpub).not.toHaveBeenCalled()
+  })
+
+  it('mostra erro quando EPUB externo ja existe na biblioteca', async () => {
+    mocks.isNativePlatform.mockReturnValue(true)
+    mocks.consumePendingExternalEpubIntent.mockResolvedValue({
+      name: 'duplicado.epub',
+      uri: 'content://downloads/duplicado',
+      path: 'duplicado.epub',
+      size: 1234,
+    })
+    mocks.importNativeEpub.mockRejectedValue(new Error('Este livro ja esta na biblioteca.'))
+
+    render(<App />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('status').textContent).toContain('Este livro ja esta na biblioteca.')
+    })
+    expect(mocks.getBookById).not.toHaveBeenCalled()
+  })
+
+  it('nao consome EPUB externo enquanto outra importacao esta em andamento', () => {
+    mocks.isNativePlatform.mockReturnValue(true)
+    mocks.isImportInProgress.mockReturnValue(true)
+
+    render(<App />)
+
+    expect(mocks.consumePendingExternalEpubIntent).not.toHaveBeenCalled()
+    expect(mocks.importNativeEpub).not.toHaveBeenCalled()
   })
 
   it('mostra Welcome antes do Login quando nao autenticado', () => {

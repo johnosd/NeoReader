@@ -18,6 +18,12 @@ export async function getAllVocabItems(): Promise<VocabItem[]> {
   return db.vocabulary.orderBy('createdAt').reverse().toArray()
 }
 
+// Retorna todos os itens do vocabulário de um livro, do mais recente ao mais antigo
+export async function getVocabItemsByBookId(bookId: number): Promise<VocabItem[]> {
+  const items = await db.vocabulary.where('bookId').equals(bookId).toArray()
+  return items.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+}
+
 // Retorna as frases originais salvas para um livro específico (para highlight no leitor)
 export async function getVocabSourceTextsByBookId(bookId: number): Promise<string[]> {
   const items = await db.vocabulary.where('bookId').equals(bookId).toArray()
