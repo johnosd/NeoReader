@@ -4,7 +4,7 @@
 
 - Feature: marcar no leitor palavras em ingles acima do nivel CEFR do usuario.
 - Data da reescrita: 2026-07-13.
-- Status: em execucao; Fases 0 e 1 concluidas, Fase 2 pronta para iniciar.
+- Status: em execucao; Fases 0, 1 e 2 concluidas, Fase 3 pronta para iniciar.
 - Contexto: plano reescrito via skill `plan-feature` depois de definir fontes, pipeline externo e acesso offline aos data packs.
 - Plataformas: Web e Android via Capacitor.
 - Nivel padrao: B1; selecao entre A1 e C2.
@@ -433,28 +433,28 @@ Estrategias:
 
 ## Fase 2: Servico De Dados E Classificador
 
-- Status: Not started.
+- Status: Done.
 - Proposito: carregar assets locais e classificar texto com API pura e custo previsivel.
 - Areas: `src/services/WordLensDataService.ts`, `src/utils/wordLens.ts` e testes unitarios.
 
 ### Implementacao
 
-- [ ] Definir `CefrLevel` e funcoes ordinais.
-- [ ] Resolver caminhos via `import.meta.env.BASE_URL`.
-- [ ] Implementar fetch local, validacao basica de schema, memoizacao e erro nao bloqueante.
-- [ ] Garantir early return antes do fetch quando desligado, C2 ou livro nao ingles.
-- [ ] Implementar tokenizacao Unicode e ranges originais.
-- [ ] Implementar normalizacao de case/apostrofos e resolucao opcional de lema.
-- [ ] Retornar somente palavras estritamente acima do nivel.
-- [ ] Garantir que o servico nunca usa URL externa.
+- [x] Definir `CefrLevel` e funcoes ordinais.
+- [x] Resolver caminhos via `import.meta.env.BASE_URL`.
+- [x] Implementar fetch local, validacao basica de schema, memoizacao e erro nao bloqueante.
+- [x] Garantir early return antes do fetch quando desligado, C2 ou livro nao ingles.
+- [x] Implementar tokenizacao Unicode e ranges originais.
+- [x] Implementar normalizacao de case/apostrofos e resolucao opcional de lema.
+- [x] Retornar somente palavras estritamente acima do nivel.
+- [x] Garantir que o servico nunca usa URL externa.
 
 ### Testes
 
-- [ ] Cobrir A1-C2, comparacao estrita, termo ausente e conflitos.
-- [ ] Cobrir pontuacao, apostrofos, hifens, case, Unicode e offsets.
-- [ ] Cobrir flexoes conforme politica aprovada.
-- [ ] Cobrir memoizacao, erro de asset, base path e ausencia de fetch nos early returns.
-- [ ] Benchmarkar texto pequeno, medio e extremo sem DOM.
+- [x] Cobrir A1-C2, comparacao estrita, termo ausente e conflitos.
+- [x] Cobrir pontuacao, apostrofos, hifens, case, Unicode e offsets.
+- [x] Cobrir flexoes conforme politica aprovada.
+- [x] Cobrir memoizacao, erro de asset, base path e ausencia de fetch nos early returns.
+- [x] Benchmarkar texto pequeno, medio e extremo sem DOM.
 
 ### Criterios De Aceite
 
@@ -464,6 +464,19 @@ Estrategias:
 
 - Commit sugerido: `feat(word-lens): add local CEFR classifier`
 - Risco: base path divergente entre Web e Capacitor; validar nos dois ambientes.
+
+### Evidencias Da Fase 2
+
+- Tipos CEFR e contratos do data pack adicionados em `src/types/wordLens.ts`.
+- `WordLensDataService` carrega apenas assets same-origin, valida schema, memoiza sucesso ou indisponibilidade da sessao e evita fetch nos early returns.
+- Classificador puro preserva offsets do texto, normaliza case/apostrofos, usa flexoes precomputadas e aplica comparacao CEFR estrita.
+- 16 testes focados passaram, incluindo benchmark sem DOM para textos pequeno, medio e extremo.
+- `npm run lint`: passou.
+- `npm run build`: passou com os avisos preexistentes de PDF.js e chunk grande.
+- `npm test -- --run`: 72 arquivos passaram, 2 foram ignorados; 527 testes passaram e 2 foram ignorados.
+- `git diff --check`: passou; o aviso de conversao LF/CRLF do plano e apenas configuracao do worktree.
+- Risco residual: a medicao decisiva de frame/long task continua na integracao real com o walker e no Android durante a Fase 4.
+- Boundary sugerido: arquivos da Fase 2 e este registro no plano; commit `feat(word-lens): add local CEFR classifier`.
 
 ## Fase 3: Configuracoes Globais
 
@@ -645,7 +658,7 @@ Cada commit deve ser pequeno, focado e testado. Nao incluir a alteracao preexist
 
 ## Handoff Para A Proxima Sessao
 
-Fases 0 e 1 concluidas. O pipeline e seus artefatos sao a base da proxima fase: implementar `WordLensDataService` e o classificador puro na Fase 2. UI e walker continuam posteriores.
+Fases 0, 1 e 2 concluidas. O pipeline, o servico local e o classificador puro sao a base da proxima fase: persistir ativacao e nivel B1 padrao, com controles acessiveis nas configuracoes globais da Fase 3. Integracao com o walker permanece para a Fase 4.
 
 Arquivos-chave:
 
@@ -663,7 +676,7 @@ Comandos iniciais:
 
 ```powershell
 git status --short
-npm test -- src/__tests__/db/settings.test.ts src/__tests__/components/EpubViewer.test.tsx
+npm test -- src/__tests__/db/settings.test.ts src/__tests__/screens/SettingsScreen.test.tsx
 npm run build
 ```
 
