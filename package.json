@@ -19,7 +19,10 @@
     "test": "vitest run",
     "test:debug-epubs": "node scripts/run-debug-epub-tests.mjs",
     "test:debug-epubs:full": "node scripts/run-debug-epub-tests.mjs --full",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "word-lens:build": "python scripts/word-lens/build_word_lens.py build --cache-dir .word-lens-cache",
+    "word-lens:check": "python scripts/word-lens/build_word_lens.py check --cache-dir .word-lens-cache",
+    "word-lens:test": "python -m unittest discover -s scripts/word-lens/tests -p test_*.py"
   },
   "dependencies": {
     "@capacitor-community/admob": "^8.0.0",

@@ -1,4 +1,4 @@
 # Backlog leitor
 
 
-- BUG: no botao vocabulario dentro do leitor aparecem textos de outros livros. sendo que o vocabulario, dentro do livro so deve mostar textos do livro aberto.
+- BUG: Ao abrir o livro let them em espanhol e clicar no indice ele não abre o livro
