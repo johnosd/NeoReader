@@ -4,7 +4,7 @@
 
 - Feature: marcar no leitor palavras em ingles acima do nivel CEFR do usuario.
 - Data da reescrita: 2026-07-13.
-- Status: em execucao; Fases 0, 1 e 2 concluidas, Fase 3 pronta para iniciar.
+- Status: em execucao; Fases 0, 1, 2 e 3 concluidas, Fase 4 pronta para iniciar.
 - Contexto: plano reescrito via skill `plan-feature` depois de definir fontes, pipeline externo e acesso offline aos data packs.
 - Plataformas: Web e Android via Capacitor.
 - Nivel padrao: B1; selecao entre A1 e C2.
@@ -480,25 +480,25 @@ Estrategias:
 
 ## Fase 3: Configuracoes Globais
 
-- Status: Not started.
+- Status: Done.
 - Proposito: persistir ativacao e nivel B1 padrao com UI acessivel.
 - Areas: `src/types/settings.ts`, `src/db/settings.ts`, `src/screens/SettingsScreen.tsx`, `src/i18n/messages.ts` e testes.
 
 ### Implementacao
 
-- [ ] Adicionar `wordLensEnabled: boolean` e `wordLensLevel: CefrLevel` ao grupo global apropriado.
-- [ ] Normalizar ausentes/invalidos para `true` e `B1`, preservando settings legados.
-- [ ] Criar secao com Switch, seletor A1-C2, descricao e nota de classificacao aproximada.
-- [ ] Desabilitar/ajustar niveis na UI se a Fase 0 nao aprovar cobertura C1/C2.
-- [ ] Traduzir pt-BR, en e es.
-- [ ] Nao carregar data packs ao apenas abrir a tela de configuracoes.
+- [x] Adicionar `wordLensEnabled: boolean` e `wordLensLevel: CefrLevel` ao grupo global apropriado.
+- [x] Normalizar ausentes/invalidos para `true` e `B1`, preservando settings legados.
+- [x] Criar secao com Switch, seletor A1-C2, descricao e nota de classificacao aproximada.
+- [x] Desabilitar/ajustar niveis na UI se a Fase 0 nao aprovar cobertura C1/C2.
+- [x] Traduzir pt-BR, en e es.
+- [x] Nao carregar data packs ao apenas abrir a tela de configuracoes.
 
 ### Testes
 
-- [ ] Cobrir defaults, normalizacao invalida, persistencia e patches concorrentes.
-- [ ] Cobrir toggle, selecao de nivel, estado inicial e rotulos acessiveis.
-- [ ] Cobrir chaves completas de i18n.
-- [ ] Confirmar ausencia de fetch do pack na tela de configuracoes.
+- [x] Cobrir defaults, normalizacao invalida, persistencia e patches concorrentes.
+- [x] Cobrir toggle, selecao de nivel, estado inicial e rotulos acessiveis.
+- [x] Cobrir chaves completas de i18n.
+- [x] Confirmar ausencia de fetch do pack na tela de configuracoes.
 
 ### Criterios De Aceite
 
@@ -508,6 +508,21 @@ Estrategias:
 
 - Commit sugerido: `feat(settings): add Word Lens controls`
 - Risco: ativacao automatica surpreender usuarios existentes; oferecer toggle claro e backout por default.
+
+### Evidencias Da Fase 3
+
+- `ReaderDefaults` agora persiste `wordLensEnabled` e `wordLensLevel`; registros ausentes ou invalidos recebem `true` e `B1` sem migracao destrutiva.
+- Configuracoes gerais exibem switch acessivel, seletor A1-C2 e aviso de classificacao aproximada; o seletor fica indisponivel quando o recurso esta desligado.
+- C1/C2 permaneceram visiveis porque a cobertura complementar foi aprovada na Fase 0.
+- Mensagens adicionadas em pt-BR, ingles e espanhol, validadas pelo contrato tipado de i18n durante o build.
+- A tela nao importa o servico Word Lens nem faz fetch do data pack; teste dedicado confirma a ausencia de chamada.
+- 20 testes focados passaram para persistencia e tela de configuracoes.
+- `npm run lint`: passou.
+- `npm run build`: passou com avisos preexistentes do PDF.js e chunk grande.
+- `npm test -- --run`: 72 arquivos passaram, 2 foram ignorados; 531 testes passaram e 2 foram ignorados.
+- `git diff --check`: passou; avisos LF/CRLF sao apenas configuracao do worktree.
+- Risco residual: o default ligado so produz custo quando a Fase 4 integrar o leitor; early returns do servico continuam sendo a protecao para C2 e livros nao ingleses.
+- Boundary sugerido: arquivos da Fase 3 e este registro; commit `feat(settings): add Word Lens controls`.
 
 ## Fase 4: Marcacao No Leitor EPUB
 
@@ -658,7 +673,7 @@ Cada commit deve ser pequeno, focado e testado. Nao incluir a alteracao preexist
 
 ## Handoff Para A Proxima Sessao
 
-Fases 0, 1 e 2 concluidas. O pipeline, o servico local e o classificador puro sao a base da proxima fase: persistir ativacao e nivel B1 padrao, com controles acessiveis nas configuracoes globais da Fase 3. Integracao com o walker permanece para a Fase 4.
+Fases 0, 1, 2 e 3 concluidas. Pipeline, servico, classificador e configuracoes globais estao prontos. A proxima fase integra o Word Lens apenas em EPUBs ingleses, processando secoes carregadas de forma incremental e reversivel, com budget de desempenho medido.
 
 Arquivos-chave:
 
@@ -666,6 +681,8 @@ Arquivos-chave:
 - `src/types/settings.ts`
 - `src/db/settings.ts`
 - `src/screens/SettingsScreen.tsx`
+- `src/services/WordLensDataService.ts`
+- `src/utils/wordLens.ts`
 - `src/hooks/useReaderAppearance.ts`
 - `src/screens/ReaderScreen.tsx`
 - `src/components/reader/EpubViewer.tsx`
@@ -676,7 +693,7 @@ Comandos iniciais:
 
 ```powershell
 git status --short
-npm test -- src/__tests__/db/settings.test.ts src/__tests__/screens/SettingsScreen.test.tsx
+npm test -- src/__tests__/components/EpubViewer.test.tsx src/__tests__/screens/ReaderScreen.test.tsx
 npm run build
 ```
 

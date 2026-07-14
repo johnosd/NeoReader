@@ -63,6 +63,8 @@ function settingsFixture() {
       fontFamily: 'classic',
       overrideBookFont: true,
       overrideBookColors: true,
+      wordLensEnabled: true,
+      wordLensLevel: 'B1',
     },
     updatedAt: new Date(),
   }
@@ -152,6 +154,30 @@ describe('SettingsScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Fonte Grande' }))
 
     expect(mocks.updateReaderDefaults).toHaveBeenCalledWith({ defaultFontSize: 'lg' })
+  })
+
+  it('mostra o Word Lens ativo em B1 sem carregar o data pack', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    render(<SettingsScreen onBack={vi.fn()} />)
+
+    expect((await screen.findByRole('switch', { name: 'Ativar Word Lens' }) as HTMLButtonElement).getAttribute('aria-checked')).toBe('true')
+    expect((screen.getByRole('combobox', { name: 'Nivel CEFR do Word Lens' }) as HTMLSelectElement).value).toBe('B1')
+    expect(fetchSpy).not.toHaveBeenCalled()
+    fetchSpy.mockRestore()
+  })
+
+  it('salva ativacao e nivel do Word Lens', async () => {
+    render(<SettingsScreen onBack={vi.fn()} />)
+
+    await screen.findByRole('switch', { name: 'Ativar Word Lens' })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Nivel CEFR do Word Lens' }), {
+      target: { value: 'C2' },
+    })
+    expect(mocks.updateReaderDefaults).toHaveBeenCalledWith({ wordLensLevel: 'C2' })
+
+    const toggle = await screen.findByRole('switch', { name: 'Ativar Word Lens' })
+    fireEvent.click(toggle)
+    expect(mocks.updateReaderDefaults).toHaveBeenCalledWith({ wordLensEnabled: false })
   })
 
   it('modo original respeita fonte e cores do EPUB nos defaults globais', async () => {
