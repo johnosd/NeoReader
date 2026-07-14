@@ -12,6 +12,12 @@ interface FoliateSection {
   linear?: string
 }
 
+interface FoliateResource {
+  href: string
+  mediaType: string
+  [key: string]: unknown
+}
+
 interface FoliateRendererContent {
   doc: Document
   index?: number
@@ -36,6 +42,10 @@ declare module 'foliate-js/view.js' {
       metadata: Record<string, unknown>
       sections?: FoliateSection[]
       transformTarget?: EventTarget
+      entries?: Map<string, unknown>
+      resources?: {
+        manifest?: FoliateResource[]
+      }
     }
     renderer: HTMLElement & {
       primaryIndex: number

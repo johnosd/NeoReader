@@ -1,6 +1,8 @@
 # Word Lens: fontes e atribuicoes
 
 Os data packs gerados em `public/word-lens/` combinam dados das fontes abaixo.
+O release atual usa o data pack `1.0.0`, cujo `manifest.json` preserva versoes,
+atribuicoes, URLs de licenca e checksums das fontes.
 
 ## CEFR-J Vocabulary Profile 1.5
 
@@ -26,3 +28,9 @@ O data pack CEFR derivado distribuido pelo NeoReader deve preservar a atribuicao
 No MVP, o Open English WordNet e usado somente para dados morfologicos. Definicoes e exemplos ficam reservados para o incremento posterior descrito no plano.
 
 Os URLs, checksums e versoes exatos ficam em `../sources.lock.json`.
+
+## Limites de cobertura do MVP
+
+- A classificacao e feita por palavra isolada e e uma aproximacao pedagogica.
+- Contexto, sentidos e expressoes com varias palavras nao sao desambiguados.
+- O MVP apenas marca palavras; definicoes e exemplos ficam para a Fase 6.

@@ -83,7 +83,7 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
   const [fontFamily, setFontFamily] = useState<ReaderFontFamily>('classic')
   const [overrideBookFont, setOverrideBookFont] = useState(true)
   const [overrideBookColors, setOverrideBookColors] = useState(true)
-  const [wordLensEnabled, setWordLensEnabled] = useState(true)
+  const [wordLensEnabled, setWordLensEnabled] = useState(false)
   const [wordLensLevel, setWordLensLevel] = useState<CefrLevel>('B1')
   const [bookLanguage, setBookLanguage] = useState('en')
   const [translationTargetLang, setTranslationTargetLang] = useState('pt-BR')

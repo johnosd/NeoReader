@@ -1,9 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, act, waitFor } from '@testing-library/react'
 import { createRef } from 'react'
-import { EpubViewer, type EpubViewerHandle } from '@/components/reader/EpubViewer'
+import {
+  EpubViewer,
+  type EpubViewerHandle,
+} from '@/components/reader/EpubViewer'
 import { logEvent } from '@/services/DiagnosticsLogger'
 import type { Book } from '@/types/book'
+import { registerUnmanifestedEpubStylesheets } from '@/utils/epubResources'
 import { failNextOpen, type FoliateViewMock } from '../setup'
 
 // Mocka o import dinâmico de foliate-js — apenas registra o side-effect.
@@ -25,6 +29,31 @@ const logEventMock = vi.mocked(logEvent)
 
 beforeEach(() => {
   logEventMock.mockClear()
+})
+
+describe('registerUnmanifestedEpubStylesheets', () => {
+  it('registers CSS entries omitted from the EPUB manifest without duplicating resources', () => {
+    const manifest = [{ href: 'OEBPS/declared.css', mediaType: 'text/css' }]
+    const book = {
+      entries: new Map<string, unknown>([
+        ['OEBPS/declared.css', {}],
+        ['OEBPS/override_v1.css', {}],
+        ['OEBPS/cover.jpg', {}],
+      ]),
+      resources: { manifest },
+    }
+
+    expect(registerUnmanifestedEpubStylesheets(book)).toBe(1)
+    expect(registerUnmanifestedEpubStylesheets(book)).toBe(0)
+    expect(manifest).toEqual([
+      { href: 'OEBPS/declared.css', mediaType: 'text/css' },
+      { href: 'OEBPS/override_v1.css', mediaType: 'text/css' },
+    ])
+  })
+
+  it('does nothing when the EPUB implementation does not expose its resources', () => {
+    expect(registerUnmanifestedEpubStylesheets({})).toBe(0)
+  })
 })
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -287,6 +316,67 @@ describe('EpubViewer — abertura do livro', () => {
     expect(onSectionReady).not.toHaveBeenCalledWith(1, 'chapter-2.xhtml')
   })
 
+  it('promove uma secao precarregada quando relocate a torna ativa', async () => {
+    const onLoad = vi.fn()
+    const onSectionReady = vi.fn()
+    const { foliateEl } = await renderViewer({ onLoad, onSectionReady })
+    const targetDoc = makeFakeDoc(['Preloaded target section.'])
+    injectFakeWindow(targetDoc, 0)
+
+    act(() => {
+      foliateEl.fireFoliate('load', { doc: targetDoc, index: 1 })
+    })
+    expect(onLoad).not.toHaveBeenCalled()
+
+    act(() => {
+      foliateEl.fireFoliate('relocate', {
+        cfi: 'epubcfi(/6/10!/4/2/1:0)',
+        fraction: 0,
+        tocItem: { label: 'Chapter 2', href: 'chapter-2.xhtml' },
+        section: { current: 1, total: 3 },
+        index: 1,
+      })
+    })
+
+    expect(onLoad).toHaveBeenCalledOnce()
+    expect(onSectionReady).toHaveBeenCalledOnce()
+    expect(onSectionReady).toHaveBeenCalledWith(1, 'chapter-2.xhtml')
+  })
+
+  it('finaliza a secao carregada depois de relocate mesmo se stabilized ja ocorreu', async () => {
+    vi.useFakeTimers()
+    try {
+      const onError = vi.fn()
+      const onLoad = vi.fn()
+      const onSectionReady = vi.fn()
+      const { foliateEl } = await renderViewer({ onError, onLoad, onSectionReady })
+      const targetDoc = makeFakeDoc(['Late target section.'])
+      injectFakeWindow(targetDoc, 0)
+
+      act(() => {
+        foliateEl.fireFoliate('relocate', {
+          cfi: 'epubcfi(/6/10!/4/2/1:0)',
+          fraction: 0,
+          tocItem: { label: 'Chapter 2', href: 'chapter-2.xhtml' },
+          section: { current: 1, total: 3 },
+          index: 1,
+        })
+        foliateEl.fireRenderer('stabilized')
+        foliateEl.fireFoliate('load', { doc: targetDoc, index: 1 })
+      })
+      expect(onLoad).not.toHaveBeenCalled()
+
+      await act(async () => { vi.advanceTimersByTime(400) })
+
+      expect(onLoad).toHaveBeenCalledOnce()
+      expect(onSectionReady).toHaveBeenCalledWith(1, 'chapter-2.xhtml')
+      await act(async () => { vi.advanceTimersByTime(8_000) })
+      expect(onError).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('injeta tema e fonte configurados no renderer', async () => {
     const { foliateEl } = await renderViewer({
       readerTheme: 'sage',
@@ -300,6 +390,8 @@ describe('EpubViewer — abertura do livro', () => {
     expect(styles).toContain('rgba(246, 250, 238, 0.98)')
     expect(styles).toContain('.nr-word-lens')
     expect(styles).toContain('pointer-events: none')
+    expect(styles).toContain('animation: none')
+    expect(styles).toContain('transition: none')
   })
 
   it('marca Word Lens depois do load sem atrasar a prontidao inicial', async () => {
@@ -394,6 +486,48 @@ describe('EpubViewer — abertura do livro', () => {
     await act(async () => { await Promise.resolve() })
 
     expect(onError).toHaveBeenCalledWith(expect.any(Error))
+  })
+
+  it('encerra com erro quando init resolve sem uma seção interativa', async () => {
+    vi.useFakeTimers()
+    try {
+      const onError = vi.fn()
+      const onLoad = vi.fn()
+      const rendered = await renderViewer({ onError, onLoad })
+
+      await act(async () => { vi.advanceTimersByTime(8_000) })
+
+      expect(onError).toHaveBeenCalledOnce()
+      expect(onError).toHaveBeenCalledWith(expect.any(Error))
+      expect(onLoad).not.toHaveBeenCalled()
+
+      const lateDoc = makeFakeDoc(['Late section.'])
+      injectFakeWindow(lateDoc, 0)
+      loadSection(rendered.foliateEl, lateDoc, 0)
+
+      expect(onLoad).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('cancela o watchdog quando a primeira seção fica interativa', async () => {
+    vi.useFakeTimers()
+    try {
+      const onError = vi.fn()
+      const onLoad = vi.fn()
+      const { foliateEl } = await renderViewer({ onError, onLoad })
+      const readyDoc = makeFakeDoc(['Ready section.'])
+      injectFakeWindow(readyDoc, 0)
+
+      loadSection(foliateEl, readyDoc, 0)
+      await act(async () => { vi.advanceTimersByTime(8_000) })
+
+      expect(onLoad).toHaveBeenCalledOnce()
+      expect(onError).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('abre diretamente no alvo inicial do indice quando informado', async () => {

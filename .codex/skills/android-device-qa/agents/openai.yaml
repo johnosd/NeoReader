@@ -1,0 +1,4 @@
+interface:
+  display_name: "Android Device QA"
+  short_description: "Navega, coleta logs e diagnostica Android"
+  default_prompt: "Use $android-device-qa para navegar no aparelho conectado, reproduzir o problema, coletar evidências e gerar um relatório de diagnóstico."

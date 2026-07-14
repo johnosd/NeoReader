@@ -6,6 +6,7 @@ import type { FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from '
 import { getReaderFontFamilyValue, getReaderLineHeightValue, getReaderThemePalette } from '../../utils/readerPreferences'
 import { getSentenceAt, escapeHtml } from '../../utils/readerUtils'
 import { areCfisEquivalent, normalizeCfi } from '../../utils/cfi'
+import { registerUnmanifestedEpubStylesheets } from '../../utils/epubResources'
 import { areTocHrefDocumentSuffixesEqual, normalizeTocHref } from '../../utils/toc'
 import { clampPercentage, fractionToPercentage } from '../../utils/progress'
 import { splitParagraphIntoTtsChunks } from '../../utils/ttsChunking'
@@ -27,6 +28,7 @@ const BOTTOM_CHROME_TAP_ZONE_PX = 156
 const CHROME_TAP_ZONE_MAX_VIEWPORT_RATIO = 0.28
 const RIGHT_CHROME_TAP_ZONE_MIN_PX = 48
 const RIGHT_CHROME_TAP_ZONE_MAX_PX = 72
+const INITIAL_INTERACTIVE_TIMEOUT_MS = 8_000
 
 type FoliateTransformLoadDetail = {
   isScript?: boolean
@@ -1027,6 +1029,8 @@ function buildReaderCSS(
       text-decoration-thickness: 1px !important;
       text-underline-offset: 2px !important;
       box-shadow: none !important;
+      animation: none !important;
+      transition: none !important;
       pointer-events: none !important;
       cursor: inherit !important;
     }
@@ -1227,7 +1231,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const finalizedSectionVersionRef = useRef(0)
     const finalizeSectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const translationActionResetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-    const initialInteractiveReadyRef = useRef(false)
+    const initialInteractiveStateRef = useRef<'pending' | 'ready' | 'failed'>('pending')
+    const initialInteractiveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const pendingInlineNextTranslationRef = useRef(false)
     const renderBookmarkMarkersRef = useRef<((doc?: Document | null) => void) | null>(null)
     const syncActiveTranslationBookmarkActionRef = useRef<((doc?: Document | null) => void) | null>(null)
@@ -2052,6 +2057,13 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       }
     }
 
+    function clearInitialInteractiveTimeout(): void {
+      if (initialInteractiveTimeoutRef.current) {
+        clearTimeout(initialInteractiveTimeoutRef.current)
+        initialInteractiveTimeoutRef.current = null
+      }
+    }
+
     function clearTranslationActionResetTimeout(): void {
       if (translationActionResetTimeoutRef.current) {
         clearTimeout(translationActionResetTimeoutRef.current)
@@ -2059,7 +2071,29 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       }
     }
 
-    function scheduleSectionFinalization(reason: 'stabilized' | 'relocate'): void {
+    function promoteActiveSection(content: LoadedSectionContent): void {
+      const pendingSection = pendingSectionRef.current
+      if (pendingSection?.doc === content.doc && pendingSection.index === content.index) return
+
+      pendingSectionVersionRef.current += 1
+      pendingSectionRef.current = {
+        doc: content.doc,
+        index: content.index,
+        version: pendingSectionVersionRef.current,
+      }
+      clearFinalizeSectionTimeout()
+      finalizeSectionTimeoutRef.current = setTimeout(() => {
+        finalizePendingSection('timeout')
+      }, 400)
+    }
+
+    function activateAndPromoteSection(index: number): LoadedSectionContent | null {
+      const activeSection = activateSection(index)
+      if (activeSection) promoteActiveSection(activeSection)
+      return activeSection
+    }
+
+    function scheduleSectionFinalization(reason: 'stabilized' | 'relocate' | 'reconcile'): void {
       const schedule =
         currentDocRef.current?.defaultView?.requestAnimationFrame?.bind(currentDocRef.current.defaultView) ??
         requestAnimationFrame
@@ -2111,7 +2145,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       }
     }
 
-    function finalizePendingSection(_reason: 'stabilized' | 'relocate' | 'timeout'): void {
+    function finalizePendingSection(_reason: 'stabilized' | 'relocate' | 'reconcile' | 'timeout'): void {
       void _reason
       const pendingSection = pendingSectionRef.current
       if (!pendingSection) return
@@ -2151,8 +2185,9 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       setupScrollTracking(doc)
       finalizedSectionVersionRef.current = version
 
-      if (!initialInteractiveReadyRef.current) {
-        initialInteractiveReadyRef.current = true
+      if (initialInteractiveStateRef.current === 'pending') {
+        initialInteractiveStateRef.current = 'ready'
+        clearInitialInteractiveTimeout()
         onLoad()
       }
       onSectionReadyRef.current?.(index, getSectionHref(index))
@@ -2545,7 +2580,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       activeTranslationSourceRef.current = 'tap'
       translationInProgressRef.current = false
       pendingInlineNextTranslationRef.current = false
-      initialInteractiveReadyRef.current = false
+      initialInteractiveStateRef.current = 'pending'
       scrollToBottomOnLoadRef.current = false
 
       let cancelled = false
@@ -2560,7 +2595,10 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         try {
           await import('foliate-js/view.js')
         } catch (err) {
-          if (!cancelled) onError(err instanceof Error ? err : new Error(String(err)))
+          if (!cancelled) {
+            initialInteractiveStateRef.current = 'failed'
+            onError(err instanceof Error ? err : new Error(String(err)))
+          }
           return
         }
         if (cancelled) return
@@ -2579,7 +2617,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             view?.renderer.primaryIndex ??
             currentSectionIdxRef.current
           lastRelocateRef.current = { ...e.detail, index: sIdx }
-          const activeSection = activateSection(sIdx)
+          const activeSection = activateAndPromoteSection(sIdx)
           const sectionHref = tocItem?.href ?? getSectionHref(sIdx)
           const chapterPercentage = view ? getChapterProgressPercentage(view, fraction, sIdx, tocItem) : undefined
           onRelocate({
@@ -2591,10 +2629,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             sectionHref,
             sectionIndex: sIdx,
           })
-          if (pendingSectionRef.current?.index === sIdx) {
+          if (activeSection) {
             scheduleSectionFinalization('relocate')
-          } else if (activeSection?.doc) {
-            setupScrollTracking(activeSection.doc)
           }
         })
 
@@ -2608,23 +2644,9 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             index === primaryIndex ||
             index === currentSectionIdxRef.current ||
             (currentDocRef.current == null && primaryIndex < 0)
-          if (shouldActivate) activateSection(index)
+          if (shouldActivate) activateAndPromoteSection(index)
 
           // Armazena parágrafos da seção para uso pelo TTS (audiobook e karaokê)
-
-          // Rastreia seção atual e marca a nova seção como pendente até o renderer estabilizar.
-          if (shouldActivate) {
-            pendingSectionVersionRef.current += 1
-            pendingSectionRef.current = {
-              doc,
-              index,
-              version: pendingSectionVersionRef.current,
-            }
-            clearFinalizeSectionTimeout()
-            finalizeSectionTimeoutRef.current = setTimeout(() => {
-              finalizePendingSection('timeout')
-            }, 400)
-          }
           renderBookmarkMarkers(doc)
           injectVocabHighlight(doc, vocabWordsRef.current)
           renderWordLens(doc, index)
@@ -2803,20 +2825,22 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           })
         })
 
-        // Se open()+init() não concluírem em 15 s, EPUB provavelmente está corrompido
-        // ou em formato não suportado (foliate-js pode travar silenciosamente sem lançar).
-        let loadTimeout: ReturnType<typeof setTimeout> | null = setTimeout(() => {
-          loadTimeout = null
-          if (!cancelled) {
-            cancelled = true
-            onError(new Error(t('reader.openError')))
-          }
-        }, 8_000)
+        // Mantém o watchdog até a primeira seção realmente interativa. Alguns EPUBs
+        // resolvem open()+init() sem emitir um evento `load` utilizável.
+        clearInitialInteractiveTimeout()
+        initialInteractiveTimeoutRef.current = setTimeout(() => {
+          initialInteractiveTimeoutRef.current = null
+          if (cancelled || initialInteractiveStateRef.current !== 'pending') return
+          initialInteractiveStateRef.current = 'failed'
+          cancelled = true
+          onError(new Error(t('reader.openError')))
+        }, INITIAL_INTERACTIVE_TIMEOUT_MS)
 
         try {
           const readerSource = await BookFileResolver.resolveReaderSource(book)
           await (view.open as (source: Blob | string) => Promise<void>)(readerSource)
-          if (cancelled) { clearTimeout(loadTimeout!); return }
+          if (cancelled) return
+          registerUnmanifestedEpubStylesheets(view.book)
           cleanupPassiveEpubContentTransform = installPassiveEpubContentTransform(view)
 
           rendererStabilizedListener = () => {
@@ -2861,6 +2885,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               return false
             })
             : false
+          if (cancelled) return
 
           if (!didOpenInitialTarget) {
             await view.init(
@@ -2869,11 +2894,19 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
                 : { showTextStart: true },
             )
           }
+          if (cancelled) return
 
-          if (loadTimeout) clearTimeout(loadTimeout)
+          const primaryIndex = view.renderer.primaryIndex
+          if (typeof primaryIndex === 'number' && activateAndPromoteSection(primaryIndex)) {
+            scheduleSectionFinalization('reconcile')
+          }
+
         } catch (err) {
-          if (loadTimeout) clearTimeout(loadTimeout)
-          if (!cancelled) onError(err instanceof Error ? err : new Error(String(err)))
+          clearInitialInteractiveTimeout()
+          if (!cancelled && initialInteractiveStateRef.current === 'pending') {
+            initialInteractiveStateRef.current = 'failed'
+            onError(err instanceof Error ? err : new Error(String(err)))
+          }
         }
       }
 
@@ -2882,6 +2915,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       return () => {
         cancelled = true
         clearFinalizeSectionTimeout()
+        clearInitialInteractiveTimeout()
         clearTranslationActionResetTimeout()
         scrollListenerCleanupRef.current?.()
         scrollListenerCleanupRef.current = null
@@ -2901,7 +2935,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         activeTranslationSourceRef.current = 'tap'
         translationInProgressRef.current = false
         pendingInlineNextTranslationRef.current = false
-        initialInteractiveReadyRef.current = false
+        initialInteractiveStateRef.current = 'pending'
         scrollToBottomOnLoadRef.current = false
         autoSkipChapterStubDirectionRef.current = 0
         autoSkipChapterStubCountRef.current = 0

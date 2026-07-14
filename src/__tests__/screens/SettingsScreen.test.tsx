@@ -166,6 +166,19 @@ describe('SettingsScreen', () => {
     fetchSpy.mockRestore()
   })
 
+  it('exibe legenda, versao, limitacoes e atribuicoes do Word Lens', async () => {
+    render(<SettingsScreen onBack={vi.fn()} />)
+
+    await screen.findByText('Como a marcacao aparece')
+
+    expect(screen.getByText('Palavra acima do nivel escolhido')).toBeTruthy()
+    expect(screen.getByText(/Pacote 1\.0\.0/)).toBeTruthy()
+    expect(screen.getByText(/CEFR-J Wordlist 1\.5/)).toBeTruthy()
+    expect(screen.getByText(/Octanove Vocabulary Profile C1\/C2 1\.0 \(CC BY-SA 4\.0\)/)).toBeTruthy()
+    expect(screen.getByText(/Open English WordNet 2025 \(CC BY 4\.0\)/)).toBeTruthy()
+    expect(screen.getByText(/nao interpreta contexto/)).toBeTruthy()
+  })
+
   it('salva ativacao e nivel do Word Lens', async () => {
     render(<SettingsScreen onBack={vi.fn()} />)
 

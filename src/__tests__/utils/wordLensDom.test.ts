@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { WordLensData } from '@/types/wordLens'
 import { scheduleWordLensDocument } from '@/utils/wordLensDom'
@@ -83,6 +83,36 @@ describe('wordLensDom', () => {
     expect(doc.querySelector('.nr-word-lens')).toBeNull()
   })
 
+  it('executa somente uma operacao quando o callback idle expira', async () => {
+    const doc = makeDocument('<p>elaborate ubiquitous aberration</p>')
+    const callbacks: Array<(deadline: { didTimeout: boolean; timeRemaining(): number }) => void> = []
+    const requestIdleCallback = vi.fn((callback: (deadline: { didTimeout: boolean; timeRemaining(): number }) => void) => {
+      callbacks.push(callback)
+      return callbacks.length
+    })
+    Object.defineProperty(doc, 'defaultView', {
+      configurable: true,
+      value: {
+        performance,
+        requestIdleCallback,
+        cancelIdleCallback: vi.fn(),
+      },
+    })
+
+    const task = scheduleWordLensDocument(doc, { enabled: true, level: 'B1', data })
+    let callbacksRun = 0
+    while (callbacks.length > 0 && callbacksRun < 20) {
+      callbacks.shift()!({ didTimeout: true, timeRemaining: () => 0 })
+      callbacksRun += 1
+    }
+
+    const metrics = await task.completed
+    expect(metrics.matches).toBe(3)
+    expect(callbacksRun).toBeGreaterThan(3)
+    expect(requestIdleCallback).toHaveBeenCalledTimes(callbacksRun)
+    expect(doc.querySelectorAll('.nr-word-lens')).toHaveLength(3)
+  })
+
   it('mantém lotes limitados no benchmark de capítulo grande', async () => {
     // Mais de 64 matches força múltiplos lotes mesmo em uma única Text node,
     // sem monopolizar o runner paralelo com milhares de mutações jsdom.
@@ -91,7 +121,7 @@ describe('wordLensDom', () => {
       enabled: true,
       level: 'B1',
       data,
-      batchBudgetMs: 8,
+      batchBudgetMs: 4,
     }).completed
 
     expect(metrics.matches).toBe(200)

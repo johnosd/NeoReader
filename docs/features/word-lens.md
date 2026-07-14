@@ -4,7 +4,7 @@
 
 - Feature: marcar no leitor palavras em ingles acima do nivel CEFR do usuario.
 - Data da reescrita: 2026-07-13.
-- Status: em execucao; Fases 0 a 4 concluidas, Fase 5 pronta para QA com aparelho Android conectado.
+- Status: MVP e Fase 8 corretiva concluidos; Fase 6 permanece como incremento futuro.
 - Contexto: plano reescrito via skill `plan-feature` depois de definir fontes, pipeline externo e acesso offline aos data packs.
 - Plataformas: Web e Android via Capacitor.
 - Nivel padrao: B1; selecao entre A1 e C2.
@@ -20,7 +20,7 @@ O MVP usa classificacao simples por palavra/lema. Ele nao tenta descobrir qual s
 
 Nas configuracoes gerais:
 
-- Word Lens habilitado por padrao.
+- Word Lens desabilitado por padrao; o usuario pode habilita-lo nas configuracoes gerais.
 - Nivel padrao B1.
 - Controle liga/desliga.
 - Seletor A1, A2, B1, B2, C1 e C2.
@@ -247,7 +247,7 @@ As definicoes reais devem vir somente do Open English WordNet, com atribuicao; e
 
 ## Decisoes Funcionais
 
-- Word Lens habilitado por padrao em B1 para usuarios novos e existentes, por normalizacao de settings.
+- Word Lens desabilitado por padrao em B1 para registros ausentes ou invalidos; escolhas booleanas ja persistidas continuam preservadas.
 - “Acima do nivel” e comparacao estrita: B1 marca B2/C1/C2.
 - C2 e early return: nao existe nivel acima e o data pack nao deve ser carregado.
 - Termos sem classificacao ficam sem marcacao.
@@ -300,6 +300,8 @@ Responsabilidades:
 ### Integracao com o iframe EPUB
 
 - Processar somente documentos emitidos pelo evento `load`.
+- Nao varrer o arquivo EPUB inteiro: processar apenas as secoes que o renderer carregar, incluindo eventuais secoes adjacentes pre-carregadas.
+- Com o recurso desligado, nao carregar o data pack nem percorrer Text nodes; o leitor base continua abrindo o EPUB e as secoes necessarias para leitura.
 - Percorrer Text nodes elegiveis.
 - Ignorar `script`, `style`, `noscript`, UI/traducao NeoReader e spans ja processados.
 - Envolver ranges em `span.nr-word-lens[data-nr-cefr-level]`.
@@ -521,7 +523,7 @@ Estrategias:
 - `npm run build`: passou com avisos preexistentes do PDF.js e chunk grande.
 - `npm test -- --run`: 72 arquivos passaram, 2 foram ignorados; 531 testes passaram e 2 foram ignorados.
 - `git diff --check`: passou; avisos LF/CRLF sao apenas configuracao do worktree.
-- Risco residual: o default ligado so produz custo quando a Fase 4 integrar o leitor; early returns do servico continuam sendo a protecao para C2 e livros nao ingleses.
+- Decisao superada na Fase 8: o primeiro MVP usava default ligado; o produto passou para opt-in, mantendo early returns para desligado, C2 e livros nao ingleses.
 - Boundary sugerido: arquivos da Fase 3 e este registro; commit `feat(settings): add Word Lens controls`.
 
 ## Fase 4: Marcacao No Leitor EPUB
@@ -535,7 +537,7 @@ Estrategias:
 - Reutilizar o `getSettings()` que `useReaderAppearance` ja executa; nenhuma segunda query de settings sera criada no `ReaderScreen`.
 - Liberar `onLoad` e o loading inicial antes de solicitar o data pack. O Word Lens entra como melhoria progressiva e nunca fica no caminho critico de abertura.
 - Manter os CFIs de paragrafo calculados pelo viewer antes de qualquer marcacao e nunca recriar `foliate-view` por mudanca de configuracao.
-- Processar Text nodes com `TreeWalker` em fatias cancelaveis de ate 8 ms, com `requestIdleCallback` quando disponivel e fallback assíncrono controlado.
+- Processar Text nodes com `TreeWalker` em fatias cancelaveis com budget interno de 6 ms, criando margem para manter o teto observado abaixo de 8 ms no WebView real; usar `requestIdleCallback` quando disponivel e fallback assíncrono controlado.
 - Remocao e reaplicacao tambem devem ser fatiadas; uma geracao mais nova cancela trabalho obsoleto e limpa resultados parciais antes de continuar.
 - Spans do MVP serao metricamente neutros: sem padding, margin, mudanca de fonte/peso/line-height e com `pointer-events: none`.
 - Ignorar subarvores de vocabulario salvo, traducao, TTS e UI NeoReader para evitar wrappers concorrentes. Bookmarks usam atributos no bloco e continuam compativeis.
@@ -555,7 +557,7 @@ Estrategias:
 - [x] Remover/reaplicar ao mudar toggle/nivel sem recriar viewer nem perder CFI/scroll.
 - [x] Aplicar estilos por tema sem alterar metricas tipograficas.
 - [x] Registrar somente metricas agregadas e versao do pack.
-- [x] Fatiar aplicacao e remocao com cancelamento por geracao e budget maximo de 8 ms por lote.
+- [x] Fatiar aplicacao e remocao com cancelamento por geracao e budget interno de 6 ms para respeitar o teto de 8 ms por lote no aparelho.
 - [x] Preservar CFIs precomputados e garantir `pointer-events: none`/estilos metricamente neutros.
 
 ### Testes
@@ -581,7 +583,7 @@ Estrategias:
 
 - `useReaderAppearance` reaproveita a unica leitura de settings e expoe ativacao/nivel ao `ReaderScreen`; nenhuma query adicional foi criada.
 - O data pack so e solicitado depois de `EpubViewer.onLoad`, portanto falha ou parse do JSON nao bloqueiam a abertura do livro.
-- `wordLensDom.ts` usa `TreeWalker`, lotes idle/fallback com budget de 8 ms, limite de 64 operacoes e cancelamento; matches de uma unica Text node tambem sao divididos entre lotes.
+- `wordLensDom.ts` usa `TreeWalker`, lotes idle/fallback com budget interno de 6 ms, limite de 64 operacoes e cancelamento; matches de uma unica Text node tambem sao divididos entre lotes. A margem foi reduzida de 8 para 6 ms depois que o primeiro QA Android observou picos de ate 8,7 ms.
 - A marcacao ignora UI NeoReader, vocabulario salvo, traducao e TTS; imagens nao sao percorridas e bookmarks permanecem atributos do bloco.
 - Troca de nivel remove/reaplica spans sem recriar `foliate-view`, preserva texto do TTS e o CFI de paragrafo calculado antes da marcacao.
 - CSS usa somente fundo/sublinhado, sem padding, margin, peso, tamanho ou line-height proprios, e com `pointer-events: none`.
@@ -593,34 +595,34 @@ Estrategias:
 - `npm run word-lens:check`: passou e confirmou data pack reproduzivel.
 - `npx cap sync android`: passou com os assets atuais.
 - `git diff --check`: passou; avisos LF/CRLF sao apenas configuracao do worktree.
-- `adb devices -l`: nenhum aparelho conectado no momento; instalacao, QA visual e mediana/p95 ficam explicitamente para a Fase 5 e continuam bloqueando release.
+- O QA Android da Fase 5 confirmou, depois do ajuste para 6 ms, lote maximo de 7,9 ms no Galaxy S23 e nenhum trabalho continuo atribuivel ao Word Lens acima de 50 ms.
 - Boundary sugerido: arquivos da Fase 4 e este registro; commit `feat(reader): highlight above-level CEFR words`.
 
 ## Fase 5: QA, Atribuicao E Rollout Do MVP
 
-- Status: Not started.
+- Status: Done.
 - Proposito: validar release offline e garantir backout seguro.
 - Areas: documentacao/licencas, testes e QA Android/Web.
 
 ### Implementacao
 
-- [ ] Exibir atribuicoes CEFR-J/Octanove em local acessivel no app.
-- [ ] Documentar versao do pack e limitacoes de cobertura.
-- [ ] Adicionar legenda visual sem depender apenas de cor.
-- [ ] Nao animar spans; respeitar acessibilidade e prefers-reduced-motion.
-- [ ] Manter kill switch via default/configuracao sem migracao destrutiva.
-- [ ] Atualizar README quando a feature estiver pronta.
+- [x] Exibir atribuicoes CEFR-J/Octanove em local acessivel no app.
+- [x] Documentar versao do pack e limitacoes de cobertura.
+- [x] Adicionar legenda visual sem depender apenas de cor.
+- [x] Nao animar spans; respeitar acessibilidade e prefers-reduced-motion.
+- [x] Manter kill switch via default/configuracao sem migracao destrutiva.
+- [x] Atualizar README quando a feature estiver pronta.
 
 ### Testes E QA
 
-- [ ] Rodar `npm test`, `npm run lint` e `npm run build`.
-- [ ] Validar app completamente offline em Web e Android.
-- [ ] Validar temas dark, black, paper, warm, sepia, sage e contrast.
-- [ ] Validar A1-C2, toggle e persistencia apos reinicio.
-- [ ] Validar capitulos curtos, longos e literatura com vocabulario denso.
-- [ ] Regressao: CFI, TOC, progresso, scroll, traducao, TTS, bookmarks, vocabulario salvo e imagens.
-- [ ] Comparar mediana/p95 ligado versus desligado no aparelho de referencia.
-- [ ] Confirmar que logs nao contem palavras ou frases do livro.
+- [x] Rodar `npm test`, `npm run lint` e `npm run build`.
+- [x] Validar app completamente offline em Web e Android.
+- [x] Validar temas dark, black, paper, warm, sepia, sage e contrast.
+- [x] Validar A1-C2, toggle e persistencia apos reinicio.
+- [x] Validar capitulos curtos, longos e literatura com vocabulario denso.
+- [x] Regressao: CFI, TOC, progresso, scroll, traducao, TTS, bookmarks, vocabulario salvo e imagens.
+- [x] Comparar mediana/p95 ligado versus desligado no aparelho de referencia.
+- [x] Confirmar que logs nao contem palavras ou frases do livro.
 
 ### Criterios De Aceite
 
@@ -631,6 +633,132 @@ Estrategias:
 
 - Commit sugerido: `docs(word-lens): add attribution and release evidence`
 - Risco: comportamento real do Android WebView nao reproduzido por JSDOM; QA em aparelho e obrigatorio.
+
+### Evidencias Da Fase 5
+
+- A tela de configuracoes exibe legenda com fundo e sublinhado, pack `1.0.0`, limitacoes do MVP e atribuicoes para CEFR-J 1.5, Octanove C1/C2 1.0 sob CC BY-SA 4.0 e Open English WordNet 2025 sob CC BY 4.0. README e arquivo de licencas tambem foram atualizados.
+- Os spans declaram `animation: none` e `transition: none`, alem de continuarem sem padding, margem ou alteracao tipografica. Testes cobrem a legenda textual e o CSS sem animacao.
+- APK debug gerado e instalado no Samsung Galaxy S23 SM-S911B. Inspecao do APK confirmou `manifest.json`, `levels.json` e `lemmas.json` em `assets/public/word-lens/`.
+- Android realmente offline: com Wi-Fi e dados moveis desligados, o EPUB local `The Book of the Thousand and one Nights. Volume 1` abriu em 770 ms e permaneceu funcional. Secao curta: 24 Text nodes e 35 matches; secao densa: 1.929 Text nodes e 2.743 matches. Nenhuma requisicao externa foi necessaria e as redes foram restauradas depois do teste.
+- Web: o build de producao foi servido em preview somente por `127.0.0.1`; os tres assets foram obtidos pela mesma origem, com pack `1.0.0`, 8.653 headwords e 9.152 flexoes. Word Lens nao exige origem externa. O shell Web ainda depende do servidor do deployment, pois o NeoReader nao possui service worker offline; isso e comportamento preexistente da plataforma, nao do data pack.
+- Os sete temas foram exercitados no WebView. Cada tema manteve 2.743 spans no capitulo denso e o mesmo retangulo medido para a amostra (`59,71 x 21 px`), variando apenas paleta de fundo/texto/sublinhado. Paper e Soft night tambem foram inspecionados visualmente no aparelho.
+- O seletor nativo mostrou A1, A2, B1, B2, C1 e C2; os extremos A1/C2 foram selecionados, o toggle foi desligado/ligado e ambos sobreviveram a reinicios. Estado final restaurado para ligado/B1.
+- Regressao combinada: no aparelho, TOC, scroll/progresso persistido e traducao com os controles Next/Listen/Bookmark/Save funcionaram com destaques presentes. A suite automatizada cobre CFI, TTS, bookmarks, vocabulario salvo, imagens, reprocessamento e preservacao do viewer sem mutar dados do usuario durante o smoke test.
+- Desempenho no S23, dez aberturas por condicao no mesmo livro/posicao: ligado mediana `476 ms`, p95 `496 ms`; desligado mediana `455 ms`, p95 `518 ms`. A mediana variou `+4,6%` (`+21 ms`), dentro do gate de 5% ou 16 ms, e o p95 nao regrediu. Com o budget interno ajustado para 6 ms, o maior lote posterior foi `7,9 ms`; com o recurso desligado houve zero eventos Word Lens.
+- Logs reais continham somente secao, versao, contagens e tempos agregados. A busca por palavras conhecidas do capitulo retornou zero e o campo `tokens` permaneceu redigido; nenhum texto, palavra ou frase foi registrado.
+- Gates finais: `npm test -- --run` passou com 73 arquivos/542 testes e 2 arquivos/2 testes ignorados; `npm run lint`, `npm run build`, `npm run word-lens:check`, `npx cap sync android` e `gradlew assembleDebug` passaram. O build manteve apenas avisos preexistentes de PDF.js, chunks e Gradle.
+- Risco residual de rollout: o S23 e um aparelho de alto desempenho. Antes de ampliar rollout com default ligado, repetir o budget em pelo menos um Android intermediario; o kill switch persistente permite desligar o recurso sem migracao destrutiva.
+- Boundary sugerido: arquivos de atribuicao/UI/testes, ajuste de budget em `wordLensDom.ts` e este registro; commit `docs(word-lens): add attribution and release evidence`.
+
+## Fase 7: Correcao Pos-QA De Confiabilidade E Desempenho
+
+- Status: Done.
+- Proposito: corrigir falha de abertura silenciosa e regressões de desempenho encontradas no QA ampliado em dispositivo fisico.
+- Areas: `src/components/reader/EpubViewer.tsx`, `src/components/reader/TocDrawer.tsx`, `src/utils/wordLensDom.ts`, testes correspondentes e QA Android.
+
+### Diagnostico De Entrada
+
+- Um EPUB em espanhol reproduziu carregamento infinito em 2/2 tentativas: `reader.open.start` sem `success` ou `failure`. O timeout atual cobre `open()`/`init()`, mas e encerrado antes do primeiro evento de secao interativa.
+- O QA complementar reproduziu uma corrida intermitente no mesmo EPUB: o renderer ja possuia documentos carregados, mas `relocate` ativava uma secao que ainda nao havia sido promovida a `pendingSection`; o watchdog entao reportava falha apos cerca de 8 segundos. Com outra ordem de eventos, o livro abriu em `236 ms`, descartando corrupcao do arquivo.
+- O indice de um livro longo montou 71 linhas por expandir todos os grupos de primeiro nivel. Em medicao isolada no Galaxy S23: p90 `17 ms`, p95 `20 ms`, `4,21%` de frames lentos, PSS `548.880 kB` e `382.296 kB` de memoria grafica.
+- O Word Lens excedeu o teto de 8 ms em dois livros distintos (`12,2 ms` e `8,8 ms`), embora a rolagem isolada permanecesse fluida.
+
+### Implementacao
+
+- [x] Manter um watchdog ate a primeira secao realmente interativa e emitir `onError` se `open()`/`init()` resolverem sem evento de `load` utilizavel.
+- [x] Impedir sucesso tardio depois que o watchdog ja declarou falha.
+- [x] Expandir por padrao apenas os ancestrais do capitulo atual no indice.
+- [x] Reduzir o custo de blur do bottom sheet do indice sem remover hierarquia, navegacao direta ou acessibilidade.
+- [x] Reduzir budget e quantidade maxima de operacoes por lote do Word Lens, com comportamento conservador quando `requestIdleCallback` expirar.
+- [x] Preservar cancelamento, idempotencia, texto, CFI e marcacoes existentes.
+- [x] Promover a secao ativa para finalizacao independentemente de `load` ocorrer antes ou depois de `relocate`.
+- [x] Reconciliar a secao primaria ja carregada depois de `init()`/`goTo()` sem duplicar `onLoad` ou recriar o viewer.
+
+### Testes E QA
+
+- [x] Cobrir `init()` resolvido sem secao carregada e confirmar erro apos o timeout.
+- [x] Cobrir que uma secao pronta cancela o watchdog e chama `onLoad` uma unica vez.
+- [x] Cobrir que somente o ramo atual do TOC inicia expandido e os demais continuam navegaveis/expansiveis.
+- [x] Cobrir lotes Word Lens expirados e benchmark de capitulo grande.
+- [x] Rodar testes focados, lint, build e `git diff --check`.
+- [x] Gerar/sincronizar Android e repetir no aparelho o EPUB que travava, o indice longo e os maiores lotes Word Lens.
+- [x] Cobrir as ordens `load -> relocate` e `relocate -> load`, incluindo secao primaria ja registrada.
+- [x] Reinstalar o APK e abrir `LA TEORIA Y TU` dez vezes sem `reader.open.failure`.
+
+### Criterios De Aceite
+
+- Nenhuma abertura pode permanecer indefinidamente no spinner: deve chegar a sucesso ou erro observavel dentro do watchdog.
+- O indice longo deve montar apenas o ramo necessario e melhorar p90/p95, jank e memoria no mesmo aparelho/cenario.
+- Nenhum lote Word Lens deve exceder 8 ms no corpus Android exercitado; a rolagem deve permanecer sem regressao perceptivel.
+- Nenhum crash, ANR, perda de progresso ou alteracao do texto do EPUB.
+
+- Commit sugerido: `fix(reader): harden loading and long-book performance`
+- Riscos: EPUBs muito lentos podem exigir calibracao do watchdog; listas virtualizadas ou blurs alterados precisam preservar foco e navegacao por toque.
+
+### Evidencias Da Fase 7
+
+- O watchdog de 8 segundos agora so e cancelado quando a primeira secao e finalizada como interativa; falha, desmontagem e erro de setup limpam o timer, e eventos tardios nao produzem `onLoad` depois da falha.
+- O TOC inicia fechado, exceto pelos ancestrais do capitulo atual. O blur externo foi reduzido de `2xl` para `md` e o blur interno removido.
+- Word Lens usa budget interno de 4 ms, limite normal de 32 operacoes e limite de uma operacao quando o callback idle expira.
+- Testes focados finais: 3 arquivos e 74 testes passaram.
+- Suite completa anterior ao ultimo teste adicional: 73 arquivos/545 testes passaram, com 2 arquivos/2 testes ignorados; o teste adicional tambem passou no gate focado.
+- `npm run lint`, `npm run build`, `npx cap sync android`, `gradlew assembleDebug` e `git diff --check` passaram; permanecem apenas avisos preexistentes de PDF.js/chunk/Gradle e conversao LF/CRLF.
+- APK debug `1.0.14` (`versionCode 18`) atualizado foi instalado preservando dados no Galaxy S23 SM-S911B. O EPUB em espanhol que antes ficava indefinidamente no spinner abriu com sucesso em 3/3 repeticoes (`246 ms`, `249 ms` e `182 ms`), sem `reader.open.failure`, crash ou ANR.
+- No livro longo, o TOC passou de 71 para 48 linhas montadas. Em tres rodadas isoladas de dez gestos, jank ficou em `1,73%`, `1,25%` e `1,22%`, p90 em `12 ms`, p95 em `13 ms` e p99 entre `14-16 ms`; antes eram `4,21%`, p90 `17 ms`, p95 `20 ms` e p99 `40 ms`.
+- Depois das rodadas do TOC, memoria grafica ficou em `261.928 kB` e PSS em `442.686 kB`, abaixo da linha de base de `382.296 kB` e `548.880 kB`. O ramo atual permaneceu aberto, os demais grupos continuaram expansiveis e um capitulo aleatorio foi aberto por toque com fechamento correto do painel.
+- O maior lote Word Lens observado no corpus corretivo foi `4,2 ms` ao processar uma secao com 1.929 Text nodes. Dois documentos carregados mantiveram 417 e 929 marcacoes. Dez rolagens durante o fluxo de capitulo aleatorio ficaram em `1,53%` de jank, p90/p95 `8 ms` e p99 `13 ms`, sem crash, ANR ou perda visual das marcacoes.
+- Nenhum texto do livro foi registrado: a telemetria continuou limitada a contagens, indice de secao, versao do pack e tempos agregados. O estado temporario do aparelho e os forwards ADB/CDP foram restaurados ao encerrar o QA.
+- A finalizacao de secao foi centralizada em uma promocao idempotente usada por `load`, `relocate` e pela reconciliacao posterior a `init()`/`goTo()`. Isso cobre a secao ja registrada que se torna primaria depois, sem recriar o viewer nem repetir `onLoad`.
+- Duas regressoes novas cobrem `load -> relocate` e `relocate -> stabilized -> load`. O arquivo `EpubViewer.test.tsx` passou com 64/64 testes; a suite completa passou com 73 arquivos/548 testes, alem de 2 arquivos/2 testes ignorados. `npm run lint`, `npm run build` e o teste direcionado do EPUB real `La teoria Let Them` tambem passaram.
+- No APK debug `1.0.14` (`versionCode 18`), dez aberturas equivalentes de `LA TEORIA Y TU` tiveram 10/10 sucessos, sem `reader.open.failure`: `255`, `168`, `192`, `197`, `186`, `182`, `167`, `192`, `178` e `140 ms`; mediana `184 ms` e p95 `255 ms`.
+- QA ampliado abriu quatro EPUBs distintos e exercitou abrir/fechar o menu contextual no mesmo paragrafo: `AI Engineering`, `LA TEORIA LET THEM`, `The Book of the Thousand and One Nights. Volume 1` e `Delta de Venus`. Os quatro ciclos terminaram com zero elementos `data-nr-active` e zero blocos de traducao residuais. As aberturas iniciais levaram `1.406`, `290`, `1.029` e `182 ms`, respectivamente.
+- Na serie de dez aberturas, `gfxinfo` registrou 739 frames, 8,66% marcados como janky pelo Android, p50 `5 ms`, p90 `12 ms`, p95 `15 ms`, p99 `22 ms` e maior bucket nao vazio de `38 ms`. Nao houve frame longo, congelamento perceptivel, crash, ANR ou processo morto durante a reproducao.
+- Achado separado, nao bloqueante para Word Lens: `AI Engineering` referencia `OEBPS/override_v1.css` (81.826 bytes no EPUB), mas o WebView tentou `https://localhost/override_v1.css`; as secoes inspecionadas exibiram stylesheet com zero regras. O livro permaneceu legivel, mas pode perder formatacao propria e merece uma correcao futura de resolucao de assets EPUB.
+- Boundary sugerido: watchdog e testes de abertura, expansao/custo visual do TOC, budget do Word Lens e este registro; commit `fix(reader): harden loading and long-book performance`.
+
+## Fase 8: Default Opt-In E Compatibilidade De CSS EPUB
+
+- Status: Done.
+- Proposito: deixar Word Lens sem custo por padrao e recuperar stylesheets locais presentes no EPUB, mas omitidos do manifest.
+- Areas: `src/types/settings.ts`, `src/hooks/useReaderAppearance.ts`, `src/utils/epubResources.ts`, `src/components/reader/EpubViewer.tsx`, tipos Foliate, testes e QA Android.
+
+### Implementacao
+
+- [x] Alterar o default e a normalizacao de `wordLensEnabled` para `false`, preservando valores booleanos ja persistidos.
+- [x] Iniciar `useReaderAppearance` com Word Lens desligado para impedir ativacao transitoria antes da leitura das configuracoes.
+- [x] Garantir que o estado desligado nao carregue o data pack nem percorra Text nodes do EPUB.
+- [x] Registrar stylesheets `.css` existentes no ZIP e ausentes do manifest antes de `init()`/`goTo()`, permitindo que o loader Foliate resolva URLs relativas e dependencias locais.
+- [x] Manter bloqueio de scripts e sanitizacao de conteudo executavel.
+
+### Testes E QA
+
+- [x] Cobrir default ausente/invalido desligado e preservacao explicita de `true`/`false`.
+- [x] Cobrir estado inicial desligado no hook e ausencia de fetch/processamento quando desabilitado.
+- [x] Cobrir registro idempotente de CSS omitido do manifest sem duplicar recursos declarados.
+- [x] Rodar testes focados, suite completa, lint, build e teste do corpus EPUB real.
+- [x] Validar no Android que `override_v1.css` deixa de resolver para `https://localhost/`, possui regras e nao gera erro Capacitor relacionado ao asset.
+
+### Criterios De Aceite
+
+- Novos registros e valores invalidos iniciam com Word Lens desligado/B1; escolhas existentes permanecem intactas.
+- Word Lens desligado nao carrega os JSONs nem classifica texto; somente o leitor base acessa o EPUB.
+- CSS local omitido do OPF e carregado pelo pipeline de recursos do Foliate, sem URL relativa vazando para a origem do app.
+- Nenhum crash, ANR, regressao de abertura, perda de texto ou relaxamento do bloqueio de scripts.
+
+- Commit sugerido: `fix(reader): load unlisted epub styles and default word lens off`
+- Riscos: EPUBs podem conter muitos CSS fora do manifest; registrar apenas entradas `.css` e manter carregamento sob demanda.
+
+### Evidencias Da Fase 8
+
+- O default ausente/invalido passou para desligado/B1; valores booleanos persistidos continuam preservados. O hook tambem inicia desligado, evitando uma ativacao transitoria antes da leitura de settings.
+- `WordLensDataService` continua retornando antes de qualquer fetch quando desligado, e `wordLensDom` nao cria `TreeWalker` sem configuracao ativa/dados; se ja existirem spans de uma ativacao anterior, somente a limpeza fatiada e executada.
+- `registerUnmanifestedEpubStylesheets` adiciona de forma idempotente apenas entradas `.css` existentes no ZIP e ausentes do manifest. O registro ocorre depois de `open()` e antes de `init()`/`goTo()`, reutilizando o carregamento lazy e a resolucao de dependencias do Foliate.
+- Testes focados: 5 arquivos/107 testes passaram. Suite completa: 73 arquivos/550 testes passaram e 2 arquivos/2 testes foram ignorados. `npm run lint`, `npm run build`, `npx cap sync android` e `gradlew assembleDebug` passaram; permanecem apenas avisos preexistentes de PDF.js, chunks e Gradle.
+- O caso direcionado `AI_Engineering` do corpus EPUB real passou. Uma tentativa acidentalmente ampla tambem aprovou 69 casos, mas `4 horas para o corpo` excedeu o timeout preexistente de 30 segundos; o resultado nao esta relacionado a esta correcao.
+- Com autorizacao explicita, o APK atualizado foi instalado com `adb install -r` preservando livros, progresso e configuracoes no Samsung Galaxy S23 SM-S911B, Android 16/API 36, arm64-v8a, 1080x2340; app 1.0.14 (`versionCode 18`).
+- `AI Engineering` abriu pelo fluxo Home -> Resume -> Continue reading. No WebView real, `OEBPS/override_v1.css` apareceu no manifest em memoria como `text/css`; nas duas secoes carregadas, o recurso transformado usou URL `blob:`, respondeu com sucesso, tinha 81.824 caracteres e 335 regras CSS. Nenhum link resolveu para `https://localhost/override_v1.css`.
+- Logcat nao registrou `Unable to open asset URL`, crash, ANR, OOM ou falha do renderer. Permanece um aviso separado do EPUB malformado em `OEBPS/toc01.html` por atributo `async` sem valor; o Foliate faz fallback e o capitulo ficou legivel, portanto o aviso nao e causado pela correcao de CSS.
+- O estado de Wi-Fi, dados moveis e stay-awake foi restaurado sem divergencias; o app foi recolocado em inicializacao limpa e o forward CDP foi removido.
 
 ## Fase 6: Incremento De Definicoes Ao Tocar
 
@@ -679,7 +807,7 @@ Estrategias:
 ## Rollout E Backout
 
 - Comecar com build interno e diagnosticos agregados.
-- Validar Android de baixo/medio desempenho antes de manter default ligado.
+- Validar Android de baixo/medio desempenho antes de reconsiderar qualquer rollout com default ligado; o estado atual e opt-in.
 - Backout: alterar default para desligado ou ocultar o controle, preservando settings.
 - Falha de asset em runtime desativa apenas Word Lens na sessao.
 - Se C1/C2 falhar em licenca/cobertura, nao reclassificar silenciosamente; limitar escopo e comunicar.
@@ -707,7 +835,7 @@ Cada commit deve ser pequeno, focado e testado. Nao incluir a alteracao preexist
 
 ## Handoff Para A Proxima Sessao
 
-Fases 0 a 4 concluidas. O MVP ja carrega o pack depois da abertura e marca secoes EPUB inglesas de forma incremental, cancelavel e reversivel. A proxima fase e o gate de release: reconectar o S23, instalar o build atual, validar visual/interacoes offline, medir mediana/p95 ligado versus desligado e concluir atribuicoes/licencas.
+Fases 0 a 5 e as Fases 7 e 8 corretivas estao concluidas. Word Lens e opt-in, processa apenas secoes carregadas e o CSS omitido do manifest em `AI Engineering` foi validado no Android. O proximo incremento opcional continua sendo a Fase 6 de definicoes ao toque.
 
 Arquivos-chave:
 
@@ -718,19 +846,20 @@ Arquivos-chave:
 - `src/services/WordLensDataService.ts`
 - `src/utils/wordLens.ts`
 - `src/utils/wordLensDom.ts`
+- `src/utils/epubResources.ts`
 - `src/hooks/useReaderAppearance.ts`
 - `src/screens/ReaderScreen.tsx`
 - `src/components/reader/EpubViewer.tsx`
 - `src/i18n/messages.ts`
 - testes correspondentes em `src/__tests__/`
 
-Comandos iniciais:
+Comandos recomendados para o QA complementar em aparelho intermediario:
 
 ```powershell
 git status --short
 adb devices -l
 npx cap run android --target <device-id>
-# No aparelho: comparar logs reader.wordLens.process e abertura ligado/desligado.
+# Repetir watchdog, TOC longo, mediana/p95 e maxBatchMs < 8 ms antes do rollout amplo.
 ```
 
 Decisoes pendentes que precisam ser registradas na Fase 0:

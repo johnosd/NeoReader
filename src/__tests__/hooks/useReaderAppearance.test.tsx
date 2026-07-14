@@ -77,7 +77,7 @@ describe('useReaderAppearance', () => {
     expect(result.current.readerTheme).toBe('dark')
     expect(result.current.fontFamily).toBe('classic')
     expect(result.current.bookLanguage).toBe('en')
-    expect(result.current.wordLensEnabled).toBe(true)
+    expect(result.current.wordLensEnabled).toBe(false)
     expect(result.current.wordLensLevel).toBe('B1')
   })
 

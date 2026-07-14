@@ -431,7 +431,6 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
             <SettingBlock
               label={t('settings.wordLens.level.label')}
               description={t('settings.wordLens.level.description')}
-              divider={false}
             >
               <select
                 value={settings.readerDefaults.wordLensLevel}
@@ -444,6 +443,29 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
               </select>
               <p className="mt-2 text-xs leading-snug text-text-muted">
                 {t('settings.wordLens.approximationNote')}
+              </p>
+            </SettingBlock>
+            <SettingBlock
+              label={t('settings.wordLens.legend.label')}
+              description={t('settings.wordLens.legend.description')}
+            >
+              <div className="flex items-center gap-3 text-xs text-text-secondary">
+                <span
+                  aria-hidden="true"
+                  className="bg-warning/15 underline decoration-warning decoration-solid underline-offset-2"
+                >
+                  {t('settings.wordLens.legend.sample')}
+                </span>
+                <span>{t('settings.wordLens.legend.meaning')}</span>
+              </div>
+            </SettingBlock>
+            <SettingBlock
+              label={t('settings.wordLens.sources.label')}
+              description={t('settings.wordLens.sources.description')}
+              divider={false}
+            >
+              <p className="text-xs leading-relaxed text-text-muted">
+                {t('settings.wordLens.sources.limitations')}
               </p>
             </SettingBlock>
           </SettingsGroup>

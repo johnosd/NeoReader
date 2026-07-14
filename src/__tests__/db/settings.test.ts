@@ -65,7 +65,7 @@ describe('settings db helpers', () => {
         fontFamily: 'classic',
         overrideBookFont: true,
         overrideBookColors: true,
-        wordLensEnabled: true,
+        wordLensEnabled: false,
         wordLensLevel: 'B1',
       },
       updatedAt: new Date('2026-04-20T10:00:00.000Z'),
@@ -100,7 +100,7 @@ describe('settings db helpers', () => {
         fontFamily: 'classic',
         overrideBookFont: true,
         overrideBookColors: true,
-        wordLensEnabled: true,
+        wordLensEnabled: false,
         wordLensLevel: 'B1',
       },
     }))
@@ -180,7 +180,7 @@ describe('settings db helpers', () => {
       fontFamily: 'publisher',
       overrideBookFont: false,
       overrideBookColors: true,
-      wordLensEnabled: true,
+      wordLensEnabled: false,
       wordLensLevel: 'B1',
     })
   })
@@ -231,7 +231,7 @@ describe('settings db helpers', () => {
 
     const settings = await getSettings()
 
-    expect(settings.readerDefaults.wordLensEnabled).toBe(true)
+    expect(settings.readerDefaults.wordLensEnabled).toBe(false)
     expect(settings.readerDefaults.wordLensLevel).toBe('B1')
   })
 

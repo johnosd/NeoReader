@@ -97,4 +97,37 @@ describe('TocDrawer', () => {
     expect(screen.getByText('Agora')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Chapter 2' })).toBeTruthy()
   })
+
+  it('expande inicialmente somente o ramo do capitulo atual', () => {
+    render(
+      <TocDrawer
+        open
+        toc={[
+          {
+            label: 'Part I',
+            href: 'part-1.xhtml',
+            subitems: [{ label: 'Chapter 1', href: 'chapter-1.xhtml' }],
+          },
+          {
+            label: 'Part II',
+            href: 'part-2.xhtml',
+            subitems: [{ label: 'Chapter 2', href: 'chapter-2.xhtml' }],
+          },
+        ]}
+        currentHref="chapter-2.xhtml"
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByRole('button', { name: 'Chapter 1' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Chapter 2' })).toBeTruthy()
+
+    const firstGroupRow = screen.getByRole('button', { name: 'Part I' }).parentElement
+    const firstGroupToggle = firstGroupRow?.querySelectorAll('button')[1]
+    expect(firstGroupToggle).toBeTruthy()
+    fireEvent.click(firstGroupToggle!)
+
+    expect(screen.getByRole('button', { name: 'Chapter 1' })).toBeTruthy()
+  })
 })

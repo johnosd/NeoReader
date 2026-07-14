@@ -58,7 +58,7 @@ export const DEFAULT_READER_DEFAULTS: ReaderDefaults = {
   fontFamily: 'classic',
   overrideBookFont: true,
   overrideBookColors: true,
-  wordLensEnabled: true,
+  wordLensEnabled: false,
   wordLensLevel: 'B1',
 }
 

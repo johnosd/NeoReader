@@ -2,6 +2,12 @@ import type { CefrLevel, WordLensData } from '@/types/wordLens'
 import { classifyWordLensTokens, tokenizeWordLensText, type WordLensMatch } from '@/utils/wordLens'
 
 const WORD_LENS_SELECTOR = '.nr-word-lens'
+// Keep generous headroom below the 8 ms reader budget because a DOM operation
+// or a preempted WebView callback can finish after the last deadline check.
+const DEFAULT_BATCH_BUDGET_MS = 4
+const MAX_BATCH_OPERATIONS = 32
+const TIMED_OUT_BATCH_OPERATIONS = 1
+const IDLE_DEADLINE_HEADROOM_MS = 2
 const EXCLUDED_ANCESTOR_SELECTOR = [
   'script',
   'style',
@@ -81,7 +87,7 @@ export function scheduleWordLensDocument(
   doc: Document,
   options: WordLensDocumentOptions,
 ): WordLensDocumentTask {
-  const budgetMs = Math.max(1, Math.min(options.batchBudgetMs ?? 8, 16))
+  const budgetMs = Math.max(1, Math.min(options.batchBudgetMs ?? DEFAULT_BATCH_BUDGET_MS, 16))
   let existingHighlights: Element[] | null = null
   const parentsToNormalize = new Set<Node>()
   const metrics: WordLensDocumentMetrics = {
@@ -140,7 +146,9 @@ export function scheduleWordLensDocument(
   }
 
   function hasBudget(startedAt: number, deadline?: IdleDeadlineLike): boolean {
-    return now(doc) - startedAt < budgetMs && (!deadline || deadline.didTimeout || deadline.timeRemaining() > 1)
+    if (now(doc) - startedAt >= budgetMs) return false
+    if (!deadline || deadline.didTimeout) return true
+    return deadline.timeRemaining() > IDLE_DEADLINE_HEADROOM_MS
   }
 
   function prepareMarkStage(): void {
@@ -163,7 +171,8 @@ export function scheduleWordLensDocument(
 
     const startedAt = now(doc)
     let operations = 0
-    while (hasBudget(startedAt, deadline) && operations < 64) {
+    const operationLimit = deadline?.didTimeout ? TIMED_OUT_BATCH_OPERATIONS : MAX_BATCH_OPERATIONS
+    while (hasBudget(startedAt, deadline) && operations < operationLimit) {
       if (stage === 'clear') {
         existingHighlights ??= Array.from(doc.querySelectorAll(WORD_LENS_SELECTOR))
         const element = existingHighlights[clearIndex]
