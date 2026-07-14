@@ -67,11 +67,19 @@ export function classifyWordLensText(
   userLevel: CefrLevel,
   data: WordLensData,
 ): WordLensMatch[] {
+  return classifyWordLensTokens(tokenizeWordLensText(text), userLevel, data)
+}
+
+export function classifyWordLensTokens(
+  tokens: WordLensToken[],
+  userLevel: CefrLevel,
+  data: WordLensData,
+): WordLensMatch[] {
   const userOrdinal = cefrLevelToOrdinal(userLevel)
-  if (userOrdinal === 6 || text.length === 0) return []
+  if (userOrdinal === 6 || tokens.length === 0) return []
 
   const matches: WordLensMatch[] = []
-  for (const token of tokenizeWordLensText(text)) {
+  for (const token of tokens) {
     const lemma = data.lemmas[token.normalized] ?? token.normalized
     const ordinal = data.levels[token.normalized] ?? data.levels[lemma]
     if (ordinal === undefined || ordinal <= userOrdinal) continue

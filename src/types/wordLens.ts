@@ -9,6 +9,7 @@ export type WordLensLemmas = Readonly<Record<string, string>>
 export interface WordLensData {
   levels: WordLensLevels
   lemmas: WordLensLemmas
+  packVersion?: string
 }
 
 export interface WordLensManifest {

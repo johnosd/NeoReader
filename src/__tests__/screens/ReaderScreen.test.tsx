@@ -58,6 +58,7 @@ const mocks = vi.hoisted(() => {
     },
     ttsOptions: null as MockTtsOptions | null,
     setReaderImmersiveMode: vi.fn().mockResolvedValue(undefined),
+    loadWordLensData: vi.fn().mockResolvedValue(null),
     tts: {
       isPlaying: false,
       isPaused: false,
@@ -142,6 +143,8 @@ vi.mock('@/db/settings', () => ({
       fontFamily: 'classic',
       overrideBookFont: true,
       overrideBookColors: true,
+      wordLensEnabled: true,
+      wordLensLevel: 'B1',
     },
     updatedAt: new Date(),
   })),
@@ -172,6 +175,10 @@ vi.mock('@/services/TranslationService', () => ({
 
 vi.mock('@/services/NativeSystemUiService', () => ({
   setReaderImmersiveMode: mocks.setReaderImmersiveMode,
+}))
+
+vi.mock('@/services/WordLensDataService', () => ({
+  loadWordLensData: mocks.loadWordLensData,
 }))
 
 vi.mock('@/services/EpubService', () => ({
@@ -296,6 +303,8 @@ function makeSettings(overrides: Partial<Awaited<ReturnType<typeof getSettings>>
       fontFamily: 'classic' as const,
       overrideBookFont: true,
       overrideBookColors: true,
+      wordLensEnabled: true,
+      wordLensLevel: 'B1' as const,
     },
     updatedAt: new Date(),
     ...overrides,
@@ -323,6 +332,8 @@ describe('ReaderScreen', () => {
     mocks.readerStore.toc = []
     mocks.readerStore.tocLabel = ''
     mocks.setReaderImmersiveMode.mockClear()
+    mocks.loadWordLensData.mockClear()
+    mocks.loadWordLensData.mockResolvedValue(null)
     mocks.readerProgress.saveProgress.mockClear()
     mocks.readerProgress.flushProgress.mockClear()
     mocks.readerStore.setCfi.mockClear()
@@ -380,6 +391,34 @@ describe('ReaderScreen', () => {
 
     expect(deleteBook).toHaveBeenCalledWith(1)
     expect(onBack).toHaveBeenCalledOnce()
+  })
+
+  it('carrega Word Lens somente depois que o viewer fica interativo', async () => {
+    render(
+      <ReaderScreen
+        book={book}
+        onBack={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+    await flushAsyncWork()
+
+    expect(mocks.epubViewerProps).not.toBeNull()
+    expect(mocks.loadWordLensData).not.toHaveBeenCalled()
+
+    await act(async () => {
+      ;(mocks.epubViewerProps?.onLoad as () => void)()
+      await Promise.resolve()
+    })
+
+    expect(mocks.loadWordLensData).toHaveBeenCalledWith({
+      enabled: true,
+      language: 'fr',
+      userLevel: 'B1',
+    })
+    expect(mocks.epubViewerProps?.wordLensEnabled).toBe(true)
+    expect(mocks.epubViewerProps?.wordLensLevel).toBe('B1')
+    expect(mocks.epubViewerProps?.wordLensData).toBeNull()
   })
 
   it('usa o progresso salvo como marcador inicial do indice do leitor', async () => {

@@ -97,7 +97,7 @@ async function loadData(fetchImpl: typeof fetch): Promise<WordLensData> {
     fetchJson(resolveWordLensAssetUrl(manifest.levelsPath), fetchImpl).then(validateLevels),
     fetchJson(resolveWordLensAssetUrl(manifest.lemmasPath), fetchImpl).then(validateLemmas),
   ])
-  return { levels, lemmas }
+  return { levels, lemmas, packVersion: manifest.packVersion }
 }
 
 export function loadWordLensData({

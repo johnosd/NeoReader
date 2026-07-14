@@ -48,6 +48,8 @@ const defaultSettings = {
     fontFamily: 'classic' as const,
     overrideBookFont: true,
     overrideBookColors: true,
+    wordLensEnabled: true,
+    wordLensLevel: 'B1' as const,
   },
 }
 
@@ -75,6 +77,8 @@ describe('useReaderAppearance', () => {
     expect(result.current.readerTheme).toBe('dark')
     expect(result.current.fontFamily).toBe('classic')
     expect(result.current.bookLanguage).toBe('en')
+    expect(result.current.wordLensEnabled).toBe(true)
+    expect(result.current.wordLensLevel).toBe('B1')
   })
 
   it('carrega preferências globais quando não há override por livro', async () => {

@@ -4,7 +4,7 @@
 
 - Feature: marcar no leitor palavras em ingles acima do nivel CEFR do usuario.
 - Data da reescrita: 2026-07-13.
-- Status: em execucao; Fases 0, 1, 2 e 3 concluidas, Fase 4 pronta para iniciar.
+- Status: em execucao; Fases 0 a 4 concluidas, Fase 5 pronta para QA com aparelho Android conectado.
 - Contexto: plano reescrito via skill `plan-feature` depois de definir fontes, pipeline externo e acesso offline aos data packs.
 - Plataformas: Web e Android via Capacitor.
 - Nivel padrao: B1; selecao entre A1 e C2.
@@ -526,41 +526,75 @@ Estrategias:
 
 ## Fase 4: Marcacao No Leitor EPUB
 
-- Status: Not started.
+- Status: Done.
 - Proposito: marcar secoes carregadas sem interferir no leitor.
-- Areas: `src/screens/ReaderScreen.tsx`, `src/components/reader/EpubViewer.tsx`, novo helper DOM e testes.
+- Areas: `src/hooks/useReaderAppearance.ts`, `src/screens/ReaderScreen.tsx`, `src/components/reader/EpubViewer.tsx`, `src/utils/wordLensDom.ts` e testes.
+
+### Revisao De Otimizacao Antes Da Implementacao
+
+- Reutilizar o `getSettings()` que `useReaderAppearance` ja executa; nenhuma segunda query de settings sera criada no `ReaderScreen`.
+- Liberar `onLoad` e o loading inicial antes de solicitar o data pack. O Word Lens entra como melhoria progressiva e nunca fica no caminho critico de abertura.
+- Manter os CFIs de paragrafo calculados pelo viewer antes de qualquer marcacao e nunca recriar `foliate-view` por mudanca de configuracao.
+- Processar Text nodes com `TreeWalker` em fatias cancelaveis de ate 8 ms, com `requestIdleCallback` quando disponivel e fallback assíncrono controlado.
+- Remocao e reaplicacao tambem devem ser fatiadas; uma geracao mais nova cancela trabalho obsoleto e limpa resultados parciais antes de continuar.
+- Spans do MVP serao metricamente neutros: sem padding, margin, mudanca de fonte/peso/line-height e com `pointer-events: none`.
+- Ignorar subarvores de vocabulario salvo, traducao, TTS e UI NeoReader para evitar wrappers concorrentes. Bookmarks usam atributos no bloco e continuam compativeis.
+- Registrar apenas tempo de CPU, quantidade de Text nodes/tokens/matches, secao e versao; nunca texto, lema ou palavra.
+- A medicao automatizada desta fase valida custo do helper e ausencia do caminho critico; a decisao de release continua condicionada ao p95 no Android da Fase 5.
 
 ### Implementacao
 
-- [ ] Obter configuracao Word Lens sem duplicar queries desnecessarias.
-- [ ] Ativar somente para idioma efetivo `en` ou variante.
-- [ ] Carregar indice depois que o leitor estiver funcional, sem bloquear `onLoad` inicial.
-- [ ] Passar configuracao/lookup estavel ao viewer.
-- [ ] Criar walker separado de `injectVocabHighlight`.
-- [ ] Ignorar elementos NeoReader, script/style/noscript e spans ja processados.
-- [ ] Definir ordem segura com vocabulario salvo, bookmark, traducao, TTS e imagens.
-- [ ] Aplicar `span.nr-word-lens[data-nr-cefr-level]` idempotente.
-- [ ] Remover/reaplicar ao mudar toggle/nivel sem recriar viewer nem perder CFI/scroll.
-- [ ] Aplicar estilos por tema sem alterar metricas tipograficas.
-- [ ] Registrar somente metricas agregadas e versao do pack.
+- [x] Obter configuracao Word Lens sem duplicar queries desnecessarias.
+- [x] Ativar somente para idioma efetivo `en` ou variante.
+- [x] Carregar indice depois que o leitor estiver funcional, sem bloquear `onLoad` inicial.
+- [x] Passar configuracao/lookup estavel ao viewer.
+- [x] Criar walker separado de `injectVocabHighlight`.
+- [x] Ignorar elementos NeoReader, script/style/noscript e spans ja processados.
+- [x] Definir ordem segura com vocabulario salvo, bookmark, traducao, TTS e imagens.
+- [x] Aplicar `span.nr-word-lens[data-nr-cefr-level]` idempotente.
+- [x] Remover/reaplicar ao mudar toggle/nivel sem recriar viewer nem perder CFI/scroll.
+- [x] Aplicar estilos por tema sem alterar metricas tipograficas.
+- [x] Registrar somente metricas agregadas e versao do pack.
+- [x] Fatiar aplicacao e remocao com cancelamento por geracao e budget maximo de 8 ms por lote.
+- [x] Preservar CFIs precomputados e garantir `pointer-events: none`/estilos metricamente neutros.
 
 ### Testes
 
-- [ ] Marcar somente niveis acima; nao marcar desligado, C2, desconhecido ou livro nao ingles.
-- [ ] Cobrir elementos inline, capitulos repetidos, reprocessamento e desmontagem.
-- [ ] Cobrir coexistencia com `.nr-vocab`, traducao, bookmark, TTS, chrome e imagens.
-- [ ] Cobrir mudanca de nivel preservando viewer, progresso e localizacao.
-- [ ] Cobrir falha no pack sem erro fatal.
-- [ ] Benchmarkar evento `load` e processamento incremental.
+- [x] Marcar somente niveis acima; nao marcar desligado, C2, desconhecido ou livro nao ingles.
+- [x] Cobrir elementos inline, capitulos repetidos, reprocessamento e desmontagem.
+- [x] Cobrir coexistencia com `.nr-vocab`, traducao, bookmark, TTS, chrome e imagens.
+- [x] Cobrir mudanca de nivel preservando viewer, progresso e localizacao.
+- [x] Cobrir falha no pack sem erro fatal.
+- [x] Benchmarkar evento `load` e processamento incremental.
+- [x] Cobrir cancelamento de lote obsoleto e limpeza de resultado parcial.
 
 ### Criterios De Aceite
 
 - Marcacoes corretas e visiveis em todos os temas.
 - Nenhuma alteracao de texto, layout, selecao, CFI ou interacoes.
-- Budget de desempenho cumprido no Android de referencia.
+- Gate automatizado sem lote acima de 50 ms; mediana/p95 e percepcao real no Android permanecem gate obrigatorio da Fase 5.
 
 - Commit sugerido: `feat(reader): highlight above-level CEFR words`
 - Risco: mutacao de DOM em capitulos grandes; benchmark e cancelamento sao gates.
+
+### Evidencias Da Fase 4
+
+- `useReaderAppearance` reaproveita a unica leitura de settings e expoe ativacao/nivel ao `ReaderScreen`; nenhuma query adicional foi criada.
+- O data pack so e solicitado depois de `EpubViewer.onLoad`, portanto falha ou parse do JSON nao bloqueiam a abertura do livro.
+- `wordLensDom.ts` usa `TreeWalker`, lotes idle/fallback com budget de 8 ms, limite de 64 operacoes e cancelamento; matches de uma unica Text node tambem sao divididos entre lotes.
+- A marcacao ignora UI NeoReader, vocabulario salvo, traducao e TTS; imagens nao sao percorridas e bookmarks permanecem atributos do bloco.
+- Troca de nivel remove/reaplica spans sem recriar `foliate-view`, preserva texto do TTS e o CFI de paragrafo calculado antes da marcacao.
+- CSS usa somente fundo/sublinhado, sem padding, margin, peso, tamanho ou line-height proprios, e com `pointer-events: none`.
+- Telemetria contem somente secao, versao do pack, Text nodes, tokens, matches, tempo total de CPU e maior lote; teste confirma ausencia da palavra do livro nos logs.
+- Benchmark automatizado cobre 200 matches em uma unica Text node, forca multiplos lotes e exige `maxBatchMs < 50`.
+- `npm run lint`: passou sem erros ou avisos.
+- `npm run build`: passou com avisos preexistentes do PDF.js e chunk grande.
+- `npm test -- --run`: 73 arquivos passaram, 2 foram ignorados; 541 testes passaram e 2 foram ignorados.
+- `npm run word-lens:check`: passou e confirmou data pack reproduzivel.
+- `npx cap sync android`: passou com os assets atuais.
+- `git diff --check`: passou; avisos LF/CRLF sao apenas configuracao do worktree.
+- `adb devices -l`: nenhum aparelho conectado no momento; instalacao, QA visual e mediana/p95 ficam explicitamente para a Fase 5 e continuam bloqueando release.
+- Boundary sugerido: arquivos da Fase 4 e este registro; commit `feat(reader): highlight above-level CEFR words`.
 
 ## Fase 5: QA, Atribuicao E Rollout Do MVP
 
@@ -673,7 +707,7 @@ Cada commit deve ser pequeno, focado e testado. Nao incluir a alteracao preexist
 
 ## Handoff Para A Proxima Sessao
 
-Fases 0, 1, 2 e 3 concluidas. Pipeline, servico, classificador e configuracoes globais estao prontos. A proxima fase integra o Word Lens apenas em EPUBs ingleses, processando secoes carregadas de forma incremental e reversivel, com budget de desempenho medido.
+Fases 0 a 4 concluidas. O MVP ja carrega o pack depois da abertura e marca secoes EPUB inglesas de forma incremental, cancelavel e reversivel. A proxima fase e o gate de release: reconectar o S23, instalar o build atual, validar visual/interacoes offline, medir mediana/p95 ligado versus desligado e concluir atribuicoes/licencas.
 
 Arquivos-chave:
 
@@ -683,6 +717,7 @@ Arquivos-chave:
 - `src/screens/SettingsScreen.tsx`
 - `src/services/WordLensDataService.ts`
 - `src/utils/wordLens.ts`
+- `src/utils/wordLensDom.ts`
 - `src/hooks/useReaderAppearance.ts`
 - `src/screens/ReaderScreen.tsx`
 - `src/components/reader/EpubViewer.tsx`
@@ -693,8 +728,9 @@ Comandos iniciais:
 
 ```powershell
 git status --short
-npm test -- src/__tests__/components/EpubViewer.test.tsx src/__tests__/screens/ReaderScreen.test.tsx
-npm run build
+adb devices -l
+npx cap run android --target <device-id>
+# No aparelho: comparar logs reader.wordLens.process e abertura ligado/desligado.
 ```
 
 Decisoes pendentes que precisam ser registradas na Fase 0:

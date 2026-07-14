@@ -49,7 +49,11 @@ describe('WordLensDataService', () => {
     const first = await loadWordLensData(options)
     const second = await loadWordLensData(options)
 
-    expect(first).toEqual({ levels: { apple: 1, ubiquitous: 5 }, lemmas: { apples: 'apple' } })
+    expect(first).toEqual({
+      levels: { apple: 1, ubiquitous: 5 },
+      lemmas: { apples: 'apple' },
+      packVersion: 'test',
+    })
     expect(second).toBe(first)
     expect(fetchImpl).toHaveBeenCalledTimes(3)
   })

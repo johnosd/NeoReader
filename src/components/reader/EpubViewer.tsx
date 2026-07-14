@@ -9,6 +9,8 @@ import { areCfisEquivalent, normalizeCfi } from '../../utils/cfi'
 import { areTocHrefDocumentSuffixesEqual, normalizeTocHref } from '../../utils/toc'
 import { clampPercentage, fractionToPercentage } from '../../utils/progress'
 import { splitParagraphIntoTtsChunks } from '../../utils/ttsChunking'
+import type { CefrLevel, WordLensData } from '../../types/wordLens'
+import { scheduleWordLensDocument, type WordLensDocumentTask } from '../../utils/wordLensDom'
 import { BookFileResolver } from '../../services/BookFileResolver'
 import { createFlowId, logEvent } from '../../services/DiagnosticsLogger'
 import { useI18n } from '../../i18n'
@@ -1011,6 +1013,23 @@ function buildReaderCSS(
       text-underline-offset: 3px !important;
       cursor: pointer !important;
     }
+    .nr-word-lens {
+      margin: 0 !important;
+      padding: 0 !important;
+      border: 0 !important;
+      border-radius: 0 !important;
+      font: inherit !important;
+      line-height: inherit !important;
+      letter-spacing: inherit !important;
+      color: inherit !important;
+      background-color: ${palette.isDark ? 'rgba(250, 204, 21, 0.16)' : 'rgba(202, 138, 4, 0.13)'} !important;
+      text-decoration: underline solid ${palette.isDark ? 'rgba(250, 204, 21, 0.68)' : 'rgba(161, 98, 7, 0.62)'} !important;
+      text-decoration-thickness: 1px !important;
+      text-underline-offset: 2px !important;
+      box-shadow: none !important;
+      pointer-events: none !important;
+      cursor: inherit !important;
+    }
   `
 }
 
@@ -1092,6 +1111,9 @@ interface EpubViewerProps {
   overrideBookFont: boolean
   overrideBookColors: boolean
   focusLineEnabled: boolean
+  wordLensEnabled: boolean
+  wordLensLevel: CefrLevel
+  wordLensData: WordLensData | null
   savedCfi: string | null
   initialTarget?: string | null
   onRelocate: (payload: ReaderRelocatePayload) => void
@@ -1132,7 +1154,7 @@ interface EpubViewerProps {
 export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
   (
     {
-      book, bookmarks, fontSize, lineHeight, readerTheme, fontFamily, overrideBookFont, overrideBookColors, focusLineEnabled, savedCfi, initialTarget,
+      book, bookmarks, fontSize, lineHeight, readerTheme, fontFamily, overrideBookFont, overrideBookColors, focusLineEnabled, wordLensEnabled, wordLensLevel, wordLensData, savedCfi, initialTarget,
       onRelocate, onTocReady, onLoad, onSectionReady, onError,
       onSaveVocab, onCenterTap, onTranslate,
       onSpeakOne, onParagraphTapForTts, onTtsUserScrollAway, ttsGlobalActive,
@@ -1149,6 +1171,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const currentDocRef = useRef<Document | null>(null)
     const loadedSectionsRef = useRef(new Map<number, LoadedSectionContent>())
     const trackedScrollDocRef = useRef<Document | null>(null)
+    const wordLensTasksRef = useRef(new Map<Document, WordLensDocumentTask>())
 
     // Elementos e textos dos parágrafos da seção atual — atualizados no evento 'load'
     const ttsParagraphsRef = useRef<Element[]>([])
@@ -1189,6 +1212,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     // ttsGlobalActive: modo leitura contínua ativo (inclui pausado) — gating do clique
     const ttsGlobalActiveRef = useSyncRef(ttsGlobalActive)
     const chromeVisibleRef = useSyncRef(chromeVisible)
+    const wordLensConfigRef = useSyncRef({ enabled: wordLensEnabled, level: wordLensLevel, data: wordLensData })
     // Navegação entre capítulos: detecta fundo visual + swipe para avançar
     const currentSectionIdxRef = useRef(0)
     const totalSectionsRef = useRef(1)
@@ -1212,6 +1236,32 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const onBookmarkTapRef = useSyncRef(onBookmarkTap)
     const onBookmarkParagraphRef = useSyncRef(onBookmarkParagraph)
 
+    function renderWordLens(doc: Document, sectionIndex: number): void {
+      const config = wordLensConfigRef.current
+      if (!config.data && !doc.querySelector('.nr-word-lens')) return
+
+      wordLensTasksRef.current.get(doc)?.cancel()
+      const task = scheduleWordLensDocument(doc, config)
+      wordLensTasksRef.current.set(doc, task)
+      void task.completed.then((metrics) => {
+        if (wordLensTasksRef.current.get(doc) === task) wordLensTasksRef.current.delete(doc)
+        if (metrics.cancelled) return
+        logEvent('reader.wordLens.process', {
+          screen: 'reader',
+          status: 'success',
+          durationMs: metrics.processingMs,
+          details: {
+            sectionIndex,
+            packVersion: config.data?.packVersion ?? 'unknown',
+            textNodes: metrics.textNodes,
+            tokens: metrics.tokens,
+            matches: metrics.matches,
+            maxBatchMs: Math.round(metrics.maxBatchMs * 100) / 100,
+          },
+        })
+      })
+    }
+
     function pruneLoadedSections(): void {
       const liveIndices = new Set(
         viewRef.current?.renderer
@@ -1221,7 +1271,14 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       )
 
       for (const index of Array.from(loadedSectionsRef.current.keys())) {
-        if (!liveIndices.has(index)) loadedSectionsRef.current.delete(index)
+        if (!liveIndices.has(index)) {
+          const content = loadedSectionsRef.current.get(index)
+          if (content) {
+            wordLensTasksRef.current.get(content.doc)?.cancel()
+            wordLensTasksRef.current.delete(content.doc)
+          }
+          loadedSectionsRef.current.delete(index)
+        }
       }
     }
 
@@ -2449,13 +2506,30 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       syncActiveTranslationBookmarkActionRef.current?.()
     }, [bookmarks])
 
+    useEffect(() => {
+      const wordLensTasks = wordLensTasksRef.current
+      for (const content of loadedSectionsRef.current.values()) {
+        renderWordLens(content.doc, content.index)
+      }
+      return () => {
+        for (const task of wordLensTasks.values()) task.cancel()
+        wordLensTasks.clear()
+      }
+      // renderWordLens le a configuracao mais recente via ref; as dependencias abaixo
+      // controlam apenas quando uma nova geracao deve substituir a anterior.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [wordLensData, wordLensEnabled, wordLensLevel])
+
     // Setup principal: cria o elemento foliate, abre o EPUB, configura renderer.
     // Roda apenas quando o bookId muda (novo livro), não a cada re-render.
     useEffect(() => {
       const container = containerRef.current
       if (!container) return
       const loadedSections = loadedSectionsRef.current
+      const wordLensTasks = wordLensTasksRef.current
 
+      for (const task of wordLensTasks.values()) task.cancel()
+      wordLensTasks.clear()
       loadedSections.clear()
       trackedScrollDocRef.current = null
       currentDocRef.current = null
@@ -2553,6 +2627,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           }
           renderBookmarkMarkers(doc)
           injectVocabHighlight(doc, vocabWordsRef.current)
+          renderWordLens(doc, index)
 
           // didScroll: Android WebView dispara 'click' mesmo após scroll curto.
           // Rastreamos touchmove para distinguir tap intencional de fim de scroll.
@@ -2811,6 +2886,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         scrollListenerCleanupRef.current?.()
         scrollListenerCleanupRef.current = null
         trackedScrollDocRef.current = null
+        for (const task of wordLensTasks.values()) task.cancel()
+        wordLensTasks.clear()
         loadedSections.clear()
         pendingSectionRef.current = null
         currentDocRef.current = null

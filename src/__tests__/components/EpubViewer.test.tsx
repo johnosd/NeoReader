@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, act } from '@testing-library/react'
+import { render, act, waitFor } from '@testing-library/react'
 import { createRef } from 'react'
 import { EpubViewer, type EpubViewerHandle } from '@/components/reader/EpubViewer'
 import { logEvent } from '@/services/DiagnosticsLogger'
@@ -48,6 +48,9 @@ function defaultProps(overrides: Record<string, unknown> = {}) {
     fontFamily: 'classic' as const,
     overrideBookFont: true,
     overrideBookColors: true,
+    wordLensEnabled: true,
+    wordLensLevel: 'B1' as const,
+    wordLensData: null,
     savedCfi: null,
     onRelocate: vi.fn(),
     onTocReady: vi.fn(),
@@ -71,13 +74,14 @@ async function renderViewer(overrides: Record<string, unknown> = {}) {
   const viewerRef = createRef<EpubViewerHandle>()
   const props = defaultProps(overrides)
 
-  const { container } = render(<EpubViewer ref={viewerRef} {...(props as Parameters<typeof EpubViewer>[0])} />)
+  const rendered = render(<EpubViewer ref={viewerRef} {...(props as Parameters<typeof EpubViewer>[0])} />)
+  const { container } = rendered
 
   // Flush promises: open() + init() do mock resolvem imediatamente
   await act(async () => { await Promise.resolve() })
 
   const foliateEl = container.querySelector('foliate-view') as unknown as FoliateViewMock
-  return { viewerRef, foliateEl, props, container }
+  return { viewerRef, foliateEl, props, container, rerender: rendered.rerender }
 }
 
 /** Cria um Document mínimo e adiciona parágrafo com texto. */
@@ -294,6 +298,87 @@ describe('EpubViewer — abertura do livro', () => {
     expect(styles).toContain('#e8eddc')
     expect(styles).toContain('Verdana')
     expect(styles).toContain('rgba(246, 250, 238, 0.98)')
+    expect(styles).toContain('.nr-word-lens')
+    expect(styles).toContain('pointer-events: none')
+  })
+
+  it('marca Word Lens depois do load sem atrasar a prontidao inicial', async () => {
+    const onLoad = vi.fn()
+    const { foliateEl } = await renderViewer({
+      onLoad,
+      wordLensData: {
+        levels: { apple: 1, ubiquitous: 5 },
+        lemmas: {},
+        packVersion: 'test',
+      },
+    })
+    const fakeDoc = makeFakeDoc(['Apple and ubiquitous ideas.'])
+    injectFakeWindow(fakeDoc, 0)
+
+    loadSection(foliateEl, fakeDoc, 0)
+    expect(onLoad).toHaveBeenCalledOnce()
+
+    await waitFor(() => expect(fakeDoc.querySelectorAll('.nr-word-lens')).toHaveLength(1))
+    expect(fakeDoc.querySelector('.nr-word-lens')?.textContent).toBe('ubiquitous')
+    expect(fakeDoc.body.textContent).toContain('Apple and ubiquitous ideas.')
+    expect(logEventMock).toHaveBeenCalledWith('reader.wordLens.process', expect.objectContaining({
+      screen: 'reader',
+      status: 'success',
+      details: expect.objectContaining({
+        sectionIndex: 0,
+        packVersion: 'test',
+        matches: 1,
+      }),
+    }))
+    expect(JSON.stringify(logEventMock.mock.calls)).not.toContain('ubiquitous')
+  })
+
+  it('reaplica mudança de nível sem recriar o viewer ou alterar o texto do TTS', async () => {
+    const wordLensData = {
+      levels: { elaborate: 4 as const, ubiquitous: 5 as const, aberration: 6 as const },
+      lemmas: {},
+      packVersion: 'test',
+    }
+    const rendered = await renderViewer({ wordLensData })
+    const fakeDoc = makeFakeDoc(['elaborate ubiquitous aberration'])
+    injectFakeWindow(fakeDoc, 0)
+    loadSection(rendered.foliateEl, fakeDoc, 0)
+    await waitFor(() => expect(fakeDoc.querySelectorAll('.nr-word-lens')).toHaveLength(3))
+    const cachedParagraphCfi = fakeDoc.querySelector('p')?.getAttribute('data-nr-para-cfi')
+    expect(cachedParagraphCfi).toBeTruthy()
+
+    const originalViewer = rendered.container.querySelector('foliate-view')
+    rendered.rerender(
+      <EpubViewer
+        ref={rendered.viewerRef}
+        {...(defaultProps({ wordLensData, wordLensLevel: 'C1' }) as Parameters<typeof EpubViewer>[0])}
+      />,
+    )
+
+    await waitFor(() => expect(fakeDoc.querySelectorAll('.nr-word-lens')).toHaveLength(1))
+    expect(fakeDoc.querySelector('.nr-word-lens')?.textContent).toBe('aberration')
+    expect(rendered.container.querySelector('foliate-view')).toBe(originalViewer)
+    expect(rendered.foliateEl.open).toHaveBeenCalledOnce()
+    expect(rendered.viewerRef.current?.getParagraphs()).toEqual(['elaborate ubiquitous aberration'])
+    expect(fakeDoc.querySelector('p')?.getAttribute('data-nr-para-cfi')).toBe(cachedParagraphCfi)
+  })
+
+  it('não marca conteúdo já coberto pelo vocabulário salvo', async () => {
+    const { foliateEl } = await renderViewer({
+      vocabWords: ['ubiquitous'],
+      wordLensData: {
+        levels: { ubiquitous: 5 },
+        lemmas: {},
+        packVersion: 'test',
+      },
+    })
+    const fakeDoc = makeFakeDoc(['A ubiquitous idea.'])
+    injectFakeWindow(fakeDoc, 0)
+    loadSection(foliateEl, fakeDoc, 0)
+
+    await waitFor(() => expect(fakeDoc.querySelector('.nr-vocab')).not.toBeNull())
+    expect(fakeDoc.querySelector('.nr-vocab')?.textContent).toBe('ubiquitous')
+    expect(fakeDoc.querySelector('.nr-word-lens')).toBeNull()
   })
 
   it('chama onError quando open() lança exceção', async () => {

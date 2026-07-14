@@ -50,6 +50,8 @@ import { areTocHrefDocumentSuffixesEqual, findTopLevelTocLabel } from '../utils/
 import { getReaderThemePalette } from '../utils/readerPreferences'
 import { clampTtsRate } from '../utils/language'
 import { useI18n } from '../i18n'
+import { loadWordLensData } from '../services/WordLensDataService'
+import type { WordLensData } from '../types/wordLens'
 
 function normalizeReaderHref(href?: string | null) {
   if (!href) return null
@@ -149,6 +151,8 @@ export function ReaderScreen({
   const [removingMissingBook, setRemovingMissingBook] = useState(false)
   const [missingBookRemovalError, setMissingBookRemovalError] = useState<string | null>(null)
   const [detectedMissingFile, setDetectedMissingFile] = useState(false)
+  const [wordLensInteractiveBookId, setWordLensInteractiveBookId] = useState<Book['id'] | null>(null)
+  const [wordLensRuntime, setWordLensRuntime] = useState<{ bookId: Book['id']; data: WordLensData | null } | null>(null)
   const {
     isReady: readerAppearanceReady,
     fontSize,
@@ -157,6 +161,8 @@ export function ReaderScreen({
     fontFamily,
     overrideBookFont,
     overrideBookColors,
+    wordLensEnabled,
+    wordLensLevel,
     bookLanguage,
     translationTargetLang,
     ttsConfig,
@@ -189,6 +195,23 @@ export function ReaderScreen({
     ? sectionNavigationState.currentSectionHref
     : null
   const selectedPremiumTtsMissingKey = isPremiumTtsProvider(ttsConfig.provider) && !ttsProviderAvailability[ttsConfig.provider]
+  const isWordLensInteractive = wordLensInteractiveBookId === book.id
+  const wordLensData = wordLensRuntime && wordLensRuntime.bookId === book.id ? wordLensRuntime.data : null
+
+  useEffect(() => {
+    if (!readerAppearanceReady || !isWordLensInteractive) return
+    let cancelled = false
+    void loadWordLensData({
+      enabled: wordLensEnabled,
+      language: bookLanguage,
+      userLevel: wordLensLevel,
+    }).then((data) => {
+      if (!cancelled) setWordLensRuntime({ bookId: book.id, data })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [book.id, bookLanguage, isWordLensInteractive, readerAppearanceReady, wordLensEnabled, wordLensLevel])
 
   useEffect(() => {
     const flowId = readerOpenFlowId ?? createFlowId('reader-open')
@@ -862,12 +885,16 @@ export function ReaderScreen({
           overrideBookFont={overrideBookFont}
           overrideBookColors={overrideBookColors}
           focusLineEnabled={focusLineEnabled}
+          wordLensEnabled={wordLensEnabled}
+          wordLensLevel={wordLensLevel}
+          wordLensData={wordLensData}
           savedCfi={startHref ? null : savedCfi}
           initialTarget={startHref ?? null}
           onRelocate={handleRelocate}
           onTocReady={setToc}
           onSectionReady={handleReaderSectionReady}
           onLoad={() => {
+            setWordLensInteractiveBookId(book.id)
             finishReaderOpen('success')
             if (startHref && !initialStartNavigationTriggeredRef.current) {
               // EpubViewer já navegou via initialTarget. Seta a flag para que
