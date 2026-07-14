@@ -21,13 +21,17 @@ def csv_bytes(rows: list[str]) -> bytes:
     return ("headword,pos,CEFR\n" + "\n".join(rows) + "\n").encode()
 
 
-def wordnet_zip(files: dict[str, str] | None = None) -> bytes:
+def wordnet_zip(files: dict[str, str] | None = None, data_files: dict[str, str] | None = None) -> bytes:
     stream = io.BytesIO()
     values = {pos: "" for pos in builder.WORDNET_POS}
     values.update(files or {})
+    data_values = {pos: "" for pos in builder.WORDNET_POS}
+    data_values.update(data_files or {})
     with zipfile.ZipFile(stream, "w") as archive:
         for pos, content in values.items():
             archive.writestr(f"oewn/{pos}.exc", content)
+        for pos, content in data_values.items():
+            archive.writestr(f"oewn/data.{pos}", content)
     return stream.getvalue()
 
 
@@ -82,11 +86,46 @@ class WordLensBuilderTests(unittest.TestCase):
             with self.assertRaises(builder.PipelineError):
                 builder.download_source(source, cache, offline=True)
 
+    def test_dictionary_keeps_cefr_entries_and_splits_examples(self):
+        data = wordnet_zip(data_files={
+            "verb": (
+                '00000001 00 v 02 abandon 0 give_up 0 000 00 | '
+                'stop maintaining or insisting on; of ideas or claims; '
+                '"He abandoned the plan"; "They gave up"\n'
+                '00000003 00 v 01 abandon 1 000 00 | yield completely\n'
+            ),
+            "adj": '00000002 00 s 02 omnipresent 0 ubiquitous 0 000 | being present everywhere at once\n',
+        })
+
+        dictionary = builder.parse_wordnet_dictionary(data, {"abandon": 4, "ubiquitous": 5})
+
+        self.assertEqual(dictionary["abandon"]["partsOfSpeech"], ["verb"])
+        self.assertEqual(
+            dictionary["abandon"]["senses"][0]["definition"],
+            "stop maintaining or insisting on; of ideas or claims",
+        )
+        self.assertEqual(
+            dictionary["abandon"]["senses"][0]["examples"],
+            ["He abandoned the plan", "They gave up"],
+        )
+        self.assertEqual(dictionary["abandon"]["senses"][0]["synonyms"], ["give up"])
+        self.assertEqual(len(dictionary["abandon"]["senses"]), 2)
+        self.assertEqual(dictionary["abandon"]["senses"][1]["examples"], [])
+        self.assertEqual(dictionary["ubiquitous"]["partsOfSpeech"], ["adjective"])
+        self.assertEqual(builder.dictionary_partition("ubiquitous"), "ub")
+        self.assertEqual(builder.dictionary_partition("a"), "a-other")
+
     def test_artifacts_are_deterministic_and_check_detects_diff(self):
         lock = {"schemaVersion": 1, "packVersion": "test", "snapshotDate": "2026-07-13"}
         cefr_a = csv_bytes(["access,noun,B1", "access,verb,B2", "box,noun,A2"])
         cefr_b = csv_bytes(["aberration,noun,C2"])
-        wn = wordnet_zip({"noun": "boxes box\n"})
+        wn = wordnet_zip(
+            {"noun": "boxes box\n"},
+            {"noun": (
+                "00000001 00 n 02 access 0 accession 0 000 | the right to enter\n"
+                "00000002 00 n 01 box 0 000 | a container; \"a wooden box\"\n"
+            )},
+        )
         sources = [
             builder.Source("a", "cefr", "A", "1", "u", "0" * 64, "l", "lu", "a"),
             builder.Source("b", "cefr", "B", "1", "u", "1" * 64, "l", "lu", "b"),
@@ -97,6 +136,10 @@ class WordLensBuilderTests(unittest.TestCase):
         self.assertEqual(first, second)
         manifest = json.loads(first["manifest.json"])
         self.assertEqual(manifest["counts"]["headwords"], 3)
+        self.assertEqual(manifest["counts"]["dictionaryHeadwords"], 2)
+        self.assertEqual(manifest["dictionaryPath"], "dictionary")
+        self.assertEqual(manifest["dictionaryPartitions"], ["ac", "bo"])
+        self.assertIn("dictionary/ac.json", first)
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
             builder.write_artifacts(output, first)

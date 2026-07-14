@@ -176,7 +176,7 @@ describe('SettingsScreen', () => {
     expect(screen.getByText(/CEFR-J Wordlist 1\.5/)).toBeTruthy()
     expect(screen.getByText(/Octanove Vocabulary Profile C1\/C2 1\.0 \(CC BY-SA 4\.0\)/)).toBeTruthy()
     expect(screen.getByText(/Open English WordNet 2025 \(CC BY 4\.0\)/)).toBeTruthy()
-    expect(screen.getByText(/nao interpreta contexto/)).toBeTruthy()
+    expect(screen.getByText(/mostra sentidos disponiveis.*nao interpreta o contexto/)).toBeTruthy()
   })
 
   it('salva ativacao e nivel do Word Lens', async () => {

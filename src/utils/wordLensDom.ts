@@ -5,7 +5,11 @@ const WORD_LENS_SELECTOR = '.nr-word-lens'
 // Keep generous headroom below the 8 ms reader budget because a DOM operation
 // or a preempted WebView callback can finish after the last deadline check.
 const DEFAULT_BATCH_BUDGET_MS = 4
-const MAX_BATCH_OPERATIONS = 32
+// The elapsed-time check is the main budget. This second guard still bounds a
+// batch when a WebView clock is coarse or the process was preempted mid-loop.
+// Four DOM changes are intentionally conservative: marking can finish later,
+// but it must never monopolize reading or scrolling.
+const MAX_BATCH_OPERATIONS = 4
 const TIMED_OUT_BATCH_OPERATIONS = 1
 const IDLE_DEADLINE_HEADROOM_MS = 2
 const EXCLUDED_ANCESTOR_SELECTOR = [
@@ -47,6 +51,7 @@ export interface WordLensDocumentMetrics {
   tokens: number
   matches: number
   maxBatchMs: number
+  maxBatchOperations: number
 }
 
 export interface WordLensDocumentTask {
@@ -79,6 +84,7 @@ function wrapMatch(node: Text, match: WordLensMatch): void {
   const span = node.ownerDocument.createElement('span')
   span.className = `nr-word-lens nr-word-lens-${match.level.toLowerCase()}`
   span.dataset.nrCefrLevel = match.level
+  span.dataset.nrLemma = match.lemma
   selected.parentNode?.insertBefore(span, selected)
   span.appendChild(selected)
 }
@@ -97,6 +103,7 @@ export function scheduleWordLensDocument(
     tokens: 0,
     matches: 0,
     maxBatchMs: 0,
+    maxBatchOperations: 0,
   }
   const shouldMark = options.enabled && options.level !== 'C2' && options.data !== null && Boolean(doc.body)
   const idleWindow = doc.defaultView
@@ -236,6 +243,7 @@ export function scheduleWordLensDocument(
     const batchMs = now(doc) - startedAt
     metrics.processingMs += batchMs
     metrics.maxBatchMs = Math.max(metrics.maxBatchMs, batchMs)
+    metrics.maxBatchOperations = Math.max(metrics.maxBatchOperations, operations)
     if (!settled) scheduleNext()
   }
 

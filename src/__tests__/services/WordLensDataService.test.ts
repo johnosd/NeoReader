@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   loadWordLensData,
+  loadWordLensDefinition,
   resetWordLensDataCacheForTests,
   resolveWordLensAssetUrl,
 } from '@/services/WordLensDataService'
@@ -22,10 +23,25 @@ function createDataFetch() {
         packVersion: 'test',
         levelsPath: 'levels.json',
         lemmasPath: 'lemmas.json',
+        dictionaryPath: 'dictionary',
+        dictionaryPartitions: ['ub'],
       })
     }
     if (url.endsWith('/levels.json')) return jsonResponse({ apple: 1, ubiquitous: 5 })
     if (url.endsWith('/lemmas.json')) return jsonResponse({ apples: 'apple' })
+    if (url.endsWith('/dictionary/ub.json')) {
+      return jsonResponse({
+        ubiquitous: {
+          partsOfSpeech: ['adjective'],
+          senses: [{
+            partOfSpeech: 'adjective',
+            definition: 'being present everywhere at once',
+            examples: [],
+            synonyms: ['omnipresent'],
+          }],
+        },
+      })
+    }
     return jsonResponse({}, 404)
   })
 }
@@ -53,9 +69,54 @@ describe('WordLensDataService', () => {
       levels: { apple: 1, ubiquitous: 5 },
       lemmas: { apples: 'apple' },
       packVersion: 'test',
+      dictionaryPath: 'dictionary',
+      dictionaryPartitions: ['ub'],
     })
     expect(second).toBe(first)
     expect(fetchImpl).toHaveBeenCalledTimes(3)
+  })
+
+  it('carrega a particao apenas no primeiro lookup e a memoiza', async () => {
+    const fetchImpl = createDataFetch()
+    const data = await loadWordLensData({
+      enabled: true,
+      language: 'en',
+      userLevel: 'B1',
+      fetchImpl,
+    })
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
+
+    await expect(loadWordLensDefinition('ubiquitous', data!, fetchImpl)).resolves.toMatchObject({
+      partsOfSpeech: ['adjective'],
+      senses: [expect.objectContaining({ definition: 'being present everywhere at once' })],
+    })
+    await expect(loadWordLensDefinition('uberty', data!, fetchImpl)).resolves.toBeNull()
+
+    expect(fetchImpl).toHaveBeenCalledTimes(4)
+    expect(fetchImpl).toHaveBeenLastCalledWith(expect.stringContaining('/dictionary/ub.json'))
+  })
+
+  it('nao faz fetch quando o manifesto nao oferece a particao', async () => {
+    const fetchImpl = createDataFetch()
+    const data = await loadWordLensData({ enabled: true, language: 'en', userLevel: 'B1', fetchImpl })
+
+    await expect(loadWordLensDefinition('abandon', data!, fetchImpl)).resolves.toBeNull()
+
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
+  })
+
+  it('propaga falha do asset de dicionario sem repetir o fetch em cache', async () => {
+    const fetchImpl = createDataFetch()
+    const data = await loadWordLensData({ enabled: true, language: 'en', userLevel: 'B1', fetchImpl })
+    fetchImpl.mockImplementationOnce(async () => jsonResponse({}, 500))
+
+    await expect(loadWordLensDefinition('ubiquitous', data!, fetchImpl)).rejects.toThrow(
+      'Word Lens asset unavailable',
+    )
+    await expect(loadWordLensDefinition('ubiquitous', data!, fetchImpl)).rejects.toThrow(
+      'Word Lens asset unavailable',
+    )
+    expect(fetchImpl).toHaveBeenCalledTimes(4)
   })
 
   it.each([

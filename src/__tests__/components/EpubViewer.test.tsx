@@ -425,6 +425,142 @@ describe('EpubViewer — abertura do livro', () => {
     expect(JSON.stringify(logEventMock.mock.calls)).not.toContain('ubiquitous')
   })
 
+  it('mantem o toque direto em Word Lens no fluxo unico da traducao', async () => {
+    const onTranslate = vi.fn()
+    const onWordLensDefinition = vi.fn()
+    const { foliateEl } = await renderViewer({
+      onTranslate,
+      onWordLensDefinition,
+      wordLensData: {
+        levels: { ubiquitous: 5 },
+        lemmas: {},
+        packVersion: 'test',
+      },
+    })
+    const fakeDoc = makeFakeDoc(['A ubiquitous idea.'])
+    const para = fakeDoc.querySelector('p') as HTMLElement
+    loadSection(foliateEl, fakeDoc, 0)
+
+    await waitFor(() => expect(fakeDoc.querySelector('.nr-word-lens')).not.toBeNull())
+    const word = fakeDoc.querySelector('.nr-word-lens') as HTMLElement
+    setCaretRange(fakeDoc, word.firstChild as Text, 3)
+    logEventMock.mockClear()
+
+    clickAt(para, 180, 360)
+
+    expect(onTranslate).toHaveBeenCalledOnce()
+    expect(onTranslate).toHaveBeenCalledWith('A ubiquitous idea.')
+    expect(onWordLensDefinition).toHaveBeenCalledOnce()
+    expect(onWordLensDefinition).toHaveBeenCalledWith(expect.objectContaining({
+      surface: 'ubiquitous',
+      lemma: 'ubiquitous',
+      level: 'C1',
+      offset: 2,
+      selectionId: expect.any(String),
+    }))
+    expect(onTranslate.mock.invocationCallOrder[0]).toBeLessThan(onWordLensDefinition.mock.invocationCallOrder[0])
+    expect(logEventMock.mock.calls.map(([event]) => event)).toEqual([
+      'reader.selection.start',
+      'reader.contextMenu.open',
+      'reader.translation.tap',
+    ])
+  })
+
+  it('nao solicita definicao ao tocar palavra sem marcacao Word Lens', async () => {
+    const onTranslate = vi.fn()
+    const onWordLensDefinition = vi.fn()
+    const { foliateEl } = await renderViewer({ onTranslate, onWordLensDefinition })
+    const fakeDoc = makeFakeDoc(['A common idea.'])
+    const para = fakeDoc.querySelector('p') as HTMLElement
+    setCaretRange(fakeDoc, para.firstChild as Text, 4)
+    loadSection(foliateEl, fakeDoc, 0)
+
+    clickAt(para, 180, 360)
+
+    expect(onTranslate).toHaveBeenCalledOnce()
+    expect(onWordLensDefinition).not.toHaveBeenCalled()
+  })
+
+  it('nao confunde pontuacao adjacente com a palavra Word Lens', async () => {
+    const onTranslate = vi.fn()
+    const onWordLensDefinition = vi.fn()
+    const { foliateEl } = await renderViewer({
+      onTranslate,
+      onWordLensDefinition,
+      wordLensData: {
+        levels: { elaborate: 4 },
+        lemmas: {},
+        packVersion: 'test',
+      },
+    })
+    const fakeDoc = makeFakeDoc(['Elaborate, but clear.'])
+    const para = fakeDoc.querySelector('p') as HTMLElement
+    loadSection(foliateEl, fakeDoc, 0)
+    await waitFor(() => expect(fakeDoc.querySelector('.nr-word-lens')).not.toBeNull())
+    const word = fakeDoc.querySelector('.nr-word-lens') as HTMLElement
+    setCaretRange(fakeDoc, word.nextSibling as Text, 0)
+
+    clickAt(para, 180, 360)
+
+    expect(onTranslate).toHaveBeenCalledOnce()
+    expect(onWordLensDefinition).not.toHaveBeenCalled()
+  })
+
+  it('resolve a palavra Word Lens dentro de elemento inline', async () => {
+    const onWordLensDefinition = vi.fn()
+    const { foliateEl } = await renderViewer({
+      onWordLensDefinition,
+      wordLensData: {
+        levels: { elaborate: 4 },
+        lemmas: {},
+        packVersion: 'test',
+      },
+    })
+    const fakeDoc = document.implementation.createHTMLDocument('inline')
+    fakeDoc.body.innerHTML = '<p>An <em>elaborate</em> idea.</p>'
+    const para = fakeDoc.querySelector('p') as HTMLElement
+    loadSection(foliateEl, fakeDoc, 0)
+    await waitFor(() => expect(fakeDoc.querySelector('em > .nr-word-lens')).not.toBeNull())
+    const word = fakeDoc.querySelector('.nr-word-lens') as HTMLElement
+    setCaretRange(fakeDoc, word.firstChild as Text, 2)
+
+    clickAt(para, 180, 360)
+
+    expect(onWordLensDefinition).toHaveBeenCalledWith(expect.objectContaining({
+      lemma: 'elaborate',
+      surface: 'elaborate',
+    }))
+  })
+
+  it('mantem o toque sobre Word Lens pertencendo somente ao TTS quando ativo', async () => {
+    const onTranslate = vi.fn()
+    const onWordLensDefinition = vi.fn()
+    const onParagraphTapForTts = vi.fn()
+    const { foliateEl } = await renderViewer({
+      onTranslate,
+      onWordLensDefinition,
+      onParagraphTapForTts,
+      ttsGlobalActive: true,
+      wordLensData: {
+        levels: { elaborate: 4 },
+        lemmas: {},
+        packVersion: 'test',
+      },
+    })
+    const fakeDoc = makeFakeDoc(['An elaborate idea.'])
+    const para = fakeDoc.querySelector('p') as HTMLElement
+    loadSection(foliateEl, fakeDoc, 0)
+    await waitFor(() => expect(fakeDoc.querySelector('.nr-word-lens')).not.toBeNull())
+    const word = fakeDoc.querySelector('.nr-word-lens') as HTMLElement
+    setCaretRange(fakeDoc, word.firstChild as Text, 2)
+
+    clickAt(para, 180, 360)
+
+    expect(onParagraphTapForTts).toHaveBeenCalledWith(0)
+    expect(onTranslate).not.toHaveBeenCalled()
+    expect(onWordLensDefinition).not.toHaveBeenCalled()
+  })
+
   it('reaplica mudança de nível sem recriar o viewer ou alterar o texto do TTS', async () => {
     const wordLensData = {
       levels: { elaborate: 4 as const, ubiquitous: 5 as const, aberration: 6 as const },
@@ -1727,6 +1863,132 @@ describe('EpubViewer - bloco inline de traducao', () => {
     expect(block?.querySelector('[data-nr-action="speak"]')).not.toBeNull()
     expect(block?.querySelector('[data-nr-action="bookmark"]')).not.toBeNull()
     expect(block?.querySelector('[data-nr-action="save"]')).not.toBeNull()
+  })
+
+  it('mantem definicao e traducao em slots independentes com as quatro acoes', async () => {
+    const onWordLensDefinition = vi.fn()
+    const { viewerRef, foliateEl } = await renderViewer({
+      onWordLensDefinition,
+      wordLensData: {
+        levels: { ubiquitous: 5 },
+        lemmas: {},
+        packVersion: 'test',
+      },
+    })
+    const fakeDoc = makeFakeDoc(['A ubiquitous idea.'])
+    const para = fakeDoc.querySelector('p') as HTMLElement
+    loadSection(foliateEl, fakeDoc, 0)
+    await waitFor(() => expect(fakeDoc.querySelector('.nr-word-lens')).not.toBeNull())
+    const word = fakeDoc.querySelector('.nr-word-lens') as HTMLElement
+    setCaretRange(fakeDoc, word.firstChild as Text, 3)
+    clickAt(para, 180, 360)
+    const target = onWordLensDefinition.mock.calls[0][0]
+
+    act(() => {
+      viewerRef.current?.showTranslationLoading()
+      viewerRef.current?.showWordLensDefinitionLoading(target)
+      viewerRef.current?.injectWordLensDefinition(target, {
+        partsOfSpeech: ['adjective'],
+        senses: [{
+          partOfSpeech: 'adjective',
+          definition: 'being present everywhere at once',
+          examples: [],
+          synonyms: ['omnipresent'],
+        }],
+      })
+    })
+
+    const block = fakeDoc.getElementById('nr-translation-block') as HTMLElement
+    expect(block.querySelector('[data-nr-definition-slot]')?.getAttribute('aria-live')).toBe('polite')
+    expect(block.querySelector('[role="heading"]')?.getAttribute('aria-level')).toBe('3')
+    expect(block.querySelector('[data-nr-definition-slot]')?.textContent)
+      .toContain('being present everywhere at once')
+    expect(block.querySelector('[data-nr-translation-slot] .nr-tr-spinner')).not.toBeNull()
+
+    act(() => { viewerRef.current?.injectTranslation('Uma ideia onipresente.') })
+
+    expect(block.querySelector('[data-nr-definition-slot]')?.textContent)
+      .toContain('being present everywhere at once')
+    expect(block.querySelector('[data-nr-translation-slot]')?.textContent)
+      .toContain('Uma ideia onipresente.')
+    act(() => { viewerRef.current?.injectWordLensDefinitionError(target) })
+    expect(block.querySelector('[data-nr-definition-slot]')?.textContent)
+      .toContain('Nao foi possivel carregar a definicao offline')
+    expect(block.querySelector('[data-nr-translation-slot]')?.textContent)
+      .toContain('Uma ideia onipresente.')
+    expect(Array.from(block.querySelectorAll('[data-nr-action]')).map((el) => (
+      (el as HTMLElement).dataset.nrAction
+    ))).toEqual(['next', 'speak', 'bookmark', 'save'])
+  })
+
+  it('troca a palavra exata na mesma frase sem retraduzir e ignora resposta antiga', async () => {
+    const onTranslate = vi.fn()
+    const onWordLensDefinition = vi.fn()
+    const { viewerRef, foliateEl } = await renderViewer({
+      onTranslate,
+      onWordLensDefinition,
+      wordLensData: {
+        levels: { elaborate: 4, ubiquitous: 5 },
+        lemmas: {},
+        packVersion: 'test',
+      },
+    })
+    const fakeDoc = makeFakeDoc(['An elaborate ubiquitous idea.'])
+    const para = fakeDoc.querySelector('p') as HTMLElement
+    loadSection(foliateEl, fakeDoc, 0)
+    await waitFor(() => expect(fakeDoc.querySelectorAll('.nr-word-lens')).toHaveLength(2))
+    const [firstWord, secondWord] = Array.from(fakeDoc.querySelectorAll('.nr-word-lens')) as HTMLElement[]
+
+    setCaretRange(fakeDoc, firstWord.firstChild as Text, 2)
+    clickAt(para, 180, 360)
+    const firstTarget = onWordLensDefinition.mock.calls[0][0]
+    act(() => {
+      viewerRef.current?.showTranslationLoading()
+      viewerRef.current?.showWordLensDefinitionLoading(firstTarget)
+      viewerRef.current?.injectTranslation('Uma ideia elaborada e onipresente.')
+    })
+
+    setCaretRange(fakeDoc, secondWord.firstChild as Text, 2)
+    clickAt(para, 180, 360)
+    const secondTarget = onWordLensDefinition.mock.calls[1][0]
+    act(() => {
+      viewerRef.current?.showWordLensDefinitionLoading(secondTarget)
+      viewerRef.current?.injectWordLensDefinition(firstTarget, {
+        partsOfSpeech: ['adjective'],
+        senses: [{
+          partOfSpeech: 'adjective',
+          definition: 'old elaborate response',
+          examples: [],
+          synonyms: [],
+        }],
+      })
+    })
+
+    const definitionSlot = fakeDoc.querySelector('[data-nr-definition-slot]') as HTMLElement
+    expect(onTranslate).toHaveBeenCalledOnce()
+    expect(onWordLensDefinition).toHaveBeenCalledTimes(2)
+    expect(secondTarget).toMatchObject({ lemma: 'ubiquitous', surface: 'ubiquitous' })
+    expect(secondTarget.selectionId).not.toBe(firstTarget.selectionId)
+    expect(definitionSlot.textContent).not.toContain('old elaborate response')
+    expect(definitionSlot.textContent).toContain('Carregando definicao offline')
+
+    act(() => {
+      viewerRef.current?.injectWordLensDefinition(secondTarget, {
+        partsOfSpeech: ['adjective'],
+        senses: [{
+          partOfSpeech: 'adjective',
+          definition: 'being present everywhere at once',
+          examples: [],
+          synonyms: [],
+        }],
+      })
+    })
+    expect(definitionSlot.textContent).toContain('being present everywhere at once')
+
+    clickAt(para, 180, 360)
+    expect(para.hasAttribute('data-nr-active')).toBe(false)
+    expect(onTranslate).toHaveBeenCalledOnce()
+    expect(onWordLensDefinition).toHaveBeenCalledTimes(2)
   })
 
   it('tap no fundo do bloco inline nao alterna chrome e registra motivo', async () => {

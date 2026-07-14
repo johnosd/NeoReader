@@ -32,6 +32,7 @@ describe('wordLensDom', () => {
     expect(Array.from(doc.querySelectorAll('.nr-word-lens')).map((el) => el.textContent))
       .toEqual(['elaborate', 'ubiquitous', 'aberration'])
     expect(doc.body.textContent).toBe(originalText)
+    expect(doc.querySelector('.nr-word-lens')?.getAttribute('data-nr-lemma')).toBe('elaborate')
     expect(metrics).toMatchObject({ cancelled: false, textNodes: 1, tokens: 5, matches: 3 })
   })
 
@@ -125,7 +126,7 @@ describe('wordLensDom', () => {
     }).completed
 
     expect(metrics.matches).toBe(200)
-    expect(metrics.maxBatchMs).toBeLessThan(50)
+    expect(metrics.maxBatchOperations).toBeLessThanOrEqual(4)
     expect(doc.querySelectorAll('.nr-word-lens')).toHaveLength(200)
   })
 })

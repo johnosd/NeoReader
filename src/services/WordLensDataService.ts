@@ -2,6 +2,8 @@ import type {
   CefrLevel,
   CefrOrdinal,
   WordLensData,
+  WordLensDictionaryEntry,
+  WordLensDictionaryPartition,
   WordLensLemmas,
   WordLensLevels,
   WordLensManifest,
@@ -15,6 +17,7 @@ interface LoadWordLensDataOptions {
 }
 
 let cachedDataPromise: Promise<WordLensData | null> | null = null
+const cachedDictionaryPartitions = new Map<string, Promise<WordLensDictionaryPartition>>()
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -44,6 +47,18 @@ function validateManifest(value: unknown): WordLensManifest {
   ) {
     throw new Error('Invalid Word Lens manifest')
   }
+  if (
+    value.dictionaryPath !== undefined && (
+      typeof value.dictionaryPath !== 'string' ||
+      !isLocalAssetPath(value.dictionaryPath) ||
+      !Array.isArray(value.dictionaryPartitions) ||
+      value.dictionaryPartitions.some((partition) => (
+        typeof partition !== 'string' || !/^(?:[a-z]{2}|[a-z]-other|other)$/.test(partition)
+      ))
+    )
+  ) {
+    throw new Error('Invalid Word Lens dictionary manifest')
+  }
   return value as unknown as WordLensManifest
 }
 
@@ -62,6 +77,35 @@ function validateLemmas(value: unknown): WordLensLemmas {
     throw new Error('Invalid Word Lens lemmas')
   }
   return value as WordLensLemmas
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string')
+}
+
+function validateDictionaryPartition(value: unknown): WordLensDictionaryPartition {
+  if (!isRecord(value)) throw new Error('Invalid Word Lens dictionary partition')
+  for (const entry of Object.values(value)) {
+    if (
+      !isRecord(entry) ||
+      !isStringArray(entry.partsOfSpeech) ||
+      !Array.isArray(entry.senses)
+    ) {
+      throw new Error('Invalid Word Lens dictionary entry')
+    }
+    for (const sense of entry.senses) {
+      if (
+        !isRecord(sense) ||
+        typeof sense.partOfSpeech !== 'string' ||
+        typeof sense.definition !== 'string' ||
+        !isStringArray(sense.examples) ||
+        !isStringArray(sense.synonyms)
+      ) {
+        throw new Error('Invalid Word Lens dictionary sense')
+      }
+    }
+  }
+  return value as WordLensDictionaryPartition
 }
 
 function isEnglish(language?: string | null): boolean {
@@ -97,7 +141,50 @@ async function loadData(fetchImpl: typeof fetch): Promise<WordLensData> {
     fetchJson(resolveWordLensAssetUrl(manifest.levelsPath), fetchImpl).then(validateLevels),
     fetchJson(resolveWordLensAssetUrl(manifest.lemmasPath), fetchImpl).then(validateLemmas),
   ])
-  return { levels, lemmas, packVersion: manifest.packVersion }
+  return {
+    levels,
+    lemmas,
+    packVersion: manifest.packVersion,
+    ...(manifest.dictionaryPath && manifest.dictionaryPartitions
+      ? {
+          dictionaryPath: manifest.dictionaryPath,
+          dictionaryPartitions: manifest.dictionaryPartitions,
+        }
+      : {}),
+  }
+}
+
+function getDictionaryPartitionName(lemma: string): string {
+  const normalized = lemma.trim().toLowerCase()
+  const first = normalized[0] ?? ''
+  const second = normalized[1] ?? ''
+  if (!/[a-z]/.test(first)) return 'other'
+  if (!/[a-z]/.test(second)) return `${first}-other`
+  return first + second
+}
+
+export async function loadWordLensDefinition(
+  lemma: string,
+  data: WordLensData,
+  fetchImpl: typeof fetch = globalThis.fetch,
+): Promise<WordLensDictionaryEntry | null> {
+  const normalizedLemma = lemma.trim().toLowerCase()
+  const dictionaryPath = data.dictionaryPath
+  const availablePartitions = data.dictionaryPartitions
+  if (!normalizedLemma || !dictionaryPath || !availablePartitions) return null
+
+  const partition = getDictionaryPartitionName(normalizedLemma)
+  if (!availablePartitions.includes(partition)) return null
+  const cacheKey = `${data.packVersion ?? ''}:${dictionaryPath}:${partition}`
+  let partitionPromise = cachedDictionaryPartitions.get(cacheKey)
+  if (!partitionPromise) {
+    const url = resolveWordLensAssetUrl(`${dictionaryPath}/${partition}.json`)
+    partitionPromise = fetchJson(url, fetchImpl)
+      .then(validateDictionaryPartition)
+    cachedDictionaryPartitions.set(cacheKey, partitionPromise)
+  }
+  const dictionary = await partitionPromise
+  return dictionary?.[normalizedLemma] ?? null
 }
 
 export function loadWordLensData({
@@ -115,6 +202,7 @@ export function loadWordLensData({
 
 export function resetWordLensDataCacheForTests(): void {
   cachedDataPromise = null
+  cachedDictionaryPartitions.clear()
 }
 
 export type { CefrOrdinal }

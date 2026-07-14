@@ -8,6 +8,7 @@ import {
   type ReaderImageOpenPayload,
   type ReaderRelocatePayload,
   type VisibleReadingLocation,
+  type WordLensDefinitionTarget,
 } from '../components/reader/EpubViewer'
 import { ReaderChrome } from '../components/reader/ReaderChrome'
 import { TocDrawer } from '../components/reader/TocDrawer'
@@ -50,7 +51,7 @@ import { areTocHrefDocumentSuffixesEqual, findTopLevelTocLabel } from '../utils/
 import { getReaderThemePalette } from '../utils/readerPreferences'
 import { clampTtsRate } from '../utils/language'
 import { useI18n } from '../i18n'
-import { loadWordLensData } from '../services/WordLensDataService'
+import { loadWordLensData, loadWordLensDefinition } from '../services/WordLensDataService'
 import type { WordLensData } from '../types/wordLens'
 
 function normalizeReaderHref(href?: string | null) {
@@ -663,10 +664,42 @@ export function ReaderScreen({
 
   // Recebe o texto da frase tocada do EpubViewer, injeta bloco inline e dispara a tradução
   function handleTranslate(sourceText: string) {
-    viewerRef.current?.showTranslationLoading()
+    const selectionId = viewerRef.current?.showTranslationLoading()
     translate(sourceText, bookLanguage, translationTargetLang)
-      .then((result) => viewerRef.current?.injectTranslation(result))
-      .catch(() => viewerRef.current?.injectTranslation(t('reader.translation.error')))
+      .then((result) => viewerRef.current?.injectTranslation(result, selectionId))
+      .catch(() => viewerRef.current?.injectTranslation(t('reader.translation.error'), selectionId))
+  }
+
+  function handleWordLensDefinition(target: WordLensDefinitionTarget) {
+    if (!wordLensData) return
+    const startedAt = getDiagnosticsNowMs()
+    viewerRef.current?.showWordLensDefinitionLoading(target)
+    loadWordLensDefinition(target.lemma, wordLensData)
+      .then((entry) => {
+        viewerRef.current?.injectWordLensDefinition(target, entry)
+        logEvent('reader.wordLens.definition', {
+          screen: 'reader',
+          status: entry ? 'success' : 'fallback',
+          durationMs: getDiagnosticsNowMs() - startedAt,
+          details: {
+            level: target.level,
+            result: entry ? 'found' : 'missing',
+            senseCount: entry?.senses.length ?? 0,
+          },
+        })
+      })
+      .catch(() => {
+        viewerRef.current?.injectWordLensDefinitionError(target)
+        logEvent('reader.wordLens.definition', {
+          screen: 'reader',
+          status: 'failure',
+          durationMs: getDiagnosticsNowMs() - startedAt,
+          details: {
+            level: target.level,
+            result: 'asset-error',
+          },
+        })
+      })
   }
 
   const handleOpenImage = useCallback((payload: ReaderImageOpenPayload) => {
@@ -922,6 +955,7 @@ export function ReaderScreen({
           chromeVisible={chromeVisible}
           onCenterTap={handleCenterTap}
           onTranslate={handleTranslate}
+          onWordLensDefinition={handleWordLensDefinition}
           onSpeakOne={(text) => void tts.speakOne(text)}
           onParagraphTapForTts={(idx) => {
             const chunks = getTtsChunks()

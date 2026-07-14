@@ -4,11 +4,11 @@
 
 - Feature: marcar no leitor palavras em ingles acima do nivel CEFR do usuario.
 - Data da reescrita: 2026-07-13.
-- Status: MVP e Fase 8 corretiva concluidos; Fase 6 permanece como incremento futuro.
+- Status: Fase 6 implementada e validada localmente; QA Android permanece pendente por aparelho ausente no ADB.
 - Contexto: plano reescrito via skill `plan-feature` depois de definir fontes, pipeline externo e acesso offline aos data packs.
 - Plataformas: Web e Android via Capacitor.
 - Nivel padrao: B1; selecao entre A1 e C2.
-- Escopo de lancamento: MVP com marcacao simples; painel com definicoes planejado como incremento posterior.
+- Escopo de lancamento: marcacao simples do MVP mais definicoes offline da Fase 6; rollout continua opt-in.
 
 ## Objetivo
 
@@ -34,9 +34,10 @@ No leitor:
 - Livros nao identificados como ingles nao sao processados.
 - O recurso funciona sem internet e sem download iniciado pelo usuario.
 
-Incremento posterior:
+Incremento da Fase 6:
 
-- Toque em uma palavra marcada abre um painel com nivel, lema, classe gramatical, definicoes, exemplos disponiveis e sinonimos.
+- O toque simples em texto, inclusive sobre palavra marcada, continua abrindo a traducao exatamente como hoje.
+- Quando o toque atingir uma palavra marcada, o mesmo menu contextual mostra automaticamente uma area de definicao da palavra exata junto da traducao da frase; nao existe segundo toque nem painel concorrente.
 - Como o MVP nao desambigua contexto, o painel mostra os sentidos disponiveis em vez de afirmar automaticamente qual e o correto.
 
 ## Escopo E Nao Objetivos
@@ -49,9 +50,9 @@ Incremento posterior:
 - Operacao completamente offline.
 - Instrumentacao e benchmarks de desempenho sem registrar texto do livro.
 
-### Fora Do MVP
+### Fora Do MVP Original
 
-- Definicao, traducao, pronuncia ou exemplo ao tocar.
+- A definicao e os exemplos offline ao tocar foram entregues na Fase 6; pronuncia propria do verbete continua fora do escopo.
 - Desambiguacao contextual por IA/NLP.
 - Classificacao de frases, gramatica ou dificuldade global do livro.
 - Inferencia de nivel para palavras ausentes das fontes.
@@ -135,8 +136,10 @@ indice memoizado em memoria -> processa somente a secao EPUB carregada
 No incremento de definicoes:
 
 ```text
-toque em "abandoned" -> resolve "abandon" -> carrega dictionary/a.json localmente
--> procura sentidos -> abre painel -> mantem particao em cache
+toque em "abandoned" -> caret captura localmente o alvo Word Lens "abandon"
+-> inicia traducao da frase primeiro + carrega dictionary/ab.json em paralelo
+-> um unico menu contextual atualiza slots independentes de definicao e traducao
+-> mantem particao do dicionario em cache
 ```
 
 ## Estrutura De Arquivos Proposta
@@ -162,8 +165,8 @@ public/
     levels.json
     lemmas.json              # somente se tamanho/cobertura justificarem
     dictionary/              # gerado agora ou no incremento de definicoes
-      a.json
-      b.json
+      ab.json
+      ac.json
       ...
       other.json
 
@@ -188,6 +191,7 @@ src/
   "dictionarySource": "Open English WordNet 2025",
   "levelsPath": "levels.json",
   "dictionaryPath": "dictionary",
+  "dictionaryPartitions": ["ab", "ac"],
   "generatedAt": "2026-07-13T00:00:00Z"
 }
 ```
@@ -213,7 +217,7 @@ Codificacao ordinal:
 - C1 = 5
 - C2 = 6
 
-### Particao de dicionario futura
+### Particao de dicionario
 
 ```json
 {
@@ -537,11 +541,11 @@ Estrategias:
 - Reutilizar o `getSettings()` que `useReaderAppearance` ja executa; nenhuma segunda query de settings sera criada no `ReaderScreen`.
 - Liberar `onLoad` e o loading inicial antes de solicitar o data pack. O Word Lens entra como melhoria progressiva e nunca fica no caminho critico de abertura.
 - Manter os CFIs de paragrafo calculados pelo viewer antes de qualquer marcacao e nunca recriar `foliate-view` por mudanca de configuracao.
-- Processar Text nodes com `TreeWalker` em fatias cancelaveis com budget interno de 6 ms, criando margem para manter o teto observado abaixo de 8 ms no WebView real; usar `requestIdleCallback` quando disponivel e fallback assíncrono controlado.
+- Processar Text nodes com `TreeWalker` em fatias cancelaveis com budget interno de 4 ms e no maximo quatro operacoes, criando margem para manter o teto observado abaixo de 8 ms no WebView real; usar `requestIdleCallback` quando disponivel e fallback assíncrono controlado.
 - Remocao e reaplicacao tambem devem ser fatiadas; uma geracao mais nova cancela trabalho obsoleto e limpa resultados parciais antes de continuar.
 - Spans do MVP serao metricamente neutros: sem padding, margin, mudanca de fonte/peso/line-height e com `pointer-events: none`.
 - Ignorar subarvores de vocabulario salvo, traducao, TTS e UI NeoReader para evitar wrappers concorrentes. Bookmarks usam atributos no bloco e continuam compativeis.
-- Registrar apenas tempo de CPU, quantidade de Text nodes/tokens/matches, secao e versao; nunca texto, lema ou palavra.
+- Registrar apenas tempo agregado, quantidade de Text nodes/tokens/matches, secao e versao; nunca texto, lema ou palavra.
 - A medicao automatizada desta fase valida custo do helper e ausencia do caminho critico; a decisao de release continua condicionada ao p95 no Android da Fase 5.
 
 ### Implementacao
@@ -557,7 +561,7 @@ Estrategias:
 - [x] Remover/reaplicar ao mudar toggle/nivel sem recriar viewer nem perder CFI/scroll.
 - [x] Aplicar estilos por tema sem alterar metricas tipograficas.
 - [x] Registrar somente metricas agregadas e versao do pack.
-- [x] Fatiar aplicacao e remocao com cancelamento por geracao e budget interno de 6 ms para respeitar o teto de 8 ms por lote no aparelho.
+- [x] Fatiar aplicacao e remocao com cancelamento por geracao, budget interno de 4 ms e teto estrutural de quatro operacoes por lote para respeitar o teto de 8 ms por lote no aparelho.
 - [x] Preservar CFIs precomputados e garantir `pointer-events: none`/estilos metricamente neutros.
 
 ### Testes
@@ -574,7 +578,7 @@ Estrategias:
 
 - Marcacoes corretas e visiveis em todos os temas.
 - Nenhuma alteracao de texto, layout, selecao, CFI ou interacoes.
-- Gate automatizado sem lote acima de 50 ms; mediana/p95 e percepcao real no Android permanecem gate obrigatorio da Fase 5.
+- Gate automatizado limita quatro operacoes por lote; mediana/p95 e percepcao real no Android permanecem gate obrigatorio da Fase 5.
 
 - Commit sugerido: `feat(reader): highlight above-level CEFR words`
 - Risco: mutacao de DOM em capitulos grandes; benchmark e cancelamento sao gates.
@@ -583,12 +587,12 @@ Estrategias:
 
 - `useReaderAppearance` reaproveita a unica leitura de settings e expoe ativacao/nivel ao `ReaderScreen`; nenhuma query adicional foi criada.
 - O data pack so e solicitado depois de `EpubViewer.onLoad`, portanto falha ou parse do JSON nao bloqueiam a abertura do livro.
-- `wordLensDom.ts` usa `TreeWalker`, lotes idle/fallback com budget interno de 6 ms, limite de 64 operacoes e cancelamento; matches de uma unica Text node tambem sao divididos entre lotes. A margem foi reduzida de 8 para 6 ms depois que o primeiro QA Android observou picos de ate 8,7 ms.
+- `wordLensDom.ts` usa `TreeWalker`, lotes idle/fallback com budget interno de 4 ms, teto de quatro operacoes e cancelamento; matches de uma unica Text node tambem sao divididos entre lotes. O teto estrutural protege o leitor mesmo quando o relogio do WebView estiver impreciso ou o processo for preemptado.
 - A marcacao ignora UI NeoReader, vocabulario salvo, traducao e TTS; imagens nao sao percorridas e bookmarks permanecem atributos do bloco.
 - Troca de nivel remove/reaplica spans sem recriar `foliate-view`, preserva texto do TTS e o CFI de paragrafo calculado antes da marcacao.
 - CSS usa somente fundo/sublinhado, sem padding, margin, peso, tamanho ou line-height proprios, e com `pointer-events: none`.
-- Telemetria contem somente secao, versao do pack, Text nodes, tokens, matches, tempo total de CPU e maior lote; teste confirma ausencia da palavra do livro nos logs.
-- Benchmark automatizado cobre 200 matches em uma unica Text node, forca multiplos lotes e exige `maxBatchMs < 50`.
+- Telemetria contem somente secao, versao do pack, Text nodes, tokens, matches, tempo total agregado e maior lote; teste confirma ausencia da palavra do livro nos logs.
+- Benchmark automatizado cobre 200 matches em uma unica Text node, forca multiplos lotes e exige no maximo quatro operacoes por lote. O tempo de parede continua em telemetria, mas nao e usado como limite de teste porque inclui pausas externas do executor/WebView.
 - `npm run lint`: passou sem erros ou avisos.
 - `npm run build`: passou com avisos preexistentes do PDF.js e chunk grande.
 - `npm test -- --run`: 73 arquivos passaram, 2 foram ignorados; 541 testes passaram e 2 foram ignorados.
@@ -699,7 +703,7 @@ Estrategias:
 
 - O watchdog de 8 segundos agora so e cancelado quando a primeira secao e finalizada como interativa; falha, desmontagem e erro de setup limpam o timer, e eventos tardios nao produzem `onLoad` depois da falha.
 - O TOC inicia fechado, exceto pelos ancestrais do capitulo atual. O blur externo foi reduzido de `2xl` para `md` e o blur interno removido.
-- Word Lens usa budget interno de 4 ms, limite normal de 32 operacoes e limite de uma operacao quando o callback idle expira.
+- Word Lens usa budget interno de 4 ms, limite normal de quatro operacoes e limite de uma operacao quando o callback idle expira.
 - Testes focados finais: 3 arquivos e 74 testes passaram.
 - Suite completa anterior ao ultimo teste adicional: 73 arquivos/545 testes passaram, com 2 arquivos/2 testes ignorados; o teste adicional tambem passou no gate focado.
 - `npm run lint`, `npm run build`, `npx cap sync android`, `gradlew assembleDebug` e `git diff --check` passaram; permanecem apenas avisos preexistentes de PDF.js/chunk/Gradle e conversao LF/CRLF.
@@ -762,38 +766,89 @@ Estrategias:
 
 ## Fase 6: Incremento De Definicoes Ao Tocar
 
-- Status: Not started; fora do MVP.
-- Proposito: usar Open English WordNet offline sem aumentar o caminho critico do leitor.
-- Areas: pipeline Python, `public/word-lens/dictionary/`, `WordLensDataService`, viewer, novo bottom sheet e testes.
+- Status: In progress; fora do MVP.
+- Proposito: usar Open English WordNet offline sem aumentar o caminho critico do leitor nem alterar o contrato critico do menu contextual de traducao.
+- Areas: pipeline Python, `public/word-lens/dictionary/`, `WordLensDataService`, estado combinado no viewer, menu contextual inline e testes.
+
+### Investigacao De Compatibilidade Com A Traducao
+
+- Resultado: existe conflito se definicao e traducao instalarem handlers ou paineis separados para o mesmo toque, mas o toque direto na palavra e viavel com um unico dispatcher e um unico menu combinado.
+- Hoje o dispatcher do iframe prioriza, nesta ordem, gesto de scroll, acoes/bloco de traducao, imagem, zonas do chrome, icone de bookmark, TTS, lock de traducao e toggle do paragrafo ativo; todo outro toque em texto legivel chama `selectTextForInlineTranslation` e inicia a traducao da frase.
+- Os spans `.nr-word-lens` usam `pointer-events: none`. Isso preserva o target e o fluxo atual de traducao, TTS, bookmarks e chrome. Tornar o span clicavel ou interceptar o evento antes da traducao quebraria esse contrato; executar ambos abriria duas interfaces e criaria concorrencia de estado.
+- Long press e double tap nao sao alternativas seguras: competem com selecao nativa, scroll, callout do WebView, acessibilidade e eventos residuais de click.
+- Decisao aprovada: manter `pointer-events: none`, detectar pelo caret a palavra marcada exata e usar o mesmo toque para iniciar a traducao da frase e a definicao da palavra dentro do mesmo bloco contextual inline.
+- `onTranslate` continua sendo chamado primeiro e exatamente uma vez. O lookup local do dicionario comeca depois, em fluxo assincrono independente, e nunca bloqueia criacao do spinner, requisicao ou renderizacao da traducao.
+- O bloco `#nr-translation-block` passa a ter slots estaveis separados para definicao, traducao e acoes. Atualizacoes nao podem substituir o `innerHTML` do bloco inteiro, pois hoje `injectTranslation()` faria uma resposta apagar a outra.
+- A grade critica existente com `Next`, `Listen`, `Bookmark` e `Save` nao sera substituida, comprimida ou reordenada. A definicao aparece como conteudo informativo condicional acima da traducao, nao como quinto botao e nao como bottom sheet.
+- Toque em palavra nao marcada mantem o bloco atual sem slot visivel de definicao e sem carregar dicionario. Word Lens desligado, nivel C2 e livro nao ingles preservam exatamente o fluxo atual.
+- Se o menu ja estiver aberto e o usuario tocar outra palavra marcada do mesmo paragrafo, o alvo da definicao deve mudar para a palavra exata. Na mesma frase a traducao existente pode ser reutilizada; em outra frase, a selecao inicia no maximo uma nova traducao. Tocar novamente a mesma palavra preserva o toggle de fechamento.
+- Respostas de definicao e traducao usam o mesmo id de selecao e validam esse id antes de alterar DOM. Troca de palavra, frase, secao ou livro invalida respostas antigas.
+- [Resolvida] A regressao combinada toca diretamente um `.nr-word-lens` e prova que definicao e traducao coexistem sem duplicacao ou sobrescrita.
+- Linha de base da investigacao: `EpubViewer.test.tsx` e `wordLensDom.test.ts` passaram com 73/73 testes antes da Fase 6; a nova regressao combinada deve ser adicionada primeiro e permanecer verde durante toda a implementacao.
 
 ### Implementacao
 
-- [ ] Gerar particoes deterministicas por letra/faixa a partir do WordNet.
-- [ ] Incluir somente entradas necessarias ou justificar cobertura ampliada pelo tamanho.
-- [ ] Carregar particao apenas no primeiro toque e memoizar.
-- [ ] Resolver forma flexionada para lema antes do lookup.
-- [ ] Mostrar nivel, lema, POS, sentidos, exemplos disponiveis e sinonimos.
-- [ ] Informar quando ha varios sentidos; nao afirmar desambiguacao contextual.
-- [ ] Mostrar fallback claro quando nao houver definicao/exemplo.
-- [ ] Integrar prioridade de toque sem quebrar traducao, TTS, bookmark ou chrome.
-- [ ] Exibir atribuicao Open English WordNet.
+- [x] Gerar particoes deterministicas por letra/faixa a partir do WordNet.
+- [x] Incluir somente entradas necessarias ou justificar cobertura ampliada pelo tamanho.
+- [x] Carregar e memoizar a particao somente quando o toque direto atingir palavra Word Lens; nunca carregar na abertura do livro ou em toque de palavra nao marcada.
+- [x] Resolver forma flexionada para lema antes do lookup.
+- [x] Persistir no span somente metadados locais necessarios (`lemma` e nivel), mantendo `pointer-events: none` e sem enviar palavra para telemetria.
+- [x] Resolver o span Word Lens pelo caret no ponto do toque antes de qualquer highlight/split/normalize da traducao e copiar o alvo para um objeto imutavel; nao depender do elemento DOM depois.
+- [x] Manter `selectTextForInlineTranslation`, `onTranslate` e a ordem atual dos eventos como caminho obrigatorio; chamar traducao primeiro e lookup de definicao depois, sem handlers concorrentes.
+- [x] Refatorar o bloco inline para slots estaveis de definicao, traducao e acoes; cada resultado atualiza somente seu slot e a grade de quatro acoes continua pertencendo a traducao.
+- [x] Expor callbacks/metodos de definicao com `selectionId`; ignorar resposta assincrona cujo id nao corresponda mais a palavra/frase ativa.
+- [x] Renderizar loading, sucesso, vazio e erro da definicao de forma compacta no mesmo menu, sem bloquear ou esconder os estados da traducao.
+- [x] Ao tocar outra palavra marcada, atualizar o alvo exato; reutilizar traducao se a frase nao mudou e evitar qualquer requisicao duplicada.
+- [x] Mostrar nivel, lema, POS, sentidos, exemplos disponiveis e sinonimos.
+- [x] Informar quando ha varios sentidos; nao afirmar desambiguacao contextual.
+- [x] Mostrar fallback claro quando nao houver definicao/exemplo.
+- [x] Preservar integralmente prioridades de traducao, TTS, bookmark, imagem e chrome; durante TTS o toque continua pertencendo somente ao TTS.
+- [x] Preservar toggle de fechamento, `data-nr-active`, remainder da frase, CFI, progresso e scroll; nenhum resultado de dicionario pode recriar o viewer ou mover o leitor.
+- [x] Garantir semantica acessivel no slot (`aria-live` apropriado, heading/rotulos e ordem de leitura definicao -> traducao -> acoes) sem introduzir nova camada modal.
+- [x] Exibir atribuicao Open English WordNet.
+- [x] Registrar somente nivel, particao, duracao, contagens e resultado; nunca palavra, lema, definicao, frase ou texto traduzido.
 
 ### Testes
 
-- [ ] Cobrir palavra com um/multiplos sentidos, sem exemplo e sem entrada.
-- [ ] Cobrir flexao, particao, cache e falha de asset.
-- [ ] Cobrir acessibilidade, Back Android, Escape e foco do bottom sheet.
-- [ ] Confirmar que dicionario nao e carregado na abertura do livro.
-- [ ] Medir latencia do primeiro toque e memoria do cache.
+- [x] Cobrir palavra com um/multiplos sentidos, sem exemplo e sem entrada.
+- [x] Cobrir flexao, particao, cache e falha de asset.
+- [x] Regressao critica: toque simples diretamente em palavra Word Lens chama `onTranslate` primeiro e exatamente uma vez, mantem `selection.start -> contextMenu.open -> translation.tap` e inicia um unico lookup da palavra exata.
+- [x] Confirmar zero fetch de dicionario na abertura/navegacao do livro e em palavra nao marcada; primeiro fetch ocorre somente no toque direto sobre span Word Lens.
+- [x] Cobrir caret dentro da palavra, pontuacao/espaco adjacente, palavra em elemento inline e duas palavras marcadas vizinhas sem escolher o alvo errado.
+- [x] Cobrir que o slot de definicao aparece somente para alvo Word Lens valido e nao chama novamente traducao, chrome, TTS, bookmark ou imagem.
+- [x] Cobrir definicao lenta/falha com traducao bem-sucedida e traducao lenta/falha com definicao bem-sucedida; um slot nunca apaga loading, resultado ou erro do outro.
+- [x] Cobrir respostas fora de ordem com `selectionId`, troca de palavra na mesma frase sem retraduzir, troca para outra frase com no maximo uma traducao e toggle ao tocar a mesma palavra.
+- [x] Manter a grade e o comportamento de `Next`, `Listen`, `Bookmark` e `Save`, inclusive loading, toggle do paragrafo, troca de paragrafo e falha da traducao.
+- [x] Cobrir TTS ativo, chrome visivel, icone de bookmark, imagem e gesto de scroll sobre/ao lado de palavra marcada.
+- [x] Cobrir acessibilidade e ordem de leitura do menu combinado sem alterar comportamento de Back Android/Escape do leitor.
+- [x] Confirmar que dicionario nao e carregado na abertura do livro.
+- [ ] Medir tempo ate spinner/requisicao da traducao, tempo ate definicao e memoria do cache; lookup nao pode atrasar o caminho da traducao alem do gate existente de 5% ou 16 ms.
+- [x] Confirmar que logs nao contem surface, lema, definicao, frase ou traducao.
+- [ ] QA Android em pelo menos um livro com varias palavras marcadas no mesmo paragrafo: tocar cada palavra, validar o menu combinado, usar as quatro acoes existentes, fechar/reabrir e repetir com TTS/chrome ativos.
+
+### Evidencias Locais Da Fase 6
+
+- O pipeline usa o snapshot Open English WordNet 2025 ja fixado por SHA-256 e gera somente entradas presentes na lista CEFR. O pack tem 8.175 headwords com definicao entre 8.653 headwords CEFR (94,48%), 34.211 sentidos e 41.468 exemplos.
+- As 222 particoes usam as duas primeiras letras, somam 6.471.370 bytes e limitam o maior JSON a 289.886 bytes. O manifesto lista explicitamente as particoes e o runtime rejeita caminhos externos ou nomes invalidos.
+- Uma auditoria do primeiro APK encontrou particoes de uma letra divergentes do validador por causa da semantica de string vazia do Python. A geracao foi corrigida para `a-other`/`i-other`, ganhou regressao e o APK reconstruido contem 222/222 particoes validas.
+- Testes focados finais: 5 arquivos/133 testes TypeScript e 7 testes Python passaram. A regressao combinada cobre ordem da traducao, caret exato, pontuacao, elemento inline, duas palavras na mesma frase, resposta obsoleta, slots independentes, quatro acoes, TTS e acessibilidade. O benchmark de 200 matches valida teto estrutural de quatro operacoes por lote; o tempo de parede continua apenas em telemetria porque inclui pausas externas do executor/WebView.
+- A suite global atingiu 559 testes aprovados e 2 ignorados; os dois restantes (`BookDetailsScreen`) excederam o timeout preexistente de 5 s apenas sob carga paralela. O arquivo passou isolado com 18/18 em timeout ampliado, e o conjunto focado do Word Lens passou com 133/133.
+- `npm run lint`, `npm run build`, `word-lens check --offline`, `npx cap sync android`, `gradlew assembleDebug` e `git diff --check` passaram. O APK debug final tem 26.748.633 bytes e inclui o manifesto corrigido e todas as particoes.
+- QA fisico ainda nao executado: `adb start-server` funcionou, mas `adb devices -l` nao listou dispositivo. Nenhuma instalacao, limpeza de log, mudanca de rede ou alteracao de dados do usuario foi realizada.
 
 ### Criterios De Aceite
 
 - Definicoes funcionam offline.
 - Nenhum impacto mensuravel na abertura do leitor.
 - Multiplos sentidos e ausencias sao comunicados corretamente.
+- Toque simples na palavra marcada identifica exatamente essa palavra e mostra definicao + traducao no mesmo menu; palavra nao marcada preserva o menu atual.
+- Traducao e iniciada primeiro, exatamente uma vez, e permanece funcional mesmo se dicionario atrasar ou falhar; definicao tambem permanece se traducao falhar.
+- Slots independentes impedem que respostas assincronas se apaguem, e respostas obsoletas nao alteram a selecao atual.
+- As quatro acoes existentes, TTS, bookmarks, imagens, chrome, CFI, progresso e scroll permanecem sem regressao.
+- Nenhuma particao de dicionario e carregada antes de um toque direto em palavra marcada.
 
 - Commit sugerido: `feat(word-lens): add offline dictionary lookup`
-- Risco: definicoes WordNet podem ser tecnicas para aprendizes; avaliar UX antes de prometer linguagem pedagogica.
+- Riscos: definicoes WordNet podem ser tecnicas para aprendizes; deteccao por caret e respostas concorrentes exigem cobertura em WebView real; particao grande pode disputar main thread com a traducao e deve ser reduzida/medida; o menu combinado nao pode crescer a ponto de ocultar texto e a grade critica.
 
 ## Seguranca E Privacidade
 
@@ -835,7 +890,7 @@ Cada commit deve ser pequeno, focado e testado. Nao incluir a alteracao preexist
 
 ## Handoff Para A Proxima Sessao
 
-Fases 0 a 5 e as Fases 7 e 8 corretivas estao concluidas. Word Lens e opt-in, processa apenas secoes carregadas e o CSS omitido do manifest em `AI Engineering` foi validado no Android. O proximo incremento opcional continua sendo a Fase 6 de definicoes ao toque.
+Fases 0 a 5 e as Fases 7 e 8 corretivas estao concluidas. A Fase 6 de definicoes offline esta implementada, com pipeline, assets, runtime, menu combinado e gates locais aprovados. Word Lens continua opt-in e processa apenas secoes carregadas; nenhuma particao de dicionario entra no caminho de abertura. O unico gate restante e o QA Android manual, bloqueado em 2026-07-14 porque o ADB nao listou o aparelho. Ao reconectar, instalar o APK debug somente com autorizacao explicita, executar o roteiro da Fase 6 e registrar mediana/p95, logs e restauracao do estado.
 
 Arquivos-chave:
 

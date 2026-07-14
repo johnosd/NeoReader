@@ -24,6 +24,7 @@ Opcionalmente, `--cache-dir <diretorio>` guarda as fontes verificadas fora do bu
 - `manifest.json`: schema, versao, fontes, contagens e caminhos.
 - `levels.json`: headword normalizado para nivel ordinal A1=1 ... C2=6.
 - `lemmas.json`: forma flexionada deterministica para headword.
+- `dictionary/*.json`: sentidos do Open English WordNet somente para headwords CEFR, particionados pelas duas primeiras letras para limitar parse e memoria no primeiro toque.
 - `report.json`: conflitos, colisoes morfologicas e contagens de auditoria.
 
 Conflitos CEFR usam o menor nivel por grafia. Flexoes sao geradas do lema para a forma; formas que colidem entre lemas sao excluidas de `lemmas.json` e registradas no relatorio.

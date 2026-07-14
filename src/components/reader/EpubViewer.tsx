@@ -10,7 +10,7 @@ import { registerUnmanifestedEpubStylesheets } from '../../utils/epubResources'
 import { areTocHrefDocumentSuffixesEqual, normalizeTocHref } from '../../utils/toc'
 import { clampPercentage, fractionToPercentage } from '../../utils/progress'
 import { splitParagraphIntoTtsChunks } from '../../utils/ttsChunking'
-import type { CefrLevel, WordLensData } from '../../types/wordLens'
+import { CEFR_LEVELS, type CefrLevel, type WordLensData, type WordLensDictionaryEntry } from '../../types/wordLens'
 import { scheduleWordLensDocument, type WordLensDocumentTask } from '../../utils/wordLensDom'
 import { BookFileResolver } from '../../services/BookFileResolver'
 import { createFlowId, logEvent } from '../../services/DiagnosticsLogger'
@@ -199,7 +199,12 @@ function getSentenceFromClick(ev: MouseEvent, para: Element): string {
 
   // caretRangeFromPoint: retorna um Range apontando para onde o cursor
   // seria inserido no ponto (x, y) — disponível no Chrome/Android WebView
-  const range = (ev.target as Element).ownerDocument?.caretRangeFromPoint?.(ev.clientX, ev.clientY)
+  let range: Range | null | undefined
+  try {
+    range = (ev.target as Element).ownerDocument?.caretRangeFromPoint?.(ev.clientX, ev.clientY)
+  } catch {
+    return fullText
+  }
   if (!range) return fullText
   if (!para.contains(range.startContainer)) return fullText
 
@@ -216,6 +221,60 @@ function getSentenceFromClick(ev: MouseEvent, para: Element): string {
   }
 
   return getSentenceAt(fullText, charOffset)
+}
+
+export interface WordLensDefinitionTarget {
+  selectionId: string
+  surface: string
+  lemma: string
+  level: CefrLevel
+  offset: number
+}
+
+type PendingWordLensDefinitionTarget = Omit<WordLensDefinitionTarget, 'selectionId'>
+
+function getWordLensTargetFromClick(ev: MouseEvent, para: Element): PendingWordLensDefinitionTarget | null {
+  const doc = para.ownerDocument
+  let range: Range | null | undefined
+  try {
+    range = doc?.caretRangeFromPoint?.(ev.clientX, ev.clientY)
+  } catch {
+    return null
+  }
+  if (!range || !para.contains(range.startContainer)) return null
+
+  const startElement = range.startContainer.nodeType === Node.ELEMENT_NODE
+    ? range.startContainer as Element
+    : range.startContainer.parentElement
+  const word = startElement?.closest<HTMLElement>('.nr-word-lens')
+  if (!word || !para.contains(word)) return null
+
+  const lemma = word.dataset.nrLemma?.trim().toLowerCase() ?? ''
+  const level = word.dataset.nrCefrLevel as CefrLevel | undefined
+  const surface = word.textContent?.trim() ?? ''
+  if (!lemma || !surface || !level || !CEFR_LEVELS.includes(level)) return null
+
+  let offset = 0
+  const walker = doc.createTreeWalker(para, NodeFilter.SHOW_TEXT)
+  let node: Node | null
+  while ((node = walker.nextNode()) !== null) {
+    if (word.contains(node)) break
+    offset += node.textContent?.length ?? 0
+  }
+
+  return Object.freeze({ surface, lemma, level, offset })
+}
+
+function isSameWordLensTarget(
+  current: WordLensDefinitionTarget | null,
+  next: PendingWordLensDefinitionTarget,
+): boolean {
+  return Boolean(
+    current &&
+    current.lemma === next.lemma &&
+    current.level === next.level &&
+    current.offset === next.offset,
+  )
 }
 
 function getDocumentViewportHeight(doc: Document): number {
@@ -812,6 +871,70 @@ function buildReaderCSS(
       background: linear-gradient(135deg, rgba(255, 255, 255, 0.04), transparent 42%) !important;
       pointer-events: none !important;
     }
+    .nr-wl-definition-slot[hidden],
+    .nr-tr-actions[hidden] {
+      display: none !important;
+    }
+    .nr-wl-definition-slot {
+      position: relative !important;
+      z-index: 1 !important;
+      margin: 0 0 10px !important;
+      padding: 0 0 10px !important;
+      border-bottom: 1px solid ${palette.translationBorder} !important;
+    }
+    .nr-wl-heading {
+      display: flex !important;
+      align-items: baseline !important;
+      flex-wrap: wrap !important;
+      gap: 6px !important;
+      margin: 0 0 7px !important;
+    }
+    .nr-wl-word {
+      color: ${palette.heading} !important;
+      font-size: 16px !important;
+      font-weight: 700 !important;
+      line-height: 1.25 !important;
+    }
+    .nr-wl-level,
+    .nr-wl-pos {
+      color: ${palette.text} !important;
+      opacity: 0.72 !important;
+      font-size: 10px !important;
+      font-weight: 650 !important;
+      line-height: 1.2 !important;
+      letter-spacing: 0.04em !important;
+      text-transform: uppercase !important;
+    }
+    .nr-wl-lemma,
+    .nr-wl-status,
+    .nr-wl-note,
+    .nr-wl-attribution {
+      color: ${palette.text} !important;
+      opacity: 0.74 !important;
+      font-size: 11px !important;
+      line-height: 1.4 !important;
+      margin: 4px 0 0 !important;
+    }
+    .nr-wl-senses {
+      margin: 0 !important;
+      padding: 0 0 0 18px !important;
+    }
+    .nr-wl-sense {
+      color: ${palette.heading} !important;
+      font-size: 12.5px !important;
+      line-height: 1.45 !important;
+      margin: 0 0 7px !important;
+      padding-left: 2px !important;
+    }
+    .nr-wl-example,
+    .nr-wl-synonyms {
+      display: block !important;
+      color: ${palette.text} !important;
+      opacity: 0.78 !important;
+      font-size: 11px !important;
+      line-height: 1.4 !important;
+      margin-top: 2px !important;
+    }
     .nr-tr-panel {
       padding: 0 !important;
       border: 0 !important;
@@ -1060,9 +1183,12 @@ export interface EpubViewerHandle {
   // TTS: prepara scroll automático — limpa flag de "usuário rolou", chama no início do play
   resetTtsScroll(options?: { preservePlaybackSection?: boolean }): void
   // Tradução inline: injeta bloco com spinner logo após o parágrafo ativo
-  showTranslationLoading(): void
+  showTranslationLoading(): string | null
   // Tradução inline: substitui spinner pelo texto traduzido + botões de ação
-  injectTranslation(translatedText: string): void
+  injectTranslation(translatedText: string, selectionId?: string | null): void
+  showWordLensDefinitionLoading(target: WordLensDefinitionTarget): void
+  injectWordLensDefinition(target: WordLensDefinitionTarget, entry: WordLensDictionaryEntry | null): void
+  injectWordLensDefinitionError(target: WordLensDefinitionTarget): void
   // Tradução inline: remove bloco e highlight do parágrafo ativo
   clearTranslation(): void
 }
@@ -1133,6 +1259,7 @@ interface EpubViewerProps {
   // Tradução: emite o texto da frase tocada para o ReaderScreen traduzir e exibir
   // num painel React fora do iframe (evita problema de paginação no mobile)
   onTranslate: (sourceText: string) => void
+  onWordLensDefinition?: (target: WordLensDefinitionTarget) => void
   // TTS: lê um único parágrafo (acionado pelo botão 🔊 no bloco de tradução)
   onSpeakOne: (text: string) => void
   // TTS: quando audiobook está tocando, tap em parágrafo pula para ele
@@ -1160,7 +1287,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     {
       book, bookmarks, fontSize, lineHeight, readerTheme, fontFamily, overrideBookFont, overrideBookColors, focusLineEnabled, wordLensEnabled, wordLensLevel, wordLensData, savedCfi, initialTarget,
       onRelocate, onTocReady, onLoad, onSectionReady, onError,
-      onSaveVocab, onCenterTap, onTranslate,
+      onSaveVocab, onCenterTap, onTranslate, onWordLensDefinition,
       onSpeakOne, onParagraphTapForTts, onTtsUserScrollAway, ttsGlobalActive,
       chromeVisible,
       onBookmarkTap, onBookmarkParagraph,
@@ -1190,6 +1317,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const activeTranslationIdSeqRef = useRef(0)
     const activeTranslationFlowIdRef = useRef<string | null>(null)
     const activeTranslationSourceRef = useRef<InlineTranslationSource>('tap')
+    const activeWordLensTargetRef = useRef<WordLensDefinitionTarget | null>(null)
     // Lock: bloqueia nova seleção enquanto a tradução HTTP anterior ainda está em voo.
     // Evita que dois parágrafos fiquem simultaneamente marcados com data-nr-active.
     const translationInProgressRef = useRef(false)
@@ -1208,6 +1336,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const onSaveVocabRef = useSyncRef(onSaveVocab)
     const onCenterTapRef = useSyncRef(onCenterTap)
     const onTranslateRef = useSyncRef(onTranslate)
+    const onWordLensDefinitionRef = useSyncRef(onWordLensDefinition)
     const onSpeakOneRef = useSyncRef(onSpeakOne)
     const onParagraphTapForTtsRef = useSyncRef(onParagraphTapForTts)
     const onSectionReadyRef = useSyncRef(onSectionReady)
@@ -1566,6 +1695,27 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       return paraEl.dataset.nrTranslationId
     }
 
+    function createTranslationId(para: Element): string {
+      activeTranslationIdSeqRef.current += 1
+      const translationId = String(activeTranslationIdSeqRef.current)
+      ;(para as HTMLElement).dataset.nrTranslationId = translationId
+      return translationId
+    }
+
+    function updateActiveTranslationId(para: Element): string {
+      const previousId = (para as HTMLElement).dataset.nrTranslationId
+      const translationId = createTranslationId(para)
+      const block = para.ownerDocument?.getElementById('nr-translation-block') as HTMLElement | null
+      if (block && (!previousId || block.dataset.nrTranslationFor === previousId)) {
+        block.dataset.nrTranslationFor = translationId
+      }
+      const remainder = para.ownerDocument?.getElementById('nr-para-remainder') as HTMLElement | null
+      if (remainder && (!previousId || remainder.dataset.nrRemainderFor === previousId)) {
+        remainder.dataset.nrRemainderFor = translationId
+      }
+      return translationId
+    }
+
     function getTranslationBlockForParagraph(para: Element): HTMLElement | null {
       const block = para.ownerDocument?.getElementById('nr-translation-block') as HTMLElement | null
       if (!block) return null
@@ -1576,6 +1726,73 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       }
 
       return block
+    }
+
+    function getWordLensDefinitionSlot(target: WordLensDefinitionTarget): HTMLElement | null {
+      const para = activeTranslationParaRef.current
+      const activeTarget = activeWordLensTargetRef.current
+      if (
+        !para ||
+        !activeTarget ||
+        activeTarget.selectionId !== target.selectionId ||
+        (para as HTMLElement).dataset.nrTranslationId !== target.selectionId
+      ) {
+        return null
+      }
+      return getTranslationBlockForParagraph(para)
+        ?.querySelector<HTMLElement>('[data-nr-definition-slot]') ?? null
+    }
+
+    function renderWordLensDefinitionHeading(target: WordLensDefinitionTarget): string {
+      const lemma = target.surface.toLowerCase() !== target.lemma
+        ? `<p class="nr-wl-lemma">${escapeHtml(t('reader.wordLens.lemma', { lemma: target.lemma }))}</p>`
+        : ''
+      return `
+        <div class="nr-wl-heading" role="heading" aria-level="3">
+          <span class="nr-wl-word">${escapeHtml(target.surface)}</span>
+          <span class="nr-wl-level">${escapeHtml(target.level)}</span>
+        </div>
+        ${lemma}`
+    }
+
+    function renderWordLensDefinition(
+      target: WordLensDefinitionTarget,
+      entry: WordLensDictionaryEntry | null,
+    ): string {
+      if (!entry || entry.senses.length === 0) {
+        return `
+          ${renderWordLensDefinitionHeading(target)}
+          <p class="nr-wl-status">${escapeHtml(t('reader.wordLens.empty'))}</p>
+          <p class="nr-wl-attribution">${escapeHtml(t('reader.wordLens.attribution'))}</p>`
+      }
+
+      const visibleSenses = entry.senses.slice(0, 3)
+      const senses = visibleSenses.map((sense) => {
+        const example = sense.examples[0]
+          ? `<span class="nr-wl-example">${escapeHtml(t('reader.wordLens.example', { example: sense.examples[0] }))}</span>`
+          : ''
+        const synonyms = sense.synonyms.length > 0
+          ? `<span class="nr-wl-synonyms">${escapeHtml(t('reader.wordLens.synonyms', { synonyms: sense.synonyms.slice(0, 4).join(', ') }))}</span>`
+          : ''
+        return `
+          <li class="nr-wl-sense">
+            <span class="nr-wl-pos">${escapeHtml(sense.partOfSpeech)}</span>
+            <span>${escapeHtml(sense.definition)}</span>
+            ${example}
+            ${synonyms}
+          </li>`
+      }).join('')
+      const note = entry.senses.length > 1
+        ? `<p class="nr-wl-note">${escapeHtml(t('reader.wordLens.multipleSenses', {
+            count: entry.senses.length,
+            shown: visibleSenses.length,
+          }))}</p>`
+        : ''
+      return `
+        ${renderWordLensDefinitionHeading(target)}
+        <ol class="nr-wl-senses">${senses}</ol>
+        ${note}
+        <p class="nr-wl-attribution">${escapeHtml(t('reader.wordLens.attribution'))}</p>`
     }
 
     function getTranslationRemainderForParagraph(para: Element): HTMLElement | null {
@@ -1618,6 +1835,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         activeTranslationParaRef.current = null
         activeTranslationFlowIdRef.current = null
         activeTranslationSourceRef.current = 'tap'
+        activeWordLensTargetRef.current = null
       }
     }
 
@@ -1630,6 +1848,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         activeTranslatedTextRef.current = ''
         activeTranslationFlowIdRef.current = null
         activeTranslationSourceRef.current = 'tap'
+        activeWordLensTargetRef.current = null
         return
       }
 
@@ -1646,6 +1865,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       para: Element,
       sourceText: string,
       source: InlineTranslationSource = 'tap',
+      wordLensTarget: PendingWordLensDefinitionTarget | null = null,
     ): boolean {
       sourceText = sourceText.trim()
       if (!sourceText) return false
@@ -1668,10 +1888,11 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         clearTranslationForParagraph(prevPara)
       }
 
-      const translationId = getOrCreateTranslationId(para)
+      const translationId = createTranslationId(para)
       const translationLogDetails = {
         ...baseLogDetails,
         translationId,
+        ...(wordLensTarget ? { wordLensLevel: wordLensTarget.level } : {}),
       }
       para.setAttribute('data-nr-active', '1')
       highlightSentenceInParagraph(para, sourceText)
@@ -1680,6 +1901,9 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       activeTranslatedTextRef.current = ''
       activeTranslationFlowIdRef.current = flowId
       activeTranslationSourceRef.current = source
+      activeWordLensTargetRef.current = wordLensTarget
+        ? Object.freeze({ ...wordLensTarget, selectionId: translationId })
+        : null
       translationInProgressRef.current = false
 
       logEvent('reader.contextMenu.open', {
@@ -1695,7 +1919,20 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         details: translationLogDetails,
       })
       onTranslateRef.current(sourceText)
+      if (activeWordLensTargetRef.current) {
+        onWordLensDefinitionRef.current?.(activeWordLensTargetRef.current)
+      }
       return true
+    }
+
+    function updateWordLensTargetWithoutRetranslating(
+      para: Element,
+      target: PendingWordLensDefinitionTarget,
+    ): void {
+      const selectionId = updateActiveTranslationId(para)
+      const nextTarget = Object.freeze({ ...target, selectionId })
+      activeWordLensTargetRef.current = nextTarget
+      onWordLensDefinitionRef.current?.(nextTarget)
     }
 
     function selectFirstTranslationUnitInParagraph(para: Element, source: InlineTranslationSource = 'tap'): boolean {
@@ -2445,7 +2682,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
       showTranslationLoading: () => {
         const para = activeTranslationParaRef.current
-        if (!para) return
+        if (!para) return null
         translationInProgressRef.current = true
         const translationId = getOrCreateTranslationId(para)
         const doc = para.ownerDocument!
@@ -2455,11 +2692,13 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         block.className = 'nr-translation-block'
         block.dataset.nrTranslationFor = translationId
         block.innerHTML = `
-          <div class="nr-tr-panel">
+          <section class="nr-wl-definition-slot" data-nr-definition-slot="1" aria-live="polite" hidden></section>
+          <div class="nr-tr-panel" data-nr-translation-slot="1">
             <div class="nr-tr-loading">
               <span class="nr-tr-spinner"></span>
             </div>
-          </div>`
+          </div>
+          <div class="nr-tr-actions" data-nr-actions-slot="1" hidden></div>`
         para.after(block)
         logEvent('reader.translation.panel.open', {
           flowId: activeTranslationFlowIdRef.current ?? undefined,
@@ -2496,26 +2735,55 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         para.ownerDocument?.defaultView?.requestAnimationFrame(() => {
           para.scrollIntoView({ behavior: 'smooth', block: 'start' })
         })
+        return translationId
       },
 
-      injectTranslation: (translatedText: string) => {
-        translationInProgressRef.current = false
+      injectTranslation: (translatedText: string, selectionId?: string | null) => {
         const para = activeTranslationParaRef.current
         if (!para) return
-        const block = para.ownerDocument?.getElementById('nr-translation-block')
+        const activeSelectionId = (para as HTMLElement).dataset.nrTranslationId
+        if (selectionId && selectionId !== activeSelectionId) return
+        const block = getTranslationBlockForParagraph(para)
         if (!block) return
+        const translationSlot = block.querySelector<HTMLElement>('[data-nr-translation-slot]')
+        const actionsSlot = block.querySelector<HTMLElement>('[data-nr-actions-slot]')
+        if (!translationSlot || !actionsSlot) return
+        translationInProgressRef.current = false
         activeTranslatedTextRef.current = translatedText
-        block.innerHTML = `
-          <div class="nr-tr-panel">
-            <p class="nr-tr-text">${escapeHtml(translatedText)}</p>
-          </div>
-          <div class="nr-tr-actions">
-            ${renderTranslationAction('next', t('reader.translation.next'), TRANSLATION_ICON.next)}
-            ${renderTranslationAction('speak', t('reader.translation.speak'), TRANSLATION_ICON.speak)}
-            ${renderTranslationAction('bookmark', t('reader.translation.bookmark'), TRANSLATION_ICON.bookmark, 'primary')}
-            ${renderTranslationAction('save', t('reader.translation.save'), TRANSLATION_ICON.save)}
-          </div>`
+        translationSlot.innerHTML = `<p class="nr-tr-text">${escapeHtml(translatedText)}</p>`
+        actionsSlot.innerHTML = `
+          ${renderTranslationAction('next', t('reader.translation.next'), TRANSLATION_ICON.next)}
+          ${renderTranslationAction('speak', t('reader.translation.speak'), TRANSLATION_ICON.speak)}
+          ${renderTranslationAction('bookmark', t('reader.translation.bookmark'), TRANSLATION_ICON.bookmark, 'primary')}
+          ${renderTranslationAction('save', t('reader.translation.save'), TRANSLATION_ICON.save)}`
+        actionsSlot.hidden = false
         syncActiveTranslationBookmarkAction(para.ownerDocument)
+      },
+
+      showWordLensDefinitionLoading: (target: WordLensDefinitionTarget) => {
+        const slot = getWordLensDefinitionSlot(target)
+        if (!slot) return
+        slot.hidden = false
+        slot.innerHTML = `
+          ${renderWordLensDefinitionHeading(target)}
+          <p class="nr-wl-status">${escapeHtml(t('reader.wordLens.loading'))}</p>`
+      },
+
+      injectWordLensDefinition: (target: WordLensDefinitionTarget, entry: WordLensDictionaryEntry | null) => {
+        const slot = getWordLensDefinitionSlot(target)
+        if (!slot) return
+        slot.hidden = false
+        slot.innerHTML = renderWordLensDefinition(target, entry)
+      },
+
+      injectWordLensDefinitionError: (target: WordLensDefinitionTarget) => {
+        const slot = getWordLensDefinitionSlot(target)
+        if (!slot) return
+        slot.hidden = false
+        slot.innerHTML = `
+          ${renderWordLensDefinitionHeading(target)}
+          <p class="nr-wl-status">${escapeHtml(t('reader.wordLens.error'))}</p>
+          <p class="nr-wl-attribution">${escapeHtml(t('reader.wordLens.attribution'))}</p>`
       },
 
       clearTranslation: () => {
@@ -2815,13 +3083,31 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             }
 
             // Toggle off: parágrafo já destacado → limpa highlight e bloco de tradução inline
+            const wordLensTarget = getWordLensTargetFromClick(ev, para)
+            const sourceText = getSentenceFromClick(ev, para)
+
             if (para.hasAttribute('data-nr-active')) {
+              if (
+                wordLensTarget &&
+                !isSameWordLensTarget(activeWordLensTargetRef.current, wordLensTarget) &&
+                sourceText.trim() === activeSourceTextRef.current.trim()
+              ) {
+                updateWordLensTargetWithoutRetranslating(para, wordLensTarget)
+                return
+              }
+              if (
+                wordLensTarget &&
+                !isSameWordLensTarget(activeWordLensTargetRef.current, wordLensTarget)
+              ) {
+                clearActiveTranslation()
+                selectTextForInlineTranslation(para, sourceText, 'tap', wordLensTarget)
+                return
+              }
               clearActiveTranslation()
               return
             }
 
-            const sourceText = getSentenceFromClick(ev, para)
-            selectTextForInlineTranslation(para, sourceText, 'tap')
+            selectTextForInlineTranslation(para, sourceText, 'tap', wordLensTarget)
           })
         })
 

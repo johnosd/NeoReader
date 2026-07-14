@@ -8,6 +8,7 @@ import csv
 import hashlib
 import io
 import json
+import re
 import sys
 import time
 import urllib.error
@@ -33,6 +34,15 @@ POS_GROUPS = {
     "adverb": "adv",
 }
 WORDNET_POS = ("noun", "verb", "adj", "adv")
+WORDNET_DATA_POS = {
+    "n": "noun",
+    "v": "verb",
+    "a": "adjective",
+    "s": "adjective",
+    "r": "adverb",
+}
+WORDNET_EXAMPLE_RE = re.compile(r';\s*"([^"]+)"')
+WORDNET_ADJECTIVE_MARKER_RE = re.compile(r"\((?:a|p|ip)\)$")
 
 
 class PipelineError(RuntimeError):
@@ -203,6 +213,103 @@ def parse_wordnet_exceptions(data: bytes, levels: dict[str, int], word_pos: dict
     return surface_to_lemmas, lemma_exceptions
 
 
+def parse_wordnet_dictionary(data: bytes, levels: dict[str, int]) -> dict[str, dict[str, Any]]:
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(data))
+    except zipfile.BadZipFile as error:
+        raise PipelineError("Arquivo Open English WordNet nao e um ZIP valido") from error
+
+    entries: dict[str, dict[str, Any]] = {}
+    seen_senses: dict[str, set[tuple[Any, ...]]] = defaultdict(set)
+    with archive:
+        names = set(archive.namelist())
+        for source_pos in WORDNET_POS:
+            suffix = f"/data.{source_pos}"
+            matches = sorted(name for name in names if name.endswith(suffix))
+            if len(matches) != 1:
+                raise PipelineError(f"WordNet deve conter exatamente um arquivo data.{source_pos}")
+            for number, line in enumerate(archive.read(matches[0]).decode("utf-8").splitlines(), start=1):
+                if len(line) < 9 or not line[:8].isdigit() or line[8] != " ":
+                    continue
+                fields_text, separator, gloss = line.partition(" | ")
+                if not separator:
+                    raise PipelineError(f"WordNet data.{source_pos} linha {number} sem gloss")
+                fields = fields_text.split()
+                try:
+                    word_count = int(fields[3], 16)
+                except (IndexError, ValueError) as error:
+                    raise PipelineError(f"WordNet data.{source_pos} linha {number} invalida") from error
+                if len(fields) < 4 + (word_count * 2):
+                    raise PipelineError(f"WordNet data.{source_pos} linha {number} truncada")
+
+                part_of_speech = WORDNET_DATA_POS.get(fields[2])
+                if not part_of_speech:
+                    continue
+                words = [
+                    normalize_word(WORDNET_ADJECTIVE_MARKER_RE.sub("", fields[4 + (index * 2)].replace("_", " ")))
+                    for index in range(word_count)
+                ]
+                matched_lemmas = sorted(set(words) & levels.keys())
+                if not matched_lemmas:
+                    continue
+
+                examples = [match.group(1).strip() for match in WORDNET_EXAMPLE_RE.finditer(gloss)]
+                first_example = WORDNET_EXAMPLE_RE.search(gloss)
+                definition = (gloss[:first_example.start()] if first_example else gloss).strip().rstrip(";").strip()
+                if not definition:
+                    continue
+
+                for lemma in matched_lemmas:
+                    synonyms = sorted({word for word in words if word and word != lemma})
+                    sense_key = (part_of_speech, definition, tuple(examples), tuple(synonyms))
+                    if sense_key in seen_senses[lemma]:
+                        continue
+                    seen_senses[lemma].add(sense_key)
+                    entry = entries.setdefault(lemma, {"partsOfSpeech": set(), "senses": []})
+                    entry["partsOfSpeech"].add(part_of_speech)
+                    entry["senses"].append({
+                        "partOfSpeech": part_of_speech,
+                        "definition": definition,
+                        "examples": examples,
+                        "synonyms": synonyms,
+                    })
+
+    return {
+        lemma: {
+            "partsOfSpeech": sorted(entry["partsOfSpeech"]),
+            "senses": sorted(
+                entry["senses"],
+                key=lambda sense: (
+                    sense["partOfSpeech"], sense["definition"],
+                    sense["examples"], sense["synonyms"],
+                ),
+            ),
+        }
+        for lemma, entry in sorted(entries.items())
+    }
+
+
+def dictionary_partition(lemma: str) -> str:
+    first = lemma[:1]
+    second = lemma[1:2]
+    if first not in "abcdefghijklmnopqrstuvwxyz":
+        return "other"
+    if not second or second not in "abcdefghijklmnopqrstuvwxyz":
+        return f"{first}-other"
+    return first + second
+
+
+def build_dictionary_artifacts(dictionary: dict[str, dict[str, Any]]) -> tuple[dict[str, bytes], list[str]]:
+    partitions: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
+    for lemma, entry in dictionary.items():
+        partitions[dictionary_partition(lemma)][lemma] = entry
+    names = sorted(partitions)
+    return (
+        {f"dictionary/{name}.json": canonical_json(partitions[name]) for name in names},
+        names,
+    )
+
+
 def regular_forms(lemma: str, pos: str, exception_surfaces: set[str]) -> set[str]:
     if " " in lemma or not lemma.isascii() or not lemma.replace("'", "").isalpha():
         return set()
@@ -281,6 +388,14 @@ def build_artifacts(lock: dict[str, Any], sources: list[Source], payloads: dict[
     levels, word_pos, conflicts = resolve_levels(cefr_rows)
     exceptions, lemma_exceptions = parse_wordnet_exceptions(payloads[wordnet_source.id], levels, word_pos)
     lemmas, collisions = build_lemma_map(levels, word_pos, exceptions, lemma_exceptions)
+    dictionary = parse_wordnet_dictionary(payloads[wordnet_source.id], levels)
+    dictionary_artifacts, dictionary_partitions = build_dictionary_artifacts(dictionary)
+    dictionary_senses = sum(len(entry["senses"]) for entry in dictionary.values())
+    dictionary_examples = sum(
+        len(sense["examples"])
+        for entry in dictionary.values()
+        for sense in entry["senses"]
+    )
     level_counts = Counter(levels.values())
     source_manifest = [
         {
@@ -296,10 +411,13 @@ def build_artifacts(lock: dict[str, Any], sources: list[Source], payloads: dict[
         "snapshotDate": lock["snapshotDate"],
         "levelsPath": "levels.json",
         "lemmasPath": "lemmas.json",
-        "dictionaryPath": None,
+        "dictionaryPath": "dictionary",
+        "dictionaryPartitions": dictionary_partitions,
         "counts": {
             "headwords": len(levels), "inflectedForms": len(lemmas),
             "cefrConflicts": len(conflicts), "morphologyCollisionsExcluded": len(collisions),
+            "dictionaryHeadwords": len(dictionary), "dictionarySenses": dictionary_senses,
+            "dictionaryExamples": dictionary_examples,
             "byLevel": {str(level): level_counts[level] for level in range(1, 7)},
         },
         "sources": source_manifest,
@@ -308,6 +426,7 @@ def build_artifacts(lock: dict[str, Any], sources: list[Source], payloads: dict[
         "schemaVersion": 1,
         "resolution": "lowest CEFR level per normalized headword",
         "morphology": "WordNet exceptions plus forward regular forms; collisions excluded",
+        "dictionary": "Open English WordNet senses for CEFR headwords only; partitioned by initial",
         "counts": manifest["counts"],
         "cefrConflicts": conflicts,
         "morphologyCollisions": collisions,
@@ -317,17 +436,20 @@ def build_artifacts(lock: dict[str, Any], sources: list[Source], payloads: dict[
         "levels.json": canonical_json(levels),
         "lemmas.json": canonical_json(lemmas),
         "report.json": canonical_json(report),
+        **dictionary_artifacts,
     }
 
 
 def write_artifacts(output: Path, artifacts: dict[str, bytes]) -> None:
     output.mkdir(parents=True, exist_ok=True)
     expected = set(artifacts)
-    for path in output.iterdir():
-        if path.is_file() and path.name not in expected:
+    for path in output.rglob("*"):
+        if path.is_file() and path.relative_to(output).as_posix() not in expected:
             path.unlink()
     for name, data in artifacts.items():
-        (output / name).write_bytes(data)
+        path = output / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
 
 
 def check_artifacts(output: Path, artifacts: dict[str, bytes]) -> None:
