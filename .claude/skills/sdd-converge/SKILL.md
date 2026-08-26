@@ -1,0 +1,108 @@
+---
+name: sdd-converge
+description: Compara a implementação real de uma feature contra sua spec/plano/tasks e a constitution do projeto, aponta lacunas (como novas tasks, nunca reescrevendo o que já existe) e, quando tudo bate, sincroniza o status final da documentação. Use quando o usuário pedir para checar se uma feature está completa, achar o que falta antes de entregar, convergir uma feature, ou auditar a implementação. Exige pelo menos uma passada anterior do sdd-execute. NÃO edita código nem reescreve conteúdo existente de spec/plan/tasks — só anexa e atualiza campos de status.
+---
+
+# sdd-converge
+
+Quarto estágio do sistema SDD, e o único não-linear: fecha o ciclo comparando
+código real contra intenção declarada, e é o mecanismo que garante que a
+documentação não fique desatualizada em relação ao que foi de fato construído
+(a segunda metade do problema que motivou este sistema — a primeira metade é
+o `sdd-execute` atualizar a doc a cada checkpoint).
+
+## Fluxo
+
+### 1. Gate de pré-requisito
+
+```powershell
+.\.planning\scripts\powershell\check-prerequisites.ps1 -Stage converge -Slug <NNN-slug> -Json
+```
+
+Exige `spec.md` + `plan.md` + `tasks.md`; avisa (não bloqueia) se `tasks.md`
+tiver zero itens marcados.
+
+### 2. Carrega o contexto de intenção
+
+- `spec.md`: `FR-###`, `SC-###`, user stories, acceptance scenarios, edge
+  cases.
+- `plan.md`: arquitetura, Decisões Invariantes, Execution Notes acumuladas
+  pelo `sdd-execute` (mostram o que foi de fato feito e quando).
+- `tasks.md`: IDs existentes (pra saber o próximo ID livre, se precisar
+  anexar), Registro da Fase de cada fase.
+- `.planning/memory/constitution.md`: princípios que governam o projeto.
+
+### 3. Mapeia intenção → código real
+
+Baseado nos arquivos/componentes que os artefatos acima realmente nomeiam
+(mais uma busca direcionada pelos mesmos termos, se necessário) — **sem
+inferir escopo além do que está documentado**. Isso não é uma auditoria geral
+do repositório, é uma checagem de fidelidade desta feature específica.
+
+### 4. Classifica lacunas
+
+Para cada requisito/critério/decisão não confirmado no código:
+
+- `missing` — não foi implementado.
+- `partial` — implementado parcialmente.
+- `contradicts` — o código faz algo diferente do que a spec/plano diz.
+- `unrequested` — o código faz algo que não está em nenhum artefato (pode ser
+  intencional e só não documentado, ou pode ser scope creep — reporte, não
+  presuma).
+
+Cada achado precisa de evidência (arquivo/linha ou trecho).
+
+### 5. Severidade
+
+- **CRITICAL**: viola um princípio da constitution, ou lacuna que bloqueia
+  uma user story P1.
+- **HIGH** / **MEDIUM** / **LOW**: conforme o impacto real.
+
+### 6. Apresenta os achados
+
+Tabela **Convergence Findings** (ID | Tipo de Lacuna | Severidade | Origem |
+Evidência | Trabalho Restante) **no chat**, antes de escrever qualquer coisa.
+
+### 7a. Se houver achado acionável
+
+Acrescente uma única seção nova `## Phase N: Convergence` ao **final** de
+`tasks.md` (N = próxima fase livre), com tasks `T{max+1:03d}` em diante,
+CRITICAL/HIGH primeiro, cada uma citando sua origem (`FR-###` / `SC-###` /
+`US n / AC n` / `plan: <decisão>` / `Constitution <princípio>`). **Nunca
+toca em tasks ou fases já existentes** — só anexa.
+
+```powershell
+.\.planning\scripts\powershell\update-feature-status.ps1 -Slug <NNN-slug> -Status "Convergência Pendente"
+```
+
+Recomende rodar `sdd-execute` de novo pra cobrir as tasks novas, e depois
+`sdd-converge` outra vez até não sobrar achado.
+
+### 7b. Se não houver achado (convergiu limpo)
+
+Este é o passo que sincroniza a documentação com a realidade ao final:
+
+1. `tasks.md` fica **byte-idêntico** — não escreva nada nele.
+2. Em `spec.md`, atualize **só** a linha `**Status**:` para `Convergida` —
+   não toque no resto do corpo.
+3. Em `plan.md`, **anexe** uma seção única `## Resultado Final` (nunca
+   reescreva o que já existe): resuma o que foi de fato construído, os
+   desvios acumulados nas Execution Notes, e decisões técnicas que ficaram
+   diferentes do plano original.
+4. Em `plan.md` → `## Riscos e Decisões`: qualquer item ainda sem
+   `Resolvido:` que este convergence não achou evidência de violação recebe
+   `Resolvido:` (mitigação confirmada pela auditoria). Itens que continuam
+   abertos ficam registrados tal qual — não apague nada.
+5. `.\.planning\scripts\powershell\update-feature-status.ps1 -Slug <NNN-slug> -Status Convergida`
+6. Relate "Convergido" ao usuário.
+
+## Restrições importantes
+
+- Nunca edita código-fonte.
+- Nunca reescreve o conteúdo de `tasks.md` — só anexa uma fase nova, ou não
+  toca nele.
+- Nunca reescreve o corpo de `spec.md` ou `plan.md` — só a linha de Status
+  (spec.md) e a seção `## Resultado Final` por anexação (plan.md).
+- Se não achar evidência suficiente pra confirmar ou negar algo (não achou o
+  arquivo relevante, por exemplo), reporte como achado de severidade a
+  julgar — não presuma que está tudo certo.

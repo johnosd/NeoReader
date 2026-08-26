@@ -233,21 +233,45 @@ export interface WordLensDefinitionTarget {
 
 type PendingWordLensDefinitionTarget = Omit<WordLensDefinitionTarget, 'selectionId'>
 
+function getWordLensElementFromRange(range: Range, para: Element): HTMLElement | null {
+  if (!para.contains(range.startContainer)) return null
+
+  const startElement = range.startContainer.nodeType === Node.ELEMENT_NODE
+    ? range.startContainer as Element
+    : range.startContainer.parentElement
+  const word = startElement?.closest<HTMLElement>('.nr-word-lens')
+  return word && para.contains(word) ? word : null
+}
+
+function getWordLensElementAtPoint(ev: MouseEvent, para: Element): HTMLElement | null {
+  for (const word of para.querySelectorAll<HTMLElement>('.nr-word-lens')) {
+    for (const rect of word.getClientRects()) {
+      if (
+        ev.clientX >= rect.left
+        && ev.clientX <= rect.right
+        && ev.clientY >= rect.top
+        && ev.clientY <= rect.bottom
+      ) {
+        return word
+      }
+    }
+  }
+
+  return null
+}
+
 function getWordLensTargetFromClick(ev: MouseEvent, para: Element): PendingWordLensDefinitionTarget | null {
   const doc = para.ownerDocument
   let range: Range | null | undefined
   try {
     range = doc?.caretRangeFromPoint?.(ev.clientX, ev.clientY)
   } catch {
-    return null
+    range = null
   }
-  if (!range || !para.contains(range.startContainer)) return null
 
-  const startElement = range.startContainer.nodeType === Node.ELEMENT_NODE
-    ? range.startContainer as Element
-    : range.startContainer.parentElement
-  const word = startElement?.closest<HTMLElement>('.nr-word-lens')
-  if (!word || !para.contains(word)) return null
+  const word = (range ? getWordLensElementFromRange(range, para) : null)
+    ?? getWordLensElementAtPoint(ev, para)
+  if (!word) return null
 
   const lemma = word.dataset.nrLemma?.trim().toLowerCase() ?? ''
   const level = word.dataset.nrCefrLevel as CefrLevel | undefined

@@ -201,6 +201,16 @@ function setElementRect(el: Element, rect: Pick<DOMRect, 'left' | 'top' | 'right
   })
 }
 
+function setElementClientRects(
+  el: Element,
+  rects: Array<Pick<DOMRect, 'left' | 'top' | 'right' | 'bottom'>>,
+) {
+  Object.defineProperty(el, 'getClientRects', {
+    configurable: true,
+    value: () => rects,
+  })
+}
+
 function setViewportWidth(doc: Document, width: number) {
   if (doc.defaultView) {
     Object.defineProperty(doc.defaultView, 'innerWidth', {
@@ -466,6 +476,39 @@ describe('EpubViewer — abertura do livro', () => {
     ])
   })
 
+  it('encontra o marcador pelo retangulo quando o caret do renderer cai no paragrafo', async () => {
+    const onTranslate = vi.fn()
+    const onWordLensDefinition = vi.fn()
+    const { foliateEl } = await renderViewer({
+      onTranslate,
+      onWordLensDefinition,
+      wordLensData: {
+        levels: { ubiquitous: 5 },
+        lemmas: {},
+        packVersion: 'test',
+      },
+    })
+    const fakeDoc = makeFakeDoc(['A ubiquitous idea.'])
+    const para = fakeDoc.querySelector('p') as HTMLElement
+    loadSection(foliateEl, fakeDoc, 0)
+
+    await waitFor(() => expect(fakeDoc.querySelector('.nr-word-lens')).not.toBeNull())
+    const word = fakeDoc.querySelector('.nr-word-lens') as HTMLElement
+    setCaretRange(fakeDoc, para.firstChild as Text, 0)
+    setElementClientRects(word, [{ left: 130, top: 330, right: 230, bottom: 390 }])
+
+    clickAt(para, 180, 360)
+
+    expect(onTranslate).toHaveBeenCalledOnce()
+    expect(onWordLensDefinition).toHaveBeenCalledWith(expect.objectContaining({
+      surface: 'ubiquitous',
+      lemma: 'ubiquitous',
+      level: 'C1',
+      offset: 2,
+    }))
+    expect(onTranslate.mock.invocationCallOrder[0]).toBeLessThan(onWordLensDefinition.mock.invocationCallOrder[0])
+  })
+
   it('nao solicita definicao ao tocar palavra sem marcacao Word Lens', async () => {
     const onTranslate = vi.fn()
     const onWordLensDefinition = vi.fn()
@@ -499,6 +542,7 @@ describe('EpubViewer — abertura do livro', () => {
     await waitFor(() => expect(fakeDoc.querySelector('.nr-word-lens')).not.toBeNull())
     const word = fakeDoc.querySelector('.nr-word-lens') as HTMLElement
     setCaretRange(fakeDoc, word.nextSibling as Text, 0)
+    setElementClientRects(word, [{ left: 80, top: 330, right: 170, bottom: 390 }])
 
     clickAt(para, 180, 360)
 
