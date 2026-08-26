@@ -221,6 +221,21 @@ ficha manualmente.
   idioma alvo e data.
 - Tela de vocabulario com busca e exclusao manual.
 
+### Word Lens
+
+- Marca, em livros identificados como ingles, palavras acima do nivel CEFR
+  escolhido pelo usuario (A1-C2, com B1 como padrao).
+- Funciona offline com o data pack 1.0.0 distribuido dentro do app; o leitor nao
+  baixa listas quando o usuario seleciona um nivel.
+- Combina fundo e sublinhado, pode ser desligado nas Configuracoes e nao bloqueia
+  a abertura do livro enquanto os dados locais sao carregados.
+- O pacote combina CEFR-J Wordlist 1.5, Octanove Vocabulary Profile C1/C2 1.0
+  (CC BY-SA 4.0) e Open English WordNet 2025 (CC BY 4.0). Atribuicoes e URLs de
+  licenca tambem acompanham o manifest distribuido em `public/word-lens/`.
+- A classificacao e aproximada e baseada em palavras isoladas. O MVP nao
+  interpreta contexto, sentidos ou expressoes com varias palavras e ainda nao
+  exibe definicoes ao tocar.
+
 ### TTS
 
 - Audiobook continuo a partir do texto do leitor.

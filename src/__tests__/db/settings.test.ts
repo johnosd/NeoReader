@@ -65,6 +65,8 @@ describe('settings db helpers', () => {
         fontFamily: 'classic',
         overrideBookFont: true,
         overrideBookColors: true,
+        wordLensEnabled: false,
+        wordLensLevel: 'B1',
       },
       updatedAt: new Date('2026-04-20T10:00:00.000Z'),
     })
@@ -98,6 +100,8 @@ describe('settings db helpers', () => {
         fontFamily: 'classic',
         overrideBookFont: true,
         overrideBookColors: true,
+        wordLensEnabled: false,
+        wordLensLevel: 'B1',
       },
     }))
   })
@@ -117,6 +121,8 @@ describe('settings db helpers', () => {
         fontFamily: 'classic',
         overrideBookFont: true,
         overrideBookColors: true,
+        wordLensEnabled: true,
+        wordLensLevel: 'B1',
       },
       updatedAt: new Date('2026-04-20T10:00:00.000Z'),
     })
@@ -140,6 +146,8 @@ describe('settings db helpers', () => {
         fontFamily: 'classic',
         overrideBookFont: true,
         overrideBookColors: true,
+        wordLensEnabled: true,
+        wordLensLevel: 'B1',
       },
     }))
   })
@@ -172,6 +180,8 @@ describe('settings db helpers', () => {
       fontFamily: 'publisher',
       overrideBookFont: false,
       overrideBookColors: true,
+      wordLensEnabled: false,
+      wordLensLevel: 'B1',
     })
   })
 
@@ -209,5 +219,35 @@ describe('settings db helpers', () => {
     expect(mocks.transaction).toHaveBeenCalledTimes(2)
     expect(stored.appSettings.translationTargetLang).toBe('es')
     expect(stored.readerDefaults.defaultFontSize).toBe('xl')
+  })
+
+  it('normaliza valores ausentes ou invalidos do Word Lens', async () => {
+    mocks.first.mockResolvedValue({
+      readerDefaults: {
+        wordLensEnabled: 'yes',
+        wordLensLevel: 'B3',
+      },
+    })
+
+    const settings = await getSettings()
+
+    expect(settings.readerDefaults.wordLensEnabled).toBe(false)
+    expect(settings.readerDefaults.wordLensLevel).toBe('B1')
+  })
+
+  it('preserva patches concorrentes do Word Lens', async () => {
+    let stored: Awaited<ReturnType<typeof getSettings>> | undefined
+    mocks.first.mockImplementation(async () => stored)
+    mocks.settingsTable.put.mockImplementation(async (nextSettings) => {
+      stored = nextSettings
+    })
+
+    await Promise.all([
+      updateReaderDefaults({ wordLensEnabled: false }),
+      updateReaderDefaults({ wordLensLevel: 'C1' }),
+    ])
+
+    expect(stored?.readerDefaults.wordLensEnabled).toBe(false)
+    expect(stored?.readerDefaults.wordLensLevel).toBe('C1')
   })
 })

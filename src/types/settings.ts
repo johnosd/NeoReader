@@ -1,4 +1,5 @@
 import { DEFAULT_APP_LOCALE_PREFERENCE, normalizeAppLocalePreference, type AppLocalePreference } from '../i18n/locales'
+import type { CefrLevel } from './wordLens'
 
 export type FontSize = 'sm' | 'md' | 'lg' | 'xl'
 export type ReaderLineHeight = 'compact' | 'comfortable' | 'relaxed'
@@ -21,6 +22,8 @@ export interface ReaderDefaults {
   fontFamily: ReaderFontFamily
   overrideBookFont: boolean
   overrideBookColors: boolean
+  wordLensEnabled: boolean
+  wordLensLevel: CefrLevel
 }
 
 export interface UserSettings {
@@ -55,6 +58,8 @@ export const DEFAULT_READER_DEFAULTS: ReaderDefaults = {
   fontFamily: 'classic',
   overrideBookFont: true,
   overrideBookColors: true,
+  wordLensEnabled: false,
+  wordLensLevel: 'B1',
 }
 
 export const DEFAULT_SETTINGS: Omit<UserSettings, 'id'> = {
@@ -70,6 +75,7 @@ type SettingsRecord = Partial<UserSettings> & LegacyUserSettings & {
 
 export function normalizeUserSettings(record?: SettingsRecord | null): UserSettings {
   const fontFamily = record?.readerDefaults?.fontFamily ?? DEFAULT_READER_DEFAULTS.fontFamily
+  const wordLensLevel = record?.readerDefaults?.wordLensLevel
 
   return {
     ...(record?.id !== undefined ? { id: record.id } : {}),
@@ -91,6 +97,12 @@ export function normalizeUserSettings(record?: SettingsRecord | null): UserSetti
       fontFamily,
       overrideBookFont: record?.readerDefaults?.overrideBookFont ?? (fontFamily !== 'publisher'),
       overrideBookColors: record?.readerDefaults?.overrideBookColors ?? DEFAULT_READER_DEFAULTS.overrideBookColors,
+      wordLensEnabled: typeof record?.readerDefaults?.wordLensEnabled === 'boolean'
+        ? record.readerDefaults.wordLensEnabled
+        : DEFAULT_READER_DEFAULTS.wordLensEnabled,
+      wordLensLevel: wordLensLevel && ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'].includes(wordLensLevel)
+        ? wordLensLevel
+        : DEFAULT_READER_DEFAULTS.wordLensLevel,
     },
     updatedAt: record?.updatedAt ? new Date(record.updatedAt) : new Date(),
   }

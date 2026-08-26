@@ -74,3 +74,6 @@ android/.idea
 
 # Local debug inputs
 debug-books/
+
+# Word Lens verified source cache (never bundled)
+.word-lens-cache/

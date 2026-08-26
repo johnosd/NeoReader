@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { ArrowLeft, Check, ChevronDown, ChevronRight, CloudUpload, Compass, Eye, EyeOff, Gauge, Globe, Info, KeyRound, Mic2, Palette, PlayCircle, Smartphone, Sparkles, Volume2 } from 'lucide-react'
+import { ArrowLeft, Check, ChevronDown, ChevronRight, CloudUpload, Compass, Eye, EyeOff, Gauge, Globe, Info, KeyRound, Mic2, Palette, PlayCircle, ScanText, Smartphone, Sparkles, Volume2 } from 'lucide-react'
 import { Badge, BottomSheet, Input, ListItem, Spinner, Switch } from '../components/ui'
 import { WakeLockService } from '../services/WakeLockService'
 import { IntegrationEducationCard } from '../components/IntegrationEducationCard'
@@ -34,6 +34,7 @@ import {
 import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
 import type { AppSettings, ReaderDefaults, UserSettings } from '../types/settings'
 import type { PremiumTtsProvider } from '../types/tts'
+import { CEFR_LEVELS, type CefrLevel } from '../types/wordLens'
 import { getLanguageLabel, TRANSLATION_LANGUAGE_OPTIONS } from '../utils/languageOptions'
 import { APP_LOCALE_PREFERENCES, useI18n, type AppLocalePreference, type MessageKey, type TranslateFn } from '../i18n'
 
@@ -408,6 +409,65 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
               onClick={onOpenPaywall}
               divider={false}
             />
+          </SettingsGroup>
+        </SettingsSection>
+
+        <SettingsSection
+          icon={<ScanText size={17} />}
+          label={t('settings.wordLens.sectionLabel')}
+          description={t('settings.wordLens.sectionDescription')}
+        >
+          <SettingsGroup>
+            <SettingBlock
+              label={t('settings.wordLens.enabled.label')}
+              description={t('settings.wordLens.enabled.description')}
+            >
+              <Switch
+                checked={settings.readerDefaults.wordLensEnabled}
+                onChange={(checked) => void saveReaderDefaults({ wordLensEnabled: checked })}
+                aria-label={t('settings.wordLens.enabled.aria')}
+              />
+            </SettingBlock>
+            <SettingBlock
+              label={t('settings.wordLens.level.label')}
+              description={t('settings.wordLens.level.description')}
+            >
+              <select
+                value={settings.readerDefaults.wordLensLevel}
+                onChange={(event) => void saveReaderDefaults({ wordLensLevel: event.target.value as CefrLevel })}
+                disabled={!settings.readerDefaults.wordLensEnabled}
+                aria-label={t('settings.wordLens.level.aria')}
+                className="w-full rounded-md border border-border bg-bg-base px-3 py-2 text-sm text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {CEFR_LEVELS.map((level) => <option key={level} value={level}>{level}</option>)}
+              </select>
+              <p className="mt-2 text-xs leading-snug text-text-muted">
+                {t('settings.wordLens.approximationNote')}
+              </p>
+            </SettingBlock>
+            <SettingBlock
+              label={t('settings.wordLens.legend.label')}
+              description={t('settings.wordLens.legend.description')}
+            >
+              <div className="flex items-center gap-3 text-xs text-text-secondary">
+                <span
+                  aria-hidden="true"
+                  className="bg-warning/15 underline decoration-warning decoration-solid underline-offset-2"
+                >
+                  {t('settings.wordLens.legend.sample')}
+                </span>
+                <span>{t('settings.wordLens.legend.meaning')}</span>
+              </div>
+            </SettingBlock>
+            <SettingBlock
+              label={t('settings.wordLens.sources.label')}
+              description={t('settings.wordLens.sources.description')}
+              divider={false}
+            >
+              <p className="text-xs leading-relaxed text-text-muted">
+                {t('settings.wordLens.sources.limitations')}
+              </p>
+            </SettingBlock>
           </SettingsGroup>
         </SettingsSection>
 

@@ -6,9 +6,12 @@ import type { FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from '
 import { getReaderFontFamilyValue, getReaderLineHeightValue, getReaderThemePalette } from '../../utils/readerPreferences'
 import { getSentenceAt, escapeHtml } from '../../utils/readerUtils'
 import { areCfisEquivalent, normalizeCfi } from '../../utils/cfi'
+import { registerUnmanifestedEpubStylesheets } from '../../utils/epubResources'
 import { areTocHrefDocumentSuffixesEqual, normalizeTocHref } from '../../utils/toc'
 import { clampPercentage, fractionToPercentage } from '../../utils/progress'
 import { splitParagraphIntoTtsChunks } from '../../utils/ttsChunking'
+import { CEFR_LEVELS, type CefrLevel, type WordLensData, type WordLensDictionaryEntry } from '../../types/wordLens'
+import { scheduleWordLensDocument, type WordLensDocumentTask } from '../../utils/wordLensDom'
 import { BookFileResolver } from '../../services/BookFileResolver'
 import { createFlowId, logEvent } from '../../services/DiagnosticsLogger'
 import { useI18n } from '../../i18n'
@@ -25,6 +28,7 @@ const BOTTOM_CHROME_TAP_ZONE_PX = 156
 const CHROME_TAP_ZONE_MAX_VIEWPORT_RATIO = 0.28
 const RIGHT_CHROME_TAP_ZONE_MIN_PX = 48
 const RIGHT_CHROME_TAP_ZONE_MAX_PX = 72
+const INITIAL_INTERACTIVE_TIMEOUT_MS = 8_000
 
 type FoliateTransformLoadDetail = {
   isScript?: boolean
@@ -195,7 +199,12 @@ function getSentenceFromClick(ev: MouseEvent, para: Element): string {
 
   // caretRangeFromPoint: retorna um Range apontando para onde o cursor
   // seria inserido no ponto (x, y) — disponível no Chrome/Android WebView
-  const range = (ev.target as Element).ownerDocument?.caretRangeFromPoint?.(ev.clientX, ev.clientY)
+  let range: Range | null | undefined
+  try {
+    range = (ev.target as Element).ownerDocument?.caretRangeFromPoint?.(ev.clientX, ev.clientY)
+  } catch {
+    return fullText
+  }
   if (!range) return fullText
   if (!para.contains(range.startContainer)) return fullText
 
@@ -212,6 +221,84 @@ function getSentenceFromClick(ev: MouseEvent, para: Element): string {
   }
 
   return getSentenceAt(fullText, charOffset)
+}
+
+export interface WordLensDefinitionTarget {
+  selectionId: string
+  surface: string
+  lemma: string
+  level: CefrLevel
+  offset: number
+}
+
+type PendingWordLensDefinitionTarget = Omit<WordLensDefinitionTarget, 'selectionId'>
+
+function getWordLensElementFromRange(range: Range, para: Element): HTMLElement | null {
+  if (!para.contains(range.startContainer)) return null
+
+  const startElement = range.startContainer.nodeType === Node.ELEMENT_NODE
+    ? range.startContainer as Element
+    : range.startContainer.parentElement
+  const word = startElement?.closest<HTMLElement>('.nr-word-lens')
+  return word && para.contains(word) ? word : null
+}
+
+function getWordLensElementAtPoint(ev: MouseEvent, para: Element): HTMLElement | null {
+  for (const word of para.querySelectorAll<HTMLElement>('.nr-word-lens')) {
+    for (const rect of word.getClientRects()) {
+      if (
+        ev.clientX >= rect.left
+        && ev.clientX <= rect.right
+        && ev.clientY >= rect.top
+        && ev.clientY <= rect.bottom
+      ) {
+        return word
+      }
+    }
+  }
+
+  return null
+}
+
+function getWordLensTargetFromClick(ev: MouseEvent, para: Element): PendingWordLensDefinitionTarget | null {
+  const doc = para.ownerDocument
+  let range: Range | null | undefined
+  try {
+    range = doc?.caretRangeFromPoint?.(ev.clientX, ev.clientY)
+  } catch {
+    range = null
+  }
+
+  const word = (range ? getWordLensElementFromRange(range, para) : null)
+    ?? getWordLensElementAtPoint(ev, para)
+  if (!word) return null
+
+  const lemma = word.dataset.nrLemma?.trim().toLowerCase() ?? ''
+  const level = word.dataset.nrCefrLevel as CefrLevel | undefined
+  const surface = word.textContent?.trim() ?? ''
+  if (!lemma || !surface || !level || !CEFR_LEVELS.includes(level)) return null
+
+  let offset = 0
+  const walker = doc.createTreeWalker(para, NodeFilter.SHOW_TEXT)
+  let node: Node | null
+  while ((node = walker.nextNode()) !== null) {
+    if (word.contains(node)) break
+    offset += node.textContent?.length ?? 0
+  }
+
+  return Object.freeze({ surface, lemma, level, offset })
+}
+
+function isSameWordLensTarget(
+  current: WordLensDefinitionTarget | null,
+  next: PendingWordLensDefinitionTarget,
+): boolean {
+  return Boolean(
+    current &&
+    current.lemma === next.lemma &&
+    current.level === next.level &&
+    current.offset === next.offset,
+  )
 }
 
 function getDocumentViewportHeight(doc: Document): number {
@@ -808,6 +895,70 @@ function buildReaderCSS(
       background: linear-gradient(135deg, rgba(255, 255, 255, 0.04), transparent 42%) !important;
       pointer-events: none !important;
     }
+    .nr-wl-definition-slot[hidden],
+    .nr-tr-actions[hidden] {
+      display: none !important;
+    }
+    .nr-wl-definition-slot {
+      position: relative !important;
+      z-index: 1 !important;
+      margin: 0 0 10px !important;
+      padding: 0 0 10px !important;
+      border-bottom: 1px solid ${palette.translationBorder} !important;
+    }
+    .nr-wl-heading {
+      display: flex !important;
+      align-items: baseline !important;
+      flex-wrap: wrap !important;
+      gap: 6px !important;
+      margin: 0 0 7px !important;
+    }
+    .nr-wl-word {
+      color: ${palette.heading} !important;
+      font-size: 16px !important;
+      font-weight: 700 !important;
+      line-height: 1.25 !important;
+    }
+    .nr-wl-level,
+    .nr-wl-pos {
+      color: ${palette.text} !important;
+      opacity: 0.72 !important;
+      font-size: 10px !important;
+      font-weight: 650 !important;
+      line-height: 1.2 !important;
+      letter-spacing: 0.04em !important;
+      text-transform: uppercase !important;
+    }
+    .nr-wl-lemma,
+    .nr-wl-status,
+    .nr-wl-note,
+    .nr-wl-attribution {
+      color: ${palette.text} !important;
+      opacity: 0.74 !important;
+      font-size: 11px !important;
+      line-height: 1.4 !important;
+      margin: 4px 0 0 !important;
+    }
+    .nr-wl-senses {
+      margin: 0 !important;
+      padding: 0 0 0 18px !important;
+    }
+    .nr-wl-sense {
+      color: ${palette.heading} !important;
+      font-size: 12.5px !important;
+      line-height: 1.45 !important;
+      margin: 0 0 7px !important;
+      padding-left: 2px !important;
+    }
+    .nr-wl-example,
+    .nr-wl-synonyms {
+      display: block !important;
+      color: ${palette.text} !important;
+      opacity: 0.78 !important;
+      font-size: 11px !important;
+      line-height: 1.4 !important;
+      margin-top: 2px !important;
+    }
     .nr-tr-panel {
       padding: 0 !important;
       border: 0 !important;
@@ -1011,6 +1162,25 @@ function buildReaderCSS(
       text-underline-offset: 3px !important;
       cursor: pointer !important;
     }
+    .nr-word-lens {
+      margin: 0 !important;
+      padding: 0 !important;
+      border: 0 !important;
+      border-radius: 0 !important;
+      font: inherit !important;
+      line-height: inherit !important;
+      letter-spacing: inherit !important;
+      color: inherit !important;
+      background-color: ${palette.isDark ? 'rgba(250, 204, 21, 0.16)' : 'rgba(202, 138, 4, 0.13)'} !important;
+      text-decoration: underline solid ${palette.isDark ? 'rgba(250, 204, 21, 0.68)' : 'rgba(161, 98, 7, 0.62)'} !important;
+      text-decoration-thickness: 1px !important;
+      text-underline-offset: 2px !important;
+      box-shadow: none !important;
+      animation: none !important;
+      transition: none !important;
+      pointer-events: none !important;
+      cursor: inherit !important;
+    }
   `
 }
 
@@ -1037,9 +1207,12 @@ export interface EpubViewerHandle {
   // TTS: prepara scroll automático — limpa flag de "usuário rolou", chama no início do play
   resetTtsScroll(options?: { preservePlaybackSection?: boolean }): void
   // Tradução inline: injeta bloco com spinner logo após o parágrafo ativo
-  showTranslationLoading(): void
+  showTranslationLoading(): string | null
   // Tradução inline: substitui spinner pelo texto traduzido + botões de ação
-  injectTranslation(translatedText: string): void
+  injectTranslation(translatedText: string, selectionId?: string | null): void
+  showWordLensDefinitionLoading(target: WordLensDefinitionTarget): void
+  injectWordLensDefinition(target: WordLensDefinitionTarget, entry: WordLensDictionaryEntry | null): void
+  injectWordLensDefinitionError(target: WordLensDefinitionTarget): void
   // Tradução inline: remove bloco e highlight do parágrafo ativo
   clearTranslation(): void
 }
@@ -1092,6 +1265,9 @@ interface EpubViewerProps {
   overrideBookFont: boolean
   overrideBookColors: boolean
   focusLineEnabled: boolean
+  wordLensEnabled: boolean
+  wordLensLevel: CefrLevel
+  wordLensData: WordLensData | null
   savedCfi: string | null
   initialTarget?: string | null
   onRelocate: (payload: ReaderRelocatePayload) => void
@@ -1107,6 +1283,7 @@ interface EpubViewerProps {
   // Tradução: emite o texto da frase tocada para o ReaderScreen traduzir e exibir
   // num painel React fora do iframe (evita problema de paginação no mobile)
   onTranslate: (sourceText: string) => void
+  onWordLensDefinition?: (target: WordLensDefinitionTarget) => void
   // TTS: lê um único parágrafo (acionado pelo botão 🔊 no bloco de tradução)
   onSpeakOne: (text: string) => void
   // TTS: quando audiobook está tocando, tap em parágrafo pula para ele
@@ -1132,9 +1309,9 @@ interface EpubViewerProps {
 export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
   (
     {
-      book, bookmarks, fontSize, lineHeight, readerTheme, fontFamily, overrideBookFont, overrideBookColors, focusLineEnabled, savedCfi, initialTarget,
+      book, bookmarks, fontSize, lineHeight, readerTheme, fontFamily, overrideBookFont, overrideBookColors, focusLineEnabled, wordLensEnabled, wordLensLevel, wordLensData, savedCfi, initialTarget,
       onRelocate, onTocReady, onLoad, onSectionReady, onError,
-      onSaveVocab, onCenterTap, onTranslate,
+      onSaveVocab, onCenterTap, onTranslate, onWordLensDefinition,
       onSpeakOne, onParagraphTapForTts, onTtsUserScrollAway, ttsGlobalActive,
       chromeVisible,
       onBookmarkTap, onBookmarkParagraph,
@@ -1149,6 +1326,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const currentDocRef = useRef<Document | null>(null)
     const loadedSectionsRef = useRef(new Map<number, LoadedSectionContent>())
     const trackedScrollDocRef = useRef<Document | null>(null)
+    const wordLensTasksRef = useRef(new Map<Document, WordLensDocumentTask>())
 
     // Elementos e textos dos parágrafos da seção atual — atualizados no evento 'load'
     const ttsParagraphsRef = useRef<Element[]>([])
@@ -1163,6 +1341,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const activeTranslationIdSeqRef = useRef(0)
     const activeTranslationFlowIdRef = useRef<string | null>(null)
     const activeTranslationSourceRef = useRef<InlineTranslationSource>('tap')
+    const activeWordLensTargetRef = useRef<WordLensDefinitionTarget | null>(null)
     // Lock: bloqueia nova seleção enquanto a tradução HTTP anterior ainda está em voo.
     // Evita que dois parágrafos fiquem simultaneamente marcados com data-nr-active.
     const translationInProgressRef = useRef(false)
@@ -1181,6 +1360,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const onSaveVocabRef = useSyncRef(onSaveVocab)
     const onCenterTapRef = useSyncRef(onCenterTap)
     const onTranslateRef = useSyncRef(onTranslate)
+    const onWordLensDefinitionRef = useSyncRef(onWordLensDefinition)
     const onSpeakOneRef = useSyncRef(onSpeakOne)
     const onParagraphTapForTtsRef = useSyncRef(onParagraphTapForTts)
     const onSectionReadyRef = useSyncRef(onSectionReady)
@@ -1189,6 +1369,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     // ttsGlobalActive: modo leitura contínua ativo (inclui pausado) — gating do clique
     const ttsGlobalActiveRef = useSyncRef(ttsGlobalActive)
     const chromeVisibleRef = useSyncRef(chromeVisible)
+    const wordLensConfigRef = useSyncRef({ enabled: wordLensEnabled, level: wordLensLevel, data: wordLensData })
     // Navegação entre capítulos: detecta fundo visual + swipe para avançar
     const currentSectionIdxRef = useRef(0)
     const totalSectionsRef = useRef(1)
@@ -1203,7 +1384,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const finalizedSectionVersionRef = useRef(0)
     const finalizeSectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const translationActionResetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-    const initialInteractiveReadyRef = useRef(false)
+    const initialInteractiveStateRef = useRef<'pending' | 'ready' | 'failed'>('pending')
+    const initialInteractiveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const pendingInlineNextTranslationRef = useRef(false)
     const renderBookmarkMarkersRef = useRef<((doc?: Document | null) => void) | null>(null)
     const syncActiveTranslationBookmarkActionRef = useRef<((doc?: Document | null) => void) | null>(null)
@@ -1211,6 +1393,32 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const bookmarksRef = useSyncRef(bookmarks)
     const onBookmarkTapRef = useSyncRef(onBookmarkTap)
     const onBookmarkParagraphRef = useSyncRef(onBookmarkParagraph)
+
+    function renderWordLens(doc: Document, sectionIndex: number): void {
+      const config = wordLensConfigRef.current
+      if (!config.data && !doc.querySelector('.nr-word-lens')) return
+
+      wordLensTasksRef.current.get(doc)?.cancel()
+      const task = scheduleWordLensDocument(doc, config)
+      wordLensTasksRef.current.set(doc, task)
+      void task.completed.then((metrics) => {
+        if (wordLensTasksRef.current.get(doc) === task) wordLensTasksRef.current.delete(doc)
+        if (metrics.cancelled) return
+        logEvent('reader.wordLens.process', {
+          screen: 'reader',
+          status: 'success',
+          durationMs: metrics.processingMs,
+          details: {
+            sectionIndex,
+            packVersion: config.data?.packVersion ?? 'unknown',
+            textNodes: metrics.textNodes,
+            tokens: metrics.tokens,
+            matches: metrics.matches,
+            maxBatchMs: Math.round(metrics.maxBatchMs * 100) / 100,
+          },
+        })
+      })
+    }
 
     function pruneLoadedSections(): void {
       const liveIndices = new Set(
@@ -1221,7 +1429,14 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       )
 
       for (const index of Array.from(loadedSectionsRef.current.keys())) {
-        if (!liveIndices.has(index)) loadedSectionsRef.current.delete(index)
+        if (!liveIndices.has(index)) {
+          const content = loadedSectionsRef.current.get(index)
+          if (content) {
+            wordLensTasksRef.current.get(content.doc)?.cancel()
+            wordLensTasksRef.current.delete(content.doc)
+          }
+          loadedSectionsRef.current.delete(index)
+        }
       }
     }
 
@@ -1504,6 +1719,27 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       return paraEl.dataset.nrTranslationId
     }
 
+    function createTranslationId(para: Element): string {
+      activeTranslationIdSeqRef.current += 1
+      const translationId = String(activeTranslationIdSeqRef.current)
+      ;(para as HTMLElement).dataset.nrTranslationId = translationId
+      return translationId
+    }
+
+    function updateActiveTranslationId(para: Element): string {
+      const previousId = (para as HTMLElement).dataset.nrTranslationId
+      const translationId = createTranslationId(para)
+      const block = para.ownerDocument?.getElementById('nr-translation-block') as HTMLElement | null
+      if (block && (!previousId || block.dataset.nrTranslationFor === previousId)) {
+        block.dataset.nrTranslationFor = translationId
+      }
+      const remainder = para.ownerDocument?.getElementById('nr-para-remainder') as HTMLElement | null
+      if (remainder && (!previousId || remainder.dataset.nrRemainderFor === previousId)) {
+        remainder.dataset.nrRemainderFor = translationId
+      }
+      return translationId
+    }
+
     function getTranslationBlockForParagraph(para: Element): HTMLElement | null {
       const block = para.ownerDocument?.getElementById('nr-translation-block') as HTMLElement | null
       if (!block) return null
@@ -1514,6 +1750,73 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       }
 
       return block
+    }
+
+    function getWordLensDefinitionSlot(target: WordLensDefinitionTarget): HTMLElement | null {
+      const para = activeTranslationParaRef.current
+      const activeTarget = activeWordLensTargetRef.current
+      if (
+        !para ||
+        !activeTarget ||
+        activeTarget.selectionId !== target.selectionId ||
+        (para as HTMLElement).dataset.nrTranslationId !== target.selectionId
+      ) {
+        return null
+      }
+      return getTranslationBlockForParagraph(para)
+        ?.querySelector<HTMLElement>('[data-nr-definition-slot]') ?? null
+    }
+
+    function renderWordLensDefinitionHeading(target: WordLensDefinitionTarget): string {
+      const lemma = target.surface.toLowerCase() !== target.lemma
+        ? `<p class="nr-wl-lemma">${escapeHtml(t('reader.wordLens.lemma', { lemma: target.lemma }))}</p>`
+        : ''
+      return `
+        <div class="nr-wl-heading" role="heading" aria-level="3">
+          <span class="nr-wl-word">${escapeHtml(target.surface)}</span>
+          <span class="nr-wl-level">${escapeHtml(target.level)}</span>
+        </div>
+        ${lemma}`
+    }
+
+    function renderWordLensDefinition(
+      target: WordLensDefinitionTarget,
+      entry: WordLensDictionaryEntry | null,
+    ): string {
+      if (!entry || entry.senses.length === 0) {
+        return `
+          ${renderWordLensDefinitionHeading(target)}
+          <p class="nr-wl-status">${escapeHtml(t('reader.wordLens.empty'))}</p>
+          <p class="nr-wl-attribution">${escapeHtml(t('reader.wordLens.attribution'))}</p>`
+      }
+
+      const visibleSenses = entry.senses.slice(0, 3)
+      const senses = visibleSenses.map((sense) => {
+        const example = sense.examples[0]
+          ? `<span class="nr-wl-example">${escapeHtml(t('reader.wordLens.example', { example: sense.examples[0] }))}</span>`
+          : ''
+        const synonyms = sense.synonyms.length > 0
+          ? `<span class="nr-wl-synonyms">${escapeHtml(t('reader.wordLens.synonyms', { synonyms: sense.synonyms.slice(0, 4).join(', ') }))}</span>`
+          : ''
+        return `
+          <li class="nr-wl-sense">
+            <span class="nr-wl-pos">${escapeHtml(sense.partOfSpeech)}</span>
+            <span>${escapeHtml(sense.definition)}</span>
+            ${example}
+            ${synonyms}
+          </li>`
+      }).join('')
+      const note = entry.senses.length > 1
+        ? `<p class="nr-wl-note">${escapeHtml(t('reader.wordLens.multipleSenses', {
+            count: entry.senses.length,
+            shown: visibleSenses.length,
+          }))}</p>`
+        : ''
+      return `
+        ${renderWordLensDefinitionHeading(target)}
+        <ol class="nr-wl-senses">${senses}</ol>
+        ${note}
+        <p class="nr-wl-attribution">${escapeHtml(t('reader.wordLens.attribution'))}</p>`
     }
 
     function getTranslationRemainderForParagraph(para: Element): HTMLElement | null {
@@ -1556,6 +1859,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         activeTranslationParaRef.current = null
         activeTranslationFlowIdRef.current = null
         activeTranslationSourceRef.current = 'tap'
+        activeWordLensTargetRef.current = null
       }
     }
 
@@ -1568,6 +1872,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         activeTranslatedTextRef.current = ''
         activeTranslationFlowIdRef.current = null
         activeTranslationSourceRef.current = 'tap'
+        activeWordLensTargetRef.current = null
         return
       }
 
@@ -1584,6 +1889,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       para: Element,
       sourceText: string,
       source: InlineTranslationSource = 'tap',
+      wordLensTarget: PendingWordLensDefinitionTarget | null = null,
     ): boolean {
       sourceText = sourceText.trim()
       if (!sourceText) return false
@@ -1606,10 +1912,11 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         clearTranslationForParagraph(prevPara)
       }
 
-      const translationId = getOrCreateTranslationId(para)
+      const translationId = createTranslationId(para)
       const translationLogDetails = {
         ...baseLogDetails,
         translationId,
+        ...(wordLensTarget ? { wordLensLevel: wordLensTarget.level } : {}),
       }
       para.setAttribute('data-nr-active', '1')
       highlightSentenceInParagraph(para, sourceText)
@@ -1618,6 +1925,9 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       activeTranslatedTextRef.current = ''
       activeTranslationFlowIdRef.current = flowId
       activeTranslationSourceRef.current = source
+      activeWordLensTargetRef.current = wordLensTarget
+        ? Object.freeze({ ...wordLensTarget, selectionId: translationId })
+        : null
       translationInProgressRef.current = false
 
       logEvent('reader.contextMenu.open', {
@@ -1633,7 +1943,20 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         details: translationLogDetails,
       })
       onTranslateRef.current(sourceText)
+      if (activeWordLensTargetRef.current) {
+        onWordLensDefinitionRef.current?.(activeWordLensTargetRef.current)
+      }
       return true
+    }
+
+    function updateWordLensTargetWithoutRetranslating(
+      para: Element,
+      target: PendingWordLensDefinitionTarget,
+    ): void {
+      const selectionId = updateActiveTranslationId(para)
+      const nextTarget = Object.freeze({ ...target, selectionId })
+      activeWordLensTargetRef.current = nextTarget
+      onWordLensDefinitionRef.current?.(nextTarget)
     }
 
     function selectFirstTranslationUnitInParagraph(para: Element, source: InlineTranslationSource = 'tap'): boolean {
@@ -1995,6 +2318,13 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       }
     }
 
+    function clearInitialInteractiveTimeout(): void {
+      if (initialInteractiveTimeoutRef.current) {
+        clearTimeout(initialInteractiveTimeoutRef.current)
+        initialInteractiveTimeoutRef.current = null
+      }
+    }
+
     function clearTranslationActionResetTimeout(): void {
       if (translationActionResetTimeoutRef.current) {
         clearTimeout(translationActionResetTimeoutRef.current)
@@ -2002,7 +2332,29 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       }
     }
 
-    function scheduleSectionFinalization(reason: 'stabilized' | 'relocate'): void {
+    function promoteActiveSection(content: LoadedSectionContent): void {
+      const pendingSection = pendingSectionRef.current
+      if (pendingSection?.doc === content.doc && pendingSection.index === content.index) return
+
+      pendingSectionVersionRef.current += 1
+      pendingSectionRef.current = {
+        doc: content.doc,
+        index: content.index,
+        version: pendingSectionVersionRef.current,
+      }
+      clearFinalizeSectionTimeout()
+      finalizeSectionTimeoutRef.current = setTimeout(() => {
+        finalizePendingSection('timeout')
+      }, 400)
+    }
+
+    function activateAndPromoteSection(index: number): LoadedSectionContent | null {
+      const activeSection = activateSection(index)
+      if (activeSection) promoteActiveSection(activeSection)
+      return activeSection
+    }
+
+    function scheduleSectionFinalization(reason: 'stabilized' | 'relocate' | 'reconcile'): void {
       const schedule =
         currentDocRef.current?.defaultView?.requestAnimationFrame?.bind(currentDocRef.current.defaultView) ??
         requestAnimationFrame
@@ -2054,7 +2406,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       }
     }
 
-    function finalizePendingSection(_reason: 'stabilized' | 'relocate' | 'timeout'): void {
+    function finalizePendingSection(_reason: 'stabilized' | 'relocate' | 'reconcile' | 'timeout'): void {
       void _reason
       const pendingSection = pendingSectionRef.current
       if (!pendingSection) return
@@ -2094,8 +2446,9 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       setupScrollTracking(doc)
       finalizedSectionVersionRef.current = version
 
-      if (!initialInteractiveReadyRef.current) {
-        initialInteractiveReadyRef.current = true
+      if (initialInteractiveStateRef.current === 'pending') {
+        initialInteractiveStateRef.current = 'ready'
+        clearInitialInteractiveTimeout()
         onLoad()
       }
       onSectionReadyRef.current?.(index, getSectionHref(index))
@@ -2353,7 +2706,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
       showTranslationLoading: () => {
         const para = activeTranslationParaRef.current
-        if (!para) return
+        if (!para) return null
         translationInProgressRef.current = true
         const translationId = getOrCreateTranslationId(para)
         const doc = para.ownerDocument!
@@ -2363,11 +2716,13 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         block.className = 'nr-translation-block'
         block.dataset.nrTranslationFor = translationId
         block.innerHTML = `
-          <div class="nr-tr-panel">
+          <section class="nr-wl-definition-slot" data-nr-definition-slot="1" aria-live="polite" hidden></section>
+          <div class="nr-tr-panel" data-nr-translation-slot="1">
             <div class="nr-tr-loading">
               <span class="nr-tr-spinner"></span>
             </div>
-          </div>`
+          </div>
+          <div class="nr-tr-actions" data-nr-actions-slot="1" hidden></div>`
         para.after(block)
         logEvent('reader.translation.panel.open', {
           flowId: activeTranslationFlowIdRef.current ?? undefined,
@@ -2404,26 +2759,55 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         para.ownerDocument?.defaultView?.requestAnimationFrame(() => {
           para.scrollIntoView({ behavior: 'smooth', block: 'start' })
         })
+        return translationId
       },
 
-      injectTranslation: (translatedText: string) => {
-        translationInProgressRef.current = false
+      injectTranslation: (translatedText: string, selectionId?: string | null) => {
         const para = activeTranslationParaRef.current
         if (!para) return
-        const block = para.ownerDocument?.getElementById('nr-translation-block')
+        const activeSelectionId = (para as HTMLElement).dataset.nrTranslationId
+        if (selectionId && selectionId !== activeSelectionId) return
+        const block = getTranslationBlockForParagraph(para)
         if (!block) return
+        const translationSlot = block.querySelector<HTMLElement>('[data-nr-translation-slot]')
+        const actionsSlot = block.querySelector<HTMLElement>('[data-nr-actions-slot]')
+        if (!translationSlot || !actionsSlot) return
+        translationInProgressRef.current = false
         activeTranslatedTextRef.current = translatedText
-        block.innerHTML = `
-          <div class="nr-tr-panel">
-            <p class="nr-tr-text">${escapeHtml(translatedText)}</p>
-          </div>
-          <div class="nr-tr-actions">
-            ${renderTranslationAction('next', t('reader.translation.next'), TRANSLATION_ICON.next)}
-            ${renderTranslationAction('speak', t('reader.translation.speak'), TRANSLATION_ICON.speak)}
-            ${renderTranslationAction('bookmark', t('reader.translation.bookmark'), TRANSLATION_ICON.bookmark, 'primary')}
-            ${renderTranslationAction('save', t('reader.translation.save'), TRANSLATION_ICON.save)}
-          </div>`
+        translationSlot.innerHTML = `<p class="nr-tr-text">${escapeHtml(translatedText)}</p>`
+        actionsSlot.innerHTML = `
+          ${renderTranslationAction('next', t('reader.translation.next'), TRANSLATION_ICON.next)}
+          ${renderTranslationAction('speak', t('reader.translation.speak'), TRANSLATION_ICON.speak)}
+          ${renderTranslationAction('bookmark', t('reader.translation.bookmark'), TRANSLATION_ICON.bookmark, 'primary')}
+          ${renderTranslationAction('save', t('reader.translation.save'), TRANSLATION_ICON.save)}`
+        actionsSlot.hidden = false
         syncActiveTranslationBookmarkAction(para.ownerDocument)
+      },
+
+      showWordLensDefinitionLoading: (target: WordLensDefinitionTarget) => {
+        const slot = getWordLensDefinitionSlot(target)
+        if (!slot) return
+        slot.hidden = false
+        slot.innerHTML = `
+          ${renderWordLensDefinitionHeading(target)}
+          <p class="nr-wl-status">${escapeHtml(t('reader.wordLens.loading'))}</p>`
+      },
+
+      injectWordLensDefinition: (target: WordLensDefinitionTarget, entry: WordLensDictionaryEntry | null) => {
+        const slot = getWordLensDefinitionSlot(target)
+        if (!slot) return
+        slot.hidden = false
+        slot.innerHTML = renderWordLensDefinition(target, entry)
+      },
+
+      injectWordLensDefinitionError: (target: WordLensDefinitionTarget) => {
+        const slot = getWordLensDefinitionSlot(target)
+        if (!slot) return
+        slot.hidden = false
+        slot.innerHTML = `
+          ${renderWordLensDefinitionHeading(target)}
+          <p class="nr-wl-status">${escapeHtml(t('reader.wordLens.error'))}</p>
+          <p class="nr-wl-attribution">${escapeHtml(t('reader.wordLens.attribution'))}</p>`
       },
 
       clearTranslation: () => {
@@ -2449,13 +2833,30 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       syncActiveTranslationBookmarkActionRef.current?.()
     }, [bookmarks])
 
+    useEffect(() => {
+      const wordLensTasks = wordLensTasksRef.current
+      for (const content of loadedSectionsRef.current.values()) {
+        renderWordLens(content.doc, content.index)
+      }
+      return () => {
+        for (const task of wordLensTasks.values()) task.cancel()
+        wordLensTasks.clear()
+      }
+      // renderWordLens le a configuracao mais recente via ref; as dependencias abaixo
+      // controlam apenas quando uma nova geracao deve substituir a anterior.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [wordLensData, wordLensEnabled, wordLensLevel])
+
     // Setup principal: cria o elemento foliate, abre o EPUB, configura renderer.
     // Roda apenas quando o bookId muda (novo livro), não a cada re-render.
     useEffect(() => {
       const container = containerRef.current
       if (!container) return
       const loadedSections = loadedSectionsRef.current
+      const wordLensTasks = wordLensTasksRef.current
 
+      for (const task of wordLensTasks.values()) task.cancel()
+      wordLensTasks.clear()
       loadedSections.clear()
       trackedScrollDocRef.current = null
       currentDocRef.current = null
@@ -2471,7 +2872,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       activeTranslationSourceRef.current = 'tap'
       translationInProgressRef.current = false
       pendingInlineNextTranslationRef.current = false
-      initialInteractiveReadyRef.current = false
+      initialInteractiveStateRef.current = 'pending'
       scrollToBottomOnLoadRef.current = false
 
       let cancelled = false
@@ -2486,7 +2887,10 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         try {
           await import('foliate-js/view.js')
         } catch (err) {
-          if (!cancelled) onError(err instanceof Error ? err : new Error(String(err)))
+          if (!cancelled) {
+            initialInteractiveStateRef.current = 'failed'
+            onError(err instanceof Error ? err : new Error(String(err)))
+          }
           return
         }
         if (cancelled) return
@@ -2505,7 +2909,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             view?.renderer.primaryIndex ??
             currentSectionIdxRef.current
           lastRelocateRef.current = { ...e.detail, index: sIdx }
-          const activeSection = activateSection(sIdx)
+          const activeSection = activateAndPromoteSection(sIdx)
           const sectionHref = tocItem?.href ?? getSectionHref(sIdx)
           const chapterPercentage = view ? getChapterProgressPercentage(view, fraction, sIdx, tocItem) : undefined
           onRelocate({
@@ -2517,10 +2921,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             sectionHref,
             sectionIndex: sIdx,
           })
-          if (pendingSectionRef.current?.index === sIdx) {
+          if (activeSection) {
             scheduleSectionFinalization('relocate')
-          } else if (activeSection?.doc) {
-            setupScrollTracking(activeSection.doc)
           }
         })
 
@@ -2534,25 +2936,12 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             index === primaryIndex ||
             index === currentSectionIdxRef.current ||
             (currentDocRef.current == null && primaryIndex < 0)
-          if (shouldActivate) activateSection(index)
+          if (shouldActivate) activateAndPromoteSection(index)
 
           // Armazena parágrafos da seção para uso pelo TTS (audiobook e karaokê)
-
-          // Rastreia seção atual e marca a nova seção como pendente até o renderer estabilizar.
-          if (shouldActivate) {
-            pendingSectionVersionRef.current += 1
-            pendingSectionRef.current = {
-              doc,
-              index,
-              version: pendingSectionVersionRef.current,
-            }
-            clearFinalizeSectionTimeout()
-            finalizeSectionTimeoutRef.current = setTimeout(() => {
-              finalizePendingSection('timeout')
-            }, 400)
-          }
           renderBookmarkMarkers(doc)
           injectVocabHighlight(doc, vocabWordsRef.current)
+          renderWordLens(doc, index)
 
           // didScroll: Android WebView dispara 'click' mesmo após scroll curto.
           // Rastreamos touchmove para distinguir tap intencional de fim de scroll.
@@ -2718,30 +3107,50 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             }
 
             // Toggle off: parágrafo já destacado → limpa highlight e bloco de tradução inline
+            const wordLensTarget = getWordLensTargetFromClick(ev, para)
+            const sourceText = getSentenceFromClick(ev, para)
+
             if (para.hasAttribute('data-nr-active')) {
+              if (
+                wordLensTarget &&
+                !isSameWordLensTarget(activeWordLensTargetRef.current, wordLensTarget) &&
+                sourceText.trim() === activeSourceTextRef.current.trim()
+              ) {
+                updateWordLensTargetWithoutRetranslating(para, wordLensTarget)
+                return
+              }
+              if (
+                wordLensTarget &&
+                !isSameWordLensTarget(activeWordLensTargetRef.current, wordLensTarget)
+              ) {
+                clearActiveTranslation()
+                selectTextForInlineTranslation(para, sourceText, 'tap', wordLensTarget)
+                return
+              }
               clearActiveTranslation()
               return
             }
 
-            const sourceText = getSentenceFromClick(ev, para)
-            selectTextForInlineTranslation(para, sourceText, 'tap')
+            selectTextForInlineTranslation(para, sourceText, 'tap', wordLensTarget)
           })
         })
 
-        // Se open()+init() não concluírem em 15 s, EPUB provavelmente está corrompido
-        // ou em formato não suportado (foliate-js pode travar silenciosamente sem lançar).
-        let loadTimeout: ReturnType<typeof setTimeout> | null = setTimeout(() => {
-          loadTimeout = null
-          if (!cancelled) {
-            cancelled = true
-            onError(new Error(t('reader.openError')))
-          }
-        }, 8_000)
+        // Mantém o watchdog até a primeira seção realmente interativa. Alguns EPUBs
+        // resolvem open()+init() sem emitir um evento `load` utilizável.
+        clearInitialInteractiveTimeout()
+        initialInteractiveTimeoutRef.current = setTimeout(() => {
+          initialInteractiveTimeoutRef.current = null
+          if (cancelled || initialInteractiveStateRef.current !== 'pending') return
+          initialInteractiveStateRef.current = 'failed'
+          cancelled = true
+          onError(new Error(t('reader.openError')))
+        }, INITIAL_INTERACTIVE_TIMEOUT_MS)
 
         try {
           const readerSource = await BookFileResolver.resolveReaderSource(book)
           await (view.open as (source: Blob | string) => Promise<void>)(readerSource)
-          if (cancelled) { clearTimeout(loadTimeout!); return }
+          if (cancelled) return
+          registerUnmanifestedEpubStylesheets(view.book)
           cleanupPassiveEpubContentTransform = installPassiveEpubContentTransform(view)
 
           rendererStabilizedListener = () => {
@@ -2786,6 +3195,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               return false
             })
             : false
+          if (cancelled) return
 
           if (!didOpenInitialTarget) {
             await view.init(
@@ -2794,11 +3204,19 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
                 : { showTextStart: true },
             )
           }
+          if (cancelled) return
 
-          if (loadTimeout) clearTimeout(loadTimeout)
+          const primaryIndex = view.renderer.primaryIndex
+          if (typeof primaryIndex === 'number' && activateAndPromoteSection(primaryIndex)) {
+            scheduleSectionFinalization('reconcile')
+          }
+
         } catch (err) {
-          if (loadTimeout) clearTimeout(loadTimeout)
-          if (!cancelled) onError(err instanceof Error ? err : new Error(String(err)))
+          clearInitialInteractiveTimeout()
+          if (!cancelled && initialInteractiveStateRef.current === 'pending') {
+            initialInteractiveStateRef.current = 'failed'
+            onError(err instanceof Error ? err : new Error(String(err)))
+          }
         }
       }
 
@@ -2807,10 +3225,13 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       return () => {
         cancelled = true
         clearFinalizeSectionTimeout()
+        clearInitialInteractiveTimeout()
         clearTranslationActionResetTimeout()
         scrollListenerCleanupRef.current?.()
         scrollListenerCleanupRef.current = null
         trackedScrollDocRef.current = null
+        for (const task of wordLensTasks.values()) task.cancel()
+        wordLensTasks.clear()
         loadedSections.clear()
         pendingSectionRef.current = null
         currentDocRef.current = null
@@ -2824,7 +3245,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         activeTranslationSourceRef.current = 'tap'
         translationInProgressRef.current = false
         pendingInlineNextTranslationRef.current = false
-        initialInteractiveReadyRef.current = false
+        initialInteractiveStateRef.current = 'pending'
         scrollToBottomOnLoadRef.current = false
         autoSkipChapterStubDirectionRef.current = 0
         autoSkipChapterStubCountRef.current = 0

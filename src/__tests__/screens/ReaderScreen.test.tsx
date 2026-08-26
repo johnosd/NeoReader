@@ -30,6 +30,9 @@ const mocks = vi.hoisted(() => {
     goToNextTtsSection: vi.fn(() => false),
     showTranslationLoading: vi.fn(),
     injectTranslation: vi.fn(),
+    showWordLensDefinitionLoading: vi.fn(),
+    injectWordLensDefinition: vi.fn(),
+    injectWordLensDefinitionError: vi.fn(),
   }
 
   return {
@@ -58,6 +61,8 @@ const mocks = vi.hoisted(() => {
     },
     ttsOptions: null as MockTtsOptions | null,
     setReaderImmersiveMode: vi.fn().mockResolvedValue(undefined),
+    loadWordLensData: vi.fn().mockResolvedValue(null),
+    loadWordLensDefinition: vi.fn().mockResolvedValue(null),
     tts: {
       isPlaying: false,
       isPaused: false,
@@ -142,6 +147,8 @@ vi.mock('@/db/settings', () => ({
       fontFamily: 'classic',
       overrideBookFont: true,
       overrideBookColors: true,
+      wordLensEnabled: true,
+      wordLensLevel: 'B1',
     },
     updatedAt: new Date(),
   })),
@@ -172,6 +179,11 @@ vi.mock('@/services/TranslationService', () => ({
 
 vi.mock('@/services/NativeSystemUiService', () => ({
   setReaderImmersiveMode: mocks.setReaderImmersiveMode,
+}))
+
+vi.mock('@/services/WordLensDataService', () => ({
+  loadWordLensData: mocks.loadWordLensData,
+  loadWordLensDefinition: mocks.loadWordLensDefinition,
 }))
 
 vi.mock('@/services/EpubService', () => ({
@@ -296,6 +308,8 @@ function makeSettings(overrides: Partial<Awaited<ReturnType<typeof getSettings>>
       fontFamily: 'classic' as const,
       overrideBookFont: true,
       overrideBookColors: true,
+      wordLensEnabled: true,
+      wordLensLevel: 'B1' as const,
     },
     updatedAt: new Date(),
     ...overrides,
@@ -323,6 +337,10 @@ describe('ReaderScreen', () => {
     mocks.readerStore.toc = []
     mocks.readerStore.tocLabel = ''
     mocks.setReaderImmersiveMode.mockClear()
+    mocks.loadWordLensData.mockClear()
+    mocks.loadWordLensData.mockResolvedValue(null)
+    mocks.loadWordLensDefinition.mockClear()
+    mocks.loadWordLensDefinition.mockResolvedValue(null)
     mocks.readerProgress.saveProgress.mockClear()
     mocks.readerProgress.flushProgress.mockClear()
     mocks.readerStore.setCfi.mockClear()
@@ -348,6 +366,9 @@ describe('ReaderScreen', () => {
     mocks.viewerHandle.getFirstVisibleParagraphIndex.mockReturnValue(0)
     mocks.viewerHandle.resetTtsScroll.mockClear()
     mocks.viewerHandle.scrollToParagraph.mockClear()
+    mocks.viewerHandle.showWordLensDefinitionLoading.mockClear()
+    mocks.viewerHandle.injectWordLensDefinition.mockClear()
+    mocks.viewerHandle.injectWordLensDefinitionError.mockClear()
     vi.mocked(translate).mockClear()
     vi.mocked(addVocabItem).mockClear()
     vi.mocked(deleteBook).mockReset()
@@ -380,6 +401,86 @@ describe('ReaderScreen', () => {
 
     expect(deleteBook).toHaveBeenCalledWith(1)
     expect(onBack).toHaveBeenCalledOnce()
+  })
+
+  it('carrega Word Lens somente depois que o viewer fica interativo', async () => {
+    render(
+      <ReaderScreen
+        book={book}
+        onBack={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+    await flushAsyncWork()
+
+    expect(mocks.epubViewerProps).not.toBeNull()
+    expect(mocks.loadWordLensData).not.toHaveBeenCalled()
+
+    await act(async () => {
+      ;(mocks.epubViewerProps?.onLoad as () => void)()
+      await Promise.resolve()
+    })
+
+    expect(mocks.loadWordLensData).toHaveBeenCalledWith({
+      enabled: true,
+      language: 'fr',
+      userLevel: 'B1',
+    })
+    expect(mocks.epubViewerProps?.wordLensEnabled).toBe(true)
+    expect(mocks.epubViewerProps?.wordLensLevel).toBe('B1')
+    expect(mocks.epubViewerProps?.wordLensData).toBeNull()
+  })
+
+  it('carrega definicao offline sob demanda e atualiza somente a selecao recebida', async () => {
+    const wordLensData = {
+      levels: { ubiquitous: 5 as const },
+      lemmas: {},
+      packVersion: 'test',
+      dictionaryPath: 'dictionary',
+      dictionaryPartitions: ['ub'],
+    }
+    const entry = {
+      partsOfSpeech: ['adjective'],
+      senses: [{
+        partOfSpeech: 'adjective',
+        definition: 'being present everywhere at once',
+        examples: [],
+        synonyms: ['omnipresent'],
+      }],
+    }
+    mocks.loadWordLensData.mockResolvedValueOnce(wordLensData)
+    mocks.loadWordLensDefinition.mockResolvedValueOnce(entry)
+    render(
+      <ReaderScreen
+        book={book}
+        onBack={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+    await flushAsyncWork()
+    await act(async () => {
+      ;(mocks.epubViewerProps?.onLoad as () => void)()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    const target = {
+      selectionId: 'selection-1',
+      surface: 'ubiquitous',
+      lemma: 'ubiquitous',
+      level: 'C1',
+      offset: 2,
+    }
+
+    await act(async () => {
+      ;(mocks.epubViewerProps?.onWordLensDefinition as (value: typeof target) => void)(target)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(mocks.viewerHandle.showWordLensDefinitionLoading).toHaveBeenCalledWith(target)
+    expect(mocks.loadWordLensDefinition).toHaveBeenCalledWith('ubiquitous', wordLensData)
+    expect(mocks.viewerHandle.injectWordLensDefinition).toHaveBeenCalledWith(target, entry)
+    expect(mocks.viewerHandle.injectWordLensDefinitionError).not.toHaveBeenCalled()
   })
 
   it('usa o progresso salvo como marcador inicial do indice do leitor', async () => {

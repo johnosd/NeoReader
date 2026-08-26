@@ -4,6 +4,7 @@ import { Badge, BottomSheet, EmptyState } from '../ui'
 import {
   findCurrentTocPath,
   getDirectNavigationHref,
+  getTocAncestorPaths,
   getTocSubitems,
   hasTocChildren,
 } from '../../utils/toc'
@@ -29,25 +30,8 @@ interface TocNavigatorProps {
 
 const EMPTY_TOGGLED_PATHS = new Set<string>()
 
-function getDefaultExpandedPaths(toc: TocItem[], currentPath?: string | null): Set<string> {
-  const next = new Set<string>()
-
-  function collectExpandedPaths(items: TocItem[], parentPath = '') {
-    items.forEach((item, index) => {
-      const path = parentPath ? `${parentPath}.${index}` : `${index}`
-      const children = getTocSubitems(item)
-      if (children.length === 0) return
-
-      if (!parentPath || currentPath?.startsWith(`${path}.`)) {
-        next.add(path)
-      }
-
-      collectExpandedPaths(children, path)
-    })
-  }
-
-  collectExpandedPaths(toc)
-  return next
+function getDefaultExpandedPaths(currentPath?: string | null): Set<string> {
+  return new Set(getTocAncestorPaths(currentPath))
 }
 
 export function TocDrawer({ open, toc, currentHref, currentLabel, onSelect, onClose }: TocDrawerProps) {
@@ -58,7 +42,7 @@ export function TocDrawer({ open, toc, currentHref, currentLabel, onSelect, onCl
       open={open}
       onClose={onClose}
       title={t('toc.title')}
-      className="border-t border-white/10 bg-[rgba(15,7,24,0.94)] backdrop-blur-2xl"
+      className="border-t border-white/10 bg-[rgba(15,7,24,0.97)] backdrop-blur-md"
     >
       <TocNavigator
         toc={toc}
@@ -86,8 +70,8 @@ export function TocNavigator({
   }>({ toc, currentPath: null, paths: EMPTY_TOGGLED_PATHS })
   const currentPath = findCurrentTocPath(toc, currentHref, currentLabel)
   const defaultExpanded = useMemo(
-    () => (defaultExpandedEnabled ? getDefaultExpandedPaths(toc, currentPath) : EMPTY_TOGGLED_PATHS),
-    [defaultExpandedEnabled, toc, currentPath],
+    () => (defaultExpandedEnabled ? getDefaultExpandedPaths(currentPath) : EMPTY_TOGGLED_PATHS),
+    [defaultExpandedEnabled, currentPath],
   )
   const toggledPaths = toggledState.toc === toc && toggledState.currentPath === currentPath
     ? toggledState.paths
@@ -138,7 +122,7 @@ export function TocNavigator({
             </div>
           </div>
 
-          <div className="rounded-[28px] border border-white/8 bg-[rgba(18,9,26,0.84)] px-4 py-5 shadow-card backdrop-blur-xl">
+          <div className="rounded-[28px] border border-white/8 bg-[rgba(18,9,26,0.94)] px-4 py-5 shadow-card">
             <div className="relative ml-3 border-l border-white/10 pl-5">
               <TocList
                 items={toc}

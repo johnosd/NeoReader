@@ -13,6 +13,7 @@ import { getBookTtsVoiceSelections } from '../utils/ttsVoiceSelection'
 import type { Book } from '../types/book'
 import type { FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from '../types/settings'
 import type { TtsPlaybackConfig, TtsProvider } from '../types/tts'
+import type { CefrLevel } from '../types/wordLens'
 import type { ReaderStyleMode } from '../components/reader/ReaderAppearanceControls'
 
 // Campos de aparência que podem ser persistidos por livro
@@ -38,6 +39,8 @@ export interface UseReaderAppearanceResult {
   fontFamily: ReaderFontFamily
   overrideBookFont: boolean
   overrideBookColors: boolean
+  wordLensEnabled: boolean
+  wordLensLevel: CefrLevel
   bookLanguage: string
   translationTargetLang: string
   ttsConfig: TtsPlaybackConfig
@@ -80,6 +83,8 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
   const [fontFamily, setFontFamily] = useState<ReaderFontFamily>('classic')
   const [overrideBookFont, setOverrideBookFont] = useState(true)
   const [overrideBookColors, setOverrideBookColors] = useState(true)
+  const [wordLensEnabled, setWordLensEnabled] = useState(false)
+  const [wordLensLevel, setWordLensLevel] = useState<CefrLevel>('B1')
   const [bookLanguage, setBookLanguage] = useState('en')
   const [translationTargetLang, setTranslationTargetLang] = useState('pt-BR')
   const [ttsConfig, setTtsConfig] = useState<TtsPlaybackConfig>({
@@ -120,6 +125,8 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
       setFontFamily(resolvedFontFamily)
       setOverrideBookFont(bs.overrideBookFont ?? (bs.fontFamily ? resolvedFontFamily !== 'publisher' : s.readerDefaults.overrideBookFont))
       setOverrideBookColors(bs.overrideBookColors ?? s.readerDefaults.overrideBookColors)
+      setWordLensEnabled(s.readerDefaults.wordLensEnabled)
+      setWordLensLevel(s.readerDefaults.wordLensLevel)
       setBookLanguage(resolvedBookLanguage)
       setTranslationTargetLang(bs.translationTargetLang ?? s.appSettings.translationTargetLang)
       setTtsConfig({
@@ -224,6 +231,8 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
     fontFamily,
     overrideBookFont,
     overrideBookColors,
+    wordLensEnabled,
+    wordLensLevel,
     bookLanguage,
     translationTargetLang,
     ttsConfig,
