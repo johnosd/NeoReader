@@ -103,10 +103,11 @@ Cerimônia proporcional ao tamanho do bug — nunca o ciclo completo de
   o achado com severidade, e pergunte ao usuário: corrigir agora (vira um
   desvio pequeno registrado, igual ao caso anterior) ou logar pra depois. Se
   for logar: adicione entrada em `.planning/backlog.md` → `## Ideias
-  Futuras`, prefixada `[Bug]`, com a origem (feature + data). Um fix de
-  poucas linhas pode ser corrigido depois sem cerimônia, direto, quando
-  alguém pegar a entrada — só bugs que exigem decisão de design de verdade
-  merecem um `sdd-specify` próprio.
+  Futuras`, prefixada `[Bug]`, com a origem (feature + data). Quando alguém
+  pegar a entrada depois, o `sdd-bugfix` é o caminho normal (avalia, corrige
+  e verifica com disciplina de teste de regressão, sem exigir uma spec
+  completa) — só bugs que exigem decisão de design de verdade merecem um
+  `sdd-specify` próprio.
 
 ### 7. Ao fechar cada checkpoint de fase/story
 
