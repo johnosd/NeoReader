@@ -156,9 +156,6 @@ export function ReaderScreen({
   // (undefined = ainda não buscou, '' = buscou e não achou capa).
   const bookCoverBase64Ref = useRef<string | undefined>(undefined)
   const lastNotifiedChapterLabelRef = useRef<string | undefined>(undefined)
-  // true quando a última pausa foi causada por perda TRANSITÓRIA de foco de
-  // áudio (ex: ligação) — só nesse caso o retorno do foco retoma sozinho.
-  const pausedByTransientFocusLossRef = useRef(false)
 
   // ── Estado local ────────────────────────────────────────────────────────────
   const { chromeVisible, setChromeVisible, resetAutoHide, handleCenterTap } = useChromeAutoHide()
@@ -749,26 +746,11 @@ export function ReaderScreen({
     return TtsPlaybackSessionService.onPlaybackControl((event) => playbackControlHandlerRef.current(event))
   }, [playbackControlHandlerRef])
 
-  // Foco de áudio nativo (US4) — pausa em ligação/outro app de mídia, retoma
-  // sozinho só se a pausa foi por perda TRANSITÓRIA (nunca após perda
-  // permanente nem após pausa manual do usuário).
+  // Foco de áudio nativo (US4) — repassado pro useTTS, que só reage pro
+  // provider nativo (o <audio> premium já se pausa/retoma sozinho via o
+  // próprio WebView, ver comentário em useTTS.ts::handleAudioFocusChange).
   const audioFocusHandlerRef = useSyncRef((event: TtsAudioFocusEvent) => {
-    switch (event.type) {
-      case 'lossTransient':
-        pausedByTransientFocusLossRef.current = true
-        void tts.pause()
-        break
-      case 'loss':
-        pausedByTransientFocusLossRef.current = false
-        void tts.pause()
-        break
-      case 'gain':
-        if (pausedByTransientFocusLossRef.current) {
-          pausedByTransientFocusLossRef.current = false
-          void tts.resume()
-        }
-        break
-    }
+    tts.handleAudioFocusChange(event.type)
   })
 
   useEffect(() => {

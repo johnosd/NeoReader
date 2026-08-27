@@ -87,6 +87,7 @@ const mocks = vi.hoisted(() => {
       speakOne: vi.fn().mockResolvedValue(undefined),
       lastChunkIdx: { current: 0 },
       resetPosition: vi.fn(),
+      handleAudioFocusChange: vi.fn(),
     },
     capacitorListeners: {
       backButton: null as ((event?: unknown) => void) | null,
@@ -386,6 +387,7 @@ describe('ReaderScreen', () => {
     mocks.tts.resume.mockResolvedValue(true)
     mocks.tts.stop.mockClear()
     mocks.tts.speakOne.mockClear()
+    mocks.tts.handleAudioFocusChange.mockClear()
     mocks.tts.resetPosition.mockClear()
     mocks.tts.lastChunkIdx.current = 0
     mocks.ttsOptions = null
@@ -741,7 +743,10 @@ describe('ReaderScreen', () => {
     )
   })
 
-  it('pausa e retoma sozinho em perda TRANSITORIA de foco de audio (US4)', async () => {
+  it('repassa eventos de foco de audio pro useTTS (US4)', async () => {
+    // A decisão de pausar/retomar (e o filtro "só pro provider nativo") mora
+    // dentro de useTTS.ts::handleAudioFocusChange (testado em useTTS.test.tsx)
+    // — o ReaderScreen só encaminha o evento, sem lógica própria.
     render(
       <ReaderScreen
         book={book}
@@ -758,43 +763,21 @@ describe('ReaderScreen', () => {
       await Promise.resolve()
     })
 
-    expect(mocks.tts.pause).toHaveBeenCalledTimes(1)
+    expect(mocks.tts.handleAudioFocusChange).toHaveBeenCalledWith('lossTransient')
 
     await act(async () => {
       mocks.capacitorListeners.audioFocusChange?.({ type: 'gain' })
       await Promise.resolve()
     })
 
-    expect(mocks.tts.resume).toHaveBeenCalledTimes(1)
-  })
-
-  it('pausa mas NAO retoma sozinho apos perda PERMANENTE de foco de audio (US4)', async () => {
-    render(
-      <ReaderScreen
-        book={book}
-        onBack={vi.fn()}
-        onOpenVocabulary={vi.fn()}
-      />,
-    )
-
-    await flushAsyncWork()
-    mocks.tts.isPlaying = true
+    expect(mocks.tts.handleAudioFocusChange).toHaveBeenCalledWith('gain')
 
     await act(async () => {
       mocks.capacitorListeners.audioFocusChange?.({ type: 'loss' })
       await Promise.resolve()
     })
 
-    expect(mocks.tts.pause).toHaveBeenCalledTimes(1)
-
-    // Ganhar o foco de volta depois de uma perda PERMANENTE (ex: usuário abriu
-    // o Spotify de propósito) não deve retomar a narração sozinha.
-    await act(async () => {
-      mocks.capacitorListeners.audioFocusChange?.({ type: 'gain' })
-      await Promise.resolve()
-    })
-
-    expect(mocks.tts.resume).not.toHaveBeenCalled()
+    expect(mocks.tts.handleAudioFocusChange).toHaveBeenCalledWith('loss')
   })
 
   it('mostra o footer fixo com capitulo atual e progresso do capitulo', async () => {

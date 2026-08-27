@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { TextToSpeech } from '@capacitor-community/text-to-speech'
 import { WakeLockService } from '../services/WakeLockService'
-import { TtsPlaybackSessionService } from '../services/TtsPlaybackSessionService'
+import { TtsPlaybackSessionService, type TtsAudioFocusType } from '../services/TtsPlaybackSessionService'
 import type { TtsChunk } from '../components/reader/EpubViewer'
 import { NativeTtsService } from '../services/NativeTtsService'
 import { createFlowId, getDiagnosticsNowMs, logError, logEvent, logWarn } from '../services/DiagnosticsLogger'
@@ -221,6 +221,10 @@ export function useTTS(options: UseTTSOptions) {
   // continua agnóstico do resto de Book, só repassa esses dois campos.
   const bookInfoRef = useRef({ bookId: options.bookId, bookTitle: options.bookTitle })
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  // Elemento <audio> persistente reaproveitado entre chunks premium (ver playAudioBlob) —
+  // um `new Audio()` por chunk fazia o WebMediaPlayer do Chromium pedir/devolver foco de
+  // áudio a cada parágrafo, mascarando nosso AudioFocusRequestCompat nativo (R-003).
+  const sharedPremiumAudioElementRef = useRef<HTMLAudioElement | null>(null)
   const activeProviderRef = useRef<TtsProvider>('native')
   const lastChunkIdxRef = useRef(0)
   const playSessionRef = useRef(0)
@@ -239,6 +243,9 @@ export function useTTS(options: UseTTSOptions) {
   // dentro de speakWithNative — o speak() nativo nunca rejeita/resolve por conta própria
   // ao ser interrompido, causando deadlock no await playbackDone dentro de stop().
   const nativeSpeakStopAckRef = useRef<(() => void)>(() => {})
+  // true quando a última pausa foi causada por perda TRANSITÓRIA de foco de áudio
+  // (ex: ligação) — só nesse caso o retorno do foco retoma sozinho (handleAudioFocusChange).
+  const pausedByTransientFocusLossRef = useRef(false)
 
   function updatePaused(next: boolean) {
     pauseRequestedRef.current = next
@@ -347,7 +354,11 @@ export function useTTS(options: UseTTSOptions) {
     if (shouldStopRef.current || playSessionRef.current !== session) return
 
     const url = URL.createObjectURL(audioBlob)
-    const audio = new Audio(url)
+    if (!sharedPremiumAudioElementRef.current) {
+      sharedPremiumAudioElementRef.current = new Audio()
+    }
+    const audio = sharedPremiumAudioElementRef.current
+    audio.src = url
     audioRef.current = audio
     let timers: ReturnType<typeof setTimeout>[] = []
 
@@ -1063,5 +1074,33 @@ export function useTTS(options: UseTTSOptions) {
     lastChunkIdxRef.current = 0
   }
 
-  return { isPlaying, isPaused, play, pause, resume, stop, speakOne, lastChunkIdx: lastChunkIdxRef, resetPosition }
+  // Foco de áudio nativo (TtsPlaybackService) só é acionável pro provider nativo:
+  // o <audio> dos providers premium roda dentro do WebView, e o Chromium já
+  // pausa/retoma esse elemento sozinho ao perder/reaver foco (confirmado em
+  // device real — ligação de voz retomou e Spotify pausou corretamente mesmo
+  // sem nenhuma ação nossa). Reagir aqui também pro caso premium só causa uma
+  // pausa espúria logo no início de toda sessão (o Chromium sempre disputa e
+  // vence o foco do TtsPlaybackService assim que o primeiro chunk toca — ver
+  // R-003 em plan.md).
+  function handleAudioFocusChange(type: TtsAudioFocusType) {
+    if (activeProviderRef.current !== 'native') return
+    switch (type) {
+      case 'lossTransient':
+        pausedByTransientFocusLossRef.current = true
+        void pause()
+        break
+      case 'loss':
+        pausedByTransientFocusLossRef.current = false
+        void pause()
+        break
+      case 'gain':
+        if (pausedByTransientFocusLossRef.current) {
+          pausedByTransientFocusLossRef.current = false
+          void resume()
+        }
+        break
+    }
+  }
+
+  return { isPlaying, isPaused, play, pause, resume, stop, speakOne, lastChunkIdx: lastChunkIdxRef, resetPosition, handleAudioFocusChange }
 }

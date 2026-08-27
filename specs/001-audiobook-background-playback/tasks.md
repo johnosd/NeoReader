@@ -207,7 +207,10 @@ conforme o tipo de interrupção.
 - [X] T029 [US4] Em `TtsPlaybackService.java`: requisitar foco de áudio (`AudioFocusRequestCompat`, `AUDIOFOCUS_GAIN`) ao iniciar (`onStartCommand`) e abandonar em `onDestroy`; implementar `AudioManager.OnAudioFocusChangeListener` distinguindo `AUDIOFOCUS_LOSS` / `AUDIOFOCUS_LOSS_TRANSIENT` / `AUDIOFOCUS_GAIN`.
 - [X] T030 [US4] Encaminhar cada mudança de foco como evento `audioFocusChange` do `NeoReaderTtsPlaybackPlugin` pro JS (`notifyListeners`), e adicionar `onAudioFocusChange` em `src/services/TtsPlaybackSessionService.ts` (mesmo padrão de `onPlaybackControl`).
 - [X] T031 [US4] Em `src/screens/ReaderScreen.tsx`: assinar `TtsPlaybackSessionService.onAudioFocusChange(...)`, guardando um ref booleano "pausado por perda transitória de foco" — em `lossTransient` chama `tts.pause()` e marca o ref; em `loss` chama `tts.pause()` sem marcar; em `gain`, só chama `tts.resume()` se o ref estiver marcado (e limpa o ref depois). Comentário curto explicando a distinção (Decisões Invariantes de `plan.md`).
-- [ ] T032 [US4] Validar empiricamente (device real, ver R-003 em `plan.md`) se `@capacitor-community/text-to-speech` requisita foco de áudio internamente de forma conflitante; se sim, ajustar `TtsPlaybackService.java` pra ser a única fonte de verdade (documentar o achado em `plan.md` → Riscos e Decisões, atualizando R-003).
+- [X] T032 [US4] Validar empiricamente (device real, ver R-003 em `plan.md`) se `@capacitor-community/text-to-speech` requisita foco de áudio internamente de forma conflitante; se sim, ajustar `TtsPlaybackService.java` pra ser a única fonte de verdade (documentar o achado em `plan.md` → Riscos e Decisões, atualizando R-003).
+  **Atualização 2026-08-26**: validação rodada — o conflito real é com o `AudioFocusDelegate` interno do Chromium/WebView (não com o plugin de TTS), disparado a cada chunk de áudio premium (`new Audio(url)`). Ligação de voz do WhatsApp não pausou a narração; log confirma que nosso `OnAudioFocusChangeListener` nunca foi notificado durante a ligação. Diagnóstico completo em R-003 (`plan.md`). Falta: implementar uma correção (ver direções candidatas em R-003) e revalidar em device antes de marcar esta task.
+  **Atualização 2026-08-27 (tentativa 1)**: implementada a direção candidata (a) — `src/hooks/useTTS.ts::playAudioBlob` reaproveita um único `HTMLAudioElement` entre chunks premium em vez de `new Audio(url)` por chunk. Revalidação em device revelou uma análise mais profunda via log filtrado (`MediaFocusControl`): o Chromium ainda disputa e VENCE o foco (`AUDIOFOCUS_GAIN`, não transitório) assim que o primeiro chunk toca, evictando nosso `AudioFocusRequestCompat` de vez — o que causava uma pausa espúria logo no início de toda sessão premium, exigindo toque manual em "play" pra continuar (regressão nova, achada pelo usuário no teste).
+  **Atualização 2026-08-27 (tentativa 2, final)**: causa raiz completa — o `<audio>` premium roda dentro do WebView e o Chromium **já pausa/retoma esse elemento sozinho** ao perder/reaver foco (confirmado empiricamente: Spotify pausou a narração mesmo com nosso `AudioFocusRequestCompat` já evictado e fora do stack de foco havia mais de 30s). Nosso próprio pedido de foco nativo só serve pro provider **nativo** (`TextToSpeech`, sem `<audio>` no meio) — pra premium, ele só causava a pausa espúria inicial sem nenhum benefício real. Correção: `useTTS.ts` ganhou `handleAudioFocusChange(type)`, exportado pelo hook, que só age (`pause()`/`resume()` com a distinção loss/lossTransient/gain) quando `activeProviderRef.current === 'native'` — pra premium, o evento é ignorado e o WebView cuida de tudo sozinho. `ReaderScreen.tsx::audioFocusHandlerRef` foi simplificado pra só repassar o evento (`tts.handleAudioFocusChange(event.type)`), removendo a lógica de pause/resume e o ref de bookkeeping que agora moram dentro do hook. Testes atualizados/adicionados em `useTTS.test.tsx` (gating por provider) e `ReaderScreen.test.tsx` (repasse do evento). `npm run lint && npm test && npx tsc --noEmit && npm run build` passaram limpos (os 3 timeouts vistos numa rodada completa sob carga paralela são flakiness de infra pré-existente, confirmada isolando os arquivos — não regressão desta mudança). **Revalidado em device real pelo usuário**: sem mais pausa espúria no início, ligação de voz real (WhatsApp) e abrir outro app de mídia (Spotify) pausam corretamente — "testei tudo de novo, funcionou certinho".
 
 **Critério de Conclusão**: Em device real (roteiro `quickstart.md`, passos
 9-10), uma ligação telefônica pausa e depois retoma a narração sozinha;
@@ -219,10 +222,10 @@ stories da spec implementadas.
 
 **Registro da Fase**:
 
-- Status: (vazio — preenchido pelo sdd-execute ao fechar o checkpoint)
-- Feito:
-- Testes executados:
-- Pendências:
+- Status: **Concluído.**
+- Feito: T027-T031 (testes unitários + implementação completa: `AudioFocusRequestCompat` no Service, distinção `LOSS`/`LOSS_TRANSIENT`/`GAIN`, evento `audioFocusChange` no plugin/wrapper JS, wiring em `ReaderScreen.tsx`). Compilou e instalou sem erro em device real. **2026-08-27**: T032 — duas iterações até a correção final de R-003 (ver detalhe completo na task): reaproveitar um único `<audio>` entre chunks premium (não bastou sozinho) + gating de `handleAudioFocusChange` por provider ativo dentro de `useTTS.ts` (só o provider nativo reage a mudanças de foco; premium já é tratado pelo próprio WebView).
+- Testes executados: `npx vitest run src/__tests__/screens/ReaderScreen.test.tsx src/__tests__/hooks/useTTS.test.tsx` (52/52); lint/tsc limpos; build Gradle sem erro; suite completa (`npm test`) e `npm run build` limpos. **Device real, validação final**: sem pausa espúria no início da narração premium; ligação de voz real do WhatsApp pausa/retoma corretamente; abrir o Spotify pausa a narração corretamente. Confirmado pelo usuário: "testei tudo de novo, funcionou certinho".
+- Pendências: nenhuma pendência conhecida desta story.
 
 ---
 
@@ -240,7 +243,7 @@ stories da spec implementadas.
 - [X] Fase 3 (User Story 1) concluída
 - [X] Fase 4 (User Story 2) concluída
 - [X] Fase 5 (User Story 3) concluída
-- [ ] Fase 6 (User Story 4) concluída
+- [X] Fase 6 (User Story 4) concluída
 - [ ] `npm run lint && npm test && npx tsc --noEmit && npm run build` passam sem erro
 - [ ] `quickstart.md` executado com sucesso em device Android real
 - [ ] Reprodução avulsa de TTS (Word Lens) confirmada sem abrir notificação/Service (regressão)
