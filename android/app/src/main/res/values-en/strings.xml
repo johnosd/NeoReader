@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="tts_channel_name">Narration (audiobook)</string>
+    <string name="tts_content_text_default">Narrating</string>
+    <string name="tts_action_previous">Previous</string>
+    <string name="tts_action_pause">Pause</string>
+    <string name="tts_action_play">Play</string>
+    <string name="tts_action_next">Next</string>
+</resources>

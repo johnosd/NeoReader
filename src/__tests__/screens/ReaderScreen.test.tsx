@@ -63,6 +63,20 @@ const mocks = vi.hoisted(() => {
     setReaderImmersiveMode: vi.fn().mockResolvedValue(undefined),
     loadWordLensData: vi.fn().mockResolvedValue(null),
     loadWordLensDefinition: vi.fn().mockResolvedValue(null),
+    ttsPlaybackSessionService: {
+      start: vi.fn().mockResolvedValue(undefined),
+      stop: vi.fn().mockResolvedValue(undefined),
+      updateMetadata: vi.fn().mockResolvedValue(undefined),
+      updatePlaybackState: vi.fn().mockResolvedValue(undefined),
+      onPlaybackControl: vi.fn((handler: (event: { action: string }) => void) => {
+        mocks.capacitorListeners.playbackControl = handler
+        return vi.fn()
+      }),
+      onAudioFocusChange: vi.fn((handler: (event: { type: string }) => void) => {
+        mocks.capacitorListeners.audioFocusChange = handler
+        return vi.fn()
+      }),
+    },
     tts: {
       isPlaying: false,
       isPaused: false,
@@ -73,10 +87,13 @@ const mocks = vi.hoisted(() => {
       speakOne: vi.fn().mockResolvedValue(undefined),
       lastChunkIdx: { current: 0 },
       resetPosition: vi.fn(),
+      handleAudioFocusChange: vi.fn(),
     },
     capacitorListeners: {
       backButton: null as ((event?: unknown) => void) | null,
       appStateChange: null as ((state: { isActive: boolean }) => void) | null,
+      playbackControl: null as ((event: { action: string }) => void) | null,
+      audioFocusChange: null as ((event: { type: string }) => void) | null,
     },
   }
 })
@@ -179,6 +196,14 @@ vi.mock('@/services/TranslationService', () => ({
 
 vi.mock('@/services/NativeSystemUiService', () => ({
   setReaderImmersiveMode: mocks.setReaderImmersiveMode,
+}))
+
+vi.mock('@/services/TtsPlaybackSessionService', () => ({
+  TtsPlaybackSessionService: mocks.ttsPlaybackSessionService,
+}))
+
+vi.mock('@/db/bookCovers', () => ({
+  getBookCover: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('@/services/WordLensDataService', () => ({
@@ -329,6 +354,14 @@ describe('ReaderScreen', () => {
     mocks.tocDrawerProps = null
     mocks.capacitorListeners.backButton = null
     mocks.capacitorListeners.appStateChange = null
+    mocks.capacitorListeners.playbackControl = null
+    mocks.capacitorListeners.audioFocusChange = null
+    mocks.ttsPlaybackSessionService.start.mockClear()
+    mocks.ttsPlaybackSessionService.stop.mockClear()
+    mocks.ttsPlaybackSessionService.updateMetadata.mockClear()
+    mocks.ttsPlaybackSessionService.updatePlaybackState.mockClear()
+    mocks.ttsPlaybackSessionService.onPlaybackControl.mockClear()
+    mocks.ttsPlaybackSessionService.onAudioFocusChange.mockClear()
     mocks.readerProgress.savedCfi = null
     mocks.readerProgress.savedProgress = null
     mocks.readerProgress.initialLoadDone = true
@@ -354,6 +387,7 @@ describe('ReaderScreen', () => {
     mocks.tts.resume.mockResolvedValue(true)
     mocks.tts.stop.mockClear()
     mocks.tts.speakOne.mockClear()
+    mocks.tts.handleAudioFocusChange.mockClear()
     mocks.tts.resetPosition.mockClear()
     mocks.tts.lastChunkIdx.current = 0
     mocks.ttsOptions = null
@@ -540,6 +574,210 @@ describe('ReaderScreen', () => {
     })
 
     expect(setReaderImmersiveMode).toHaveBeenCalledWith(true)
+  })
+
+  it('nao pausa nem para o audiobook quando o app vai para segundo plano (US2)', async () => {
+    mocks.viewerHandle.getSentenceChunks.mockReturnValue([
+      { text: 'First paragraph.', paraIdx: 0, offsetInPara: 0 },
+    ])
+
+    render(
+      <ReaderScreen
+        book={book}
+        onBack={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+
+    await flushAsyncWork()
+
+    fireEvent.click(screen.getByText('toggle-tts'))
+    mocks.tts.isPlaying = true
+    mocks.readerProgress.flushProgress.mockClear()
+
+    await act(async () => {
+      mocks.capacitorListeners.appStateChange?.({ isActive: false })
+      await Promise.resolve()
+    })
+
+    // Ir para segundo plano só salva o progresso — a narração deve seguir
+    // tocando normalmente (o Service nativo é quem mantém isso vivo agora).
+    expect(mocks.readerProgress.flushProgress).toHaveBeenCalled()
+    expect(mocks.tts.stop).not.toHaveBeenCalled()
+    expect(mocks.tts.pause).not.toHaveBeenCalled()
+  })
+
+  it('controle "pause" da notificacao pausa o audiobook (US3)', async () => {
+    mocks.viewerHandle.getSentenceChunks.mockReturnValue([
+      { text: 'First paragraph.', paraIdx: 0, offsetInPara: 0 },
+    ])
+
+    render(
+      <ReaderScreen
+        book={book}
+        onBack={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+
+    await flushAsyncWork()
+    fireEvent.click(screen.getByText('toggle-tts'))
+    mocks.tts.isPlaying = true
+
+    await act(async () => {
+      mocks.capacitorListeners.playbackControl?.({ action: 'pause' })
+      await Promise.resolve()
+    })
+
+    expect(mocks.tts.pause).toHaveBeenCalledTimes(1)
+  })
+
+  it('controle "play" da notificacao retoma o audiobook pausado (US3)', async () => {
+    render(
+      <ReaderScreen
+        book={book}
+        onBack={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+
+    await flushAsyncWork()
+    mocks.tts.isPlaying = false
+    mocks.tts.isPaused = true
+
+    await act(async () => {
+      mocks.capacitorListeners.playbackControl?.({ action: 'play' })
+      await Promise.resolve()
+    })
+
+    expect(mocks.tts.resume).toHaveBeenCalledTimes(1)
+  })
+
+  it('controle "stop" da notificacao para o audiobook (US3)', async () => {
+    render(
+      <ReaderScreen
+        book={book}
+        onBack={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+
+    await flushAsyncWork()
+
+    await act(async () => {
+      mocks.capacitorListeners.playbackControl?.({ action: 'stop' })
+      await Promise.resolve()
+    })
+
+    expect(mocks.tts.stop).toHaveBeenCalledTimes(1)
+  })
+
+  it('controles "skipNext"/"skipPrevious" da notificacao avancam/voltam de paragrafo (US3)', async () => {
+    const chunks = [
+      { text: 'First paragraph.', paraIdx: 0, offsetInPara: 0 },
+      { text: 'Second paragraph.', paraIdx: 1, offsetInPara: 0 },
+    ]
+    mocks.viewerHandle.getSentenceChunks.mockReturnValue(chunks)
+
+    render(
+      <ReaderScreen
+        book={book}
+        onBack={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+
+    await flushAsyncWork()
+    mocks.tts.lastChunkIdx.current = 0
+
+    await act(async () => {
+      mocks.capacitorListeners.playbackControl?.({ action: 'skipNext' })
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(mocks.tts.stop).toHaveBeenCalledTimes(1)
+    expect(mocks.tts.play).toHaveBeenLastCalledWith(chunks, 1)
+
+    mocks.tts.lastChunkIdx.current = 1
+    await act(async () => {
+      mocks.capacitorListeners.playbackControl?.({ action: 'skipPrevious' })
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(mocks.tts.stop).toHaveBeenCalledTimes(2)
+    expect(mocks.tts.play).toHaveBeenLastCalledWith(chunks, 0)
+  })
+
+  it('atualiza a metadata nativa (titulo/capitulo) ao iniciar o audiobook (US3)', async () => {
+    mocks.viewerHandle.getSentenceChunks.mockReturnValue([
+      { text: 'First paragraph.', paraIdx: 0, offsetInPara: 0 },
+    ])
+
+    const { rerender } = render(
+      <ReaderScreen
+        book={book}
+        onBack={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+
+    await flushAsyncWork()
+    fireEvent.click(screen.getByText('toggle-tts'))
+    // useTTS é mockado — simula a transição real de isPlaying pra false->true
+    // que o hook de verdade faria dentro de play(), e força um rerender pra
+    // o efeito que assina essa mudança rodar (mesmo padrão de outros testes aqui).
+    mocks.tts.isPlaying = true
+    rerender(
+      <ReaderScreen
+        book={book}
+        onBack={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+    await flushAsyncWork()
+
+    expect(mocks.ttsPlaybackSessionService.updateMetadata).toHaveBeenCalledWith(
+      expect.objectContaining({ title: book.title }),
+    )
+  })
+
+  it('repassa eventos de foco de audio pro useTTS (US4)', async () => {
+    // A decisão de pausar/retomar (e o filtro "só pro provider nativo") mora
+    // dentro de useTTS.ts::handleAudioFocusChange (testado em useTTS.test.tsx)
+    // — o ReaderScreen só encaminha o evento, sem lógica própria.
+    render(
+      <ReaderScreen
+        book={book}
+        onBack={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+
+    await flushAsyncWork()
+    mocks.tts.isPlaying = true
+
+    await act(async () => {
+      mocks.capacitorListeners.audioFocusChange?.({ type: 'lossTransient' })
+      await Promise.resolve()
+    })
+
+    expect(mocks.tts.handleAudioFocusChange).toHaveBeenCalledWith('lossTransient')
+
+    await act(async () => {
+      mocks.capacitorListeners.audioFocusChange?.({ type: 'gain' })
+      await Promise.resolve()
+    })
+
+    expect(mocks.tts.handleAudioFocusChange).toHaveBeenCalledWith('gain')
+
+    await act(async () => {
+      mocks.capacitorListeners.audioFocusChange?.({ type: 'loss' })
+      await Promise.resolve()
+    })
+
+    expect(mocks.tts.handleAudioFocusChange).toHaveBeenCalledWith('loss')
   })
 
   it('mostra o footer fixo com capitulo atual e progresso do capitulo', async () => {

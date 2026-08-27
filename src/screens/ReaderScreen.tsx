@@ -20,9 +20,11 @@ import { useReaderProgress } from '../hooks/useReaderProgress'
 import { useReaderStore } from '../store/readerStore'
 import { useReaderAppearance } from '../hooks/useReaderAppearance'
 import { useCapacitorAppStateChange, useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
+import { useSyncRef } from '../hooks/useSyncRef'
 import { useChromeAutoHide } from '../hooks/useChromeAutoHide'
 import type { ProgressSavePayload } from '../db/progress'
 import { deleteBook, updateLastOpened } from '../db/books'
+import { getBookCover } from '../db/bookCovers'
 import { addBookmark, restoreBookmark, softDeleteBookmark, updateBookmarkColor } from '../db/bookmarks'
 import { addVocabItem, getVocabSourceTextsByBookId } from '../db/vocabulary'
 import { db } from '../db/database'
@@ -44,6 +46,7 @@ import { Switch } from '../components/ui'
 import { translate } from '../services/TranslationService'
 import { createFlowId, getDiagnosticsNowMs, logError, logEvent } from '../services/DiagnosticsLogger'
 import { setReaderImmersiveMode } from '../services/NativeSystemUiService'
+import { TtsPlaybackSessionService, type TtsPlaybackControlEvent, type TtsAudioFocusEvent } from '../services/TtsPlaybackSessionService'
 import type { Book } from '../types/book'
 import type { TtsProvider } from '../types/tts'
 import { areCfisEquivalent, isCfiInLocation, normalizeCfi } from '../utils/cfi'
@@ -101,6 +104,20 @@ function isSectionHrefAtStartTarget(target: string, sectionHref?: string | null)
   )
 }
 
+// Converte a capa (Blob) pra base64 sem prefixo data: — formato esperado
+// pelo TtsPlaybackSessionService.updateMetadata (decodificado no lado nativo).
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = String(reader.result)
+      resolve(result.slice(result.indexOf(',') + 1))
+    }
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(blob)
+  })
+}
+
 const START_NAVIGATION_FALLBACK_MS = 4000
 
 interface ReaderScreenProps {
@@ -135,6 +152,10 @@ export function ReaderScreen({
   const currentTtsParaIdxRef = useRef(0)
   const pendingTtsConfigRestartRef = useRef<number | null>(null)
   const ttsFallbackNoticeShownRef = useRef(new Set<TtsProvider>())
+  // Cache da capa em base64 pro Service nativo — busca só uma vez por livro
+  // (undefined = ainda não buscou, '' = buscou e não achou capa).
+  const bookCoverBase64Ref = useRef<string | undefined>(undefined)
+  const lastNotifiedChapterLabelRef = useRef<string | undefined>(undefined)
 
   // ── Estado local ────────────────────────────────────────────────────────────
   const { chromeVisible, setChromeVisible, resetAutoHide, handleCenterTap } = useChromeAutoHide()
@@ -339,6 +360,12 @@ export function ReaderScreen({
   }
   const currentTocLabel = tocLabel || (!startHref ? savedProgress?.sectionLabel : undefined)
   const footerTocLabel = findTopLevelTocLabel(toc, currentTocHref, currentTocLabel) ?? currentTocLabel
+  // Ref sincronizado por efeito pra callbacks do useTTS (onParagraphChange)
+  // sempre lerem o capítulo atual, sem depender de closure potencialmente stale.
+  const footerTocLabelRef = useRef(footerTocLabel)
+  useEffect(() => {
+    footerTocLabelRef.current = footerTocLabel
+  }, [footerTocLabel])
 
   // Marcadores do livro atual — useLiveQuery: reativo, atualiza automaticamente
   const bookmarks = useLiveQuery(
@@ -379,6 +406,8 @@ export function ReaderScreen({
 
   // TTS: gerencia estado e sequenciamento de audiobook
   const tts = useTTS({
+    bookId: book.id,
+    bookTitle: book.title,
     provider: ttsConfig.provider,
     language: ttsConfig.language,
     rate: ttsConfig.rate,
@@ -394,6 +423,14 @@ export function ReaderScreen({
       currentTtsParaIdxRef.current = paraIdx
       viewerRef.current?.highlightTts(paraIdx, 0, 0)
       viewerRef.current?.scrollToParagraph(paraIdx)
+
+      // Só atualiza a notificação quando o capítulo muda de fato — evitar
+      // chamar o nativo a cada parágrafo (a maioria não muda de capítulo).
+      const chapterLabel = footerTocLabelRef.current
+      if (chapterLabel && chapterLabel !== lastNotifiedChapterLabelRef.current) {
+        lastNotifiedChapterLabelRef.current = chapterLabel
+        void syncTtsPlaybackMetadata(chapterLabel)
+      }
     },
     onProviderFallback: ({ provider, reason, transient }) => {
       if (!ttsFallbackNoticeShownRef.current.has(provider)) {
@@ -424,6 +461,28 @@ export function ReaderScreen({
     return viewerRef.current?.getSentenceChunks() ?? []
   }, [])
 
+  // Capa/título/capítulo pra notificação nativa (US3) — busca a capa só uma
+  // vez por livro (cacheada em bookCoverBase64Ref) e reusa nas chamadas seguintes.
+  const syncTtsPlaybackMetadata = useCallback(async (chapterLabel?: string) => {
+    if (bookCoverBase64Ref.current === undefined) {
+      bookCoverBase64Ref.current = ''
+      if (book.id != null) {
+        try {
+          const cover = await getBookCover(book.id)
+          if (cover) bookCoverBase64Ref.current = await blobToBase64(cover.blob)
+        } catch {
+          // Sem capa disponível — notificação segue só com título/capítulo.
+        }
+      }
+    }
+
+    void TtsPlaybackSessionService.updateMetadata({
+      title: book.title,
+      chapterLabel,
+      coverBase64: bookCoverBase64Ref.current || undefined,
+    })
+  }, [book.id, book.title])
+
   const startPlay = useCallback((chunks: ReturnType<typeof getTtsChunks>, idx: number) => {
     ttsAdvancePendingRef.current = false
     ttsAutoAdvanceSkipCountRef.current = 0
@@ -435,6 +494,15 @@ export function ReaderScreen({
     viewerRef.current?.resetTtsScroll()
     void tts.play(chunks, idx)
   }, [tts])
+
+  // Sincroniza metadata nativa (capa/título/capítulo) sempre que a narração
+  // começa a tocar — desacoplado de startPlay pra não entrar na sua lista de
+  // dependências memoizadas (cover é cacheada, então chamadas repetidas são baratas).
+  useEffect(() => {
+    if (!tts.isPlaying) return
+    lastNotifiedChapterLabelRef.current = footerTocLabelRef.current
+    void syncTtsPlaybackMetadata(footerTocLabelRef.current)
+  }, [tts.isPlaying, syncTtsPlaybackMetadata])
 
   useEffect(() => {
     const restartIdx = pendingTtsConfigRestartRef.current
@@ -483,6 +551,11 @@ export function ReaderScreen({
   function finishTtsAtBookEnd() {
     ttsAdvancePendingRef.current = false
     ttsAutoAdvanceSkipCountRef.current = 0
+    // Fim de verdade do livro (sem próxima seção) — só aqui sabemos que não
+    // vai ter um play() novo em seguida, então é o ponto certo pra derrubar
+    // o Service/notificação nativos (useTTS.ts não distingue "próxima seção"
+    // de "livro acabou", só ReaderScreen sabe disso).
+    void TtsPlaybackSessionService.stop()
     tts.resetPosition()
     setTtsPlayerVisible(false)
     setShowBackToTtsLocation(false)
@@ -649,6 +722,41 @@ export function ReaderScreen({
     viewerRef.current?.scrollToParagraph(currentTtsParaIdxRef.current)
   }
 
+  // Controles da notificação/tela de bloqueio (US3) — assina uma única vez;
+  // useSyncRef evita closure stale nos handlers (mesmo padrão de useCapacitorAppListener).
+  const playbackControlHandlerRef = useSyncRef((event: TtsPlaybackControlEvent) => {
+    switch (event.action) {
+      case 'play':
+      case 'pause':
+        handleTtsToggle()
+        break
+      case 'stop':
+        handleTtsStop()
+        break
+      case 'skipNext':
+        handleTtsNext()
+        break
+      case 'skipPrevious':
+        handleTtsPrev()
+        break
+    }
+  })
+
+  useEffect(() => {
+    return TtsPlaybackSessionService.onPlaybackControl((event) => playbackControlHandlerRef.current(event))
+  }, [playbackControlHandlerRef])
+
+  // Foco de áudio nativo (US4) — repassado pro useTTS, que só reage pro
+  // provider nativo (o <audio> premium já se pausa/retoma sozinho via o
+  // próprio WebView, ver comentário em useTTS.ts::handleAudioFocusChange).
+  const audioFocusHandlerRef = useSyncRef((event: TtsAudioFocusEvent) => {
+    tts.handleAudioFocusChange(event.type)
+  })
+
+  useEffect(() => {
+    return TtsPlaybackSessionService.onAudioFocusChange((event) => audioFocusHandlerRef.current(event))
+  }, [audioFocusHandlerRef])
+
   // Salva par original/tradução no vocabulário — chamado pelo EpubViewer via ⭐
   function handleSaveVocab(sourceText: string, translatedText: string) {
     void addVocabItem({
@@ -798,6 +906,9 @@ export function ReaderScreen({
       return
     }
 
+    // De propósito NÃO pausa/para o TTS aqui: o audiobook deve continuar
+    // tocando com o app em segundo plano (TtsPlaybackService nativo é quem
+    // mantém isso vivo). Só salva o progresso antes de sair de primeiro plano.
     void flushCurrentProgress()
   })
 

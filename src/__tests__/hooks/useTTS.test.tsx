@@ -63,6 +63,16 @@ vi.mock('@/services/NativeTtsService', () => ({
   },
 }))
 
+const ttsPlaybackSessionMock = vi.hoisted(() => ({
+  start: vi.fn(async () => undefined),
+  stop: vi.fn(async () => undefined),
+  updatePlaybackState: vi.fn(async () => undefined),
+}))
+
+vi.mock('@/services/TtsPlaybackSessionService', () => ({
+  TtsPlaybackSessionService: ttsPlaybackSessionMock,
+}))
+
 class FakeAudio extends EventTarget {
   static instances: FakeAudio[] = []
   static nextPlayError: unknown = null
@@ -138,6 +148,9 @@ describe('useTTS', () => {
   beforeEach(() => {
     clearPremiumTtsAudioCache()
     textToSpeechMock.reset()
+    ttsPlaybackSessionMock.start.mockClear()
+    ttsPlaybackSessionMock.stop.mockClear()
+    ttsPlaybackSessionMock.updatePlaybackState.mockClear()
     speechifyMock.getApiKey.mockReset()
     speechifyMock.isConfigured.mockReset()
     speechifyMock.synthesize.mockReset()
@@ -205,6 +218,86 @@ describe('useTTS', () => {
 
     expect(callbacks.onStop).not.toHaveBeenCalled()
     expect(callbacks.onFinished).not.toHaveBeenCalled()
+  })
+
+  it('inicia a sessao de reproducao nativa ao tocar o audiobook e para ao chamar stop()', async () => {
+    const callbacks = createCallbacks()
+    const { result } = renderHook(() => useTTS({
+      ...callbacks,
+      bookId: 42,
+      bookTitle: 'Dom Casmurro',
+      provider: 'native',
+      language: 'en-US',
+      rate: 1,
+    }))
+    const chunks: TtsChunk[] = [
+      { text: 'First paragraph.', paraIdx: 0, offsetInPara: 0 },
+    ]
+
+    await act(async () => {
+      void result.current.play(chunks, 0)
+    })
+    await flushMicrotasks()
+
+    expect(ttsPlaybackSessionMock.start).toHaveBeenCalledWith({ bookId: 42, title: 'Dom Casmurro' })
+    expect(ttsPlaybackSessionMock.stop).not.toHaveBeenCalled()
+
+    await act(async () => {
+      await result.current.stop()
+    })
+
+    expect(ttsPlaybackSessionMock.stop).toHaveBeenCalled()
+  })
+
+  it('inicia a sessao de reproducao nativa antes do primeiro chunk comecar a tocar', async () => {
+    const callbacks = createCallbacks()
+    const { result } = renderHook(() => useTTS({
+      ...callbacks,
+      bookId: 42,
+      bookTitle: 'Dom Casmurro',
+      provider: 'native',
+      language: 'en-US',
+      rate: 1,
+    }))
+    const chunks: TtsChunk[] = [
+      { text: 'First paragraph.', paraIdx: 0, offsetInPara: 0 },
+    ]
+
+    await act(async () => {
+      void result.current.play(chunks, 0)
+    })
+    await flushMicrotasks()
+
+    // Sem essa ordem, haveria uma janela sem wake lock/Service logo no
+    // início da narração — a tela poderia apagar antes do primeiro chunk.
+    expect(ttsPlaybackSessionMock.start).toHaveBeenCalled()
+    expect(textToSpeechMock.speak).toHaveBeenCalled()
+    const startOrder = ttsPlaybackSessionMock.start.mock.invocationCallOrder[0]
+    const speakOrder = textToSpeechMock.speak.mock.invocationCallOrder[0]
+    expect(startOrder).toBeLessThan(speakOrder)
+  })
+
+  it('nao inicia a sessao de reproducao nativa para reproducao avulsa (speakOne)', async () => {
+    speechifyMock.getApiKey.mockResolvedValue('speechify-key')
+    speechifyMock.isConfigured.mockResolvedValue(true)
+
+    const callbacks = createCallbacks()
+    const { result } = renderHook(() => useTTS({
+      ...callbacks,
+      bookId: 42,
+      bookTitle: 'Dom Casmurro',
+      provider: 'speechify',
+      language: 'en-US',
+      rate: 1,
+    }))
+
+    await act(async () => {
+      void result.current.speakOne('Inline snippet.')
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(ttsPlaybackSessionMock.start).not.toHaveBeenCalled()
   })
 
   it('registra stop explicito do playback nativo', async () => {
@@ -370,11 +463,13 @@ describe('useTTS', () => {
     })
 
     expect(FakeAudio.instances[0]?.pause).toHaveBeenCalledTimes(1)
-    expect(FakeAudio.instances.length).toBe(2)
+    // Elemento <audio> reaproveitado entre chunks (R-003) — speakOne reusa a mesma
+    // instância em vez de criar uma nova.
+    expect(FakeAudio.instances.length).toBe(1)
     expect(result.current.isPlaying).toBe(false)
 
     await act(async () => {
-      FakeAudio.instances[1]?.finish()
+      FakeAudio.instances[0]?.finish()
       await speakPromise
     })
 
@@ -548,11 +643,12 @@ describe('useTTS', () => {
     await flushMicrotasks()
 
     await act(async () => {
-      FakeAudio.instances[1]?.finish()
+      FakeAudio.instances[0]?.finish()
       await secondPlayPromise
     })
 
-    expect(FakeAudio.instances).toHaveLength(2)
+    // Elemento <audio> reaproveitado entre sessões de play() (R-003).
+    expect(FakeAudio.instances).toHaveLength(1)
     expect(speechifyMock.synthesize).toHaveBeenCalledTimes(1)
     expect(speechifyMock.synthesize).toHaveBeenCalledWith('Repeat cached paragraph.', expect.objectContaining({
       apiKey: 'speechify-key',
@@ -599,7 +695,7 @@ describe('useTTS', () => {
     })
     await flushMicrotasks()
     await act(async () => {
-      FakeAudio.instances[1]?.finish()
+      FakeAudio.instances[0]?.finish()
       await secondPlayPromise
     })
 
@@ -870,5 +966,237 @@ describe('useTTS', () => {
     expect(callbacks.onProviderFallback).toHaveBeenCalledOnce()
 
     warnSpy.mockRestore()
+  })
+
+  it('handleAudioFocusChange ignora eventos quando o provider ativo e premium (US4/R-003)', async () => {
+    // O <audio> premium roda no WebView e o Chromium ja se pausa/retoma sozinho
+    // ao perder/reaver foco (confirmado em device real) — reagir aqui tambem
+    // causaria uma pausa espuria logo no inicio de toda sessao premium.
+    speechifyMock.getApiKey.mockResolvedValue('speechify-key')
+    speechifyMock.isConfigured.mockResolvedValue(true)
+
+    const callbacks = createCallbacks()
+    const { result } = renderHook(() => useTTS({
+      ...callbacks,
+      provider: 'speechify',
+      language: 'en-US',
+      rate: 1,
+    }))
+    const chunks: TtsChunk[] = [
+      { text: 'First paragraph.', paraIdx: 0, offsetInPara: 0 },
+    ]
+
+    let playPromise: Promise<void> | undefined
+    await act(async () => {
+      playPromise = result.current.play(chunks, 0)
+    })
+    await flushMicrotasks()
+
+    expect(result.current.isPlaying).toBe(true)
+
+    act(() => {
+      result.current.handleAudioFocusChange('loss')
+    })
+
+    expect(FakeAudio.instances[0]?.pause).not.toHaveBeenCalled()
+    expect(result.current.isPlaying).toBe(true)
+
+    await act(async () => {
+      FakeAudio.instances[0]?.finish()
+      await playPromise
+    })
+  })
+
+  it('handleAudioFocusChange aciona pause() nativo em perda de foco (US4/R-003)', async () => {
+    let resolveSpeak: (() => void) | undefined
+    textToSpeechMock.speak.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      resolveSpeak = resolve
+    }))
+
+    const callbacks = createCallbacks()
+    const { result } = renderHook(() => useTTS({
+      ...callbacks,
+      provider: 'native',
+      language: 'en-US',
+      rate: 1,
+    }))
+    const chunks: TtsChunk[] = [
+      { text: 'Native paragraph.', paraIdx: 0, offsetInPara: 0 },
+    ]
+
+    let playPromise: Promise<void> = Promise.resolve()
+    await act(async () => {
+      playPromise = result.current.play(chunks, 0)
+    })
+    await flushMicrotasks()
+
+    act(() => {
+      result.current.handleAudioFocusChange('loss')
+    })
+
+    expect(textToSpeechMock.stop).toHaveBeenCalled()
+
+    await act(async () => {
+      resolveSpeak?.()
+      await playPromise
+    })
+  })
+
+  it('para o TtsPlaybackService ao desmontar apos uma pausa nativa (evita Service/wake lock orfaos)', async () => {
+    let resolveSpeak: (() => void) | undefined
+    textToSpeechMock.speak.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      resolveSpeak = resolve
+    }))
+
+    const callbacks = createCallbacks()
+    const { result, unmount } = renderHook(() => useTTS({
+      ...callbacks,
+      bookId: 7,
+      bookTitle: 'Livro X',
+      provider: 'native',
+      language: 'en-US',
+      rate: 1,
+    }))
+    const chunks: TtsChunk[] = [
+      { text: 'Long native playback.', paraIdx: 0, offsetInPara: 0 },
+    ]
+
+    let playPromise: Promise<void> = Promise.resolve()
+    await act(async () => {
+      playPromise = result.current.play(chunks, 0)
+    })
+    await flushMicrotasks()
+
+    ttsPlaybackSessionMock.stop.mockClear()
+
+    act(() => {
+      void result.current.pause()
+    })
+    await flushMicrotasks()
+
+    expect(result.current.isPlaying).toBe(false)
+    // pause() nunca chama stop() — a notificação continua ativa durante a pausa.
+    expect(ttsPlaybackSessionMock.stop).not.toHaveBeenCalled()
+
+    unmount()
+
+    // Sair (Back) depois de pausar precisa encerrar o Service nativo — senão o
+    // foreground service e o wake lock ficam vazando indefinidamente.
+    expect(ttsPlaybackSessionMock.stop).toHaveBeenCalled()
+
+    await act(async () => {
+      resolveSpeak?.()
+      await playPromise
+    })
+  })
+
+  it('nao retoma sozinho apos pausa manual seguida de perda TRANSITORIA de foco (nativo)', async () => {
+    let resolveSpeak: (() => void) | undefined
+    textToSpeechMock.speak.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      resolveSpeak = resolve
+    }))
+
+    const callbacks = createCallbacks()
+    const { result } = renderHook(() => useTTS({
+      ...callbacks,
+      provider: 'native',
+      language: 'en-US',
+      rate: 1,
+    }))
+    const chunks: TtsChunk[] = [
+      { text: 'Native paragraph.', paraIdx: 0, offsetInPara: 0 },
+    ]
+
+    let playPromise: Promise<void> = Promise.resolve()
+    await act(async () => {
+      playPromise = result.current.play(chunks, 0)
+    })
+    await flushMicrotasks()
+
+    // Usuário pausa manualmente (ex: mini player) antes de qualquer evento de foco.
+    act(() => {
+      void result.current.pause()
+    })
+    await flushMicrotasks()
+    expect(result.current.isPlaying).toBe(false)
+
+    textToSpeechMock.speak.mockClear()
+
+    // Ligação chega DEPOIS da pausa manual e termina em seguida.
+    act(() => {
+      result.current.handleAudioFocusChange('lossTransient')
+    })
+    act(() => {
+      result.current.handleAudioFocusChange('gain')
+    })
+
+    // Não deve ter tentado retomar (nenhum novo speak()) — a pausa manual do
+    // usuário não pode ser promovida a pausa transitória e retomada sozinha.
+    expect(textToSpeechMock.speak).not.toHaveBeenCalled()
+    expect(result.current.isPlaying).toBe(false)
+
+    await act(async () => {
+      resolveSpeak?.()
+      await playPromise
+    })
+  })
+
+  it('nao perde uma pausa pedida enquanto o chunk premium ainda esta sintetizando', async () => {
+    speechifyMock.getApiKey.mockResolvedValue('speechify-key')
+    speechifyMock.isConfigured.mockResolvedValue(true)
+
+    let resolveSynthesize: ((value: { audioBlob: Blob; speechMarks: never[] }) => void) | undefined
+    speechifyMock.synthesize.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveSynthesize = resolve
+    }))
+
+    const callbacks = createCallbacks()
+    const { result } = renderHook(() => useTTS({
+      ...callbacks,
+      provider: 'speechify',
+      language: 'en-US',
+      rate: 1,
+    }))
+    const chunks: TtsChunk[] = [
+      { text: 'First paragraph.', paraIdx: 0, offsetInPara: 0 },
+    ]
+
+    let playPromise: Promise<void> | undefined
+    await act(async () => {
+      playPromise = result.current.play(chunks, 0)
+    })
+    await flushMicrotasks()
+
+    // Ainda sintetizando — nenhum <audio> criado ainda, pause() não teria o que pausar.
+    expect(FakeAudio.instances.length).toBe(0)
+
+    await act(async () => {
+      await result.current.pause()
+    })
+    expect(result.current.isPaused).toBe(true)
+
+    // A síntese só termina agora, depois do pedido de pausa.
+    await act(async () => {
+      resolveSynthesize?.({
+        audioBlob: new Blob(['First paragraph.'], { type: 'audio/mpeg' }),
+        speechMarks: [],
+      })
+      await flushMicrotasks()
+    })
+
+    // O elemento fica pronto (src carregado) mas não deve iniciar sozinho.
+    expect(FakeAudio.instances.length).toBe(1)
+    expect(FakeAudio.instances[0]?.play).not.toHaveBeenCalled()
+    expect(result.current.isPlaying).toBe(false)
+
+    await act(async () => {
+      await result.current.resume()
+    })
+    expect(FakeAudio.instances[0]?.play).toHaveBeenCalledOnce()
+
+    await act(async () => {
+      FakeAudio.instances[0]?.finish()
+      await playPromise
+    })
   })
 })

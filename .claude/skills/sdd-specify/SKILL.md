@@ -35,8 +35,8 @@ coisa, em lotes concisos (3-5 perguntas). Cubra:
 - Edge cases óbvios.
 
 Não pergunte fatos que dá pra descobrir barato no repositório (ex: convenções
-já visíveis em `specs/001-mvp-subscription-management/`). Não pergunte
-detalhes de arquitetura/stack — isso é do `sdd-plan`.
+já visíveis em features existentes de `specs/`, se houver alguma). Não
+pergunte detalhes de arquitetura/stack — isso é do `sdd-plan`.
 
 ### 3. Rascunho em memória
 

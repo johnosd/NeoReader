@@ -1,4 +1,4 @@
-#!/usr/bin/env pwsh
+﻿#!/usr/bin/env pwsh
 # Atualiza o painel de status em .planning/backlog.md pra uma feature, e,
 # quando -Status é passado, também a linha **Status**: em spec.md (regex,
 # só essa linha, sem tocar no resto do arquivo).
@@ -54,7 +54,7 @@ sdd-*. Mantido automaticamente por update-feature-status.ps1.
 # Progresso: conta checkboxes em tasks.md, se existir.
 $progresso = 'N/A'
 if (Test-Path -LiteralPath $paths.TASKS -PathType Leaf) {
-    $tasksContent = Get-Content -LiteralPath $paths.TASKS -Raw
+    $tasksContent = [System.IO.File]::ReadAllText($paths.TASKS, [System.Text.Encoding]::UTF8)
     $total = ([regex]::Matches($tasksContent, '- \[[ xX]\]')).Count
     $checked = ([regex]::Matches($tasksContent, '- \[[xX]\]')).Count
     $progresso = "$checked/$total tasks"
@@ -63,7 +63,7 @@ if (Test-Path -LiteralPath $paths.TASKS -PathType Leaf) {
 # Título: tenta extrair de spec.md; senão usa o slug.
 $titulo = $dirName
 if (Test-Path -LiteralPath $paths.FEATURE_SPEC -PathType Leaf) {
-    $specContent = Get-Content -LiteralPath $paths.FEATURE_SPEC -Raw
+    $specContent = [System.IO.File]::ReadAllText($paths.FEATURE_SPEC, [System.Text.Encoding]::UTF8)
     $titleMatch = [regex]::Match($specContent, '^# Feature Specification:\s*(.+)$', 'Multiline')
     if ($titleMatch.Success) { $titulo = $titleMatch.Groups[1].Value.Trim() }
 }
@@ -71,7 +71,7 @@ if (Test-Path -LiteralPath $paths.FEATURE_SPEC -PathType Leaf) {
 $hoje = Get-Date -Format 'yyyy-MM-dd'
 
 # --- Atualiza a tabela ## Features em backlog.md ---
-$lines = [System.Collections.Generic.List[string]](Get-Content -LiteralPath $backlogPath)
+$lines = [System.Collections.Generic.List[string]]([System.IO.File]::ReadAllLines($backlogPath, [System.Text.Encoding]::UTF8))
 
 $sectionIdx = -1
 for ($i = 0; $i -lt $lines.Count; $i++) {
@@ -125,7 +125,7 @@ $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 # --- Atualiza spec.md **Status**: quando -Status foi passado ---
 if ($Status -and (Test-Path -LiteralPath $paths.FEATURE_SPEC -PathType Leaf)) {
-    $specContent = Get-Content -LiteralPath $paths.FEATURE_SPEC -Raw
+    $specContent = [System.IO.File]::ReadAllText($paths.FEATURE_SPEC, [System.Text.Encoding]::UTF8)
     if ($specContent -match '(?m)^\*\*Status\*\*:.*$') {
         $specContent = [regex]::Replace($specContent, '(?m)^\*\*Status\*\*:.*$', "**Status**: $Status")
         [System.IO.File]::WriteAllText($paths.FEATURE_SPEC, $specContent, $utf8NoBom)

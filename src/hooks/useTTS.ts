@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { TextToSpeech } from '@capacitor-community/text-to-speech'
 import { WakeLockService } from '../services/WakeLockService'
+import { TtsPlaybackSessionService, type TtsAudioFocusType } from '../services/TtsPlaybackSessionService'
 import type { TtsChunk } from '../components/reader/EpubViewer'
 import { NativeTtsService } from '../services/NativeTtsService'
 import { createFlowId, getDiagnosticsNowMs, logError, logEvent, logWarn } from '../services/DiagnosticsLogger'
@@ -35,6 +36,8 @@ const WORD_HIGHLIGHT_SYNC_DELAY_MS = 140
 const NATIVE_RANGE_FALLBACK_DELAY_MS = 180
 
 interface UseTTSOptions extends TtsPlaybackConfig {
+  bookId?: number
+  bookTitle?: string
   onWordHighlight: (paraIdx: number, start: number, end: number) => void
   onParagraphChange: (paraIdx: number) => void
   onProviderFallback?: (payload: { provider: TtsProvider; fallbackProvider: 'native'; reason: string; transient: boolean }) => void
@@ -214,7 +217,14 @@ export function useTTS(options: UseTTSOptions) {
     nativeVoiceKey: options.nativeVoiceKey,
     voiceSelections: options.voiceSelections,
   })
+  // Identifica o livro pro Service nativo (notificação/MediaSession) — useTTS
+  // continua agnóstico do resto de Book, só repassa esses dois campos.
+  const bookInfoRef = useRef({ bookId: options.bookId, bookTitle: options.bookTitle })
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  // Elemento <audio> persistente reaproveitado entre chunks premium (ver playAudioBlob) —
+  // um `new Audio()` por chunk fazia o WebMediaPlayer do Chromium pedir/devolver foco de
+  // áudio a cada parágrafo, mascarando nosso AudioFocusRequestCompat nativo (R-003).
+  const sharedPremiumAudioElementRef = useRef<HTMLAudioElement | null>(null)
   const activeProviderRef = useRef<TtsProvider>('native')
   const lastChunkIdxRef = useRef(0)
   const playSessionRef = useRef(0)
@@ -233,6 +243,9 @@ export function useTTS(options: UseTTSOptions) {
   // dentro de speakWithNative — o speak() nativo nunca rejeita/resolve por conta própria
   // ao ser interrompido, causando deadlock no await playbackDone dentro de stop().
   const nativeSpeakStopAckRef = useRef<(() => void)>(() => {})
+  // true quando a última pausa foi causada por perda TRANSITÓRIA de foco de áudio
+  // (ex: ligação) — só nesse caso o retorno do foco retoma sozinho (handleAudioFocusChange).
+  const pausedByTransientFocusLossRef = useRef(false)
 
   function updatePaused(next: boolean) {
     pauseRequestedRef.current = next
@@ -302,10 +315,19 @@ export function useTTS(options: UseTTSOptions) {
   ])
 
   useEffect(() => {
+    bookInfoRef.current = { bookId: options.bookId, bookTitle: options.bookTitle }
+  }, [options.bookId, options.bookTitle])
+
+  useEffect(() => {
     return () => {
-      // Skip if stop() was already called (shouldStopRef=true) — avoids duplicate
-      // TextToSpeech.stop() / allowSleep() when the user explicitly stopped before unmount.
-      if (shouldStopRef.current) return
+      // Skip if stop() was already called — avoids duplicate TextToSpeech.stop()/
+      // allowSleep() when the user explicitly stopped before unmount. Não basta checar
+      // shouldStopRef sozinho: pause() do provider nativo também o marca (pra quebrar o
+      // loop de speak()), mas pause() NUNCA chama TtsPlaybackSessionService.stop() (a
+      // notificação deve continuar ativa durante a pausa) — sem o !pauseRequestedRef aqui,
+      // pausar e sair (Back) deixava o TtsPlaybackService/wake lock vazando pra sempre,
+      // já que este cleanup também pulava a limpeza (achado em code review).
+      if (shouldStopRef.current && !pauseRequestedRef.current) return
 
       const hasPlaybackSession = playSessionRef.current > 0 || audioRef.current || stopPremiumPlaybackRef.current
       if (!hasPlaybackSession) return
@@ -320,6 +342,7 @@ export function useTTS(options: UseTTSOptions) {
 
       void TextToSpeech.stop().catch(logTtsPlaybackError)
       void WakeLockService.allowSleep()
+      void TtsPlaybackSessionService.stop()
     }
   }, [])
 
@@ -336,7 +359,11 @@ export function useTTS(options: UseTTSOptions) {
     if (shouldStopRef.current || playSessionRef.current !== session) return
 
     const url = URL.createObjectURL(audioBlob)
-    const audio = new Audio(url)
+    if (!sharedPremiumAudioElementRef.current) {
+      sharedPremiumAudioElementRef.current = new Audio()
+    }
+    const audio = sharedPremiumAudioElementRef.current
+    audio.src = url
     audioRef.current = audio
     let timers: ReturnType<typeof setTimeout>[] = []
 
@@ -434,6 +461,13 @@ export function useTTS(options: UseTTSOptions) {
       audio.addEventListener('pause', handlePause)
       audio.addEventListener('error', handleAudioError, { once: true })
       scheduleMarks()
+      // Se o usuário pausou enquanto este chunk ainda sintetizava (audioRef
+      // era null até agora, pause() não tinha o que pausar), não inicia a
+      // reprodução sozinho — o elemento fica pronto (src carregado, listeners
+      // presos) pra resume() tocar depois. Sem isso, a pausa era perdida
+      // silenciosamente e o áudio começava a tocar assim que a síntese
+      // terminasse (achado em code review).
+      if (pauseRequestedRef.current) return
       void audio.play().catch(finish)
     })
   }
@@ -763,6 +797,12 @@ export function useTTS(options: UseTTSOptions) {
     updatePaused(false)
     setIsPlaying(true)
     void WakeLockService.keepAwake()
+    if (bookInfoRef.current.bookId != null) {
+      void TtsPlaybackSessionService.start({
+        bookId: bookInfoRef.current.bookId,
+        title: bookInfoRef.current.bookTitle ?? '',
+      })
+    }
 
     const resolvedProvider = await resolveConfiguredTtsProvider(configRef.current.provider).catch(() => 'native' as const)
     let playbackProvider = resolvedProvider
@@ -872,6 +912,9 @@ export function useTTS(options: UseTTSOptions) {
     updatePaused(true)
     setIsPlaying(false)
     void WakeLockService.allowSleep()
+    // Não chama TtsPlaybackSessionService.stop() aqui — a sessão/notificação
+    // nativa continua ativa durante a pausa, só o ícone/estado é atualizado.
+    void TtsPlaybackSessionService.updatePlaybackState({ state: 'paused' })
     logPlaybackEvent('tts.playback.pause', activeProviderRef.current, 'success')
 
     if (activeProviderRef.current === 'native') {
@@ -912,6 +955,9 @@ export function useTTS(options: UseTTSOptions) {
     updatePaused(false)
     setIsPlaying(true)
     void WakeLockService.keepAwake()
+    // Sessão nativa continua rodando desde o play() original (pause() não a
+    // encerra) — só precisa sincronizar o estado de volta pra "tocando".
+    void TtsPlaybackSessionService.updatePlaybackState({ state: 'playing' })
     try {
       await audio.play()
       logPlaybackEvent('tts.playback.resume', activeProviderRef.current, 'success')
@@ -929,6 +975,7 @@ export function useTTS(options: UseTTSOptions) {
     shouldStopRef.current = true
     updatePaused(false)
     void WakeLockService.allowSleep()
+    void TtsPlaybackSessionService.stop()
     premiumSynthesisAbortControllerRef.current?.abort()
     premiumSynthesisAbortControllerRef.current = null
     if (shouldLogStopIntent) {
@@ -1039,5 +1086,39 @@ export function useTTS(options: UseTTSOptions) {
     lastChunkIdxRef.current = 0
   }
 
-  return { isPlaying, isPaused, play, pause, resume, stop, speakOne, lastChunkIdx: lastChunkIdxRef, resetPosition }
+  // Foco de áudio nativo (TtsPlaybackService) só é acionável pro provider nativo:
+  // o <audio> dos providers premium roda dentro do WebView, e o Chromium já
+  // pausa/retoma esse elemento sozinho ao perder/reaver foco (confirmado em
+  // device real — ligação de voz retomou e Spotify pausou corretamente mesmo
+  // sem nenhuma ação nossa). Reagir aqui também pro caso premium só causa uma
+  // pausa espúria logo no início de toda sessão (o Chromium sempre disputa e
+  // vence o foco do TtsPlaybackService assim que o primeiro chunk toca — ver
+  // R-003 em plan.md).
+  function handleAudioFocusChange(type: TtsAudioFocusType) {
+    if (activeProviderRef.current !== 'native') return
+    switch (type) {
+      case 'lossTransient':
+        // Só marca como "pausado pelo foco" se realmente estava tocando —
+        // senão uma pausa manual anterior (isPlaying já false) seria
+        // promovida a pausa transitória e retomaria sozinha quando o foco
+        // voltasse, contra a vontade do usuário (achado em code review).
+        if (isPlaying) {
+          pausedByTransientFocusLossRef.current = true
+          void pause()
+        }
+        break
+      case 'loss':
+        pausedByTransientFocusLossRef.current = false
+        void pause()
+        break
+      case 'gain':
+        if (pausedByTransientFocusLossRef.current) {
+          pausedByTransientFocusLossRef.current = false
+          void resume()
+        }
+        break
+    }
+  }
+
+  return { isPlaying, isPaused, play, pause, resume, stop, speakOne, lastChunkIdx: lastChunkIdxRef, resetPosition, handleAudioFocusChange }
 }

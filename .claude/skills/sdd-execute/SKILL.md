@@ -1,6 +1,6 @@
 ---
 name: sdd-execute
-description: Implementa uma feature já planejada, seguindo tasks.md fase por fase, com a documentação viva atualizada a cada checkpoint (não só no fim). Use quando o usuário pedir para implementar, construir, retomar ou continuar uma feature já especificada e planejada. Exige que specs/<NNN-slug>/plan.md e tasks.md já existam (rode sdd-plan antes, se não existirem). NÃO use para criar spec ou plano do zero.
+description: Implementa uma feature já planejada, seguindo tasks.md fase por fase, com a documentação viva atualizada a cada checkpoint (não só no fim). Por padrão pausa ao final de cada fase pra confirmação (peça "sem parar"/"modo contínuo" pra desativar). Use quando o usuário pedir para implementar, construir, retomar ou continuar uma feature já especificada e planejada. Exige que specs/<NNN-slug>/plan.md e tasks.md já existam (rode sdd-plan antes, se não existirem). NÃO use para criar spec ou plano do zero.
 ---
 
 # sdd-execute
@@ -14,6 +14,28 @@ Este skill é agnóstico de projeto: os comandos de build/teste a rodar vêm da
 seção `## Estratégia de Testes` de `plan.md` (preenchida pelo `sdd-plan` com o
 que é real neste repositório), nunca de um comando memorizado de outro
 projeto.
+
+## Modo de execução: pausado (padrão) ou contínuo
+
+Este skill não tem parâmetros de linha de comando — é invocado em linguagem
+natural. O "parâmetro" de modo é só como o usuário pede:
+
+- **Pausado (padrão)**: ao final de **cada fase** de `tasks.md` (Setup,
+  Foundational, cada User Story, Polish), pare e pergunte se deve continuar
+  pra próxima, depois de reportar o checkpoint. Dá um ponto natural de
+  revisão a cada fatia de trabalho.
+- **Contínuo**: se o usuário pedir explicitamente algo como "implementa tudo
+  sem parar", "roda até o fim", "não precisa perguntar a cada fase" ou
+  "modo contínuo", não pause entre fases — só reporte o checkpoint no chat e
+  siga direto pra próxima.
+
+Se não estiver claro qual o usuário quer, assuma o padrão (pausado) e avise
+que vai pausar a cada fase, mencionando que dá pra pedir modo contínuo.
+
+**Importante**: os 3 gatilhos de parada obrigatória (bug fora de escopo —
+passo 6; conflito com critério de aceite — passo 13; todas as tasks
+concluídas) **continuam valendo mesmo em modo contínuo**. Eles não são pausas
+de revisão opcionais, são bloqueios reais que exigem decisão do usuário.
 
 ## Fluxo
 
@@ -131,17 +153,30 @@ Chame isso a cada checkpoint.
 A cada checkpoint: o que foi feito, testes rodados (comandos + resultado),
 próximo passo.
 
-### 11. Sugere commits
+### 11. Pausa entre fases (padrão) ou segue (modo contínuo)
+
+Se a fase que acabou de fechar **não** for a última de `tasks.md`: no modo
+padrão, **pare aqui** e pergunte se deve continuar pra próxima fase (nomeie
+qual é). Só prossiga pro passo 4 da próxima fase depois de confirmação
+explícita do usuário. No modo contínuo (pedido explicitamente — ver "Modo de
+execução" acima), pule esta pausa e vá direto pro passo 4 da próxima fase.
+
+Se a fase que fechou **for** a última, não há o que pausar — siga pro passo
+12 normalmente.
+
+### 12. Sugere commits
 
 Pontos de commit estratégicos agrupados por fase/story, com mensagem de
-exemplo. **Nunca commite sozinho**, a menos que o usuário peça.
+exemplo. **Nunca commite sozinho**, a menos que o usuário peça. Pode ser
+sugerido junto da pausa do passo 11, ou a qualquer momento que fizer sentido.
 
-### 12. Conflito com critério de aceite
+### 13. Conflito com critério de aceite
 
 Se um critério de aceite da spec conflitar com o que já existe no código,
-**pare e pergunte** em vez de adivinhar qual dos dois está certo.
+**pare e pergunte** em vez de adivinhar qual dos dois está certo. Vale em
+qualquer modo, a qualquer momento — não só nas pausas entre fases.
 
-### 13. Ao marcar a última task
+### 14. Ao marcar a última task
 
 Quando o último checkbox de `tasks.md` (incluindo Polish/Checklist de
 Release) é marcado:
