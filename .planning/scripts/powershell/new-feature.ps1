@@ -1,4 +1,4 @@
-#!/usr/bin/env pwsh
+﻿#!/usr/bin/env pwsh
 # Cria a pasta specs/<NNN-slug>/ e semeia spec.md a partir do template.
 # Usado só pelo sdd-specify. Não pré-copia plan.md/tasks.md (isso é
 # responsabilidade do próprio sdd-plan, que lê os templates diretamente).

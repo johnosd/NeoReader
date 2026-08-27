@@ -63,6 +63,16 @@ vi.mock('@/services/NativeTtsService', () => ({
   },
 }))
 
+const ttsPlaybackSessionMock = vi.hoisted(() => ({
+  start: vi.fn(async () => undefined),
+  stop: vi.fn(async () => undefined),
+  updatePlaybackState: vi.fn(async () => undefined),
+}))
+
+vi.mock('@/services/TtsPlaybackSessionService', () => ({
+  TtsPlaybackSessionService: ttsPlaybackSessionMock,
+}))
+
 class FakeAudio extends EventTarget {
   static instances: FakeAudio[] = []
   static nextPlayError: unknown = null
@@ -138,6 +148,9 @@ describe('useTTS', () => {
   beforeEach(() => {
     clearPremiumTtsAudioCache()
     textToSpeechMock.reset()
+    ttsPlaybackSessionMock.start.mockClear()
+    ttsPlaybackSessionMock.stop.mockClear()
+    ttsPlaybackSessionMock.updatePlaybackState.mockClear()
     speechifyMock.getApiKey.mockReset()
     speechifyMock.isConfigured.mockReset()
     speechifyMock.synthesize.mockReset()
@@ -205,6 +218,86 @@ describe('useTTS', () => {
 
     expect(callbacks.onStop).not.toHaveBeenCalled()
     expect(callbacks.onFinished).not.toHaveBeenCalled()
+  })
+
+  it('inicia a sessao de reproducao nativa ao tocar o audiobook e para ao chamar stop()', async () => {
+    const callbacks = createCallbacks()
+    const { result } = renderHook(() => useTTS({
+      ...callbacks,
+      bookId: 42,
+      bookTitle: 'Dom Casmurro',
+      provider: 'native',
+      language: 'en-US',
+      rate: 1,
+    }))
+    const chunks: TtsChunk[] = [
+      { text: 'First paragraph.', paraIdx: 0, offsetInPara: 0 },
+    ]
+
+    await act(async () => {
+      void result.current.play(chunks, 0)
+    })
+    await flushMicrotasks()
+
+    expect(ttsPlaybackSessionMock.start).toHaveBeenCalledWith({ bookId: 42, title: 'Dom Casmurro' })
+    expect(ttsPlaybackSessionMock.stop).not.toHaveBeenCalled()
+
+    await act(async () => {
+      await result.current.stop()
+    })
+
+    expect(ttsPlaybackSessionMock.stop).toHaveBeenCalled()
+  })
+
+  it('inicia a sessao de reproducao nativa antes do primeiro chunk comecar a tocar', async () => {
+    const callbacks = createCallbacks()
+    const { result } = renderHook(() => useTTS({
+      ...callbacks,
+      bookId: 42,
+      bookTitle: 'Dom Casmurro',
+      provider: 'native',
+      language: 'en-US',
+      rate: 1,
+    }))
+    const chunks: TtsChunk[] = [
+      { text: 'First paragraph.', paraIdx: 0, offsetInPara: 0 },
+    ]
+
+    await act(async () => {
+      void result.current.play(chunks, 0)
+    })
+    await flushMicrotasks()
+
+    // Sem essa ordem, haveria uma janela sem wake lock/Service logo no
+    // início da narração — a tela poderia apagar antes do primeiro chunk.
+    expect(ttsPlaybackSessionMock.start).toHaveBeenCalled()
+    expect(textToSpeechMock.speak).toHaveBeenCalled()
+    const startOrder = ttsPlaybackSessionMock.start.mock.invocationCallOrder[0]
+    const speakOrder = textToSpeechMock.speak.mock.invocationCallOrder[0]
+    expect(startOrder).toBeLessThan(speakOrder)
+  })
+
+  it('nao inicia a sessao de reproducao nativa para reproducao avulsa (speakOne)', async () => {
+    speechifyMock.getApiKey.mockResolvedValue('speechify-key')
+    speechifyMock.isConfigured.mockResolvedValue(true)
+
+    const callbacks = createCallbacks()
+    const { result } = renderHook(() => useTTS({
+      ...callbacks,
+      bookId: 42,
+      bookTitle: 'Dom Casmurro',
+      provider: 'speechify',
+      language: 'en-US',
+      rate: 1,
+    }))
+
+    await act(async () => {
+      void result.current.speakOne('Inline snippet.')
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(ttsPlaybackSessionMock.start).not.toHaveBeenCalled()
   })
 
   it('registra stop explicito do playback nativo', async () => {

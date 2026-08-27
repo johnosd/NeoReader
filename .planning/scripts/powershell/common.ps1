@@ -1,4 +1,4 @@
-#!/usr/bin/env pwsh
+﻿#!/usr/bin/env pwsh
 # Funções compartilhadas pelos scripts do sistema sdd-*.
 #
 # Deliberadamente mais simples que o common.ps1 do speckit: sem feature.json,
@@ -101,6 +101,22 @@ function Get-HighestFeatureNumber {
     $max = 0
     Get-ChildItem -Path $SpecsDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
         if ($_.Name -match '^(\d{3,})-') {
+            $n = [int]$matches[1]
+            if ($n -gt $max) { $max = $n }
+        }
+    }
+    return $max
+}
+
+# Varre .planning/adr/ e retorna o maior número ADR-NNN já usado (0 se nenhum).
+function Get-HighestAdrNumber {
+    param([Parameter(Mandatory = $true)][string]$AdrDir)
+
+    if (-not (Test-Path -LiteralPath $AdrDir -PathType Container)) { return 0 }
+
+    $max = 0
+    Get-ChildItem -Path $AdrDir -File -Filter '*.md' -ErrorAction SilentlyContinue | ForEach-Object {
+        if ($_.Name -match '^ADR-(\d{3,})-') {
             $n = [int]$matches[1]
             if ($n -gt $max) { $max = $n }
         }

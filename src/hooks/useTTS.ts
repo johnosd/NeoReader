@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { TextToSpeech } from '@capacitor-community/text-to-speech'
 import { WakeLockService } from '../services/WakeLockService'
+import { TtsPlaybackSessionService } from '../services/TtsPlaybackSessionService'
 import type { TtsChunk } from '../components/reader/EpubViewer'
 import { NativeTtsService } from '../services/NativeTtsService'
 import { createFlowId, getDiagnosticsNowMs, logError, logEvent, logWarn } from '../services/DiagnosticsLogger'
@@ -35,6 +36,8 @@ const WORD_HIGHLIGHT_SYNC_DELAY_MS = 140
 const NATIVE_RANGE_FALLBACK_DELAY_MS = 180
 
 interface UseTTSOptions extends TtsPlaybackConfig {
+  bookId?: number
+  bookTitle?: string
   onWordHighlight: (paraIdx: number, start: number, end: number) => void
   onParagraphChange: (paraIdx: number) => void
   onProviderFallback?: (payload: { provider: TtsProvider; fallbackProvider: 'native'; reason: string; transient: boolean }) => void
@@ -214,6 +217,9 @@ export function useTTS(options: UseTTSOptions) {
     nativeVoiceKey: options.nativeVoiceKey,
     voiceSelections: options.voiceSelections,
   })
+  // Identifica o livro pro Service nativo (notificação/MediaSession) — useTTS
+  // continua agnóstico do resto de Book, só repassa esses dois campos.
+  const bookInfoRef = useRef({ bookId: options.bookId, bookTitle: options.bookTitle })
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const activeProviderRef = useRef<TtsProvider>('native')
   const lastChunkIdxRef = useRef(0)
@@ -302,6 +308,10 @@ export function useTTS(options: UseTTSOptions) {
   ])
 
   useEffect(() => {
+    bookInfoRef.current = { bookId: options.bookId, bookTitle: options.bookTitle }
+  }, [options.bookId, options.bookTitle])
+
+  useEffect(() => {
     return () => {
       // Skip if stop() was already called (shouldStopRef=true) — avoids duplicate
       // TextToSpeech.stop() / allowSleep() when the user explicitly stopped before unmount.
@@ -320,6 +330,7 @@ export function useTTS(options: UseTTSOptions) {
 
       void TextToSpeech.stop().catch(logTtsPlaybackError)
       void WakeLockService.allowSleep()
+      void TtsPlaybackSessionService.stop()
     }
   }, [])
 
@@ -763,6 +774,12 @@ export function useTTS(options: UseTTSOptions) {
     updatePaused(false)
     setIsPlaying(true)
     void WakeLockService.keepAwake()
+    if (bookInfoRef.current.bookId != null) {
+      void TtsPlaybackSessionService.start({
+        bookId: bookInfoRef.current.bookId,
+        title: bookInfoRef.current.bookTitle ?? '',
+      })
+    }
 
     const resolvedProvider = await resolveConfiguredTtsProvider(configRef.current.provider).catch(() => 'native' as const)
     let playbackProvider = resolvedProvider
@@ -872,6 +889,9 @@ export function useTTS(options: UseTTSOptions) {
     updatePaused(true)
     setIsPlaying(false)
     void WakeLockService.allowSleep()
+    // Não chama TtsPlaybackSessionService.stop() aqui — a sessão/notificação
+    // nativa continua ativa durante a pausa, só o ícone/estado é atualizado.
+    void TtsPlaybackSessionService.updatePlaybackState({ state: 'paused' })
     logPlaybackEvent('tts.playback.pause', activeProviderRef.current, 'success')
 
     if (activeProviderRef.current === 'native') {
@@ -912,6 +932,9 @@ export function useTTS(options: UseTTSOptions) {
     updatePaused(false)
     setIsPlaying(true)
     void WakeLockService.keepAwake()
+    // Sessão nativa continua rodando desde o play() original (pause() não a
+    // encerra) — só precisa sincronizar o estado de volta pra "tocando".
+    void TtsPlaybackSessionService.updatePlaybackState({ state: 'playing' })
     try {
       await audio.play()
       logPlaybackEvent('tts.playback.resume', activeProviderRef.current, 'success')
@@ -929,6 +952,7 @@ export function useTTS(options: UseTTSOptions) {
     shouldStopRef.current = true
     updatePaused(false)
     void WakeLockService.allowSleep()
+    void TtsPlaybackSessionService.stop()
     premiumSynthesisAbortControllerRef.current?.abort()
     premiumSynthesisAbortControllerRef.current = null
     if (shouldLogStopIntent) {

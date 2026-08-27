@@ -1,4 +1,4 @@
-#!/usr/bin/env pwsh
+﻿#!/usr/bin/env pwsh
 # Gate de pré-requisitos por estágio do fluxo sdd-*. Chamado pelos 4 skills
 # como primeira ação substantiva.
 #
@@ -95,7 +95,7 @@ switch ($Stage) {
         if (-not (Test-Path -LiteralPath $paths.TASKS -PathType Leaf)) {
             Fail-Missing -FileDescription 'tasks.md' -NextSkill 'sdd-plan'
         }
-        $tasksContent = Get-Content -LiteralPath $paths.TASKS -Raw
+        $tasksContent = [System.IO.File]::ReadAllText($paths.TASKS, [System.Text.Encoding]::UTF8)
         $checkedCount = ([regex]::Matches($tasksContent, '- \[[xX]\]')).Count
         if ($checkedCount -eq 0) {
             Write-Output "AVISO: tasks.md não tem nenhum item marcado ainda. sdd-converge pode não achar nada implementado."

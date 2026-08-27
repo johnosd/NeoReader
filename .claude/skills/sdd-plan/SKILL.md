@@ -76,6 +76,15 @@ Prefira buscas focadas (Grep/Glob) a dump de diretório inteiro. Leia testes
 existentes da mesma área, se houver, pra entender o padrão de teste do
 projeto.
 
+Se `.planning/adr/` existir, liste os títulos das ADRs lá dentro e leia por
+inteiro qualquer uma cujo tema se relacione com esta feature (stack, banco de
+dados, framework tocados). São decisões de arquitetura já tomadas e
+justificadas — **não as relitigue silenciosamente**; a Technical Context e as
+Decisões Invariantes desta feature devem ser consistentes com elas. Se a
+feature exige contrariar uma ADR existente, trate como uma violação a
+justificar no Constitution Check (passo 5) e sugira ao usuário rodar
+`sdd-adr` pra emendar a decisão formalmente, em vez de só ignorá-la aqui.
+
 ### 3. Síntese de contexto
 
 Antes de escrever qualquer arquivo, monte um resumo compacto pra você mesmo:

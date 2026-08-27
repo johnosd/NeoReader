@@ -1,6 +1,6 @@
 ---
 name: sdd-converge
-description: Compara a implementação real de uma feature contra sua spec/plano/tasks e a constitution do projeto, aponta lacunas (como novas tasks, nunca reescrevendo o que já existe) e, quando tudo bate, sincroniza o status final da documentação. Use quando o usuário pedir para checar se uma feature está completa, achar o que falta antes de entregar, convergir uma feature, ou auditar a implementação. Exige pelo menos uma passada anterior do sdd-execute. NÃO edita código nem reescreve conteúdo existente de spec/plan/tasks — só anexa e atualiza campos de status.
+description: Compara a implementação real de uma feature contra sua spec/plano/tasks e a constitution do projeto, aponta lacunas (como novas tasks, nunca reescrevendo o que já existe) e, quando tudo bate, sincroniza o status final da documentação — incluindo o README.md do projeto, se existir e se algo relevante mudou. Use quando o usuário pedir para checar se uma feature está completa, achar o que falta antes de entregar, convergir uma feature, ou auditar a implementação. Exige pelo menos uma passada anterior do sdd-execute. NÃO edita código nem reescreve conteúdo existente de spec/plan/tasks — só anexa e atualiza campos de status.
 ---
 
 # sdd-converge
@@ -93,8 +93,19 @@ Este é o passo que sincroniza a documentação com a realidade ao final:
    `Resolvido:` que este convergence não achou evidência de violação recebe
    `Resolvido:` (mitigação confirmada pela auditoria). Itens que continuam
    abertos ficam registrados tal qual — não apague nada.
-5. `.\.planning\scripts\powershell\update-feature-status.ps1 -Slug <NNN-slug> -Status Convergida`
-6. Relate "Convergido" ao usuário.
+5. **Se existir um `README.md` do projeto** (tipicamente na raiz do
+   repositório — não crie um se não existir, isso está fora do escopo deste
+   skill): confira se algo que esta feature mudou deveria estar refletido
+   nele — lista de features/capacidades, instruções de setup/execução,
+   pré-requisitos, portas, comandos. Cerimônia proporcional, mesma lógica do
+   tratamento de bugs no `sdd-execute`: só edite se houver uma mudança real
+   e visível pra quem lê o README (não para refactors internos, não para
+   detalhes de implementação que não aparecem lá). Edite cirurgicamente —
+   só a seção afetada, nunca uma reescrita geral do arquivo. Se nada mudar,
+   não toque nele.
+6. `.\.planning\scripts\powershell\update-feature-status.ps1 -Slug <NNN-slug> -Status Convergida`
+7. Relate "Convergido" ao usuário, incluindo se o `README.md` do projeto foi
+   atualizado (e o quê) ou se não havia nada a mudar nele.
 
 ## Restrições importantes
 
@@ -103,6 +114,10 @@ Este é o passo que sincroniza a documentação com a realidade ao final:
   toca nele.
 - Nunca reescreve o corpo de `spec.md` ou `plan.md` — só a linha de Status
   (spec.md) e a seção `## Resultado Final` por anexação (plan.md).
+- A exceção é o `README.md` do projeto, se existir: pode receber uma edição
+  cirúrgica e pontual (não uma reescrita), e só quando a feature convergida
+  mudou algo que um leitor do README precisaria saber. Nunca cria um
+  `README.md` que não existia.
 - Se não achar evidência suficiente pra confirmar ou negar algo (não achou o
   arquivo relevante, por exemplo), reporte como achado de severidade a
   julgar — não presuma que está tudo certo.

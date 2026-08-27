@@ -45,6 +45,7 @@ $filteredLog = Join-Path $logDir "android-diagnostics-$timestamp-filtered.log"
 $diagnosticsPattern = @(
   "NeoReaderEvent",
   "NeoReaderImport",
+  "NeoReaderTtsPlayback",
   "Capacitor/Console",
   "AndroidRuntime",
   "FATAL EXCEPTION",
@@ -64,6 +65,7 @@ $diagnosticsPattern = @(
 $neoreaderPattern = @(
   "NeoReaderEvent",
   "NeoReaderImport",
+  "NeoReaderTtsPlayback",
   "Capacitor/Console",
   $Package
 ) -join "|"

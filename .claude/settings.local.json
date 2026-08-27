@@ -65,7 +65,18 @@
       "Bash(node node_modules/@capacitor/assets/bin/capacitor-assets generate --android)",
       "PowerShell(npm install)",
       "PowerShell(Test-Path \"$env:USERPROFILE\\\\.android\")",
-      "PowerShell($path = \"android\\\\app\\\\build\\\\outputs\\\\bundle\\\\release\\\\app-release.aab\"; $size = [math]::Round\\(\\(Get-Item $path\\).Length / 1MB, 2\\); \"AAB: $path\"; \"Tamanho: $size MB\")"
+      "PowerShell($path = \"android\\\\app\\\\build\\\\outputs\\\\bundle\\\\release\\\\app-release.aab\"; $size = [math]::Round\\(\\(Get-Item $path\\).Length / 1MB, 2\\); \"AAB: $path\"; \"Tamanho: $size MB\")",
+      "PowerShell(powershell -File \".\\\\.planning\\\\scripts\\\\powershell\\\\check-prerequisites.ps1\" -Stage specify)",
+      "PowerShell(powershell -File \".\\\\.planning\\\\scripts\\\\powershell\\\\new-feature.ps1\" \"ajustar modo audiobook TTS para nao parar com tela apagada ou app em segundo plano\" -ShortName \"audiobook-background-playback\" -Json)",
+      "PowerShell(powershell -File \".\\\\.planning\\\\scripts\\\\powershell\\\\update-feature-status.ps1\" -Slug \"001-audiobook-background-playback\" -Status Especificada)",
+      "PowerShell(powershell -File \".\\\\.planning\\\\scripts\\\\powershell\\\\check-prerequisites.ps1\" -Stage plan -Slug \"001-audiobook-background-playback\" -Json)",
+      "PowerShell($bytes = [System.IO.File]::ReadAllBytes\\(\".\\\\.planning\\\\scripts\\\\powershell\\\\check-prerequisites.ps1\"\\); \"{0:X2} {1:X2} {2:X2}\" -f $bytes[0],$bytes[1],$bytes[2])",
+      "PowerShell(npx vitest run src/__tests__/services/TtsPlaybackSessionService.test.ts src/__tests__/hooks/useTTS.test.tsx 2>&1 | Select-Object -Last 80)",
+      "PowerShell(npm test *)",
+      "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -Last 60)",
+      "PowerShell(adb devices *)",
+      "PowerShell(adb shell *)",
+      "PowerShell(cd C:\\\\Users\\\\johns\\\\Documents\\\\Projetos\\\\NeoReader\\\\NeoReader; powershell -File \".\\\\.planning\\\\scripts\\\\powershell\\\\update-feature-status.ps1\" -Slug \"001-audiobook-background-playback\" -Json)"
     ]
   }
 }
