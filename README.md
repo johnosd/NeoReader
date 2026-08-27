@@ -380,12 +380,17 @@ Atalho para debug em device/emulador:
 npm run android:run
 ```
 
-Fluxo manual:
+Fluxo manual (no Windows, `npx cap run android` falha com
+`'gradlew' is not recognized` — a Capacitor CLI não resolve `gradlew.bat`
+nesse ambiente; por isso `android:run` usa `scripts/run-android.ps1` em vez
+de `cap run`):
 
 ```bash
 npm run build &&
 npx cap sync android &&
-npx cap run android
+cd android &&
+.\gradlew.bat installDebug &&
+adb shell monkey -p com.johnny.neoreader -c android.intent.category.LAUNCHER 1
 ```
 
 Dados atuais do projeto Android:

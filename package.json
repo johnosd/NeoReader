@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "android:run": "npm run build && npx cap sync android && npx cap run android",
+    "android:run": "npm run build && npx cap sync android && powershell -ExecutionPolicy Bypass -File scripts/run-android.ps1",
     "android:logs:import": "powershell -ExecutionPolicy Bypass -File scripts/capture-android-import-logs.ps1",
     "android:logs:import:run": "powershell -ExecutionPolicy Bypass -File scripts/capture-android-import-logs.ps1 -Seconds 120 -Launch",
     "android:logs:import:run:dump": "powershell -ExecutionPolicy Bypass -File scripts/capture-android-import-logs.ps1 -Seconds 120 -Launch -ThreadDump",
