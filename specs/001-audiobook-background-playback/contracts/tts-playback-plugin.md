@@ -23,9 +23,12 @@ interface TtsPlaybackStartOptions {
   bookId: number
   title: string          // título do livro
   chapterLabel?: string  // capítulo/seção atual, se disponível
-  coverBase64?: string   // capa em base64 (sem prefixo data:), opcional
 }
 ```
+
+A capa nunca é enviada em `start()` — chega logo em seguida via
+`updateMetadata()`, chamado por `ReaderScreen.tsx` assim que a reprodução
+começa (ver T025 em `tasks.md`).
 
 Idempotente: se já houver uma sessão ativa para o mesmo `bookId`, apenas
 atualiza os campos passados (equivalente a `updateMetadata`).
@@ -85,7 +88,11 @@ Mapeamento no lado JS (`ReaderScreen.tsx`): `play`/`pause` → `tts.resume()`/
 
 ### `audioFocusChange`
 
-Disparado quando o `AudioManager` nativo notifica mudança de foco.
+Disparado quando o `AudioManager` nativo notifica mudança de foco. O evento
+sempre é emitido pelo nativo (o `TtsPlaybackService` sempre pede
+`AUDIOFOCUS_GAIN` ao iniciar, independente do provider ativo), mas **o JS só
+age sobre ele quando o provider ativo é nativo** — ver nota de gating logo
+abaixo.
 
 ```ts
 type TtsAudioFocusEvent = { type: 'loss' | 'lossTransient' | 'gain' }
@@ -99,6 +106,20 @@ type TtsAudioFocusEvent = { type: 'loss' | 'lossTransient' | 'gain' }
 - `gain` (`AUDIOFOCUS_GAIN`): JS chama `tts.resume()` **somente** se a
   pausa anterior foi causada por `lossTransient` (nunca depois de `loss`
   nem depois de uma pausa manual do usuário).
+
+**Gating por provider ativo (achado em R-003, `plan.md` → Riscos e
+Decisões)**: o `<audio>` HTML5 usado pelos providers premium
+(Speechify/ElevenLabs/Fish Audio) roda dentro do WebView, e o Chromium já
+pausa/retoma esse elemento sozinho ao perder/reaver foco de áudio —
+comportamento nativo do WebView, confirmado em device real (o Spotify pausou
+a narração corretamente mesmo com o `AudioFocusRequestCompat` do
+`TtsPlaybackService` já evictado do stack de foco havia 30+ segundos). Por
+isso, `useTTS.ts::handleAudioFocusChange(type)` (a implementação real da
+lógica acima) só executa a lógica de `pause()`/`resume()` quando
+`activeProviderRef.current === 'native'`; para os providers premium, o
+evento chega mas é ignorado de propósito, e o comportamento correto (pausar
+em `loss`/`lossTransient`, retomar sozinho só na transitória) já acontece
+via o próprio WebView, sem participação do app.
 
 ## Wrapper JS (`src/services/TtsPlaybackSessionService.ts`)
 
