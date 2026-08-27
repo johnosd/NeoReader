@@ -239,6 +239,10 @@ ficha manualmente.
 ### TTS
 
 - Audiobook continuo a partir do texto do leitor.
+- No Android nativo, o audiobook continua tocando com a tela apagada ou o
+  app em segundo plano, com notificacao estilo player (capa, titulo,
+  capitulo, play/pause/avancar) e pausa/retomada automatica em ligacoes ou
+  outros apps de midia.
 - Provedores: Speechify, ElevenLabs, Fish Audio e TTS nativo do dispositivo.
 - Fallback automatico para TTS nativo quando o provedor premium nao esta
   configurado ou falha.

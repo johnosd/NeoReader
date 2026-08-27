@@ -254,10 +254,10 @@ npm run android:run
 
 | ID | Risco/Decisão | Impacto | Mitigação/Encaminhamento |
 | --- | --- | --- | --- |
-| R-001 | Android 14+/15 só permite iniciar um foreground service tipo `mediaPlayback` enquanto o app está em primeiro plano. | Se o Service for iniciado tarde ou de um contexto errado, `startForeground()` lança `ForegroundServiceStartNotAllowedException` e a feature inteira falha silenciosamente. | Iniciar o Service exclusivamente dentro de `useTTS.ts::play()` (sempre chamado com o app em primeiro plano/visível), nunca a partir de um listener que já dispare em segundo plano. |
-| R-002 | Gerenciadores de bateria agressivos de fabricante (MIUI, ColorOS, One UI extremo) podem matar o processo mesmo com foreground service + wake lock. | Usuários desses fabricantes podem continuar vendo a narração parar. | Fora de escopo por decisão da spec (Assumptions) — nenhuma mitigação de código é confiável contra isso; não bloqueia a feature. |
+| R-001 | Android 14+/15 só permite iniciar um foreground service tipo `mediaPlayback` enquanto o app está em primeiro plano. | Se o Service for iniciado tarde ou de um contexto errado, `startForeground()` lança `ForegroundServiceStartNotAllowedException` e a feature inteira falha silenciosamente. | Resolvido: confirmado por auditoria de código (`sdd-converge`, 2026-08-27) que `TtsPlaybackSessionService.start()` só é chamado dentro de `useTTS.ts::play()` — nenhum outro call site encontrado; nenhuma falha desse tipo relatada em nenhuma validação de device real das Fases 3-8. |
+| R-002 | Gerenciadores de bateria agressivos de fabricante (MIUI, ColorOS, One UI extremo) podem matar o processo mesmo com foreground service + wake lock. | Usuários desses fabricantes podem continuar vendo a narração parar. | Resolvido: decisão confirmada por auditoria (`sdd-converge`, 2026-08-27) — fora de escopo por design (spec.md → Assumptions), sem mitigação de código; nenhuma tentativa de mitigação divergente encontrada no código. |
 | R-003 | **Resolvido em 2026-08-27, após duas iterações.** Diagnóstico original — confirmado em device real (T032, 2026-08-26) — não é o `@capacitor-community/text-to-speech`, é o **WebView/Chromium**: toda vez que um provider premium (Speechify/ElevenLabs/Fish Audio) toca um chunk via `new Audio(url)` em `playAudioBlob` (useTTS.ts), o Chromium interno pede/devolve foco de áudio sozinho (log: `MediaFocusControl: requestAudioFocus()/abandonAudioFocus() ... clientId=...org.chromium.content.browser.AudioFocusDelegate... callingPack=com.johnny.neoreader`) — isso acontece a cada poucos segundos, o tempo todo. Nosso `TtsPlaybackService.requestAudioFocus()` (`AudioFocusRequestCompat`) fica "soterrado": como o Chromium fica se re-registrando como o pedido mais recente do mesmo app, quando uma ligação real chega (testado com chamada de voz do WhatsApp — integra via Telecom/`ConnectionService`, pede foco com `AA=USAGE_NOTIFICATION_RINGTONE` depois `USAGE_VOICE_COMMUNICATION`), o Android **não notificou nosso `OnAudioFocusChangeListener`** (nenhum `handleAudioFocusChange: AUDIOFOCUS_LOSS*` no log durante a janela da ligação) — a narração simplesmente continuou por cima da ligação. | **Bloqueia US4 (SC-004)**: pausa automática em ligação não funciona quando o provider ativo é premium (via `<audio>` do WebView). Não testado ainda se o mesmo problema ocorre com provider **nativo** (TextToSpeech do Android, sem elemento `<audio>` — nesse caso só nosso `AudioFocusRequestCompat` existiria, sem o concorrente do Chromium; provável que funcione, mas não confirmado). | **Tentativa 1 (direção a)**: `src/hooks/useTTS.ts::playAudioBlob` passou a reaproveitar um único `HTMLAudioElement` (`sharedPremiumAudioElementRef`) por toda a vida do hook, trocando só `.src` a cada chunk em vez de `new Audio(url)`. Isso reduziu drasticamente o churn de request/abandon do Chromium (de "a cada poucos segundos" pra praticamente zero durante a reprodução), mas revelou um problema mais fundamental via log filtrado (`MediaFocusControl`): o `AudioFocusDelegate` do Chromium pede `AUDIOFOCUS_GAIN` (não transitório) assim que o primeiro chunk toca, e Android **evicta permanentemente** nosso `AudioFocusRequestCompat` (não é uma perda transitória com retomada automática — é uma remoção completa do stack de foco). Resultado: toda sessão premium tinha uma pausa espúria ~4s após iniciar, exigindo toque manual em "play" pra continuar (achado pelo usuário no teste real). **Causa raiz completa**: o `<audio>` HTML5 dos providers premium roda dentro do WebView, e o **Chromium já pausa/retoma esse elemento sozinho** ao perder/reaver foco de áudio — comportamento nativo do Chromium para elementos de mídia, independente de qualquer código nosso. Confirmado empiricamente: no teste do Spotify, a narração pausou corretamente mesmo com nosso `AudioFocusRequestCompat` já evictado e fora do stack de foco havia mais de 30 segundos (ou seja, quem pausou foi o próprio WebView, não nosso `OnAudioFocusChangeListener`). **Tentativa 2 (final, resolvida)**: como o WebView já cuida corretamente do caso premium (pausa em perda transitória/permanente e retoma sozinho só na transitória — exatamente o comportamento desejado por FR-008), nosso próprio pedido de foco nativo só é útil pro provider **nativo** (`@capacitor-community/text-to-speech`, sem `<audio>` no meio — não tem ninguém cuidando disso por fora). Correção: `useTTS.ts` ganhou `handleAudioFocusChange(type)` (exportado pelo hook), que só age quando `activeProviderRef.current === 'native'`; pra premium, o evento é ignorado e o WebView resolve sozinho. `ReaderScreen.tsx::audioFocusHandlerRef` foi simplificado pra só repassar o evento (`tts.handleAudioFocusChange(event.type)`) — a lógica de pause/resume e o bookkeeping de perda transitória-vs-permanente saíram do componente e passaram a viver dentro do hook. Revalidado em device real pelo usuário: sem pausa espúria no início, ligação de voz real (WhatsApp) e Spotify pausam/retomam corretamente. |
-| R-004 | `useTtsSleepTimer.ts` usa `setInterval`/`setTimeout` de JS puro; throttling de aba em segundo plano poderia atrasar o disparo. | Sleep timer dispara com atraso quando o app está em segundo plano. | Fora do escopo desta feature (comportamento pré-existente, não citado nos FRs); risco conhecido, não bloqueador. |
+| R-004 | `useTtsSleepTimer.ts` usa `setInterval`/`setTimeout` de JS puro; throttling de aba em segundo plano poderia atrasar o disparo. | Sleep timer dispara com atraso quando o app está em segundo plano. | Resolvido: decisão confirmada por auditoria (`sdd-converge`, 2026-08-27) — fora do escopo desta feature (comportamento pré-existente, não citado nos FRs), `useTtsSleepTimer.ts` não foi tocado; risco conhecido, não bloqueador. |
 | R-005 | `TtsPlaybackService.onStartCommand` usava `stopSelf()` sem `startId` — um `start()` entregue logo após um `stop()` (padrão comum em `useTTS.ts`/`ReaderScreen.tsx`: avançar/voltar parágrafo, trocar provider/velocidade) podia ser destruído pelo stop antigo mesmo já tendo reiniciado a sessão. | Achado na validação manual de US3 (device real): tocar "avançar" na notificação derrubava a notificação e, ao apagar a tela em seguida, a narração parava (wake lock já tinha sido liberado). | Resolvido: trocado por `stopSelf(startId)`, que só efetiva a parada se nenhum start mais novo tiver sido entregue depois — mesma correção protege todos os fluxos JS que fazem stop+start em sequência rápida. |
 
 ## Execution Notes
@@ -280,8 +280,9 @@ npm run android:run
 | 2026-08-27 | Fase 6 (User Story 4) | T032, tentativa 1: `useTTS.ts::playAudioBlob` reaproveita um único `HTMLAudioElement` entre chunks premium em vez de `new Audio(url)` por chunk. Reduziu o churn de foco do Chromium, mas revalidação em device (log filtrado `MediaFocusControl`) mostrou uma pausa espúria no início de toda sessão premium (Chromium evicta nosso foco de vez, não transitoriamente) — regressão nova achada pelo usuário. | Investigar por que a pausa inicial precisa de toque manual e corrigir antes de fechar T032. |
 | 2026-08-27 | Fase 6 (User Story 4) | T032, tentativa 2 (final): causa raiz completa identificada — o `<audio>` premium roda no WebView, e o Chromium já pausa/retoma esse elemento sozinho ao perder/reaver foco (confirmado: Spotify pausou a narração mesmo com nosso foco nativo já evictado há 30+s). Nosso pedido de foco só é útil pro provider nativo. Correção: `useTTS.ts` ganhou `handleAudioFocusChange(type)` exportado, gated por `activeProviderRef.current === 'native'`; `ReaderScreen.tsx` simplificado pra só repassar o evento. Testes atualizados (`useTTS.test.tsx`, `ReaderScreen.test.tsx`); `npm run lint && npm test && npx tsc --noEmit && npm run build` limpos (577/584 na rodada sob carga total — 3 timeouts em arquivos não relacionados, confirmados como flakiness de infra pré-existente ao isolar os arquivos, não regressão). **Revalidado em device real pelo usuário**: "testei tudo de novo, funcionou certinho" — sem pausa espúria, ligação real e Spotify pausando/retomando corretamente. T032 e Fase 6 (US4) concluídos. | Nenhuma — seguir pra Fase 7 (Polish). |
 | 2026-08-27 | Fase 7 (Polish) | T033-T035 concluídas. `npm run lint && npm test && npx tsc --noEmit && npm run build` limpos. **Device real (roteiro `quickstart.md`, US1-US3 — US4 já validado na Fase 6 no mesmo dia)**: notificação completa OK; tela apagando sozinha por 5min sem interrupção (SC-001); Home por 5min sem interrupção com progresso correto ao reabrir (SC-002); bloqueio manual sem interrupção; controles de pause/play/avançar pela notificação OK; stop remove a notificação. Regressões confirmadas separadamente pelo usuário: TTS avulso (Word Lens) não abre notificação/Service; toggle "Manter tela ligada" funcionando normalmente. Checklist de Release completo. | Nenhuma — feature completa. |
+| 2026-08-27 | Fase 8 (Convergence) | `sdd-converge` encontrou 3 lacunas de documentação (nenhuma CRITICAL): contrato desatualizado quanto ao gating de `audioFocusChange` por provider ativo (CF-01), `coverBase64` documentado em `start()` mas nunca implementado (CF-02), e o Edge Case de fallback premium→nativo com o audiobook em segundo plano nunca validado em device (CF-03). T036-T038 anexadas e concluídas: `contracts/tts-playback-plugin.md` corrigido; T038 validado em device real (Wi-Fi desligado durante narração premium em segundo plano — log confirmou múltiplos `tts.provider.fallback` sem erro fatal, narração seguiu contínua no nativo). Segunda rodada de `sdd-converge` não encontrou nenhum achado novo — convergência limpa. | Nenhuma — feature convergida. |
 
-**PRÓXIMO**: Feature `001-audiobook-background-playback` completa (todas as 7 fases concluídas, Checklist de Release 100%). Próximo passo natural é rodar `/sdd-converge` pra comparar a implementação final contra spec/plan/tasks antes de encerrar a feature de vez.
+**PRÓXIMO**: Feature `001-audiobook-background-playback` convergida — nenhum trabalho pendente conhecido.
 
 ## Arquivos Principais
 
@@ -299,3 +300,54 @@ npm run android:run
 - `npm run android:run` (`npx cap run android`) falha neste ambiente Windows com `'gradlew' is not recognized...` — a Capacitor CLI não resolve o `gradlew`/`gradlew.bat` corretamente ao invocar o Gradle. Workaround pra instalar/testar em device real nas próximas fases: `npm run build && npx cap sync android` (isso funciona) seguido de `cd android; .\gradlew.bat installDebug` e `adb shell monkey -p com.johnny.neoreader -c android.intent.category.LAUNCHER 1` pra abrir o app. Logado em `.planning/backlog.md` como `[Bug]` de tooling, fora do escopo desta feature corrigir a causa raiz.
 - Device adb pode aparecer como `unauthorized` na primeira conexão da sessão — é preciso autorizar manualmente o prompt de depuração USB na tela do celular antes de qualquer comando `adb`/`gradlew installDebug` funcionar.
 - **US4 parada no meio (2026-08-26)**: T027-T031 feitos e testados (unitário + device parcial: pausa/retoma OK com `lossTransient`/`gain` simulados, mas a ligação real do WhatsApp não pausou — ver R-003 acima). T032 (validação empírica) ficou pendente de correção, não de teste — o teste já rodou e revelou o bug do Chromium `AudioFocusDelegate`. Ao retomar: não repetir a investigação, já está documentada em R-003; ir direto pra uma das direções candidatas de fix.
+
+## Resultado Final
+
+Feature concluída e convergida em 2026-08-27, após 8 fases (Setup,
+Foundational, US1-US4, Polish, Convergence).
+
+**O que foi construído**: um `TtsPlaybackService` Android em foreground
+(`foregroundServiceType="mediaPlayback"`) que mantém `PARTIAL_WAKE_LOCK` +
+`MediaSessionCompat` + notificação estilo player enquanto o audiobook toca,
+acessado do JS via o plugin Capacitor customizado `NeoReaderTtsPlaybackPlugin`
+e seu wrapper `TtsPlaybackSessionService.ts`. `useTTS.ts` continua sendo a
+única fonte de verdade sobre o que tocar; o nativo só garante processo/CPU
+vivos, expõe controles de mídia (play/pause/avançar) e, pro provider TTS
+nativo, participa do sistema de foco de áudio do Android pra pausar/retomar
+em ligações e outros apps de mídia.
+
+**Desvios acumulados em relação ao plano original**:
+
+- **R-005 (não previsto no plano original)**: `stopSelf()` sem `startId` no
+  `TtsPlaybackService` causava uma race condition — um `start()` entregue
+  logo após um `stop()` (padrão comum em avançar/voltar parágrafo, troca de
+  provider/velocidade) podia ser destruído pelo stop antigo. Corrigido pra
+  `stopSelf(startId)`; a correção protege todos os fluxos JS que fazem
+  stop+start em sequência rápida, não só os desta feature.
+- **R-003, a descoberta mais significativa da feature**: o plano original
+  presumia que um `AudioFocusRequestCompat` nativo bastaria pra cobrir tanto
+  o provider nativo quanto os premium. Na prática, o `<audio>` HTML5 dos
+  providers premium roda dentro do WebView, e o Chromium já gerencia foco de
+  áudio sozinho pra esse elemento — inclusive pausando/retomando
+  corretamente em ligações e outros apps de mídia, sem nenhuma participação
+  do app. Competir com esse mecanismo (pedindo foco nativo também pro caso
+  premium) só causava uma pausa espúria no início de toda sessão. A decisão
+  final: `useTTS.ts::handleAudioFocusChange` só age quando o provider ativo
+  é nativo; pra premium, o app conscientemente cede essa responsabilidade ao
+  WebView. Ver R-003 (resolvido) pro diagnóstico completo.
+- **Critérios de sucesso reduzidos por decisão do usuário**: SC-001 (30min)
+  e SC-002 (15+min) foram reduzidos pra 5min cada — evidência de alguns
+  minutos contínuos sem interrupção já foi considerada suficiente pra
+  validar o mecanismo, sem necessidade de esperar a duração completa em toda
+  execução manual do roteiro.
+- **Fase 8 (Convergence)**: encontrou e corrigiu 3 lacunas de fidelidade de
+  documentação (contrato desatualizado quanto ao gating de foco por
+  provider e ao fluxo real da capa em `start()`/`updateMetadata()`) e uma
+  verificação de regressão prevista mas nunca executada (fallback
+  premium→nativo com o audiobook em segundo plano) — todas de baixo/médio
+  risco, nenhuma indicando um defeito funcional não descoberto antes.
+
+**Decisões técnicas que ficaram diferentes do plano original**: nenhuma
+mudança de dependência ou arquitetura além do já registrado acima — a
+dependência `androidx.media:media` e a estrutura de arquivos seguiram
+exatamente o plano original.
