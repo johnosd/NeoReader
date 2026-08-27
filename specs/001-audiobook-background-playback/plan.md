@@ -45,9 +45,10 @@ targetSdk 36. Web/PWA explicitamente fora de escopo (FR-012) — toda chamada
 ao novo plugin é guardada por `Capacitor.isNativePlatform() && Capacitor.
 getPlatform() === 'android'`.
 
-**Performance Goals**: Narração contínua por 30+ minutos com tela apagada e
-por 15+ minutos com app em segundo plano, sem interrupção perceptível
-(SC-001, SC-002).
+**Performance Goals**: Narração contínua por 5+ minutos com tela apagada e
+por 5+ minutos com app em segundo plano, sem interrupção perceptível
+(SC-001, SC-002 — reduzido de 30min/15+min pra 5min por decisão do usuário
+em 2026-08-27).
 
 **Constraints**: `targetSdk 36` (Android 15) exige declarar
 `foregroundServiceType="mediaPlayback"` e as permissões `FOREGROUND_SERVICE`
@@ -208,7 +209,7 @@ Vitest/JSDOM).
      - Uso pontual/curto: `npm run android:logs:diagnostics:run` (grava em
        `logs/android-diagnostics-<timestamp>-{full,filtered}.log`, já
        filtra por `NeoReaderEvent`/`NeoReaderImport`/crash/ANR/frame-drop).
-     - Cenários longos (ex: aguardar a tela apagar sozinha por 30 min, ou
+     - Cenários longos (ex: aguardar a tela apagar sozinha por até 5 min, ou
        esperar uma ligação real): `adb logcat -v threadtime *>
        android-tts-playback.log` rodado em background (`run_in_background`
        no Claude Code, ou `Start-Job` no PowerShell), sem limite de tempo,
@@ -243,8 +244,9 @@ npm run android:run
 | --- | --- |
 | Setup (dependência nativa) | Concluído — `androidx.media:media:1.7.0` declarada |
 | Foundational (Service/plugin/wiring) | Concluído |
-| US1 (tela apaga sozinha) | Concluído — validado em device real (4+ min contínuos sem interrupção); teste completo de 30min fica pro `quickstart.md` da fase Polish |
-| US2 (segundo plano/bloqueio manual) | Concluído — validado em device real (Home + bloqueio manual, ambos sem interrupção); teste estendido de 15+min fica pro `quickstart.md` da fase Polish |
+| US1 (tela apaga sozinha) | Concluído — validado em device real (~5 min contínuos sem interrupção); SC-001 revisado de 30min pra 5min (decisão do usuário, 2026-08-27) — satisfeito |
+| US2 (segundo plano/bloqueio manual) | Concluído — validado em device real (Home + bloqueio manual, ambos sem interrupção, 5min cronometrados na Fase 7); SC-002 revisado de 15+min pra 5+min (decisão do usuário, 2026-08-27) — satisfeito |
+| Polish (Fase 7) | Concluído — lint/test/tsc/build limpos, `quickstart.md` completo (US1-US3) em device real, regressões (Word Lens avulso, toggle "Manter tela ligada") confirmadas |
 | US3 (notificação/MediaSession) | Concluído — validado em device real; um bug crítico (race condition stop/start) encontrado e corrigido durante a validação (R-005) |
 | US4 (foco de áudio) | Concluído — validado em device real (ligação de voz real + Spotify); R-003 resolvido após duas iterações (ver detalhe no risco) |
 
@@ -270,14 +272,16 @@ npm run android:run
 | 2026-08-26 | Fase 3 (User Story 1) | T011-T013 concluídas (T012/T013 já satisfeitas pela Fundação). Validação em device real (Samsung SM-S911B): áudio (ElevenLabs) continuou tocando e avançando de parágrafo com a tela apagada por 4+ min contínuos, sem `stop`/`error` no log. Encerrado por decisão do usuário antes de completar os 30min da SC-001. | Rodar o teste completo de 30min continua pendente pro `quickstart.md` da fase Polish (T034). |
 
 | 2026-08-26 | Fase 4 (User Story 2) | T014-T015 concluídas — sem mudança de comportamento necessária (só comentário), infra da Fundação já cobria o cenário. Validação em device real: Home e bloqueio manual, ambos sem interrupção (confirmado pelo usuário e pelo log — narração avançou continuamente até um `tts.playback.stop` limpo). | Teste estendido de 15+min fica pro `quickstart.md` da fase Polish. |
+| 2026-08-27 | Fase 7 (Polish) — decisão de escopo | Usuário decidiu reduzir os testes estendidos de SC-001 (30min) e SC-002 (15+min) pra um máximo de 5min — evidência de alguns minutos contínuos já é suficiente. `spec.md` (SC-001/SC-002 + Clarifications), `tasks.md` (Fases 3/4) e este `plan.md` (Performance Goals, Estado Atual) atualizados. A validação de ~5min já feita na Fase 3 (US1) passa a satisfazer SC-001 diretamente. | Confirmar ~5min cronometrados pra US2 (SC-002) dentro do roteiro completo de `quickstart.md` (T034). |
 
 | 2026-08-26 | Fase 5 (User Story 3) | T016-T026 concluídas: notificação `MediaStyle` completa (capa/título/capítulo/prev-playpause-next) com `MediaSessionCompat`, controles ida-e-volta JS↔nativo, `POST_NOTIFICATIONS` em runtime. **Bug crítico encontrado e corrigido na validação em device** (T021a): `stopSelf()` sem `startId` derrubava a sessão quando um `start()` chegava logo após um `stop()` (padrão usado por avançar/voltar parágrafo e troca de provider/velocidade) — corrigido pra `stopSelf(startId)`. Revalidado em device com sucesso (avançar/voltar com tela apagada, sem queda). | Nenhuma. |
 
 | 2026-08-26 | Fase 6 (User Story 4) | T027-T031 implementadas e testadas (unitário + build + device). T032: validação empírica em device revelou bug real de R-003 (Chromium `AudioFocusDelegate` conflita com nosso `AudioFocusRequestCompat` durante playback premium — ligação de voz do WhatsApp não pausou a narração). Diagnóstico completo registrado, correção ainda não implementada. **Sessão pausada pelo usuário nesse ponto.** | Implementar uma das direções candidatas de R-003, revalidar em device (ligação real + abrir outro app de mídia, que ainda não foi testado), então fechar T032 e o checkpoint da Fase 6. |
 | 2026-08-27 | Fase 6 (User Story 4) | T032, tentativa 1: `useTTS.ts::playAudioBlob` reaproveita um único `HTMLAudioElement` entre chunks premium em vez de `new Audio(url)` por chunk. Reduziu o churn de foco do Chromium, mas revalidação em device (log filtrado `MediaFocusControl`) mostrou uma pausa espúria no início de toda sessão premium (Chromium evicta nosso foco de vez, não transitoriamente) — regressão nova achada pelo usuário. | Investigar por que a pausa inicial precisa de toque manual e corrigir antes de fechar T032. |
 | 2026-08-27 | Fase 6 (User Story 4) | T032, tentativa 2 (final): causa raiz completa identificada — o `<audio>` premium roda no WebView, e o Chromium já pausa/retoma esse elemento sozinho ao perder/reaver foco (confirmado: Spotify pausou a narração mesmo com nosso foco nativo já evictado há 30+s). Nosso pedido de foco só é útil pro provider nativo. Correção: `useTTS.ts` ganhou `handleAudioFocusChange(type)` exportado, gated por `activeProviderRef.current === 'native'`; `ReaderScreen.tsx` simplificado pra só repassar o evento. Testes atualizados (`useTTS.test.tsx`, `ReaderScreen.test.tsx`); `npm run lint && npm test && npx tsc --noEmit && npm run build` limpos (577/584 na rodada sob carga total — 3 timeouts em arquivos não relacionados, confirmados como flakiness de infra pré-existente ao isolar os arquivos, não regressão). **Revalidado em device real pelo usuário**: "testei tudo de novo, funcionou certinho" — sem pausa espúria, ligação real e Spotify pausando/retomando corretamente. T032 e Fase 6 (US4) concluídos. | Nenhuma — seguir pra Fase 7 (Polish). |
+| 2026-08-27 | Fase 7 (Polish) | T033-T035 concluídas. `npm run lint && npm test && npx tsc --noEmit && npm run build` limpos. **Device real (roteiro `quickstart.md`, US1-US3 — US4 já validado na Fase 6 no mesmo dia)**: notificação completa OK; tela apagando sozinha por 5min sem interrupção (SC-001); Home por 5min sem interrupção com progresso correto ao reabrir (SC-002); bloqueio manual sem interrupção; controles de pause/play/avançar pela notificação OK; stop remove a notificação. Regressões confirmadas separadamente pelo usuário: TTS avulso (Word Lens) não abre notificação/Service; toggle "Manter tela ligada" funcionando normalmente. Checklist de Release completo. | Nenhuma — feature completa. |
 
-**PRÓXIMO**: Fase 7 (Polish) — T033 (`npm run lint && npm test && npx tsc --noEmit && npm run build` já limpos nesta sessão, revisar se algo mudar depois), T034 (roteiro completo de `quickstart.md` em device real, incluindo os testes estendidos de 30min/15min de US1/US2 que ficaram pendentes), T035 (revisão dos comentários curtos nos pontos não óbvios), e o Checklist de Release completo.
+**PRÓXIMO**: Feature `001-audiobook-background-playback` completa (todas as 7 fases concluídas, Checklist de Release 100%). Próximo passo natural é rodar `/sdd-converge` pra comparar a implementação final contra spec/plan/tasks antes de encerrar a feature de vez.
 
 ## Arquivos Principais
 

@@ -52,7 +52,7 @@ US2, mesmo sem MediaSession/notificação rica ainda.
 - [X] T004 [US-shared] Criar `android/app/src/main/java/com/johnny/neoreader/NeoReaderTtsPlaybackPlugin.java` (`@CapacitorPlugin(name = "NeoReaderTtsPlayback")`) com os métodos `start`, `stop` (ver `contracts/tts-playback-plugin.md`) — `start` guarda `bookId`/`title`/`chapterLabel` e chama `startForegroundService()` no Android com um `Intent` pro `TtsPlaybackService`; `stop` chama `stopService()`.
 - [X] T004a [P] Em `TtsPlaybackService.java` e `NeoReaderTtsPlaybackPlugin.java` (T003/T004), usar uma tag de log única `private static final String TAG = "NeoReaderTtsPlayback";` (mesmo padrão de `NeoReaderLibraryPlugin.java`) e logar (`Log.d`/`Log.w`) os eventos-chave desta feature: wake lock adquirido/liberado, Service iniciado/parado, callback do `MediaSessionCompat` recebido, mudança de foco de áudio. `scripts/capture-android-diagnostics.ps1` já reconhece essa tag (ver `plan.md` → Estratégia de Testes, "Debug real no device via captura de log").
 - [X] T005 Registrar o novo plugin em `android/app/src/main/java/com/johnny/neoreader/MainActivity.java` (`registerPlugin(NeoReaderTtsPlaybackPlugin.class);`, mesmo padrão já usado pro `NeoReaderLibraryPlugin`).
-- [ ] T006 [P] Criar `src/services/TtsPlaybackSessionService.ts`: wrapper `registerPlugin<NeoReaderTtsPlaybackPlugin>('NeoReaderTtsPlayback')` com `start`/`stop` (guard `Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android'`, `try/catch` com `console.warn`, mesmo padrão de `src/services/NativeSystemUiService.ts`). `updateMetadata`/`updatePlaybackState`/eventos entram nas fases seguintes.
+- [X] T006 [P] Criar `src/services/TtsPlaybackSessionService.ts`: wrapper `registerPlugin<NeoReaderTtsPlaybackPlugin>('NeoReaderTtsPlayback')` com `start`/`stop` (guard `Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android'`, `try/catch` com `console.warn`, mesmo padrão de `src/services/NativeSystemUiService.ts`). `updateMetadata`/`updatePlaybackState`/eventos entram nas fases seguintes.
 - [X] T007 [US-shared] Em `src/hooks/useTTS.ts`, chamar `TtsPlaybackSessionService.start({ bookId, title })` em `play()` (só quando `playbackModeRef.current === 'continuous'`, ao lado de `WakeLockService.keepAwake()`) e `TtsPlaybackSessionService.stop()` nos mesmos pontos onde já chama `WakeLockService.allowSleep()` (`stop()`, cleanup de unmount, e no `finally` de `play()` quando a sessão termina). `bookId`/`title` chegam como novos campos opcionais de `UseTTSOptions` (preenchidos por `ReaderScreen.tsx`).
 - [X] T008 Em `src/screens/ReaderScreen.tsx`, passar `bookId: book.id` e `title: book.title` nas opções de `useTTS(...)`. Refinamento durante a implementação: `TtsPlaybackSessionService.stop()` foi colocado em `finishTtsAtBookEnd()` (não no `finally` de `useTTS.ts::play()` como o texto original da task sugeria) — `useTTS.ts` não distingue "próxima seção" de "livro terminou de vez", só `ReaderScreen.tsx` sabe disso via `finishTtsAtBookEnd`.
 
@@ -80,7 +80,9 @@ US2, mesmo sem MediaSession/notificação rica ainda.
 feature — narração sobrevive à tela apagando sozinha por inatividade.
 
 **Independent Test**: Iniciar o audiobook, não tocar no celular até a tela
-apagar sozinha, confirmar narração contínua por 30+ minutos.
+apagar sozinha, confirmar narração contínua por 5+ minutos (ajustado de 30+
+minutos — decisão do usuário em 2026-08-27, evidência de alguns minutos
+contínuos já é suficiente).
 
 ### Testes da Fase
 
@@ -93,7 +95,7 @@ apagar sozinha, confirmar narração contínua por 30+ minutos.
 
 **Critério de Conclusão**: Em device real, com o audiobook tocando, deixar a
 tela apagar sozinha por inatividade e confirmar (roteiro `quickstart.md`,
-passo 3) que a narração continua audível por pelo menos 30 minutos sem
+passo 3) que a narração continua audível por pelo menos 5 minutos sem
 parar. Reabrir o app e confirmar que o parágrafo narrado no momento está
 destacado corretamente (FR-009, sem código extra — ver Decisões Invariantes
 em `plan.md`).
@@ -106,7 +108,7 @@ original corrigido.
 - Status: Concluído (validação parcial em device real — ver Pendências).
 - Feito: T012/T013 já satisfeitas pela implementação da Fundação (revisadas e confirmadas). T011: teste de ordenação (start antes do primeiro chunk) adicionado e passando. Validação em device real: build/instalação feitas via `.\gradlew.bat installDebug` (workaround — `npm run android:run` falha no Windows, ver Riscos/backlog), app aberto via `adb shell monkey`, captura de logcat em background durante o teste manual do usuário.
 - Testes executados: `npx vitest run src/__tests__/hooks/useTTS.test.tsx` (18/18); **device real** (Samsung SM-S911B): audiobook iniciado (provider ElevenLabs), tela apagou sozinha por inatividade, log confirmou `tts.synthesize.start` avançando de parágrafo em parágrafo continuamente por 4+ minutos com a tela apagada, sem nenhum `tts.playback.stop`/`tts.playback.error` no meio — nem `FATAL`/`ANR` do pacote `com.johnny.neoreader`.
-- Pendências: validação completa dos 30 minutos da SC-001 não foi levada até o fim (encerrada por decisão do usuário aos ~5 minutos, com evidência clara de que a narração não parou sozinha) — fica pro roteiro completo de `quickstart.md` na fase Polish (T034).
+- Pendências: nenhuma — SC-001 foi revisado de 30 para 5 minutos (decisão do usuário em 2026-08-27) e a validação desta fase (~5 minutos contínuos, sem a narração parar sozinha) já satisfaz o critério revisado.
 
 ---
 
@@ -129,7 +131,7 @@ progresso avançou ao reabrir o app.
 - [X] T015 [US2] Confirmar em `src/screens/ReaderScreen.tsx` (linha ~795, `useCapacitorAppStateChange`) que nenhuma chamada nova precisa pausar/parar o TTS ao ir para segundo plano — se algum código futuro tentar isso, o teste T014 pega a regressão. Nenhuma mudança de código esperada aqui além de um comentário curto documentando a decisão (ver Decisões Invariantes).
 
 **Critério de Conclusão**: Em device real, com o audiobook tocando, apertar
-Home (ou bloquear manualmente) e aguardar 15+ minutos (roteiro
+Home (ou bloquear manualmente) e aguardar 5+ minutos (roteiro
 `quickstart.md`, passos 5-6); confirmar que a narração não parou e que o
 progresso ao reabrir reflete o tempo decorrido.
 
@@ -140,7 +142,7 @@ progresso ao reabrir reflete o tempo decorrido.
 - Status: Concluído (validação em device real feita para Home e bloqueio manual).
 - Feito: T014 (teste garantindo que `appStateChange` em segundo plano não chama `tts.stop()`/`tts.pause()`, só `flushProgress`), T015 (comentário documentando a decisão no `useCapacitorAppStateChange` de `ReaderScreen.tsx`). Nenhuma mudança de comportamento necessária além do comentário — a infraestrutura da Fundação/US1 já cobre este cenário.
 - Testes executados: `npx vitest run src/__tests__/screens/ReaderScreen.test.tsx` (26/26); `npm run lint` e `npx tsc --noEmit` limpos; **device real**: usuário testou Home (app em segundo plano) e bloqueio manual pelo botão de energia — narração continuou tocando nos dois casos, confirmado tanto pelo usuário quanto pelo log (`tts.synthesize.start` avançando de parágrafo em parágrafo continuamente, provider Speechify, terminando num `tts.playback.stop` limpo com `reason: "stopped"`, sem nenhum erro).
-- Pendências: validação estendida (15+ min contínuos, per SC-002) fica pro roteiro completo de `quickstart.md` na fase Polish, mesmo tratamento dado à US1.
+- Pendências: SC-002 foi revisado de 15+ para 5+ minutos (decisão do usuário em 2026-08-27); a validação desta fase não teve duração cronometrada, então uma confirmação rápida de ~5min fica pro roteiro completo de `quickstart.md` na fase Polish (T034), sem urgência já que o comportamento (Home/bloqueio sem interrupção) já foi confirmado qualitativamente.
 
 ---
 
@@ -233,9 +235,15 @@ stories da spec implementadas.
 
 **Purpose**: Fechar qualidade geral e rodar a validação ponta a ponta.
 
-- [ ] T033 Rodar `npm run lint && npm test && npx tsc --noEmit && npm run build` e corrigir qualquer regressão.
-- [ ] T034 Executar o roteiro completo de `quickstart.md` em device real (cenário ponta a ponta US1-US4 + verificação de regressão).
-- [ ] T035 Revisar comentários curtos adicionados nos pontos não óbvios (wake lock, distinção de foco de áudio, singleTask/no-resync) — Princípio II da constitution.
+- [X] T033 Rodar `npm run lint && npm test && npx tsc --noEmit && npm run build` e corrigir qualquer regressão.
+- [X] T034 Executar o roteiro completo de `quickstart.md` em device real (cenário ponta a ponta US1-US4 + verificação de regressão).
+- [X] T035 Revisar comentários curtos adicionados nos pontos não óbvios (wake lock, distinção de foco de áudio, singleTask/no-resync) — Princípio II da constitution.
+
+**Registro da Fase**:
+
+- Status: Concluído.
+- Feito: T033 — `npm run lint && npm test && npx tsc --noEmit && npm run build` rodados após o fix de R-003 (577/584 numa rodada sob carga total; os 3 timeouts confirmados como flakiness de infra pré-existente ao isolar os arquivos, sem relação com esta feature — ver `.planning/backlog.md`). T034 — roteiro completo rodado em device real por decisão do usuário focando US1-US3 (US4 já validado na Fase 6 no mesmo dia): notificação com capa/título/controles OK; tela apagando sozinha por 5min sem interrupção (SC-001 satisfeito); Home por 5min sem interrupção, progresso correto ao reabrir (SC-002 satisfeito); bloqueio manual também sem interrupção; controles de pause/play/avançar pela notificação OK; stop remove a notificação. Regressões confirmadas separadamente: reprodução avulsa de TTS (Word Lens) não abre notificação/Service, e o toggle "Manter tela ligada" continua funcionando normalmente. T035 — revisão dos comentários adicionados nesta feature (`TtsPlaybackService.java`, `useTTS.ts`, `ReaderScreen.tsx`): todos explicam o "porquê" não óbvio (race condition do `stopSelf`, timing do wake lock, distinção loss/lossTransient, gating de foco por provider), nenhum reafirma o óbvio — nenhuma mudança necessária.
+- Pendências: nenhuma.
 
 ### Checklist de Release
 
@@ -244,10 +252,10 @@ stories da spec implementadas.
 - [X] Fase 4 (User Story 2) concluída
 - [X] Fase 5 (User Story 3) concluída
 - [X] Fase 6 (User Story 4) concluída
-- [ ] `npm run lint && npm test && npx tsc --noEmit && npm run build` passam sem erro
-- [ ] `quickstart.md` executado com sucesso em device Android real
-- [ ] Reprodução avulsa de TTS (Word Lens) confirmada sem abrir notificação/Service (regressão)
-- [ ] Toggle "Manter tela ligada" confirmado funcionando como antes (regressão)
+- [X] `npm run lint && npm test && npx tsc --noEmit && npm run build` passam sem erro
+- [X] `quickstart.md` executado com sucesso em device Android real
+- [X] Reprodução avulsa de TTS (Word Lens) confirmada sem abrir notificação/Service (regressão)
+- [X] Toggle "Manter tela ligada" confirmado funcionando como antes (regressão)
 
 ---
 

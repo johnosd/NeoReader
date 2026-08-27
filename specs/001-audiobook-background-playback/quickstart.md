@@ -35,13 +35,13 @@ npm run build
    com capa, título do livro e controles de play/pause/avançar (US3,
    FR-004).
 3. **US1**: Deixar o celular parado sem tocar até a tela apagar sozinha por
-   inatividade. Aguardar pelo menos 5 minutos (idealmente 30, per SC-001) e
-   confirmar que a narração continua audível sem parar.
+   inatividade. Aguardar pelo menos 5 minutos (per SC-001) e confirmar que a
+   narração continua audível sem parar.
 4. Ligar a tela e reabrir o app — confirmar que o leitor mostra o parágrafo
    sendo narrado no momento, com highlight correto (FR-009).
-5. **US2**: Com o audiobook tocando, apertar Home. Aguardar alguns minutos e
-   confirmar que a narração continuou. Reabrir o app e confirmar que o
-   progresso avançou de acordo com o tempo decorrido.
+5. **US2**: Com o audiobook tocando, apertar Home. Aguardar pelo menos 5
+   minutos (per SC-002) e confirmar que a narração continuou. Reabrir o app e
+   confirmar que o progresso avançou de acordo com o tempo decorrido.
 6. Repetir o passo 5 pressionando o botão de energia pra bloquear o celular
    manualmente, em vez de apertar Home.
 7. **US3**: Com a tela apagada/bloqueada, usar o botão de pause na
@@ -82,9 +82,9 @@ Estratégia de Testes, "Debug real no device via captura de log".
   npm run android:logs:diagnostics:run
   ```
 
-- Passos longos (US1: aguardar a tela apagar sozinha por 30 min; US2:
-  minutos em segundo plano): captura sem limite de tempo, parada manualmente
-  quando o passo terminar.
+- Passos longos (US1: aguardar a tela apagar sozinha por até 5 min; US2:
+  até 5 min em segundo plano): captura sem limite de tempo, parada
+  manualmente quando o passo terminar.
 
   ```powershell
   adb logcat -v threadtime *> android-tts-playback.log

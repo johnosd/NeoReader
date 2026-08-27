@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-26
 
-**Status**: Em Execução
+**Status**: Concluída
 
 **Input**: gostaria de ajustar a forma como funciona o modo audio-book (tts). quando coloco neste modo ele começa ler o livro usando tts, mas parece que após um periodo, a tela desliga e ele para de ler, eu gostaria que quando etivesse nesse modo ele continuasse a leitura com tss sem ser interrompido
 
@@ -37,7 +37,7 @@ Um usuário deixa o celular narrando um livro em modo audiobook, apoiado na mesa
 
 **Why this priority**: É o bug relatado originalmente e o cenário mais comum de uso do audiobook (ouvir sem olhar pra tela). Sem isso, a feature não resolve o problema central.
 
-**Independent Test**: Iniciar o modo audiobook, não tocar no celular até a tela apagar sozinha por inatividade, e confirmar que a narração continua audível por pelo menos 30 minutos sem parar.
+**Independent Test**: Iniciar o modo audiobook, não tocar no celular até a tela apagar sozinha por inatividade, e confirmar que a narração continua audível por pelo menos 5 minutos sem parar.
 
 **Acceptance Scenarios**:
 
@@ -129,8 +129,8 @@ Enquanto o audiobook toca, o usuário recebe uma ligação telefônica ou abre o
 
 ### Measurable Outcomes
 
-- **SC-001**: Um usuário inicia o modo audiobook, deixa a tela apagar por inatividade, e a narração permanece audível continuamente por pelo menos 30 minutos sem parar sozinha.
-- **SC-002**: Um usuário coloca o app em segundo plano ou bloqueia o celular manualmente durante o audiobook por 15+ minutos; ao reabrir o app, o progresso do livro avançou de acordo com o tempo decorrido tocando.
+- **SC-001**: Um usuário inicia o modo audiobook, deixa a tela apagar por inatividade, e a narração permanece audível continuamente por pelo menos 5 minutos sem parar sozinha.
+- **SC-002**: Um usuário coloca o app em segundo plano ou bloqueia o celular manualmente durante o audiobook por 5+ minutos; ao reabrir o app, o progresso do livro avançou de acordo com o tempo decorrido tocando.
 - **SC-003**: Um usuário consegue pausar e retomar a narração usando os controles da notificação/tela de bloqueio, sem abrir o app, com sucesso em pelo menos 95% das tentativas.
 - **SC-004**: Ao receber uma ligação durante o audiobook, a narração pausa automaticamente e retoma sozinha após a ligação terminar, sem qualquer ação manual do usuário.
 - **SC-005**: Após o lançamento desta feature, o relato original ("a tela desliga e a leitura para") deixa de ocorrer em uso normal do app.
@@ -159,3 +159,7 @@ Enquanto o audiobook toca, o usuário recebe uma ligação telefônica ou abre o
 ### Sessão 2026-08-26 (sdd-plan)
 
 - FR-008 tinha um `[NEEDS CLARIFICATION]` sobre retomar ou não a narração após ceder o foco de áudio pra outro app de mídia. Resolvido durante o `sdd-plan` (`plan.md`, Decisões Invariantes): o Android já distingue perda de foco **transitória** (`AUDIOFOCUS_LOSS_TRANSIENT`, ex: chamada) de perda **permanente** (`AUDIOFOCUS_LOSS`, ex: outro app assumiu deliberadamente) — a retomada automática vale só pra transitória. FR-008 atualizado para refletir isso.
+
+### Sessão 2026-08-27
+
+- Decisão do usuário: os testes de duração estendida de SC-001 (30 minutos) e SC-002 (15+ minutos) foram reduzidos para um máximo de 5 minutos — evidência de alguns minutos contínuos sem interrupção já é considerada suficiente pra validar que o mecanismo funciona, sem necessidade de esperar a duração completa em cada execução manual do roteiro. SC-001 e SC-002 atualizados de 30min/15+min para 5min/5+min.

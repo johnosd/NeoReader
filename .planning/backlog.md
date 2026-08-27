@@ -12,4 +12,4 @@ sdd-*. Mantido automaticamente por update-feature-status.ps1.
 
 | Slug | Título | Status | Progresso | Última Atualização |
 | --- | --- | --- | --- | --- |
-| 001-audiobook-background-playback | Audiobook (TTS) sem interrupção com tela apagada ou app em segundo plano | Em Execução | 37/46 tasks | 2026-08-27 |
+| 001-audiobook-background-playback | Audiobook (TTS) sem interrupção com tela apagada ou app em segundo plano | Concluída | 37/37 tasks | 2026-08-27 |
