@@ -305,3 +305,21 @@ stories da spec implementadas.
 - Parar em qualquer checkpoint pra validar a story isoladamente em device real — este é o tipo de feature onde o teste automatizado sozinho não basta.
 
 <!-- sdd-converge anexa "## Phase N: Convergence" abaixo desta linha -->
+
+## Phase 8: Convergence (2026-08-27)
+
+**Purpose**: Fechar lacunas encontradas pelo `sdd-converge` entre a
+documentação (spec/plan/contrato) e o código real, todas de fidelidade de
+documentação — nenhum achado CRITICAL, a implementação em si já foi validada
+em device real nas Fases 3-7.
+
+- [ ] T036 Atualizar `specs/001-audiobook-background-playback/contracts/tts-playback-plugin.md` (seção `audioFocusChange`): documentar que o JS só reage a `loss`/`lossTransient`/`gain` (chamando `pause()`/`resume()`) quando o provider ativo é **nativo** (`activeProviderRef.current === 'native'` em `useTTS.ts::handleAudioFocusChange`); para providers premium, o evento é recebido mas ignorado de propósito, porque o `<audio>` HTML5 roda no WebView e o Chromium já pausa/retoma esse elemento sozinho ao perder/reaver foco (confirmado em device real). Origem: `plan.md` → Riscos e Decisões, R-003 (resolvido).
+- [ ] T037 [P] No mesmo arquivo de contrato, remover `coverBase64?: string` de `TtsPlaybackStartOptions` (não implementado nem em `src/services/TtsPlaybackSessionService.ts` nem em `NeoReaderTtsPlaybackPlugin.java::start()`) — a capa sempre chega depois via `updateMetadata()`, nunca no `start()`. Origem: `contracts/tts-playback-plugin.md` vs. código real (T025 em tasks.md).
+- [ ] T038 Validar em device real o Edge Case de `spec.md` ("a conexão cai enquanto em segundo plano → o fallback automático para TTS nativo já existente continua funcionando normalmente", FR-011) e o item 3 de "Verificação de regressão" em `quickstart.md`: iniciar o audiobook com um provider premium, colocar o app em segundo plano ou apagar a tela, desligar Wi-Fi/dados momentaneamente, e confirmar que a narração cai pro TTS nativo automaticamente sem interromper. Registrar o resultado no Registro da Fase abaixo. Origem: `spec.md` Edge Cases (FR-011), `quickstart.md` → Verificação de regressão.
+
+**Critério de Conclusão**: `contracts/tts-playback-plugin.md` reflete o
+comportamento real do gating de foco de áudio e do fluxo de metadata; o
+cenário de fallback em segundo plano foi confirmado em device real.
+
+**Registro da Fase**: _(preencher ao concluir T036-T038)_
+

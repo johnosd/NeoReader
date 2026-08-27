@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-26
 
-**Status**: Concluída
+**Status**: Convergência Pendente
 
 **Input**: gostaria de ajustar a forma como funciona o modo audio-book (tts). quando coloco neste modo ele começa ler o livro usando tts, mas parece que após um periodo, a tela desliga e ele para de ler, eu gostaria que quando etivesse nesse modo ele continuasse a leitura com tss sem ser interrompido
 
