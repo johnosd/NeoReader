@@ -4,4 +4,10 @@
     <string name="title_activity_main">NeoReader</string>
     <string name="package_name">com.johnny.neoreader</string>
     <string name="custom_url_scheme">com.johnny.neoreader</string>
+    <string name="tts_channel_name">Narração (audiobook)</string>
+    <string name="tts_content_text_default">Narrando</string>
+    <string name="tts_action_previous">Anterior</string>
+    <string name="tts_action_pause">Pausar</string>
+    <string name="tts_action_play">Tocar</string>
+    <string name="tts_action_next">Próximo</string>
 </resources>

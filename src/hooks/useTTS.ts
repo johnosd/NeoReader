@@ -320,9 +320,14 @@ export function useTTS(options: UseTTSOptions) {
 
   useEffect(() => {
     return () => {
-      // Skip if stop() was already called (shouldStopRef=true) — avoids duplicate
-      // TextToSpeech.stop() / allowSleep() when the user explicitly stopped before unmount.
-      if (shouldStopRef.current) return
+      // Skip if stop() was already called — avoids duplicate TextToSpeech.stop()/
+      // allowSleep() when the user explicitly stopped before unmount. Não basta checar
+      // shouldStopRef sozinho: pause() do provider nativo também o marca (pra quebrar o
+      // loop de speak()), mas pause() NUNCA chama TtsPlaybackSessionService.stop() (a
+      // notificação deve continuar ativa durante a pausa) — sem o !pauseRequestedRef aqui,
+      // pausar e sair (Back) deixava o TtsPlaybackService/wake lock vazando pra sempre,
+      // já que este cleanup também pulava a limpeza (achado em code review).
+      if (shouldStopRef.current && !pauseRequestedRef.current) return
 
       const hasPlaybackSession = playSessionRef.current > 0 || audioRef.current || stopPremiumPlaybackRef.current
       if (!hasPlaybackSession) return
@@ -456,6 +461,13 @@ export function useTTS(options: UseTTSOptions) {
       audio.addEventListener('pause', handlePause)
       audio.addEventListener('error', handleAudioError, { once: true })
       scheduleMarks()
+      // Se o usuário pausou enquanto este chunk ainda sintetizava (audioRef
+      // era null até agora, pause() não tinha o que pausar), não inicia a
+      // reprodução sozinho — o elemento fica pronto (src carregado, listeners
+      // presos) pra resume() tocar depois. Sem isso, a pausa era perdida
+      // silenciosamente e o áudio começava a tocar assim que a síntese
+      // terminasse (achado em code review).
+      if (pauseRequestedRef.current) return
       void audio.play().catch(finish)
     })
   }
@@ -1086,8 +1098,14 @@ export function useTTS(options: UseTTSOptions) {
     if (activeProviderRef.current !== 'native') return
     switch (type) {
       case 'lossTransient':
-        pausedByTransientFocusLossRef.current = true
-        void pause()
+        // Só marca como "pausado pelo foco" se realmente estava tocando —
+        // senão uma pausa manual anterior (isPlaying já false) seria
+        // promovida a pausa transitória e retomaria sozinha quando o foco
+        // voltasse, contra a vontade do usuário (achado em code review).
+        if (isPlaying) {
+          pausedByTransientFocusLossRef.current = true
+          void pause()
+        }
         break
       case 'loss':
         pausedByTransientFocusLossRef.current = false

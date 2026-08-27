@@ -231,7 +231,7 @@ public class TtsPlaybackService extends Service {
         if (manager.getNotificationChannel(CHANNEL_ID) != null) return;
         NotificationChannel channel = new NotificationChannel(
             CHANNEL_ID,
-            "Narração (audiobook)",
+            getString(R.string.tts_channel_name),
             NotificationManager.IMPORTANCE_LOW
         );
         manager.createNotificationChannel(channel);
@@ -316,7 +316,7 @@ public class TtsPlaybackService extends Service {
 
     private Notification buildNotification() {
         String title = currentTitle != null ? currentTitle : getString(R.string.app_name);
-        String text = currentChapterLabel != null ? currentChapterLabel : "Narrando";
+        String text = currentChapterLabel != null ? currentChapterLabel : getString(R.string.tts_content_text_default);
 
         PendingIntent playPauseIntent = MediaButtonReceiver.buildMediaButtonPendingIntent(
             this, isPlaying ? PlaybackStateCompat.ACTION_PAUSE : PlaybackStateCompat.ACTION_PLAY
@@ -336,13 +336,13 @@ public class TtsPlaybackService extends Service {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .addAction(new NotificationCompat.Action(android.R.drawable.ic_media_previous, "Anterior", prevIntent))
+            .addAction(new NotificationCompat.Action(android.R.drawable.ic_media_previous, getString(R.string.tts_action_previous), prevIntent))
             .addAction(new NotificationCompat.Action(
                 isPlaying ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play,
-                isPlaying ? "Pausar" : "Tocar",
+                isPlaying ? getString(R.string.tts_action_pause) : getString(R.string.tts_action_play),
                 playPauseIntent
             ))
-            .addAction(new NotificationCompat.Action(android.R.drawable.ic_media_next, "Próximo", nextIntent))
+            .addAction(new NotificationCompat.Action(android.R.drawable.ic_media_next, getString(R.string.tts_action_next), nextIntent))
             .setStyle(new MediaStyle()
                 .setMediaSession(mediaSession.getSessionToken())
                 .setShowActionsInCompactView(0, 1, 2));

@@ -1041,4 +1041,162 @@ describe('useTTS', () => {
       await playPromise
     })
   })
+
+  it('para o TtsPlaybackService ao desmontar apos uma pausa nativa (evita Service/wake lock orfaos)', async () => {
+    let resolveSpeak: (() => void) | undefined
+    textToSpeechMock.speak.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      resolveSpeak = resolve
+    }))
+
+    const callbacks = createCallbacks()
+    const { result, unmount } = renderHook(() => useTTS({
+      ...callbacks,
+      bookId: 7,
+      bookTitle: 'Livro X',
+      provider: 'native',
+      language: 'en-US',
+      rate: 1,
+    }))
+    const chunks: TtsChunk[] = [
+      { text: 'Long native playback.', paraIdx: 0, offsetInPara: 0 },
+    ]
+
+    let playPromise: Promise<void> = Promise.resolve()
+    await act(async () => {
+      playPromise = result.current.play(chunks, 0)
+    })
+    await flushMicrotasks()
+
+    ttsPlaybackSessionMock.stop.mockClear()
+
+    act(() => {
+      void result.current.pause()
+    })
+    await flushMicrotasks()
+
+    expect(result.current.isPlaying).toBe(false)
+    // pause() nunca chama stop() — a notificação continua ativa durante a pausa.
+    expect(ttsPlaybackSessionMock.stop).not.toHaveBeenCalled()
+
+    unmount()
+
+    // Sair (Back) depois de pausar precisa encerrar o Service nativo — senão o
+    // foreground service e o wake lock ficam vazando indefinidamente.
+    expect(ttsPlaybackSessionMock.stop).toHaveBeenCalled()
+
+    await act(async () => {
+      resolveSpeak?.()
+      await playPromise
+    })
+  })
+
+  it('nao retoma sozinho apos pausa manual seguida de perda TRANSITORIA de foco (nativo)', async () => {
+    let resolveSpeak: (() => void) | undefined
+    textToSpeechMock.speak.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      resolveSpeak = resolve
+    }))
+
+    const callbacks = createCallbacks()
+    const { result } = renderHook(() => useTTS({
+      ...callbacks,
+      provider: 'native',
+      language: 'en-US',
+      rate: 1,
+    }))
+    const chunks: TtsChunk[] = [
+      { text: 'Native paragraph.', paraIdx: 0, offsetInPara: 0 },
+    ]
+
+    let playPromise: Promise<void> = Promise.resolve()
+    await act(async () => {
+      playPromise = result.current.play(chunks, 0)
+    })
+    await flushMicrotasks()
+
+    // Usuário pausa manualmente (ex: mini player) antes de qualquer evento de foco.
+    act(() => {
+      void result.current.pause()
+    })
+    await flushMicrotasks()
+    expect(result.current.isPlaying).toBe(false)
+
+    textToSpeechMock.speak.mockClear()
+
+    // Ligação chega DEPOIS da pausa manual e termina em seguida.
+    act(() => {
+      result.current.handleAudioFocusChange('lossTransient')
+    })
+    act(() => {
+      result.current.handleAudioFocusChange('gain')
+    })
+
+    // Não deve ter tentado retomar (nenhum novo speak()) — a pausa manual do
+    // usuário não pode ser promovida a pausa transitória e retomada sozinha.
+    expect(textToSpeechMock.speak).not.toHaveBeenCalled()
+    expect(result.current.isPlaying).toBe(false)
+
+    await act(async () => {
+      resolveSpeak?.()
+      await playPromise
+    })
+  })
+
+  it('nao perde uma pausa pedida enquanto o chunk premium ainda esta sintetizando', async () => {
+    speechifyMock.getApiKey.mockResolvedValue('speechify-key')
+    speechifyMock.isConfigured.mockResolvedValue(true)
+
+    let resolveSynthesize: ((value: { audioBlob: Blob; speechMarks: never[] }) => void) | undefined
+    speechifyMock.synthesize.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveSynthesize = resolve
+    }))
+
+    const callbacks = createCallbacks()
+    const { result } = renderHook(() => useTTS({
+      ...callbacks,
+      provider: 'speechify',
+      language: 'en-US',
+      rate: 1,
+    }))
+    const chunks: TtsChunk[] = [
+      { text: 'First paragraph.', paraIdx: 0, offsetInPara: 0 },
+    ]
+
+    let playPromise: Promise<void> | undefined
+    await act(async () => {
+      playPromise = result.current.play(chunks, 0)
+    })
+    await flushMicrotasks()
+
+    // Ainda sintetizando — nenhum <audio> criado ainda, pause() não teria o que pausar.
+    expect(FakeAudio.instances.length).toBe(0)
+
+    await act(async () => {
+      await result.current.pause()
+    })
+    expect(result.current.isPaused).toBe(true)
+
+    // A síntese só termina agora, depois do pedido de pausa.
+    await act(async () => {
+      resolveSynthesize?.({
+        audioBlob: new Blob(['First paragraph.'], { type: 'audio/mpeg' }),
+        speechMarks: [],
+      })
+      await flushMicrotasks()
+    })
+
+    // O elemento fica pronto (src carregado) mas não deve iniciar sozinho.
+    expect(FakeAudio.instances.length).toBe(1)
+    expect(FakeAudio.instances[0]?.play).not.toHaveBeenCalled()
+    expect(result.current.isPlaying).toBe(false)
+
+    await act(async () => {
+      await result.current.resume()
+    })
+    expect(FakeAudio.instances[0]?.play).toHaveBeenCalledOnce()
+
+    await act(async () => {
+      FakeAudio.instances[0]?.finish()
+      await playPromise
+    })
+  })
 })
