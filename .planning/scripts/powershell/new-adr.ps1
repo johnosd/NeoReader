@@ -1,5 +1,5 @@
 #!/usr/bin/env pwsh
-# Cria .planning/adr/ADR-NNN-slug.md semeado a partir do template. Usado só
+# Cria adr/ADR-NNN-slug.md semeado a partir do template. Usado só
 # pelo sdd-adr. Não sobrescreve ADRs existentes — emenda é sempre uma nota
 # inline na ADR antiga, nunca um novo arquivo substituindo o anterior.
 #
@@ -17,7 +17,7 @@ $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot/common.ps1"
 
 $repoRoot = Get-RepoRoot
-$adrDir = Join-Path $repoRoot '.planning/adr'
+$adrDir = Join-Path $repoRoot 'adr'
 
 $slug = New-SlugFromText -Text $Title -MaxWords 5
 $nextNumber = (Get-HighestAdrNumber -AdrDir $adrDir) + 1

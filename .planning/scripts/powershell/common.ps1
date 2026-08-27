@@ -108,7 +108,7 @@ function Get-HighestFeatureNumber {
     return $max
 }
 
-# Varre .planning/adr/ e retorna o maior número ADR-NNN já usado (0 se nenhum).
+# Varre adr/ e retorna o maior número ADR-NNN já usado (0 se nenhum).
 function Get-HighestAdrNumber {
     param([Parameter(Mandatory = $true)][string]$AdrDir)
 

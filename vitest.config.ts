@@ -13,7 +13,7 @@ export default defineConfig({
     exclude: ['**/node_modules/**', '**/dist/**', '**/android/**', '**/.claude/**'],
     // Metade dos cores lógicos: evita saturar a máquina quando a suíte
     // completa roda em paralelo, o que causava timeouts flaky em testes com
-    // setup pesado (ver .planning/bugs/bookmarkdrivesyncintegration-*).
+    // setup pesado (ver bugs/bookmarkdrivesyncintegration-*).
     poolOptions: {
       threads: {
         maxThreads: Math.max(2, Math.floor(os.cpus().length / 2)),

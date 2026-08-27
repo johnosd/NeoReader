@@ -76,7 +76,7 @@ Prefira buscas focadas (Grep/Glob) a dump de diretório inteiro. Leia testes
 existentes da mesma área, se houver, pra entender o padrão de teste do
 projeto.
 
-Se `.planning/adr/` existir, liste os títulos das ADRs lá dentro e leia por
+Se `adr/` existir, liste os títulos das ADRs lá dentro e leia por
 inteiro qualquer uma cujo tema se relacione com esta feature (stack, banco de
 dados, framework tocados). São decisões de arquitetura já tomadas e
 justificadas — **não as relitigue silenciosamente**; a Technical Context e as

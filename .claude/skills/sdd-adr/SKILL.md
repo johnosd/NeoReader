@@ -1,6 +1,6 @@
 ---
 name: sdd-adr
-description: Documenta ou emenda uma decisão arquitetural fundamental do projeto (stack, plataforma, banco de dados, framework) como ADR em .planning/adr/, com contexto, alternativas rejeitadas e consequências assumidas. Use quando o usuário pedir para documentar uma decisão de arquitetura, registrar um ADR, discutir e decidir entre opções técnicas antes de começar a implementar, ou atualizar uma decisão já tomada. Diferente de sdd-specify/sdd-plan/sdd-execute/sdd-converge — não pertence à pipeline de uma feature específica, pode rodar antes de qualquer specs/ existir. NÃO use para decisões técnicas locais de uma única feature (isso vai em Decisões Invariantes de plan.md, via sdd-plan).
+description: Documenta ou emenda uma decisão arquitetural fundamental do projeto (stack, plataforma, banco de dados, framework) como ADR em adr/, com contexto, alternativas rejeitadas e consequências assumidas. Use quando o usuário pedir para documentar uma decisão de arquitetura, registrar um ADR, discutir e decidir entre opções técnicas antes de começar a implementar, ou atualizar uma decisão já tomada. Diferente de sdd-specify/sdd-plan/sdd-execute/sdd-converge — não pertence à pipeline de uma feature específica, pode rodar antes de qualquer specs/ existir. NÃO use para decisões técnicas locais de uma única feature (isso vai em Decisões Invariantes de plan.md, via sdd-plan).
 ---
 
 # sdd-adr
@@ -15,7 +15,7 @@ Diferença de escopo pros outros artefatos do sistema:
 | Artefato | Escopo | Natureza |
 |---|---|---|
 | `constitution.md` | Projeto inteiro | Regras `DEVE`, gate formal, terso |
-| ADR (`.planning/adr/`) | Projeto inteiro | Decisão + raciocínio completo + alternativas rejeitadas, permanente |
+| ADR (`adr/`) | Projeto inteiro | Decisão + raciocínio completo + alternativas rejeitadas, permanente |
 | `plan.md` → Decisões Invariantes | Uma feature | Local, descartável quando a feature converge |
 
 Uma ADR registra **por que** uma decisão foi tomada e o que foi
@@ -25,7 +25,7 @@ conscientemente rejeitado — não só a conclusão.
 
 ### 1. Confere ADRs existentes
 
-Liste `.planning/adr/` (se existir). Se a discussão que o usuário está
+Liste `adr/` (se existir). Se a discussão que o usuário está
 propondo se relaciona a uma ADR já registrada, isso é uma **emenda**, não uma
 ADR nova — vá pro passo 4. Caso contrário, é uma ADR nova — siga normalmente.
 
@@ -93,6 +93,6 @@ promoção pra constitution.
 
 ## Handoff
 
-`sdd-plan` lê `.planning/adr/` durante a exploração de toda feature nova —
+`sdd-plan` lê `adr/` durante a exploração de toda feature nova —
 as decisões registradas aqui não devem ser relitigadas silenciosamente
 dentro do planejamento de uma feature específica.
