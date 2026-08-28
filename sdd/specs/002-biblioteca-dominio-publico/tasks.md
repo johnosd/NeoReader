@@ -245,14 +245,14 @@ Task: "T007 [P] chaves i18n novas em messages.ts"
 
 **Purpose**: Fechar as lacunas encontradas pelo `sdd-converge` (2026-08-28) entre `spec.md`/constitution e o código real — ver Convergence Findings CONV-001/CONV-002 (CONV-003 é só observação de estilo, sem task associada).
 
-- [ ] T033 [CONV-001] Atualizar a linha de Assumption em `spec.md` ("O catálogo curado do MVP tem algo entre 30 e 50 títulos...") pra refletir que o MVP entregue tem 5 títulos verificados manualmente, com referência a T030 como o caminho de expansão pra ~30-50 (trabalho de curadoria de conteúdo, ainda não feito).
-- [ ] T034 [CONV-002] Remover a chave i18n órfã `discover.publicDomain.download` dos 3 blocos de locale (pt-BR/en/es) em `src/i18n/messages.ts` — não é consumida por nenhum componente hoje. Alternativa aceitável: usá-la como `aria-label` no ícone de download de `PublicDomainBookCard.tsx` em vez de remover, se preferir manter e ganhar acessibilidade.
+- [X] T033 [CONV-001] Atualizar a linha de Assumption em `spec.md` ("O catálogo curado do MVP tem algo entre 30 e 50 títulos...") pra refletir que o MVP entregue tem 5 títulos verificados manualmente, com referência a T030 como o caminho de expansão pra ~30-50 (trabalho de curadoria de conteúdo, ainda não feito).
+- [X] T034 [CONV-002] Remover a chave i18n órfã `discover.publicDomain.download` dos 3 blocos de locale (pt-BR/en/es) em `src/i18n/messages.ts` — não é consumida por nenhum componente hoje. Alternativa aceitável: usá-la como `aria-label` no ícone de download de `PublicDomainBookCard.tsx` em vez de remover, se preferir manter e ganhar acessibilidade. **Feito: removida** (opção mais simples — o rótulo seria estático e ficaria incorreto nos estados success/error, que reusam o mesmo ícone/área com ações diferentes).
 
 **Critério de Conclusão**: `spec.md` reflete o catálogo real; nenhuma chave i18n órfã relacionada a esta feature. `npm run lint && npm test && npm run build` continuam limpos depois da mudança.
 
 **Registro da Fase**:
 
-- Status: (vazio — preenchido pelo sdd-execute ao fechar o checkpoint)
-- Feito:
-- Testes executados:
-- Pendências:
+- Status: Concluída — os 2 achados acionáveis do `sdd-converge` (CONV-001, CONV-002) resolvidos. CONV-003 (estilo objeto vs. class) ficou só como observação, sem task, conforme decidido no próprio convergence.
+- Feito: `spec.md` Assumption corrigida pra refletir os 5 títulos reais + referência a T030; chave i18n órfã `discover.publicDomain.download` removida dos 3 locales (pt-BR/en/es).
+- Testes executados: `npx tsc --noEmit` e `npm run lint` limpos; `npm run build` limpo; suíte completa (`npm test`) rodada — ver Execution Notes.
+- Pendências: nenhuma.

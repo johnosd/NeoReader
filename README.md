@@ -91,9 +91,16 @@ tags, pastas de origem e caches ficam no dispositivo.
   do app quando possivel; em Web, os arquivos ficam embutidos no IndexedDB.
 - Arquivos movidos, removidos ou com permissao perdida sao marcados como
   `missingFile` e o leitor oferece remocao do registro da biblioteca.
+- Estado vazio (nenhum livro importado) mostra um atalho pra secao "Classicos
+  em Ingles" de domínio publico em Descubra, alem das acoes de importar.
 
 ### Descubra
 
+- Secao "Classicos em Ingles": catalogo curado de EPUBs de dominio publico do
+  Standard Ebooks, disponivel offline (capa/titulo/autor bundled no app).
+  Download individual restrito a Android nativo; o livro baixado entra na
+  Biblioteca pelo mesmo pipeline de importacao normal. Sem busca/filtro nesta
+  fase.
 - Tela com listas atuais do NYT Best Sellers quando `VITE_NYT_API_KEY` esta
   configurada.
 - Secao "Tendencias no Mundo":

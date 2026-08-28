@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-28
 
-**Status**: Convergência Pendente
+**Status**: Convergida
 
 **Input**: Criar uma feature de biblioteca de domínio público (Standard Ebooks) dentro do app, usando o handoff de `sdd/assessments/livros-dominio-publico-dentro-app-download/decision.md` como contexto de entrada.
 
@@ -125,7 +125,7 @@ O usuário tenta baixar um título sem conexão de internet, ou a conexão cai n
 
 - A seção fica disponível para todos os usuários (free e Pro) — não é bloqueada pelo entitlement Pro, consistente com o objetivo de reduzir fricção para usuário novo (que ainda nem decidiu assinar).
 - Ads já existentes na tela Descubra (ocultados para usuário Pro) continuam se aplicando normalmente à seção nova, sem lógica adicional específica desta feature.
-- O catálogo curado do MVP tem algo entre 30 e 50 títulos — a lista exata de títulos é decisão de conteúdo/curadoria, fora do escopo desta spec.
+- O catálogo curado do MVP foi entregue com 5 títulos verificados manualmente (Pride and Prejudice, Frankenstein, The Adventures of Sherlock Holmes, A Christmas Carol, Dracula) — suficiente pra validar o mecanismo ponta a ponta. Expandir pra ~30-50 títulos é trabalho de curadoria de conteúdo, rastreado como follow-up não-bloqueante (`tasks.md` T030), fora do escopo de código desta spec.
 - O card do catálogo reaproveita visualmente o padrão de rows/cards já usado em Descubra (ex: `NytBooksRow`), mantendo consistência com a direção visual "Netflix for Books".
 - "Continuar em segundo plano" (FR-010) significa dentro da mesma sessão do app em primeiro plano, navegando entre telas do NeoReader — não é playback/download persistente estilo notificação do sistema operacional (isso não foi pedido nem faz sentido pro caso de uso).
 

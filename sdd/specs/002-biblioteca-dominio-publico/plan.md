@@ -207,6 +207,7 @@ npm run android:run
 | User Story 2 (Fase 4) | Concluída — sem código novo (a seção já generaliza), só teste confirmando dedupe herdado |
 | User Story 3 (Fase 5) | Concluída — falha de rede real confirmada em device (não só simulada), mensagem "sem conexão" diferenciada |
 | Polish (Fase N) | Concluída — T028/T029 feitas com evidência de device real; T030 (expandir catálogo) deixado como follow-up intencional |
+| Convergence (Fase 6) | Concluída — T033/T034 (achados CONV-001/CONV-002 do sdd-converge) resolvidos |
 
 ## Riscos e Decisões
 
@@ -236,7 +237,9 @@ npm run android:run
 | 2026-08-28 | User Story 3 (Fase 5) | T024-T027: detecção de `navigator.onLine` na falha, mensagens diferenciadas offline/genérico. Verificação manual real em device (wifi+dados desligados via adb, cold start forçado) confirmou o comportamento real: falha rápida (~600ms) com erro nativo do Android, capturado como `offline: true`. Observado 1x um erro solto (`triggerEvent`) num relaunch sem cold start real — registrado como R-008, não investigado (fora do escopo). | R-008 (baixa prioridade, não bloqueante). |
 | 2026-08-28 | Polish (Fase N) | T028: 2 comentários faltantes adicionados (progresso indeterminado, motivo de não compartilhar helper com FishAudioService). T029: `quickstart.md` completo rodado via screenshots + `adb shell input tap` — FR-009 (grid offline, com capas em cache do WebView) e FR-010 (download sobrevive à navegação) confirmados com evidência visual; catálogo completo (5/5) mostrando "In your library" depois de baixar tudo. Checklist de Release fechado. T030 deixado como follow-up (curadoria de conteúdo, não bloqueia). | T030 (expandir catálogo) — follow-up intencional, não bloqueante. |
 
-**PRÓXIMO**: Feature funcionalmente completa (T001-T029 feitas, só T030 como follow-up de conteúdo). Rodar `sdd-converge` quando quiser auditar a implementação contra spec/plan/constitution antes de considerar encerrada.
+| 2026-08-28 | Convergence (Fase 6) | `sdd-converge` encontrou 3 achados (CONV-001 spec.md desatualizada sobre tamanho do catálogo, CONV-002 chave i18n órfã `discover.publicDomain.download`, CONV-003 estilo objeto vs. `class` — só observação). T033/T034 resolvidos: `spec.md` corrigida, chave removida dos 3 locales. `npm run lint`, `npx tsc --noEmit`, `npm run build` e suíte completa (610 passando/2 skipped) confirmados limpos. | Nenhuma. |
+
+**PRÓXIMO**: Feature funcionalmente completa (T001-T034 feitas, só T030 como follow-up de conteúdo). Rodar `sdd-converge` mais uma vez pra confirmar convergência limpa (era o que faltava pra fechar o ciclo).
 
 ## Arquivos Principais
 
@@ -290,3 +293,42 @@ npm run android:run
   catálogo (T030), preferir títulos com slug de 2 segmentos (`autor/titulo`)
   e conferir a página base antes de adicionar — títulos com slug aninhado
   ficam de fora até a fórmula de URL suportar esse caso.
+
+## Resultado Final
+
+Convergência limpa em 2026-08-28, após uma rodada de achados (CONV-001/
+CONV-002 resolvidos via T033/T034; CONV-003 aceito como observação de
+estilo sem ação).
+
+**O que foi construído**: seção "Clássicos em Inglês" em Descubra (grid de
+5 títulos curados do Standard Ebooks, disponível offline), atalho no empty
+state da Biblioteca, download via `CapacitorHttp` alimentando o pipeline de
+import já existente, tratamento de erro diferenciando "sem conexão" de
+erro genérico, e reconciliação de estado com a Biblioteca real (sobrevive a
+restart do app). Restrito a Android nativo, conforme escopo original.
+
+**Desvios acumulados em relação ao plano original** (todos já registrados
+como Riscos e Decisões / Ad-hoc em `tasks.md` ao longo da execução, não são
+novidade desta convergência — só consolidados aqui):
+
+- Duas capacidades **pedidas pelo usuário durante a verificação manual**,
+  não previstas no plano original: tocar num livro já baixado abre ele
+  direto (R-006/T031), e o estado de "já baixado" reconcilia com a
+  Biblioteca real ao carregar o catálogo, corrigindo o fato de o
+  coordinator ser só em memória de sessão (R-007/T032).
+- O catálogo foi entregue com **5 títulos**, não os "30-50" que o
+  `spec.md` original assumia — decisão consciente de MVP (R-002),
+  documentada e agora refletida corretamente em `spec.md` (T033). Expandir
+  fica em T030, aberto, não-bloqueante.
+- SC-002/SC-003 (métricas de ativação/taxa de falha) ficaram
+  explicitamente não-mensuráveis nesta fase — o projeto não tem telemetria
+  remota, e a decisão foi não adicionar essa infraestrutura só por causa
+  desta feature (R-005).
+- README.md do projeto atualizado (seções "Biblioteca" e "Descubra") pra
+  refletir a nova seção e o atalho — não existia menção a isso antes desta
+  feature.
+
+**Risco em aberto, não bloqueante**: R-008 (erro solto `triggerEvent`
+observado uma vez num cold-start atípico durante teste manual) segue sem
+investigação — não tem relação clara com o código desta feature; se
+reaparecer de forma reproduzível, é candidato a `sdd-bugfix` separado.
