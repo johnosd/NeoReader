@@ -48,14 +48,22 @@ describe('PublicDomainBookCard', () => {
     expect(onDownload).not.toHaveBeenCalled()
   })
 
-  it('mostra retry apos erro e permite tocar de novo pra tentar', () => {
+  it('mostra erro generico e permite tocar de novo pra tentar', () => {
     const onDownload = vi.fn()
-    render(<PublicDomainBookCard entry={entry} state={stateFor('error')} onDownload={onDownload} onOpenDownloaded={vi.fn()} />)
+    const state: PublicDomainDownloadState = { entryId: entry.id, status: 'error', errorMessage: 'Falha ao baixar o livro (500)' }
+    render(<PublicDomainBookCard entry={entry} state={state} onDownload={onDownload} onOpenDownloaded={vi.fn()} />)
 
-    expect(screen.getByText('Tentar novamente')).toBeTruthy()
+    expect(screen.getByText('Nao foi possivel baixar. Toque para tentar de novo.')).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button'))
     expect(onDownload).toHaveBeenCalledWith(entry)
+  })
+
+  it('mostra mensagem especifica de "sem conexao" quando o erro foi por falta de rede (US3)', () => {
+    const state: PublicDomainDownloadState = { entryId: entry.id, status: 'error', errorMessage: 'network fail', offline: true }
+    render(<PublicDomainBookCard entry={entry} state={state} onDownload={vi.fn()} onOpenDownloaded={vi.fn()} />)
+
+    expect(screen.getByText('Sem conexao. Toque para tentar de novo.')).toBeTruthy()
   })
 
   it('cai pro fallback de texto quando a capa remota falha ao carregar', () => {

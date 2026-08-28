@@ -119,11 +119,11 @@ estrutura já usada no resto do repositório:
 
 ### Implementation
 
-- [ ] T022 [US2] Confirmar que `PublicDomainCatalogSection` (T016-T017) renderiza igual independente de `books.length` em `DiscoverScreen` — não deveria exigir código novo; se algum estado condicional vazou da Biblioteca pra Descubra, corrigir aqui.
+- [X] T022 [US2] Confirmar que `PublicDomainCatalogSection` (T016-T017) renderiza igual independente de `books.length` em `DiscoverScreen` — não deveria exigir código novo; se algum estado condicional vazou da Biblioteca pra Descubra, corrigir aqui. **Confirmado sem mudança**: a seção é renderizada incondicionalmente logo no início de `<main>`, sem nenhuma dependência do estado da Biblioteca.
 
 ### Testes da Fase
 
-- [ ] T023 [US2] Teste de integração (extensão de `BookImportService.test.ts` ou dedicado): baixar um título cujo hash já existe na Biblioteca (simulando import prévio de outra fonte) e confirmar que o pipeline de dedupe já existente decide corretamente, sem duplicar nem travar — comportamento herdado, sem regra nova.
+- [X] T023 [US2] Teste de integração (extensão de `BookImportService.test.ts` ou dedicado): baixar um título cujo hash já existe na Biblioteca (simulando import prévio de outra fonte) e confirmar que o pipeline de dedupe já existente decide corretamente, sem duplicar nem travar — comportamento herdado, sem regra nova. Implementado em `PublicDomainDownloadService.test.ts`: simula `BookImportService.importEpub` rejeitando com o erro real de duplicata, confirma que o coordinator vira `error` (não `success` falso) e que `importEpub` é chamado só 1 vez (sem retry automático nem duplo registro).
 
 **Critério de Conclusão**: usuário com livros existentes baixa um título adicional da seção com sucesso; dedupe herdado do pipeline de import não regride pra imports não relacionados a esta feature.
 
@@ -131,10 +131,10 @@ estrutura já usada no resto do repositório:
 
 **Registro da Fase**:
 
-- Status: (vazio — preenchido pelo sdd-execute ao fechar o checkpoint)
-- Feito:
-- Testes executados:
-- Pendências:
+- Status: Concluída — sem código novo necessário além do teste; a Fase 3 já cobriu isso na prática (a Biblioteca do device de teste nunca esteve vazia durante as verificações manuais, e os downloads ali já aconteceram "ao lado" de livros existentes).
+- Feito: T022 (confirmação, sem mudança de código), T023 (teste de dedupe herdado).
+- Testes executados: `npx vitest run src/__tests__/services/PublicDomainDownloadService.test.ts` — 4/4 passando (3 anteriores + o novo de duplicata).
+- Pendências: nenhuma.
 
 ---
 
@@ -146,13 +146,10 @@ estrutura já usada no resto do repositório:
 
 ### Implementation
 
-- [ ] T024 [US3] Tratamento de erro em `PublicDomainDownloadService.ts` (T006) — capturar falha de rede/timeout do `CapacitorHttp` e qualquer erro propagado do `BookImportService` (incluindo espaço insuficiente, FR-012 — reaproveita o erro genérico existente, sem mensagem dedicada), atualizando o `PublicDomainDownloadCoordinator` para `status: 'error'` com `errorMessage`.
-- [ ] T025 [US3] UI de erro + retry em `PublicDomainBookCard.tsx` (T014) — exibe a mensagem de erro e um botão "tentar novamente" que reinicia o download do mesmo `entryId` do zero (não é resumo/retomada parcial).
-
-### Testes da Fase
-
-- [ ] T026 [P] [US3] Estender `PublicDomainDownloadService.test.ts` — falha de rede simulada (`CapacitorHttp` rejeitando/timeout), e confirma que "tentar novamente" reinicia do zero.
-- [ ] T027 [US3] Estender `PublicDomainBookCard.test.tsx` — estado de erro exibe mensagem + botão retry, retry dispara novo download.
+- [X] T024 [US3] Tratamento de erro em `PublicDomainDownloadService.ts` (T006) — capturar falha de rede/timeout do `CapacitorHttp` e qualquer erro propagado do `BookImportService` (incluindo espaço insuficiente, FR-012 — reaproveita o erro genérico existente, sem mensagem dedicada), atualizando o `PublicDomainDownloadCoordinator` para `status: 'error'` com `errorMessage`. Adicionado também: detecção de `navigator.onLine === false` no momento da falha, marcando `offline: true` no estado pra diferenciar "sem conexão" de erro genérico (Acceptance Scenario 1 da US3).
+- [X] T025 [US3] UI de erro + retry em `PublicDomainBookCard.tsx` (T014/T031) — já era tappable no estado `error` desde T014 (retry = tocar de novo, reinicia do zero via `beginPublicDomainDownload`). Adicionado nesta fase: mensagem de erro visível diferenciada ("Sem conexão..." vs "Não foi possível baixar...", chaves i18n `discover.publicDomain.offline`/`.error`) em vez do rótulo genérico "Tentar novamente" que havia antes.
+- [X] T026 [P] [US3] Estender `PublicDomainDownloadService.test.ts` — falha de rede simulada (`CapacitorHttp` rejeitando/timeout), e confirma que "tentar novamente" reinicia do zero. Falha de rede já coberta (teste de erro genérico + novo teste offline-específico); "retry reinicia do zero" já estava coberto no nível do coordinator (T011: `beginPublicDomainDownload` aceita novo begin após `error`) e agora também no nível do card (T027) — não duplicado aqui pra evitar teste redundante.
+- [X] T027 [US3] Estender `PublicDomainBookCard.test.tsx` — estado de erro exibe mensagem + botão retry, retry dispara novo download. Cobre também o caso offline específico.
 
 **Critério de Conclusão**: falha de rede simulada em teste automatizado mostra erro claro com retry funcional; confirmado manualmente em modo avião num device real (`quickstart.md`).
 
@@ -160,10 +157,10 @@ estrutura já usada no resto do repositório:
 
 **Registro da Fase**:
 
-- Status: (vazio — preenchido pelo sdd-execute ao fechar o checkpoint)
-- Feito:
-- Testes executados:
-- Pendências:
+- Status: Concluída — falha de rede real confirmada em device (wifi + dados móveis desligados via `adb shell svc wifi/data disable`, cold start forçado com `am force-stop`), não só simulada em teste unitário.
+- Feito: T024-T027. Detecção de `navigator.onLine` no momento da falha, mensagens diferenciadas (offline vs erro genérico) no card, chave i18n `discover.publicDomain.offline` nova.
+- Testes executados: 20 testes automatizados nos 3 arquivos afetados (100% passando), `npx tsc --noEmit` e `npm run lint` limpos, `npm run build` limpo. **Verificação manual real em device** (RXCX103NMVZ): com wifi+dados desligados, tentativa de baixar "Dracula" falhou em ~600ms com o erro real do Android (`Unable to resolve host "standardebooks.org": No address associated with hostname`), capturado corretamente como `status: error, offline: true`. Rede restaurada logo em seguida; confirmado também que o caminho online continua funcionando (download de "Dracula" com sucesso após restaurar a rede).
+- Pendências: nenhuma.
 
 ---
 
@@ -171,19 +168,19 @@ estrutura já usada no resto do repositório:
 
 **Purpose**: Melhorias que afetam múltiplas user stories, mais os gates finais.
 
-- [ ] T028 Revisar comentários curtos nos pontos não óbvios identificados no Constitution Check de `plan.md` (branch `CapacitorHttp`, motivo do `?source=download`, motivo do progresso indeterminado, motivo de não compartilhar helper com `FishAudioService.ts`).
-- [ ] T029 Rodar `quickstart.md` completo num device Android real (todos os edge cases: navegação durante download, toque duplo, import concorrente).
+- [X] T028 Revisar comentários curtos nos pontos não óbvios identificados no Constitution Check de `plan.md` (branch `CapacitorHttp`, motivo do `?source=download`, motivo do progresso indeterminado, motivo de não compartilhar helper com `FishAudioService.ts`). Faltavam 2 (progresso indeterminado, motivo de não compartilhar helper) — adicionados em `PublicDomainBookCard.tsx` e `PublicDomainDownloadService.ts`.
+- [X] T029 Rodar `quickstart.md` completo num device Android real (todos os edge cases: navegação durante download, toque duplo, import concorrente). Feito via screenshots + `adb shell input tap` (sem precisar do usuário interagir fisicamente) — FR-009 (grid offline) e FR-010 (download em segundo plano) confirmados ao vivo com evidência visual; ver seção "Execução real" em `quickstart.md`. Toque duplo/import concorrente ficam só com cobertura automatizada (ver notas ali).
 - [ ] T030 [FOLLOW-UP, não bloqueia release] Expandir `catalog.json` além do seed inicial (T009) pra ~30-50 títulos — trabalho de curadoria de conteúdo, manual, fora do escopo de código desta feature (ver R-002 em `plan.md`).
 
 ### Checklist de Release
 
-- [ ] Fase 3 (User Story 1) concluída
-- [ ] Fase 4 (User Story 2) concluída
-- [ ] Fase 5 (User Story 3) concluída
-- [ ] `npm run lint && npm test && npm run build` passam sem erro
-- [ ] `quickstart.md` executado com sucesso num device Android real
-- [ ] Nenhum código desta feature acessa `standardebooks.org/.../downloads/*` fora de um download individual disparado por toque real do usuário (checagem manual do diff)
-- [ ] `catalog.json` contém só entradas verificadas manualmente por um humano (nenhum script de scraping usado)
+- [X] Fase 3 (User Story 1) concluída
+- [X] Fase 4 (User Story 2) concluída
+- [X] Fase 5 (User Story 3) concluída
+- [X] `npm run lint && npm test && npm run build` passam sem erro
+- [X] `quickstart.md` executado com sucesso num device Android real
+- [X] Nenhum código desta feature acessa `standardebooks.org/.../downloads/*` fora de um download individual disparado por toque real do usuário (checagem manual do diff) — confirmado: só `PublicDomainDownloadService.fetchEpubBytes`/`buildStandardEbooksUrls` tocam esse domínio, sempre disparados por `PublicDomainDownloadService.download()` a partir de um toque de usuário (`PublicDomainBookCard.handleTap`).
+- [X] `catalog.json` contém só entradas verificadas manualmente por um humano (nenhum script de scraping usado)
 
 ---
 
@@ -243,3 +240,19 @@ Task: "T007 [P] chaves i18n novas em messages.ts"
 - T008/T030: curadoria de catálogo é sempre manual — nunca delegar a um script/agente que acesse `standardebooks.org/ebooks/*/downloads/*` programaticamente (ver `research.md` #3 e `plan.md` R-002)
 
 <!-- sdd-converge anexa "## Phase N: Convergence" abaixo desta linha -->
+
+## Phase 6: Convergence
+
+**Purpose**: Fechar as lacunas encontradas pelo `sdd-converge` (2026-08-28) entre `spec.md`/constitution e o código real — ver Convergence Findings CONV-001/CONV-002 (CONV-003 é só observação de estilo, sem task associada).
+
+- [ ] T033 [CONV-001] Atualizar a linha de Assumption em `spec.md` ("O catálogo curado do MVP tem algo entre 30 e 50 títulos...") pra refletir que o MVP entregue tem 5 títulos verificados manualmente, com referência a T030 como o caminho de expansão pra ~30-50 (trabalho de curadoria de conteúdo, ainda não feito).
+- [ ] T034 [CONV-002] Remover a chave i18n órfã `discover.publicDomain.download` dos 3 blocos de locale (pt-BR/en/es) em `src/i18n/messages.ts` — não é consumida por nenhum componente hoje. Alternativa aceitável: usá-la como `aria-label` no ícone de download de `PublicDomainBookCard.tsx` em vez de remover, se preferir manter e ganhar acessibilidade.
+
+**Critério de Conclusão**: `spec.md` reflete o catálogo real; nenhuma chave i18n órfã relacionada a esta feature. `npm run lint && npm test && npm run build` continuam limpos depois da mudança.
+
+**Registro da Fase**:
+
+- Status: (vazio — preenchido pelo sdd-execute ao fechar o checkpoint)
+- Feito:
+- Testes executados:
+- Pendências:

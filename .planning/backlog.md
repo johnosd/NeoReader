@@ -12,4 +12,4 @@ _(nenhuma no momento — os dois bugs anteriores estão sendo rastreados em `sdd
 | Slug | Título | Status | Progresso | Última Atualização |
 | --- | --- | --- | --- | --- |
 | 001-audiobook-background-playback | Audiobook (TTS) sem interrupção com tela apagada ou app em segundo plano | Convergida | 49/49 tasks | 2026-08-27 |
-| 002-biblioteca-dominio-publico | Biblioteca de Domínio Público (Standard Ebooks) | Em Execução | 23/39 tasks | 2026-08-28 |
+| 002-biblioteca-dominio-publico | Biblioteca de Domínio Público (Standard Ebooks) | Convergência Pendente | 38/41 tasks | 2026-08-28 |

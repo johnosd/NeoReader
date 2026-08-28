@@ -77,9 +77,45 @@ describe('PublicDomainDownloadService', () => {
     })
   })
 
+  it('marca offline:true quando navigator.onLine e false no momento da falha (US3)', async () => {
+    const onLineSpy = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    mocks.request.mockRejectedValue(new Error('Unable to resolve host'))
+
+    await expect(PublicDomainDownloadService.download(entry)).rejects.toThrow('Unable to resolve host')
+
+    expect(getPublicDomainDownloadState(entry.id)).toEqual({
+      entryId: entry.id,
+      status: 'error',
+      errorMessage: 'Unable to resolve host',
+      offline: true,
+    })
+
+    onLineSpy.mockRestore()
+  })
+
   it('recusa rodar fora do Android nativo', async () => {
     mocks.isNativePlatform.mockReturnValue(false)
 
     await expect(PublicDomainDownloadService.download(entry)).rejects.toThrow(/Android nativo/)
+  })
+
+  it('propaga o erro de duplicata do pipeline de import existente sem criar um segundo livro (US2)', async () => {
+    // Simula o usuario ja tendo esse classico importado de outra fonte
+    // (ex: arquivo proprio) — BookImportService.importEpub ja rejeita
+    // duplicatas sozinho (findDuplicateBook); aqui so confirmamos que o
+    // caminho de download novo herda esse comportamento sem duplicar
+    // nem tratar como sucesso.
+    const epubBytes = [0x50, 0x4b, 0x03, 0x04]
+    mocks.request.mockResolvedValue({ status: 200, data: base64Of(epubBytes) })
+    mocks.importEpub.mockRejectedValue(new Error('Este livro ja esta na biblioteca.'))
+
+    await expect(PublicDomainDownloadService.download(entry)).rejects.toThrow('Este livro ja esta na biblioteca.')
+
+    expect(getPublicDomainDownloadState(entry.id)).toEqual({
+      entryId: entry.id,
+      status: 'error',
+      errorMessage: 'Este livro ja esta na biblioteca.',
+    })
+    expect(mocks.importEpub).toHaveBeenCalledTimes(1)
   })
 })

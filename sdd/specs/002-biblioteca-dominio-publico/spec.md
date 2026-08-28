@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-28
 
-**Status**: Em Execução
+**Status**: Convergência Pendente
 
 **Input**: Criar uma feature de biblioteca de domínio público (Standard Ebooks) dentro do app, usando o handoff de `sdd/assessments/livros-dominio-publico-dentro-app-download/decision.md` como contexto de entrada.
 

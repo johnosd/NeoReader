@@ -10,6 +10,12 @@ import {
 const DOWNLOAD_TIMEOUT_MS = 30_000
 const GENERIC_ERROR_MESSAGE = 'Nao foi possivel baixar o livro. Tente novamente.'
 
+// Duplicado de proposito em vez de reusar/extrair um helper compartilhado
+// com FishAudioService.ts (que resolve o mesmo problema de decodificar
+// base64 do CapacitorHttp): sao dominios nao relacionados (TTS de terceiro
+// vs. download de EPUB), e essa versao e bem menor (so o caminho arraybuffer
+// GET, sem SSE/streaming) — extrair cedo acoplaria os dois sem necessidade
+// real ainda (Decisao Invariante em plan.md, Principio III da constitution).
 function decodeBase64ToArrayBuffer(base64: string): ArrayBuffer {
   const binary = atob(base64)
   // new ArrayBuffer(...) (em vez de reusar bytes.buffer) garante o tipo
@@ -67,7 +73,11 @@ export const PublicDomainDownloadService = {
       return bookId
     } catch (error) {
       const message = error instanceof Error && error.message ? error.message : GENERIC_ERROR_MESSAGE
-      failPublicDomainDownload(entry.id, message)
+      // navigator.onLine=false no momento da falha e um sinal forte de que
+      // o erro foi por falta de conexao — deixa a UI mostrar isso em vez de
+      // um erro generico (User Story 3, Acceptance Scenario 1: "sem conexão").
+      const offline = typeof navigator !== 'undefined' && navigator.onLine === false
+      failPublicDomainDownload(entry.id, message, offline ? { offline: true } : undefined)
       throw error
     }
   },

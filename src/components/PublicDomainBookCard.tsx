@@ -72,6 +72,10 @@ export function PublicDomainBookCard({ entry, state, onDownload, onOpenDownloade
 
         {isDownloading && (
           <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(7,3,12,0.55)' }}>
+            {/* Indeterminado, nao percentual: CapacitorHttp.request nao expoe
+                progresso por bytes de forma confiavel, e os EPUBs do Standard
+                Ebooks sao pequenos (~1MB) — uma barra % seria complexidade
+                sem ganho real de UX (ver research.md #4). */}
             <Spinner size={28} label={t('discover.publicDomain.downloading')} />
           </div>
         )}
@@ -103,7 +107,7 @@ export function PublicDomainBookCard({ entry, state, onDownload, onOpenDownloade
         )}
         {isError && (
           <p className="text-[10px] mt-[2px] font-semibold" style={{ color: '#f87171' }}>
-            {t('discover.publicDomain.retry')}
+            {state.offline ? t('discover.publicDomain.offline') : t('discover.publicDomain.error')}
           </p>
         )}
       </div>

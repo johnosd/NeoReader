@@ -4,6 +4,10 @@ export interface PublicDomainDownloadState {
   entryId: string
   status: PublicDomainDownloadStatus
   errorMessage?: string
+  // true quando o erro foi detectado como falta de conexão (navigator.onLine
+  // false no momento da falha) — deixa a UI mostrar "sem conexão" em vez de
+  // um erro genérico (Acceptance Scenario da User Story 3).
+  offline?: boolean
   bookId?: number
 }
 
@@ -41,7 +45,7 @@ export function completePublicDomainDownload(entryId: string, bookId: number): v
   emitChange()
 }
 
-export function failPublicDomainDownload(entryId: string, errorMessage: string): void {
-  states.set(entryId, { entryId, status: 'error', errorMessage })
+export function failPublicDomainDownload(entryId: string, errorMessage: string, options?: { offline?: boolean }): void {
+  states.set(entryId, { entryId, status: 'error', errorMessage, offline: options?.offline })
   emitChange()
 }

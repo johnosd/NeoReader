@@ -55,8 +55,27 @@ Todos devem passar sem erro antes do teste manual.
 
 ## Checklist cross-cutting (constitution)
 
-- [ ] `npm run build` limpo (Princípio IV).
-- [ ] Nenhuma dependência nova adicionada sem justificar (Princípio V) —
+- [X] `npm run build` limpo (Princípio IV).
+- [X] Nenhuma dependência nova adicionada sem justificar (Princípio V) —
   esta feature não deveria precisar de nenhuma.
-- [ ] Comentários curtos nos pontos não óbvios (branch `CapacitorHttp` vs
+- [X] Comentários curtos nos pontos não óbvios (branch `CapacitorHttp` vs
   `fetch`, decisão de progresso indeterminado) — Princípio II.
+
+## Execução real (2026-08-28, device RXCX103NMVZ)
+
+Rodado via screenshots + `adb shell input tap` (sem precisar do usuário
+interagir fisicamente):
+
+- Cenário ponta a ponta: confirmado nas Fases 3-5 (download real, abrir
+  livro baixado, reconciliação pós-restart) — ver `tasks.md`.
+- FR-009 (grid offline): screenshot com wifi+dados desligados
+  (`svc wifi/data disable`, cold start forçado) mostra a seção "English
+  Classics" completa — títulos, autores e até capas em cache do WebView.
+- FR-010 (download em segundo plano): tocado em "baixar" e navegado pra
+  Biblioteca antes da conclusão — o livro apareceu lá e o estado refletiu
+  "In your library" ao voltar pra Descubra, sem reset nem duplicata.
+- Catálogo completo (5/5 títulos) confirmado com o badge "In your library"
+  depois de baixar todos — reconciliação (R-007) funcionando pra cada um.
+- Toque duplo (FR-011) e import concorrente: cobertos só por teste
+  automatizado (T011, `ImportCoordinator` já testado por infra existente),
+  não re-verificados ao vivo nesta rodada.
