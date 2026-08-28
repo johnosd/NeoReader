@@ -1,6 +1,6 @@
 ---
 name: sdd-execute
-description: Implementa uma feature já planejada, seguindo tasks.md fase por fase, com a documentação viva atualizada a cada checkpoint (não só no fim). Por padrão pausa ao final de cada fase pra confirmação (peça "sem parar"/"modo contínuo" pra desativar). Use quando o usuário pedir para implementar, construir, retomar ou continuar uma feature já especificada e planejada. Exige que specs/<NNN-slug>/plan.md e tasks.md já existam (rode sdd-plan antes, se não existirem). NÃO use para criar spec ou plano do zero.
+description: Implementa uma feature já planejada, seguindo tasks.md fase por fase, com a documentação viva atualizada a cada checkpoint (não só no fim). Por padrão pausa ao final de cada fase pra confirmação (peça "sem parar"/"modo contínuo" pra desativar). Use quando o usuário pedir para implementar, construir, retomar ou continuar uma feature já especificada e planejada. Exige que sdd/specs/<NNN-slug>/plan.md e tasks.md já existam (rode sdd-plan antes, se não existirem). NÃO use para criar spec ou plano do zero.
 ---
 
 # sdd-execute
@@ -135,7 +135,7 @@ que substitui "lembrar de atualizar a doc":
 ### 8. Arquivamento
 
 Se a tabela de `## Execution Notes` já tiver mais de ~40 linhas, mova todas
-exceto as ~10 mais recentes para `specs/<slug>/history.md` (crie o arquivo se
+exceto as ~10 mais recentes para `sdd/specs/<slug>/history.md` (crie o arquivo se
 não existir, sempre por anexação — nunca reescreva o que já está lá),
 substituindo-as em `plan.md` por uma linha de resumo consolidado. Cheque isso
 a cada checkpoint, não só quando o arquivo já estiver enorme.

@@ -1,6 +1,6 @@
 ---
 name: sdd-specify
-description: Cria a especificação (spec.md) de uma feature nova via entrevista leve + clarificação estruturada. Use quando o usuário pedir para iniciar, especificar, escopar uma feature nova, escrever user stories, ou "criar uma spec". Produz specs/<NNN-slug>/spec.md. NÃO use para atualizar um plano técnico ou tasks já existentes (use sdd-plan), para implementar código (use sdd-execute), ou para o fluxo livre do skill antigo "plan-feature".
+description: Cria a especificação (spec.md) de uma feature nova via entrevista leve + clarificação estruturada. Use quando o usuário pedir para iniciar, especificar, escopar uma feature nova, escrever user stories, ou "criar uma spec". Produz sdd/specs/<NNN-slug>/spec.md. NÃO use para atualizar um plano técnico ou tasks já existentes (use sdd-plan), para implementar código (use sdd-execute), ou para o fluxo livre do skill antigo "plan-feature".
 ---
 
 # sdd-specify
@@ -35,7 +35,7 @@ coisa, em lotes concisos (3-5 perguntas). Cubra:
 - Edge cases óbvios.
 
 Não pergunte fatos que dá pra descobrir barato no repositório (ex: convenções
-já visíveis em features existentes de `specs/`, se houver alguma). Não
+já visíveis em features existentes de `sdd/specs/`, se houver alguma). Não
 pergunte detalhes de arquitetura/stack — isso é do `sdd-plan`.
 
 ### 3. Rascunho em memória
@@ -83,13 +83,13 @@ resposta imediatamente:
 .\.planning\scripts\powershell\new-feature.ps1 "<descrição da feature>" [-ShortName <slug-curto>] -Json
 ```
 
-Isso cria `specs/<NNN-slug>/` com `spec.md` semeado do template
+Isso cria `sdd/specs/<NNN-slug>/` com `spec.md` semeado do template
 (`.planning/templates/spec-template.md`) e retorna o `SLUG` real (com o número
 sequencial).
 
 ### 6. Escreve a spec final
 
-Sobrescreva `specs/<NNN-slug>/spec.md` com o conteúdo completo do passo 3+4.
+Sobrescreva `sdd/specs/<NNN-slug>/spec.md` com o conteúdo completo do passo 3+4.
 Headings ficam em inglês (convenção estrutural); o conteúdo preenchido fica em
 português.
 
@@ -112,7 +112,7 @@ spec".
 
 ## Handoff
 
-`sdd-plan` exige que `specs/<NNN-slug>/spec.md` exista. Marcadores
+`sdd-plan` exige que `sdd/specs/<NNN-slug>/spec.md` exista. Marcadores
 `[NEEDS CLARIFICATION]` remanescentes são um sinal, não um bloqueio — o
 `sdd-plan` não falha por causa deles, mas o Analyze no fim do `sdd-plan` pode
 sinalizá-los.

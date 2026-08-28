@@ -1,39 +1,50 @@
-# Sistema SDD (`sdd-adr` + `sdd-bugfix` + `sdd-specify` → `sdd-plan` → `sdd-execute` → `sdd-converge`)
+# Sistema SDD (`sdd-assess` + `sdd-adr` + `sdd-bugfix` + `sdd-specify` → `sdd-plan` → `sdd-execute` → `sdd-converge`)
 
 Sistema próprio de Spec-Driven Development, evoluído do skill `plan-feature`
 usando ideias estruturais do GitHub spec-kit (constitution como gate, spec
-separada de plano separada de tasks, tasks por user story, e o extension
-opt-in de bug fixing assess→fix→test). Corrige cinco lacunas que o
+separada de plano separada de tasks, tasks por user story, o extension opt-in
+de bug fixing assess→fix→test, e o extension opt-in de validação de ideias
+intake→research→define→shape→decide). Corrige seis lacunas que o
 `plan-feature` original tinha: dificuldade em planos grandes (resolvida
 separando spec/plan/tasks/history), documentação que ficava pra trás do
 código (resolvida com atualização estrutural a cada checkpoint), falta de um
 backlog (resolvida com `.planning/backlog.md`), falta de um lugar pra
 registrar decisões arquiteturais fundamentais do projeto, com alternativas
 rejeitadas e consequências assumidas, feitas antes ou entre features
-(resolvida com `sdd-adr` + `adr/`), e falta de um fluxo disciplinado
-pra bugs relatados fora do contexto de uma feature ativa, com veredito nunca
-superestimado (resolvida com `sdd-bugfix` + `bugs/`).
+(resolvida com `sdd-adr` + `sdd/adr/`), falta de um fluxo disciplinado pra bugs
+relatados fora do contexto de uma feature ativa, com veredito nunca
+superestimado (resolvida com `sdd-bugfix` + `sdd/bugs/`), e falta de um
+checkpoint de "vale a pena construir isso?" antes de comprometer com uma spec
+inteira (resolvida com `sdd-assess` + `sdd/assessments/`).
 
 Este documento explica como usar o sistema, o que cada peça faz, como a
 documentação se mantém viva, e como retomar trabalho entre sessões.
 
 ## 1. Passo a passo de uso
 
-Não existem comandos de linha de comando pra digitar — os 6 skills são
+Não existem comandos de linha de comando pra digitar — os 7 skills são
 invocados em **linguagem natural**. O Claude Code reconhece qual skill usar
 pela descrição de cada um.
 
+-1. **Validar a ideia** (opcional, antes de comprometer com uma spec):
+   "avalia essa ideia" / "vale a pena construir X?" → dispara `sdd-assess`.
+   Produz `sdd/assessments/<slug>/{explora,problem,decision}.md`, terminando num
+   veredito `go`/`needs-clarification`/`kill`. Matar uma ideia com razão
+   documentada é sucesso, não falha. Só em `go` o handoff segue pro
+   `sdd-specify`.
 0. **Decidir arquitetura** (opcional, tipicamente antes da primeira feature):
    "documenta essa decisão de arquitetura" / "vamos decidir e registrar qual
    banco de dados usar" → dispara `sdd-adr`. Produz
-   `adr/ADR-NNN-slug.md`. Não faz parte da pipeline de uma feature
-   — pode rodar a qualquer momento, inclusive antes de qualquer `specs/`
+   `sdd/adr/ADR-NNN-slug.md`. Não faz parte da pipeline de uma feature
+   — pode rodar a qualquer momento, inclusive antes de qualquer `sdd/specs/`
    existir.
 1. **Especificar**: "especifica a feature de X" / "cria uma spec pra X" →
-   dispara `sdd-specify`. Produz `specs/<NNN-slug>/spec.md`.
+   dispara `sdd-specify`. Produz `sdd/specs/<NNN-slug>/spec.md`. Se vier de um
+   handoff `go` do `sdd-assess`, usa o resumo já pronto em vez de entrevistar
+   do zero.
 2. **Planejar**: "planeja essa spec" / "desenha a arquitetura da feature
    <NNN>" → dispara `sdd-plan`. Produz `plan.md` + `tasks.md` (+ artefatos
-   condicionais). Lê `adr/` na exploração, se existir.
+   condicionais). Lê `sdd/adr/` na exploração, se existir.
 3. **Implementar**: "implementa a feature <NNN>" / "continua a feature X" →
    dispara `sdd-execute`. Constrói o código, mantendo a documentação viva.
    Bugs achados durante essa fase são tratados inline (ver seção 6).
@@ -44,13 +55,13 @@ pela descrição de cada um.
 5. **Corrigir bug relatado** (a qualquer momento, fora de uma feature
    ativa): "avalia esse bug" / "corrige o bug X" / "verifica se o bug foi
    resolvido" → dispara `sdd-bugfix`. Produz
-   `bugs/<slug>/{assessment,fix,test}.md`, um por fase.
+   `sdd/bugs/<slug>/{assessment,fix,test}.md`, um por fase.
 
 Recomendado: até você ganhar confiança de que a invocação automática está
 acertando o skill certo, prefira pedir de forma explícita por etapa
-("especifica...", "planeja...", "implementa...", "converge...", "documenta
-essa decisão...", "avalia esse bug...") em vez de frases genéricas tipo só
-"trabalha nessa feature".
+("avalia essa ideia...", "especifica...", "planeja...", "implementa...",
+"converge...", "documenta essa decisão...", "avalia esse bug...") em vez de
+frases genéricas tipo só "trabalha nessa feature".
 
 ## 2. Fluxo de cada skill
 
@@ -58,6 +69,8 @@ essa decisão...", "avalia esse bug...") em vez de frases genéricas tipo só
 
 ```mermaid
 flowchart LR
+    ASSESS["sdd-assess\n(Explora → Define → Decide)"]
+    KILL(["kill / needs-clarification\n(fim, sem próximo passo\nou revisita fase)"])
     ADR["sdd-adr\n(decisões de arquitetura,\nprojeto inteiro)"]
     BACKLOG[(".planning/backlog.md\nIdeias Futuras")]
     SPEC["sdd-specify"]
@@ -68,8 +81,11 @@ flowchart LR
     BUGFIX["sdd-bugfix\n(Assess → Fix → Test)"]
     BUGDONE(["Bug verificado"])
 
+    BACKLOG -->|"ideia a validar"| ASSESS
+    ASSESS -->|"veredito: go"| SPEC
+    ASSESS -->|"veredito: kill /\nneeds-clarification"| KILL
     ADR -. "consultado por\n(evita relitigar decisão)" .-> PLAN
-    BACKLOG -->|"ideia vira spec"| SPEC
+    BACKLOG -->|"ideia já clara\nvira spec direto"| SPEC
     SPEC -->|spec.md| PLAN
     PLAN -->|"plan.md + tasks.md"| EXEC
     EXEC -->|"código + docs vivas"| CONV
@@ -81,25 +97,73 @@ flowchart LR
     BUGFIX -->|verified| BUGDONE
 ```
 
-`sdd-adr` e `sdd-bugfix` não fazem parte da pipeline linear — rodam a
-qualquer momento, independentes de qualquer `specs/` existir. Os outros 4
-formam o ciclo de vida de uma feature específica, do início ao fechamento.
+`sdd-assess`, `sdd-adr` e `sdd-bugfix` não fazem parte da pipeline linear —
+rodam a qualquer momento, independentes de qualquer `sdd/specs/` existir. Os
+outros 4 formam o ciclo de vida de uma feature específica, do início ao
+fechamento.
+
+### `sdd-assess`
+
+Independente da pipeline de feature — não exige nenhuma `sdd/specs/` existente.
+Discovery ("vale a pena construir isso?") antes de Delivery ("como
+construímos?"). Uma única invocação continua da fase certa automaticamente.
+
+| Fase | Obrigatória? | O que faz | Escreve em |
+|---|---|---|---|
+| 0. Resolve | — | `resolve-assessment.ps1` cria/acha `sdd/assessments/<slug>/` e diz qual fase rodar (`define`/`decide`/`complete`) — Explora nunca é auto-detectada, é oferecida à parte | — |
+| **Explora** | Não — pule se a ideia já chegou clara | Captura a ideia (texto/URL), evidência a favor **e contra obrigatória** (marca `ASSUMPTION` o que não tem fonte) | `explora.md` |
+| **Define** | Sim — estágio mínimo viável | Problem statement, usuários afetados, goals/non-goals, métricas de sucesso, custo de inação | `problem.md` |
+| **Decide** | Sim (exige `problem.md`) | Scorecard (`strong`/`adequate`/`weak`/`unknown` por critério — `unknown` precisa ser reconhecido, não varrido pra baixo do tapete), 1-3 abordagens candidatas, veredito | `decision.md` |
+
+**Veredito nunca inflado**: `go` exige problema válido + evidência
+`adequate`+ em todos os critérios centrais; senão desce pra
+`needs-clarification`. Matar (`kill`) uma ideia com razão documentada é
+sucesso, não falha.
+
+**Artefatos**: `sdd/assessments/<slug>/{explora,problem,decision}.md` — sem
+numeração sequencial, só o slug, igual `sdd/bugs/`.
+
+**Diagrama interno**:
+
+```mermaid
+flowchart TD
+    A([Início]) --> B["resolve-assessment.ps1\nresolve slug + fase"]
+    B --> C{"NEXT_PHASE?"}
+    C -->|"define (Explora\né opcional, oferecida à parte)"| D["Problem statement,\ngoals/non-goals,\nmétricas, custo de inação"]
+    D --> E["Escreve problem.md"]
+    E --> F(["Relata + próximo passo: Decide"])
+    C -->|decide| G["Preenche scorecard\n(unknown deve ser reconhecido)"]
+    G --> H["Lista 1-3 abordagens\ncandidatas"]
+    H --> I{"Evidência adequate+\nem critérios centrais?"}
+    I -->|Não| J["Veredito: needs-clarification"]
+    I -->|Sim| K["Veredito: go"]
+    I -->|"Problema não\nse sustenta"| L["Veredito: kill"]
+    J --> M["Escreve decision.md"]
+    K --> M
+    L --> M
+    M --> N{"Veio de entrada\nno backlog?"}
+    N -->|"go ou kill"| O["Remove a entrada\n(decision.md é o registro agora)"]
+    N -->|needs-clarification| P["Mantém a entrada\n(ainda é 'futuro')"]
+    O --> Q(["Relata veredito + próximo passo"])
+    P --> Q
+    C -->|complete| R(["Informa veredito já\nregistrado, pergunta se reabre"])
+```
 
 ### `sdd-adr`
 
-Independente da pipeline de feature — não exige nenhuma `specs/` existente.
+Independente da pipeline de feature — não exige nenhuma `sdd/specs/` existente.
 
 | Etapa | O que faz |
 |---|---|
 | 1. Confere ADRs existentes | Se a discussão se relaciona a uma ADR já registrada, é emenda, não ADR nova |
 | 2. Discussão aberta | Trade-offs técnicos reais — mais livre que a entrevista do `sdd-specify`, não é um checklist fixo |
 | 3. Nova ou emenda? | Decide o caminho a seguir |
-| 4a. Cria a ADR | `new-adr.ps1` → `adr/ADR-NNN-slug.md`; Status/Contexto/Decisão/Alternativas Consideradas (com motivo concreto de rejeição)/Consequências/Caminho de Migração |
+| 4a. Cria a ADR | `new-adr.ps1` → `sdd/adr/ADR-NNN-slug.md`; Status/Contexto/Decisão/Alternativas Consideradas (com motivo concreto de rejeição)/Consequências/Caminho de Migração |
 | 4b. Emenda | **Nunca reescreve** a ADR antiga — adiciona nota inline `**Atualização (ADR-0XX):** ...` no ponto afetado; cria ADR nova só se a emenda for substancial |
 | 5. Considera promoção | Pergunta se a decisão deveria virar `Restrição do Projeto` na constitution (a maioria não precisa) |
 | 6. Relata | Caminho salvo, se emendou algo, se recomendou promoção |
 
-**Artefatos**: `adr/ADR-NNN-slug.md`, e possivelmente uma nota
+**Artefatos**: `sdd/adr/ADR-NNN-slug.md`, e possivelmente uma nota
 inline numa ADR anterior.
 
 **Diagrama interno**:
@@ -126,12 +190,12 @@ flowchart TD
 | 2. Entrevista leve | 3-5 perguntas: objetivo, ponto de entrada, não-objetivos, critérios de aceite, edge cases |
 | 3. Rascunho em memória | Escopo, User Stories P1/P2/P3, FR-###, SC-###, Assumptions |
 | 4. Clarify | Varre 8 categorias de ambiguidade, até +5 perguntas com opção Recomendada, só onde há dúvida real |
-| 5. Cria a pasta | `new-feature.ps1` → `specs/<NNN-slug>/` com numeração sequencial |
+| 5. Cria a pasta | `new-feature.ps1` → `sdd/specs/<NNN-slug>/` com numeração sequencial |
 | 6. Escreve a spec | Sobrescreve `spec.md` com o conteúdo final |
 | 7. Atualiza o backlog | `update-feature-status.ps1 -Status Especificada` |
 | 8. Relata | Caminho salvo + próximo passo |
 
-**Artefatos**: `specs/<NNN-slug>/spec.md`, linha nova/atualizada em
+**Artefatos**: `sdd/specs/<NNN-slug>/spec.md`, linha nova/atualizada em
 `.planning/backlog.md`.
 
 **Diagrama interno**:
@@ -142,7 +206,7 @@ flowchart TD
     B --> C["Entrevista leve\n(3-5 perguntas)"]
     C --> D["Rascunho em memória:\nEscopo / Stories / FR-### / SC-###"]
     D --> E["Clarify: 8 categorias\nde ambiguidade,\naté +5 perguntas"]
-    E --> F["new-feature.ps1\ncria specs/NNN-slug/"]
+    E --> F["new-feature.ps1\ncria sdd/specs/NNN-slug/"]
     F --> G["Escreve spec.md final"]
     G --> H["update-feature-status.ps1\nStatus: Especificada"]
     H --> I(["Relata + próximo passo\n(rodar sdd-plan)"])
@@ -153,7 +217,7 @@ flowchart TD
 | Etapa | O que faz |
 |---|---|
 | 1. Gate | Exige `spec.md` + constitution. Se só a constitution faltar, o próprio skill faz um bootstrap curto (entrevista de 3-5 perguntas) antes de continuar |
-| 2. Exploração dirigida | Descobre a estrutura real do repositório, busca só o que a spec exige, lê `adr/` se existir (nunca relitiga uma decisão já registrada) |
+| 2. Exploração dirigida | Descobre a estrutura real do repositório, busca só o que a spec exige, lê `sdd/adr/` se existir (nunca relitiga uma decisão já registrada) |
 | 3. Síntese de contexto | Resumo compacto antes de escrever qualquer coisa |
 | 4. Technical Context + Decisões Invariantes | Stack, storage, testes + axiomas travados desta feature |
 | 5. Constitution Check (pré-design) | Cada princípio avaliado contra o plano emergente — viola sem justificativa, pára e pergunta |
@@ -177,7 +241,7 @@ flowchart TD
     B --> C{"Constitution\nexiste?"}
     C -->|Não| D["Bootstrap: entrevista curta\ncria constitution.md"]
     D --> B
-    C -->|Sim| E["Exploração dirigida\n+ lê adr/"]
+    C -->|Sim| E["Exploração dirigida\n+ lê sdd/adr/"]
     E --> F["Technical Context +\nDecisões Invariantes"]
     F --> G["Constitution Check\n(pré-design)"]
     G -->|"Viola sem\njustificativa"| H(["Pára e pergunta"])
@@ -284,18 +348,18 @@ flowchart TD
 
 ### `sdd-bugfix`
 
-Independente da pipeline de feature — não exige nenhuma `specs/` existente.
+Independente da pipeline de feature — não exige nenhuma `sdd/specs/` existente.
 Uma única invocação continua da fase certa automaticamente, com base no que
-já existe em `bugs/<slug>/`.
+já existe em `sdd/bugs/<slug>/`.
 
 | Fase | Pode editar código? | O que faz | Escreve em | Veredito |
 |---|---|---|---|---|
-| 0. Resolve | — | `resolve-bug.ps1` cria/acha `bugs/<slug>/` e diz qual fase rodar (`assess`/`fix`/`test`/`complete`) | — | — |
+| 0. Resolve | — | `resolve-bug.ps1` cria/acha `sdd/bugs/<slug>/` e diz qual fase rodar (`assess`/`fix`/`test`/`complete`) | — | — |
 | **Assess** | Não | Ingere o report (texto/URL), resume sintoma, localiza código suspeito, avalia mérito/severidade, propõe remediação | `assessment.md` | `valid` / `likely valid, needs reproduction` / `invalid` |
 | **Fix** | **Sim — só esta fase** | Confirma o plano, aplica a remediação (fica dentro dos arquivos do assessment, desvios registrados), adiciona testes, roda checagens locais | `fix.md` | `applied` / `partial` / `not-applied` |
 | **Test** | Não | Replaneja e roda a validação (reprodução + testes + regressão + lint), julga o resultado sem superestimar | `test.md` | `verified` / `partial` / `failed` |
 
-**Artefatos**: `bugs/<slug>/{assessment,fix,test}.md`, um por fase
+**Artefatos**: `sdd/bugs/<slug>/{assessment,fix,test}.md`, um por fase
 — sem numeração sequencial, só o slug.
 
 **Diagrama interno**:
@@ -333,11 +397,12 @@ flowchart TD
 | Script | Pra que serve |
 |---|---|
 | `common.ps1` | Funções compartilhadas: acha a raiz do repo (marcador `.planning/`), resolve caminhos de feature, gera slug, lê template |
-| `new-feature.ps1` | Cria `specs/<NNN-slug>/` com numeração sequencial + `spec.md` semeado |
-| `new-adr.ps1` | Cria `adr/ADR-NNN-slug.md` com numeração sequencial + conteúdo semeado do template |
+| `new-feature.ps1` | Cria `sdd/specs/<NNN-slug>/` com numeração sequencial + `spec.md` semeado |
+| `new-adr.ps1` | Cria `sdd/adr/ADR-NNN-slug.md` com numeração sequencial + conteúdo semeado do template |
 | `check-prerequisites.ps1` | Gate por estágio (specify/plan/execute/converge) — bloqueia com mensagem específica de qual arquivo falta e qual skill rodar |
 | `update-feature-status.ps1` | Recalcula progresso, atualiza `backlog.md` e a linha `**Status**:` de `spec.md`; autocria `backlog.md` se não existir |
-| `resolve-bug.ps1` | Cria/acha `bugs/<slug>/` (sem numeração, só slug) e reporta qual fase (assess/fix/test/complete) rodar a seguir, baseado em quais relatórios já existem |
+| `resolve-bug.ps1` | Cria/acha `sdd/bugs/<slug>/` (sem numeração, só slug) e reporta qual fase (assess/fix/test/complete) rodar a seguir, baseado em quais relatórios já existem |
+| `resolve-assessment.ps1` | Cria/acha `sdd/assessments/<slug>/` (sem numeração, só slug) e reporta qual fase (define/decide/complete) rodar a seguir — Explora é opcional e nunca entra nessa resolução automática |
 
 Todos são agnósticos de projeto — funcionam em qualquer repositório que tenha
 uma pasta `.planning/`, sem assumir linguagem, framework ou stack.
@@ -362,7 +427,7 @@ Esse é o mecanismo central que resolve "a doc fica pra trás do código":
 - **`Checklist de Release`** (em `tasks.md`) — marcado conforme cada fase
   fecha.
 - **Arquivamento automático** — se `Execution Notes` crescer demais (~40
-  linhas), o excedente vai pra `specs/<slug>/history.md`, deixando só um
+  linhas), o excedente vai pra `sdd/specs/<slug>/history.md`, deixando só um
   resumo consolidado no `plan.md` ativo. Isso existe porque um plano real
   de outro projeto (não gerido por este sistema) chegou a 2902 linhas antes
   de alguém separar o histórico manualmente — aqui isso é embutido no fluxo.
@@ -383,7 +448,7 @@ Pra retomar uma feature numa sessão nova:
 1. Olhe `.planning/backlog.md` → `## Features` pra ver o status geral de
    tudo (`Especificada`/`Planejada`/`Em Execução`/`Implementada`/
    `Convergida`/`Convergência Pendente`) e o progresso (`N/M tasks`).
-2. Abra `specs/<slug>/plan.md` → `## Estado Atual` (visão geral) e a linha
+2. Abra `sdd/specs/<slug>/plan.md` → `## Estado Atual` (visão geral) e a linha
    `PRÓXIMO:` (ação concreta seguinte) — é o resumo mais rápido de onde
    parou.
 3. Se precisar de mais detalhe, `## Execution Notes` (o que aconteceu
@@ -427,7 +492,7 @@ tenta planejar algo — não precisa existir de antemão.
 ### Backlog com dois propósitos
 
 `.planning/backlog.md` combina: `## Ideias Futuras` (features/bugs ainda sem
-spec) e `## Features` (painel de status de tudo que já tem `specs/<slug>/`).
+spec) e `## Features` (painel de status de tudo que já tem `sdd/specs/<slug>/`).
 Mantido automaticamente, nunca editado à mão pras colunas de status.
 
 ### ADRs vs constitution vs Decisões Invariantes
@@ -438,7 +503,7 @@ não são intercambiáveis:
 | | Escopo | Natureza | Quem mantém |
 |---|---|---|---|
 | `constitution.md` | Projeto inteiro | Regra `DEVE`, gate formal, terso | `sdd-plan` (bootstrap) |
-| ADR (`adr/`) | Projeto inteiro | Decisão + raciocínio completo + alternativas rejeitadas, permanente, emendável | `sdd-adr` |
+| ADR (`sdd/adr/`) | Projeto inteiro | Decisão + raciocínio completo + alternativas rejeitadas, permanente, emendável | `sdd-adr` |
 | `plan.md` → Decisões Invariantes | Uma feature | Local, descartável quando a feature converge | `sdd-plan` |
 
 Uma ADR pode eventualmente "virar" uma regra de constitution (quando a
@@ -451,7 +516,7 @@ precisa ser um gate obrigatório.
 - **Evita relitigar decisões já tomadas.** Sem ADR, cada feature nova que
   toca uma área técnica corre o risco de reabrir uma discussão já resolvida
   — ou pior, o agente nem sabe que ela já foi resolvida e propõe algo
-  inconsistente. É por isso que o `sdd-plan` lê `adr/` antes de
+  inconsistente. É por isso que o `sdd-plan` lê `sdd/adr/` antes de
   decidir Technical Context.
 - **Preserva o porquê, não só o o quê.** Código mostra o que foi
   implementado; a constitution mostra a regra. Nenhum dos dois guarda o
@@ -524,13 +589,35 @@ documenta o shape de request/response de uma API que a feature expõe ou
 muda (também condicional, só se houver superfície de API).
 
 **Como inicio isso num repositório novo?**
-Copie `.claude/skills/sdd-*/` (os 6 skills) e `.planning/scripts/` +
+Copie `.claude/skills/sdd-*/` (os 7 skills) e `.planning/scripts/` +
 `.planning/templates/` (100% reutilizáveis). Não copie `constitution.md`,
-`backlog.md` nem as pastas `adr/`/`bugs/` (específicos deste projeto) — eles
-se recriam sozinhos ou vazios: `backlog.md` autocria na primeira chamada, a
+`backlog.md` nem a pasta `sdd/` (específicos deste projeto) — eles se
+recriam sozinhos ou vazios: `backlog.md` autocria na primeira chamada, a
 `constitution.md` é bootstrapada pelo `sdd-plan` na primeira vez que alguém
-planejar algo, `adr/` só existe depois da primeira vez que você rodar
-`sdd-adr`, e `bugs/` depois da primeira vez que rodar `sdd-bugfix`.
+planejar algo, e `sdd/specs/`, `sdd/adr/`, `sdd/bugs/`, `sdd/assessments/`
+só existem depois da primeira vez que você rodar o skill correspondente.
+
+**Por que `sdd/specs/`, `sdd/adr/`, `sdd/bugs/` e `sdd/assessments/` ficam
+na raiz do repo em vez de dentro de `.planning/`?**
+Porque são **produto de trabalho** (conteúdo gerado, um por feature/decisão/
+bug/ideia, pra navegar e revisar), diferente de `.planning/` que é só
+**maquinário compartilhado** (templates, scripts, constitution, backlog —
+painel de controle, não conteúdo em si). Misturar as duas coisas no mesmo
+dot-folder ficaria confuso e menos descobrível. As 4 subpastas ficam
+agrupadas dentro de uma única `sdd/` visível (em vez de soltas direto no
+root, como era antes) porque o root do projeto já acumula muitas outras
+pastas não relacionadas ao sistema SDD — uma pasta só, com nome descritivo,
+é mais fácil de reconhecer e não some no meio do resto.
+
+**Qual a diferença entre `sdd-assess`, `sdd-adr` e `sdd-specify`?**
+`sdd-assess` responde "vale a pena construir isso?" — roda **antes** de
+qualquer compromisso, pode terminar em `kill`. `sdd-adr` documenta **como**
+resolver uma decisão de arquitetura fundamental já assumida como necessária
+(qual banco, qual stack). `sdd-specify` já assume que a feature **vai** ser
+construída e define o **quê** dela. Numa ideia grande e incerta, o caminho
+completo seria `sdd-assess` (decide se vale a pena) → `sdd-specify` (o quê)
+→ `sdd-plan`, que pode incluir seu próprio `sdd-adr` se surgir uma decisão
+de arquitetura no meio.
 
 **Qual a diferença entre o tratamento de bug do `sdd-execute` e o
 `sdd-bugfix`?**
@@ -546,7 +633,7 @@ fato executada.
 **Preciso rodar as 3 fases do `sdd-bugfix` de uma vez?**
 Não — cada fase é sua própria invocação, e o skill descobre automaticamente
 qual rodar a seguir (via `resolve-bug.ps1`, olhando quais arquivos já
-existem em `bugs/<slug>/`). Dá pra assessar vários bugs sem se
+existem em `sdd/bugs/<slug>/`). Dá pra assessar vários bugs sem se
 comprometer a corrigir na hora, ou re-rodar só o Test depois de mexer em
 algo manualmente.
 

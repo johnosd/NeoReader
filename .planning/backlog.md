@@ -5,7 +5,7 @@ sdd-*. Mantido automaticamente por update-feature-status.ps1.
 
 ## Ideias Futuras
 
-_(nenhuma no momento — os dois bugs anteriores estão sendo rastreados em `bugs/` via sdd-bugfix)_
+_(nenhuma no momento — os dois bugs anteriores estão sendo rastreados em `sdd/bugs/` via sdd-bugfix)_
 
 ## Features
 

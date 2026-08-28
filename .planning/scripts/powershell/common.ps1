@@ -31,9 +31,18 @@ function Get-RepoRoot {
     }
 }
 
+# Raiz de todo o produto de trabalho do sistema sdd-* (sdd/specs, sdd/bugs, sdd/adr,
+# assessments), agrupado sob uma única pasta visível no root do repo — em
+# oposição a .planning/, que é só o maquinário compartilhado (scripts,
+# templates, constitution, backlog).
+function Get-SddRoot {
+    param([Parameter(Mandatory = $true)][string]$RepoRoot)
+    return Join-Path $RepoRoot 'sdd'
+}
+
 # Resolve o diretório de uma feature a partir de -FeatureDir (caminho
 # explícito, absoluto ou relativo à raiz) ou -Slug (nome completo ou parcial,
-# resolvido por prefixo contra specs/NNN-*). Nunca lê estado global oculto.
+# resolvido por prefixo contra sdd/specs/NNN-*). Nunca lê estado global oculto.
 function Resolve-FeatureDir {
     param(
         [string]$RepoRoot,
@@ -52,7 +61,7 @@ function Resolve-FeatureDir {
     }
 
     if ($Slug) {
-        $specsDir = Join-Path $RepoRoot 'specs'
+        $specsDir = Join-Path (Get-SddRoot -RepoRoot $RepoRoot) 'specs'
         $exact = Join-Path $specsDir $Slug
         if (Test-Path -LiteralPath $exact -PathType Container) {
             return (Resolve-Path -LiteralPath $exact).Path
@@ -92,7 +101,7 @@ function Get-FeaturePaths {
     }
 }
 
-# Varre specs/NNN-* e retorna o maior número de sequência já usado (0 se nenhum).
+# Varre sdd/specs/NNN-* e retorna o maior número de sequência já usado (0 se nenhum).
 function Get-HighestFeatureNumber {
     param([Parameter(Mandatory = $true)][string]$SpecsDir)
 
@@ -108,7 +117,7 @@ function Get-HighestFeatureNumber {
     return $max
 }
 
-# Varre adr/ e retorna o maior número ADR-NNN já usado (0 se nenhum).
+# Varre sdd/adr/ e retorna o maior número ADR-NNN já usado (0 se nenhum).
 function Get-HighestAdrNumber {
     param([Parameter(Mandatory = $true)][string]$AdrDir)
 

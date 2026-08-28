@@ -1,6 +1,6 @@
 # Implementation Plan: Audiobook (TTS) sem interrupção com tela apagada ou app em segundo plano
 
-**Slug**: `001-audiobook-background-playback` | **Date**: 2026-08-26 | **Spec**: `specs/001-audiobook-background-playback/spec.md`
+**Slug**: `001-audiobook-background-playback` | **Date**: 2026-08-26 | **Spec**: `sdd/specs/001-audiobook-background-playback/spec.md`
 
 ## Summary
 
@@ -116,7 +116,7 @@ Nenhuma violação — `## Complexity Tracking` fica vazia.
 ### Documentation (this feature)
 
 ```text
-specs/001-audiobook-background-playback/
+sdd/specs/001-audiobook-background-playback/
 ├── spec.md              # Saída do sdd-specify
 ├── plan.md               # Este arquivo (saída do sdd-plan)
 ├── contracts/

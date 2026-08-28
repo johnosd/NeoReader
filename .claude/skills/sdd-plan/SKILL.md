@@ -1,6 +1,6 @@
 ---
 name: sdd-plan
-description: Transforma uma spec já existente em plano técnico (plan.md) e lista de tasks (tasks.md), com checagem obrigatória contra a constitution do projeto. Use quando o usuário pedir para planejar uma spec, desenhar a arquitetura de uma feature, quebrar uma spec em tasks, ou rodar constitution check. Exige que specs/<NNN-slug>/spec.md já exista (rode sdd-specify antes, se não existir). NÃO use para criar uma spec nova ou para implementar código (use sdd-execute).
+description: Transforma uma spec já existente em plano técnico (plan.md) e lista de tasks (tasks.md), com checagem obrigatória contra a constitution do projeto. Use quando o usuário pedir para planejar uma spec, desenhar a arquitetura de uma feature, quebrar uma spec em tasks, ou rodar constitution check. Exige que sdd/specs/<NNN-slug>/spec.md já exista (rode sdd-specify antes, se não existir). NÃO use para criar uma spec nova ou para implementar código (use sdd-execute).
 ---
 
 # sdd-plan
@@ -76,7 +76,7 @@ Prefira buscas focadas (Grep/Glob) a dump de diretório inteiro. Leia testes
 existentes da mesma área, se houver, pra entender o padrão de teste do
 projeto.
 
-Se `adr/` existir, liste os títulos das ADRs lá dentro e leia por
+Se `sdd/adr/` existir, liste os títulos das ADRs lá dentro e leia por
 inteiro qualquer uma cujo tema se relacione com esta feature (stack, banco de
 dados, framework tocados). São decisões de arquitetura já tomadas e
 justificadas — **não as relitigue silenciosamente**; a Technical Context e as

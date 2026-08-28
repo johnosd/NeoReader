@@ -1,6 +1,6 @@
 ---
 name: sdd-bugfix
-description: Avalia, corrige e verifica um bug reportado (texto colado ou URL) fora do contexto de uma feature ativa, em 3 fases sequenciais (Assess → Fix → Test) que se comunicam via bugs/<slug>/. Use quando o usuário pedir para avaliar/triar um bug, corrigir um bug, ou verificar se um bug foi resolvido. Continua automaticamente da fase certa com base no que já existe em disco. Independente da pipeline de feature — não exige specs/ nem plan.md. NÃO use para bugs descobertos durante uma sessão ativa de sdd-execute (esses já são tratados inline, ver o passo 6 do sdd-execute) nem para features novas (use sdd-specify).
+description: Avalia, corrige e verifica um bug reportado (texto colado ou URL) fora do contexto de uma feature ativa, em 3 fases sequenciais (Assess → Fix → Test) que se comunicam via sdd/bugs/<slug>/. Use quando o usuário pedir para avaliar/triar um bug, corrigir um bug, ou verificar se um bug foi resolvido. Continua automaticamente da fase certa com base no que já existe em disco. Independente da pipeline de feature — não exige sdd/specs/ nem plan.md. NÃO use para bugs descobertos durante uma sessão ativa de sdd-execute (esses já são tratados inline, ver o passo 6 do sdd-execute) nem para features novas (use sdd-specify).
 ---
 
 # sdd-bugfix
@@ -23,8 +23,8 @@ entrada `[Bug]` do `.planning/backlog.md` foi escolhida pra resolver agora.
 | **Fix** | **Sim — só esta fase** | `fix.md` | `applied` / `partial` / `not-applied` |
 | **Test** | Não — só reroda checagens | `test.md` | `verified` / `partial` / `failed` |
 
-Os 3 arquivos vivem em `bugs/<slug>/` — pasta própria, separada de
-`specs/`, sem numeração sequencial (o slug é o único identificador, igual ao
+Os 3 arquivos vivem em `sdd/bugs/<slug>/` — pasta própria, separada de
+`sdd/specs/`, sem numeração sequencial (o slug é o único identificador, igual ao
 design original).
 
 ## Fluxo
@@ -37,10 +37,10 @@ design original).
 .\.planning\scripts\powershell\resolve-bug.ps1 -Slug <slug> -Json
 ```
 
-Isso cria/resolve `bugs/<slug>/` e reporta `NEXT_PHASE`
+Isso cria/resolve `sdd/bugs/<slug>/` e reporta `NEXT_PHASE`
 (`assess`/`fix`/`test`/`complete`) baseado em quais arquivos já existem. Rode
 a fase indicada — não pule fase nem adivinhe o slug se houver mais de um
-candidato em `bugs/` (liste e pergunte ao usuário qual é).
+candidato em `sdd/bugs/` (liste e pergunte ao usuário qual é).
 
 Se a fase resolvida for `complete`, informe o status final (veredito do
 `test.md`) e pergunte se o usuário quer reabrir (rodar Assess de novo com
@@ -67,7 +67,7 @@ evidência nova) ou se está satisfeito.
 6. Escreve `assessment.md` a partir de
    `.planning/templates/bug-assessment-template.md`.
 7. Se a origem for uma entrada `[Bug]` de `.planning/backlog.md`, remova
-   essa entrada (o bug agora está sendo rastreado em `bugs/`).
+   essa entrada (o bug agora está sendo rastreado em `sdd/bugs/`).
 8. Relata: slug, caminho do `assessment.md`, veredito, severidade, próximo
    passo ("rode a fase Fix nesse bug").
 
@@ -130,7 +130,7 @@ evidência nova) ou se está satisfeito.
 ## Guardrails
 
 - Assess e Test **nunca editam código-fonte** — só leem o repositório e
-  escrevem dentro de `bugs/<slug>/`.
+  escrevem dentro de `sdd/bugs/<slug>/`.
 - Fix é a única fase que edita código, e fica dentro dos arquivos listados
   no assessment a menos que evidência nova exija expandir — expansão é
   sempre registrada, nunca silenciosa.

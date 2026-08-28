@@ -1,5 +1,5 @@
 ﻿#!/usr/bin/env pwsh
-# Cria a pasta specs/<NNN-slug>/ e semeia spec.md a partir do template.
+# Cria a pasta sdd/specs/<NNN-slug>/ e semeia spec.md a partir do template.
 # Usado só pelo sdd-specify. Não pré-copia plan.md/tasks.md (isso é
 # responsabilidade do próprio sdd-plan, que lê os templates diretamente).
 #
@@ -18,7 +18,7 @@ $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot/common.ps1"
 
 $repoRoot = Get-RepoRoot
-$specsDir = Join-Path $repoRoot 'specs'
+$specsDir = Join-Path (Get-SddRoot -RepoRoot $repoRoot) 'specs'
 
 $slug = if ($ShortName) {
     New-SlugFromText -Text $ShortName

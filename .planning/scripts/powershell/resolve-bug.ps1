@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
-# Resolve/cria bugs/<slug>/ e reporta qual fase (assess/fix/test)
+# Resolve/cria sdd/bugs/<slug>/ e reporta qual fase (assess/fix/test)
 # roda a seguir, baseado em quais relatórios já existem. Usado só pelo
-# sdd-bugfix. Diferente de specs/ e adr/, bugs não usam numeração sequencial
+# sdd-bugfix. Diferente de sdd/specs/ e sdd/adr/, bugs não usam numeração sequencial
 # — o slug é o único identificador, igual ao design do extension "bug" do
 # spec-kit que inspirou este skill.
 #
@@ -19,7 +19,7 @@ $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot/common.ps1"
 
 $repoRoot = Get-RepoRoot
-$bugsDir = Join-Path $repoRoot 'bugs'
+$bugsDir = Join-Path (Get-SddRoot -RepoRoot $repoRoot) 'bugs'
 
 if (-not $Slug -and -not $Title) {
     [Console]::Error.WriteLine("ERROR: informe -Slug ou -Title")
