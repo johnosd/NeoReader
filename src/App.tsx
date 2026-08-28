@@ -328,6 +328,7 @@ function App() {
             onOpenLibrary={openLibrary}
             onOpenProfile={openProfile}
             onOpenPaywall={() => push({ name: 'paywall' })}
+            onOpenBook={(book) => push({ name: 'book-details', book })}
           />
         </ErrorBoundary>
       )

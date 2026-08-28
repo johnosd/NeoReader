@@ -2,6 +2,7 @@ import { Compass, Sparkles } from 'lucide-react'
 import { AdBannerSlot } from '../components/AdBannerSlot'
 import { BottomNav } from '../components/BottomNav'
 import { NytBooksRow } from '../components/NytBooksRow'
+import { PublicDomainCatalogSection } from '../components/PublicDomainCatalogSection'
 import { QuotaUsageHint } from '../components/QuotaUsageHint'
 import { Button, EmptyState } from '../components/ui'
 import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
@@ -9,6 +10,7 @@ import { useEntitlements } from '../hooks/useEntitlements'
 import { useI18n } from '../i18n'
 import { FeatureQuotaService } from '../services/FeatureQuotaService'
 import { NytBooksService } from '../services/NytBooksService'
+import type { Book } from '../types/book'
 
 const TRENDING_LISTS = [
   'advice-how-to-and-miscellaneous',
@@ -28,9 +30,10 @@ interface DiscoverScreenProps {
   onOpenLibrary: () => void
   onOpenProfile: () => void
   onOpenPaywall?: () => void
+  onOpenBook: (book: Book) => void
 }
 
-export function DiscoverScreen({ onBack, onOpenHome, onOpenLibrary, onOpenProfile, onOpenPaywall }: DiscoverScreenProps) {
+export function DiscoverScreen({ onBack, onOpenHome, onOpenLibrary, onOpenProfile, onOpenPaywall, onOpenBook }: DiscoverScreenProps) {
   const { t } = useI18n()
   const { isPro } = useEntitlements()
   useCapacitorBackButton(onBack)
@@ -67,6 +70,11 @@ export function DiscoverScreen({ onBack, onOpenHome, onOpenLibrary, onOpenProfil
       </header>
 
       <main>
+        {/* Fora do gate de hasNytApiKey de proposito — funciona mesmo sem
+            VITE_NYT_API_KEY configurada, já que a fonte é o catálogo bundled
+            local, não uma API externa. */}
+        <PublicDomainCatalogSection onOpenBook={onOpenBook} />
+
         {hasNytApiKey ? (
           <>
             {quotaBlocked && !hasAnyNytCache ? (

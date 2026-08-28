@@ -76,7 +76,9 @@
       "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -Last 60)",
       "PowerShell(adb devices *)",
       "PowerShell(adb shell *)",
-      "PowerShell(cd C:\\\\Users\\\\johns\\\\Documents\\\\Projetos\\\\NeoReader\\\\NeoReader; powershell -File \".\\\\.planning\\\\scripts\\\\powershell\\\\update-feature-status.ps1\" -Slug \"001-audiobook-background-playback\" -Json)"
+      "PowerShell(cd C:\\\\Users\\\\johns\\\\Documents\\\\Projetos\\\\NeoReader\\\\NeoReader; powershell -File \".\\\\.planning\\\\scripts\\\\powershell\\\\update-feature-status.ps1\" -Slug \"001-audiobook-background-playback\" -Json)",
+      "Bash(git mv *)",
+      "Edit(/.claude/skills/sdd-specify/**)"
     ]
   }
 }

@@ -1,0 +1,37 @@
+[
+  {
+    "id": "jane-austen_pride-and-prejudice",
+    "title": "Pride and Prejudice",
+    "author": "Jane Austen",
+    "authorSlug": "jane-austen",
+    "titleSlug": "pride-and-prejudice"
+  },
+  {
+    "id": "mary-shelley_frankenstein",
+    "title": "Frankenstein",
+    "author": "Mary Shelley",
+    "authorSlug": "mary-shelley",
+    "titleSlug": "frankenstein"
+  },
+  {
+    "id": "arthur-conan-doyle_the-adventures-of-sherlock-holmes",
+    "title": "The Adventures of Sherlock Holmes",
+    "author": "Arthur Conan Doyle",
+    "authorSlug": "arthur-conan-doyle",
+    "titleSlug": "the-adventures-of-sherlock-holmes"
+  },
+  {
+    "id": "charles-dickens_a-christmas-carol",
+    "title": "A Christmas Carol",
+    "author": "Charles Dickens",
+    "authorSlug": "charles-dickens",
+    "titleSlug": "a-christmas-carol"
+  },
+  {
+    "id": "bram-stoker_dracula",
+    "title": "Dracula",
+    "author": "Bram Stoker",
+    "authorSlug": "bram-stoker",
+    "titleSlug": "dracula"
+  }
+]

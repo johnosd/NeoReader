@@ -5,7 +5,7 @@ export type ReadingStatus = 'unread' | 'reading' | 'finished'
 export type BookFormat = 'EPUB'
 export type BookCoverSource = 'epub-extracted' | 'manual-upload' | 'legacy-inline'
 export type BookStorageMode = 'embedded' | 'external' | 'local'
-export type BookImportSource = 'local' | 'drive'
+export type BookImportSource = 'local' | 'drive' | 'public-domain'
 
 // Representa um livro armazenado no IndexedDB
 export interface Book {
