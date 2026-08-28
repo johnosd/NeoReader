@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Capacitor } from '@capacitor/core'
-import { ArrowUpDown, BookOpen, Check, FileText, FolderOpen, LayoutGrid, LayoutList, MoreVertical, Plus, Search, Star, Tag, Trash2, X } from 'lucide-react'
+import { ArrowUpDown, BookOpen, Check, Download, FileText, FolderOpen, LayoutGrid, LayoutList, MoreVertical, Plus, Search, Star, Tag, Trash2, X } from 'lucide-react'
 import { AdBannerSlot } from '../components/AdBannerSlot'
 import { BottomNav } from '../components/BottomNav'
 import { LibraryGridView } from '../components/LibraryGridView'
@@ -503,6 +503,7 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
               <div className="flex w-full max-w-xs flex-col gap-2">
                 <Button onClick={() => setImportFlow({ step: 'intro' })} leftIcon={<FolderOpen size={18} />}>{t('library.import.action.folder.title')}</Button>
                 <Button variant="secondary" onClick={() => void importFilesAction()} leftIcon={<FileText size={18} />}>{t('library.import.action.files.title')}</Button>
+                <Button variant="secondary" onClick={onOpenDiscover} leftIcon={<Download size={18} />}>{t('library.empty.publicDomainAction')}</Button>
               </div>
             )}
           />

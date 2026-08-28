@@ -1,9 +1,18 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FeatureQuotaService } from '@/services/FeatureQuotaService'
+import { completePublicDomainDownload } from '@/services/PublicDomainDownloadCoordinator'
+import type { Book } from '@/types/book'
 
 const mocks = vi.hoisted(() => ({
   hasValidCache: vi.fn(),
+  getBookById: vi.fn(),
+  findBookByFileName: vi.fn(),
+}))
+
+vi.mock('@/db/books', () => ({
+  getBookById: mocks.getBookById,
+  findBookByFileName: mocks.findBookByFileName,
 }))
 
 vi.mock('@/hooks/useEntitlements', () => ({
@@ -52,6 +61,7 @@ function renderDiscoverScreen(apiKey?: string) {
       onOpenLibrary={vi.fn()}
       onOpenProfile={vi.fn()}
       onOpenPaywall={vi.fn()}
+      onOpenBook={vi.fn()}
     />,
   )
 }
@@ -59,11 +69,13 @@ function renderDiscoverScreen(apiKey?: string) {
 describe('DiscoverScreen', () => {
   beforeEach(() => {
     FeatureQuotaService.reset()
+    mocks.findBookByFileName.mockReset().mockResolvedValue(undefined)
     mocks.hasValidCache.mockReturnValue(false)
   })
 
   afterEach(() => {
     vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
   })
 
   it('mantem listas atuais e adiciona a secao infantil na ordem definida', () => {
@@ -124,6 +136,7 @@ describe('DiscoverScreen', () => {
         onOpenLibrary={vi.fn()}
         onOpenProfile={vi.fn()}
         onOpenPaywall={onOpenPaywall}
+        onOpenBook={vi.fn()}
       />,
     )
 
@@ -154,5 +167,77 @@ describe('DiscoverScreen', () => {
       'false',
       'false',
     ])
+  })
+
+  it('mostra a secao de dominio publico mesmo sem a chave NYT configurada (FR-009)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify([
+      { id: 'jane-austen_pride-and-prejudice', title: 'Pride and Prejudice', author: 'Jane Austen', authorSlug: 'jane-austen', titleSlug: 'pride-and-prejudice' },
+    ]))))
+
+    renderDiscoverScreen()
+
+    expect(await screen.findByText('Classicos em Ingles')).toBeTruthy()
+    expect(await screen.findByText('Pride and Prejudice')).toBeTruthy()
+    expect(screen.getByText('Descobertas indisponiveis')).toBeTruthy()
+  })
+
+  it('mostra a secao de dominio publico junto com as listas do NYT quando a chave existe', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify([
+      { id: 'jane-austen_pride-and-prejudice', title: 'Pride and Prejudice', author: 'Jane Austen', authorSlug: 'jane-austen', titleSlug: 'pride-and-prejudice' },
+    ]))))
+
+    renderDiscoverScreen('nyt-key')
+
+    expect(await screen.findByText('Classicos em Ingles')).toBeTruthy()
+    expect(screen.getByText('Tendencias no Mundo')).toBeTruthy()
+  })
+
+  it('abre o livro ao tocar num card de dominio publico ja baixado', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify([
+      { id: 'mary-shelley_frankenstein', title: 'Frankenstein', author: 'Mary Shelley', authorSlug: 'mary-shelley', titleSlug: 'frankenstein' },
+    ]))))
+    completePublicDomainDownload('mary-shelley_frankenstein', 42)
+    const fakeBook = { id: 42, title: 'Frankenstein' } as Book
+    mocks.getBookById.mockResolvedValue(fakeBook)
+    const onOpenBook = vi.fn()
+
+    vi.stubEnv('VITE_NYT_API_KEY', '')
+    render(
+      <DiscoverScreen
+        onBack={vi.fn()}
+        onOpenLibrary={vi.fn()}
+        onOpenProfile={vi.fn()}
+        onOpenPaywall={vi.fn()}
+        onOpenBook={onOpenBook}
+      />,
+    )
+
+    const label = await screen.findByText('Na biblioteca')
+    fireEvent.click(label.closest('[role="button"]')!)
+
+    await waitFor(() => expect(onOpenBook).toHaveBeenCalledWith(fakeBook))
+  })
+
+  it('reconcilia com a Biblioteca real quando o titulo ja foi baixado numa sessao anterior', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify([
+      { id: 'charles-dickens_a-christmas-carol', title: 'A Christmas Carol', author: 'Charles Dickens', authorSlug: 'charles-dickens', titleSlug: 'a-christmas-carol' },
+    ]))))
+    // Nada no coordinator desta sessao (simula app recem-aberto), mas o
+    // livro ja existe na Biblioteca de uma sessao anterior.
+    mocks.findBookByFileName.mockImplementation(async (fileName: string) =>
+      fileName === 'charles-dickens_a-christmas-carol.epub' ? { id: 127 } : undefined)
+
+    vi.stubEnv('VITE_NYT_API_KEY', '')
+    render(
+      <DiscoverScreen
+        onBack={vi.fn()}
+        onOpenLibrary={vi.fn()}
+        onOpenProfile={vi.fn()}
+        onOpenPaywall={vi.fn()}
+        onOpenBook={vi.fn()}
+      />,
+    )
+
+    expect(await screen.findByText('Na biblioteca')).toBeTruthy()
   })
 })

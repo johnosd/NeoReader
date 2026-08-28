@@ -81,28 +81,33 @@ estrutura já usada no resto do repositório:
 
 ### Implementation
 
-- [ ] T014 [P] [US1] `src/components/PublicDomainBookCard.tsx` — card visual (capa com fallback quando ausente/offline, título, autor, estado idle/downloading com spinner indeterminado), estrutura mirando `src/components/NytBookCard.tsx`.
-- [ ] T015 [US1] `src/hooks/usePublicDomainCatalog.ts` — hook que carrega o catálogo (`PublicDomainCatalogService`) e assina o `PublicDomainDownloadCoordinator`, expondo lista + estado de download por entry pra UI.
-- [ ] T016 [US1] `src/components/PublicDomainCatalogSection.tsx` — grid simples (sem busca/filtro, FR-001) usando `usePublicDomainCatalog` + `PublicDomainBookCard`, copy deixando explícito que o conteúdo é em inglês (FR-008).
-- [ ] T017 [US1] Inserir `PublicDomainCatalogSection` em `src/screens/DiscoverScreen.tsx` (próximo ao topo, antes das rows do NYT — prioriza o conteúdo que o usuário pode realmente ler no app sobre os links externos do NYT).
-- [ ] T018 [US1] Adicionar atalho no empty state de `src/screens/LibraryScreen.tsx` (~linha 498-508, dentro do bloco `EmptyState` de biblioteca vazia) chamando `onOpenDiscover` (FR-007).
+- [X] T014 [P] [US1] `src/components/PublicDomainBookCard.tsx` — card visual (capa com fallback quando ausente/offline, título, autor, estado idle/downloading com spinner indeterminado), estrutura mirando `src/components/NytBookCard.tsx`. Também já cobre estado de sucesso (badge "Na biblioteca", não tappable) e erro (badge de retry, tappable de novo) — adiantado de T025 pra não deixar o componente incompleto/quebrado nesses estados.
+- [X] T015 [US1] `src/hooks/usePublicDomainCatalog.ts` — hook que carrega o catálogo (`PublicDomainCatalogService`) e assina o `PublicDomainDownloadCoordinator`, expondo lista + estado de download por entry pra UI.
+- [X] T016 [US1] `src/components/PublicDomainCatalogSection.tsx` — grid simples (sem busca/filtro, FR-001) usando `usePublicDomainCatalog` + `PublicDomainBookCard`, copy deixando explícito que o conteúdo é em inglês (FR-008).
+- [X] T017 [US1] Inserir `PublicDomainCatalogSection` em `src/screens/DiscoverScreen.tsx` (próximo ao topo, antes das rows do NYT — prioriza o conteúdo que o usuário pode realmente ler no app sobre os links externos do NYT). Colocada fora do gate `hasNytApiKey` de propósito: funciona mesmo sem a env var do NYT configurada.
+- [X] T018 [US1] Adicionar atalho no empty state de `src/screens/LibraryScreen.tsx` (~linha 498-508, dentro do bloco `EmptyState` de biblioteca vazia) chamando `onOpenDiscover` (FR-007).
 
 ### Testes da Fase
 
-- [ ] T019 [P] [US1] `src/__tests__/components/PublicDomainBookCard.test.tsx` — estados idle/downloading, fallback de capa quando a imagem falha/está ausente.
-- [ ] T020 [US1] Estender `src/__tests__/screens/DiscoverScreen.test.tsx` — nova seção renderiza; lista aparece mesmo com `allowNetwork`/rede indisponível (FR-009), só a capa remota degrada graciosamente.
-- [ ] T021 [US1] Estender `src/__tests__/screens/LibraryScreen.test.tsx` — atalho aparece só no empty state e chama `onOpenDiscover`.
+- [X] T019 [P] [US1] `src/__tests__/components/PublicDomainBookCard.test.tsx` — estados idle/downloading, fallback de capa quando a imagem falha/está ausente. Também cobre success/error (adiantado junto com T014).
+- [X] T020 [US1] Estender `src/__tests__/screens/DiscoverScreen.test.tsx` — nova seção renderiza; lista aparece mesmo com `allowNetwork`/rede indisponível (FR-009), só a capa remota degrada graciosamente.
+- [X] T021 [US1] `src/__tests__/screens/LibraryScreen.test.tsx` — **não existia** (a suposição do plano de que já existia estava errada); criado do zero, mas escopo mantido mínimo (só a story do atalho no empty state, mockando `useLibraryCatalog`/native services, sem cobrir o resto do screen).
 
-**Critério de Conclusão**: fluxo completo do `Independent Test` acima reproduzido manualmente num device real (passos 1-8 de `quickstart.md`); testes automatizados da fase passam; `npm run build` limpo.
+### Ad-hoc (descobertas na verificação manual em device real)
+
+- [X] T031 [US1] [AD-HOC] Tocar num card já baixado (estado `success`) deve abrir o livro, não ficar inerte — pedido pelo usuário depois de testar o fluxo ao vivo. Novo prop `onOpenBook` encadeado `DiscoverScreen` → `PublicDomainCatalogSection` → hook `usePublicDomainCatalog` → `PublicDomainBookCard`; usa `getBookById` (`src/db/books.ts`) + `push({ name: 'book-details', book })` em `App.tsx`, mesmo padrão já usado por `LibraryScreen`/`HomeScreen`. Testes: `PublicDomainBookCard.test.tsx` (retry do estado success vira "abre" em vez de "baixa de novo") + novo teste em `DiscoverScreen.test.tsx`.
+- [X] T032 [US1] [AD-HOC] Corrigir estado "já baixado" não sobrevivendo a restart do app — `PublicDomainDownloadCoordinator` é só em memória da sessão; reinstalar o app pra testar T031 resetou o estado e um livro já baixado ("A Christmas Carol") voltou a mostrar ícone de download, e tocar nele gerou erro de duplicata em vez de abrir. Adiciona reconciliação: `usePublicDomainCatalog` consulta `findBookByFileName` (novo em `src/db/books.ts`) usando o nome de arquivo determinístico (`buildPublicDomainFileName`, extraído de `PublicDomainCatalogService.ts` e reusado por `PublicDomainDownloadService.ts`) e marca o estado como `success` se o livro já existir na Biblioteca. Confirmado corrigido ao vivo no device pelo usuário. Teste novo em `DiscoverScreen.test.tsx`.
+
+**Critério de Conclusão**: fluxo completo do `Independent Test` acima reproduzido manualmente num device real (passos 1-8 de `quickstart.md`), incluindo os dois ajustes ad-hoc acima; testes automatizados da fase passam; `npm run build` limpo.
 
 **Checkpoint**: User Story 1 funcional e testável isoladamente — já é um MVP entregável.
 
 **Registro da Fase**:
 
-- Status: (vazio — preenchido pelo sdd-execute ao fechar o checkpoint)
-- Feito:
-- Testes executados:
-- Pendências:
+- Status: Concluída — verificada ao vivo num device Android real pelo usuário (fluxo de download, abrir livro já baixado, e reconciliação pós-restart), todos os ajustes pedidos aplicados e reconfirmados.
+- Feito: T014-T021 + T031-T032 (ad-hoc). Componentes de UI, hook, integração em Descubra/Biblioteca, mais os dois ajustes de UX descobertos na verificação manual (abrir livro já baixado; reconciliar estado com a Biblioteca real após restart do app).
+- Testes executados: 21 testes automatizados nos 4 arquivos afetados (100% passando), `npm run lint` limpo, `npm run build` limpo, suíte completa (`npm test`) sem regressão (605 passando/2 skipped antes dos ajustes ad-hoc, reconfirmado depois). Verificação manual em device real (RXCX103NMVZ) confirmada pelo usuário duas vezes (fluxo principal, depois os ajustes).
+- Pendências: nenhuma.
 
 ---
 

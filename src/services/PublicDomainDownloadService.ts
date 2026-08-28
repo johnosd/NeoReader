@@ -1,6 +1,6 @@
 import { Capacitor, CapacitorHttp } from '@capacitor/core'
 import { BookImportService } from './BookImportService'
-import { buildStandardEbooksUrls, type PublicDomainCatalogEntry } from './PublicDomainCatalogService'
+import { buildPublicDomainFileName, buildStandardEbooksUrls, type PublicDomainCatalogEntry } from './PublicDomainCatalogService'
 import {
   beginPublicDomainDownload,
   completePublicDomainDownload,
@@ -59,7 +59,7 @@ export const PublicDomainDownloadService = {
       // HTML de interstitial, nao o EPUB (research.md #1).
       const { epubUrl } = buildStandardEbooksUrls(entry.authorSlug, entry.titleSlug)
       const epubBuffer = await fetchEpubBytes(epubUrl)
-      const fileName = `${entry.authorSlug}_${entry.titleSlug}.epub`
+      const fileName = buildPublicDomainFileName(entry)
       const file = new File([epubBuffer], fileName, { type: 'application/epub+zip' })
 
       const bookId = await BookImportService.importEpub(file, { importSource: 'public-domain' })

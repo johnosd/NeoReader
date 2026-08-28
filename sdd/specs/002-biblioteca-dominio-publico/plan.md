@@ -203,7 +203,8 @@ npm run android:run
 | --- | --- |
 | Setup (Fase 1) | Concluída |
 | Foundational (Fase 2) | Concluída — smoke-test real em device confirmou download+import ponta a ponta |
-| User Stories (Fases 3-5) | Não iniciadas |
+| User Story 1 (Fase 3) | Concluída — verificada ao vivo em device real, incluindo 2 ajustes ad-hoc (abrir livro já baixado; reconciliar estado pós-restart) |
+| User Stories 2-3 (Fases 4-5) | Não iniciadas |
 
 ## Riscos e Decisões
 
@@ -214,6 +215,8 @@ npm run android:run
 | R-003 | Download em segundo plano (FR-010) é uma Promise não vinculada ao ciclo de vida do componente React — se o usuário fechar o app (não só navegar) durante o download, o estado se perde. | Baixo — já é um Fora de Escopo aceito e documentado em `spec.md` (sem continuidade entre sessões). | Nenhuma — comportamento aceito, não é bug. |
 | R-004 | Alcançabilidade real de `standardebooks.org` via `CapacitorHttp` num device Android nunca foi testada neste projeto (só há precedente com `fish.audio`, domínio diferente). Existe defesa antibot ativa no site deles (honeypot, ver `research.md` #3) — risco pequeno de bloqueio específico a User-Agent de app/WebView. | Médio — se falhar, todo o resto da UI construída em cima fica sem valor até resolver. | **Resolvido**: smoke-test manual (T009) rodado em device real (RXCX103NMVZ) — download de "Pride and Prejudice" via `CapacitorHttp` funcionou de ponta a ponta (`fileSize: 831960` batendo com o real, `file-import-finished`, `bookId: 126`, sem crash). Sem sinal de bloqueio antibot pra esse User-Agent. |
 | R-005 | SC-002/SC-003 (`spec.md`) exigem telemetria agregada entre usuários pra serem medidos — o NeoReader não tem analytics remoto hoje (local-first, sem backend de dados de uso; `DiagnosticsLogger`/`ImportDiagnostics` só logam localmente via `console`/`adb logcat`, `firebase/analytics` nunca foi importado no `src/`, só existe como dependência transitiva no `package-lock.json`). Achado A-001 do Analyze do `sdd-plan`. | Baixo pro mecanismo em si (a feature funciona sem isso), mas SC-002/SC-003 ficam inverificáveis em produção. | **Resolvido**: decisão explícita do usuário (2026-08-28) — não adicionar infraestrutura de analytics só por causa desta feature. SC-002/SC-003 marcados como não mensuráveis nesta fase em `spec.md`; sem task de instrumentação em `tasks.md`. Revisitar só se/quando o produto decidir adicionar telemetria de uso de forma geral (decisão maior que esta feature). |
+| R-006 | Tocar num card já baixado (estado `success`) não fazia nada — usuário esperava abrir o livro direto dali, sem precisar ir pra Biblioteca. Descoberto na verificação manual da Fase 3 (T031 ad-hoc). | Baixo — UX incompleta, não um bug de dados. | **Resolvido**: `DiscoverScreen` ganhou prop `onOpenBook` (mesmo padrão `push({ name: 'book-details', book })` de `LibraryScreen`/`HomeScreen` em `App.tsx`), encadeada até `PublicDomainBookCard` via hook. Tocar num card `success` agora busca o `Book` (`getBookById`) e abre a tela de detalhes. |
+| R-007 | Estado de "já baixado" não sobrevivia a restart do app — `PublicDomainDownloadCoordinator` é só em memória de sessão, sem relação com o que de fato está na Biblioteca. Descoberto ao reinstalar o app pra testar R-006: um livro já baixado voltou a mostrar ícone de download, e tocar nele gerou erro de duplicata em vez de abrir (T032 ad-hoc). | Médio — sem isso, todo restart do app "esquece" downloads anteriores e a nova capacidade de abrir livro (R-006) fica quebrada pra qualquer sessão que não seja a primeira. | **Resolvido**: `usePublicDomainCatalog` reconcilia o estado ao carregar o catálogo — consulta `findBookByFileName` (novo helper em `src/db/books.ts`, usa o índice já existente em `fileName`) pelo nome de arquivo determinístico (`buildPublicDomainFileName`, extraído de `PublicDomainCatalogService.ts`) e marca `success` se o livro já existir. Confirmado ao vivo no device pelo usuário. |
 
 ## Execution Notes
 
@@ -223,20 +226,28 @@ npm run android:run
 | --- | --- | --- | --- |
 | 2026-08-28 | Setup + Foundational | Implementados T001-T008 e T010-T013 (código + testes unitários, 30/30 passando, lint/build limpos). Catálogo semeado com 5 títulos (Pride and Prejudice, Frankenstein, The Adventures of Sherlock Holmes, A Christmas Carol, Dracula), slugs verificados manualmente contra as páginas base do Standard Ebooks. | T009 (smoke-test manual num device Android real) — sem device conectado nesta sessão. |
 | 2026-08-28 | Setup + Foundational (fechamento) | T009 rodado com device conectado (RXCX103NMVZ): trigger temporário em `main.tsx` (removido depois) disparou 1 download real via `CapacitorHttp` contra `standardebooks.org`, capturado por `scripts/capture-android-diagnostics.ps1`. Resultado: `fileSize: 831960` (bate com o real), pipeline completo até `file-import-finished`, `bookId: 126`, sem crash. Fase Foundational fechada — todas as 13 tasks feitas. | Nenhuma. |
+| 2026-08-28 | User Story 1 (Fase 3) | Implementados T014-T021 (card, hook, seção, integração em Descubra/Biblioteca). Verificado ao vivo em device real: download via UI real funcionou (bookId 127, "A Christmas Carol"). Usuário pediu ajuste: tocar num livro já baixado deveria abrir o livro (T031 ad-hoc) — implementado com `onOpenBook` encadeado até `App.tsx`. Ao reinstalar pra testar isso, surgiu um 2º problema: estado "já baixado" não sobrevive a restart (T032 ad-hoc) — corrigido com reconciliação via `findBookByFileName` novo em `src/db/books.ts`. Ambos reconfirmados ao vivo pelo usuário. Suíte completa (605/2 skipped) sem regressão. | Nenhuma. |
 
-**PRÓXIMO**: Iniciar Fase 3 (User Story 1) — componentes de UI (`PublicDomainBookCard`, `PublicDomainCatalogSection`, hook `usePublicDomainCatalog`) e integração em `DiscoverScreen`/`LibraryScreen`.
+**PRÓXIMO**: Iniciar Fase 4 (User Story 2) — validar que a seção funciona igual com Biblioteca já populada (T022-T023, baixo esforço, reaproveita a infraestrutura da Fase 3).
 
 ## Arquivos Principais
 
 <!-- Sobrescrita a cada checkpoint — foco da etapa atual, não a árvore inteira. -->
 
-- `src/services/PublicDomainCatalogService.ts` (novo)
+- `src/services/PublicDomainCatalogService.ts` (novo — inclui `buildPublicDomainFileName`)
 - `src/services/PublicDomainDownloadCoordinator.ts` (novo)
 - `src/services/PublicDomainDownloadService.ts` (novo)
 - `src/services/BookImportService.ts` (fix R-001 em `importEpubUnlocked`)
 - `src/types/book.ts` (`BookImportSource` += `'public-domain'`)
 - `src/i18n/messages.ts` (chaves `discover.publicDomain.*`, `library.empty.publicDomainAction`)
 - `public/domain-publico/catalog.json` (catálogo seed, 5 títulos)
+- `src/components/PublicDomainBookCard.tsx` (novo — estados idle/downloading/success/error, toque abre o livro quando já baixado)
+- `src/components/PublicDomainCatalogSection.tsx` (novo)
+- `src/hooks/usePublicDomainCatalog.ts` (novo — inclui reconciliação de estado pós-restart)
+- `src/db/books.ts` (novo `findBookByFileName`)
+- `src/screens/DiscoverScreen.tsx` (nova seção + prop `onOpenBook`)
+- `src/screens/LibraryScreen.tsx` (atalho no empty state)
+- `src/App.tsx` (wiring de `onOpenBook` pro case `discover`)
 
 ## Cuidados para Retomada
 

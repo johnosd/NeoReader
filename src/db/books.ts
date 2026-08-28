@@ -28,6 +28,13 @@ export async function getBookById(id: number): Promise<Book | undefined> {
   return db.books.get(id)
 }
 
+// Usado pra detectar se um título já foi baixado em sessão anterior (ex:
+// catálogo de domínio público) — fileName é indexado e determinístico o
+// bastante pra essa checagem sem precisar de um campo novo no schema.
+export async function findBookByFileName(fileName: string): Promise<Book | undefined> {
+  return db.books.where('fileName').equals(fileName).first()
+}
+
 export async function deleteBook(id: number): Promise<void> {
   // Apaga o livro e todos os dados relacionados numa transação atômica.
   // Sem isso, progresso, marcadores, vocabulário e assets ficam órfãos no IndexedDB.

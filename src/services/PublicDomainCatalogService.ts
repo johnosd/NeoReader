@@ -13,13 +13,20 @@ export interface StandardEbooksUrls {
 
 const CATALOG_URL = `${import.meta.env.BASE_URL}domain-publico/catalog.json`
 
+// Nome de arquivo determinístico usado tanto pro download quanto pra
+// detectar (via fileName no Book salvo) se um título já foi baixado antes,
+// em sessões anteriores do app.
+export function buildPublicDomainFileName(entry: Pick<PublicDomainCatalogEntry, 'authorSlug' | 'titleSlug'>): string {
+  return `${entry.authorSlug}_${entry.titleSlug}.epub`
+}
+
 // Standard Ebooks exige "?source=download" pra devolver o EPUB de verdade —
 // sem isso, o servidor responde com uma página HTML de interstitial em vez
 // do binário (ver sdd/specs/002-biblioteca-dominio-publico/research.md #1).
 export function buildStandardEbooksUrls(authorSlug: string, titleSlug: string): StandardEbooksUrls {
   const base = `https://standardebooks.org/ebooks/${authorSlug}/${titleSlug}/downloads`
   return {
-    epubUrl: `${base}/${authorSlug}_${titleSlug}.epub?source=download`,
+    epubUrl: `${base}/${buildPublicDomainFileName({ authorSlug, titleSlug })}?source=download`,
     coverUrl: `${base}/cover.jpg`,
   }
 }
