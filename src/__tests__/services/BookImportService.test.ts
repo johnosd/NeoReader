@@ -149,6 +149,24 @@ describe('BookImportService', () => {
     expect(mocks.restoreBookBookmarksFromDrive).toHaveBeenCalledWith(42)
   })
 
+  it('propaga importSource para o Book salvo quando informado (fix R-001)', async () => {
+    const file = new File(['epub'], 'book.epub', { type: 'application/epub+zip' })
+
+    mocks.parseMetadata.mockResolvedValue({
+      title: 'Imported Book',
+      author: 'Imported Author',
+      coverBlob: null,
+    })
+    mocks.addBook.mockResolvedValue(43)
+
+    const bookId = await BookImportService.importEpub(file, { importSource: 'public-domain' })
+
+    expect(bookId).toBe(43)
+    expect(mocks.addBook).toHaveBeenCalledWith(expect.objectContaining({
+      importSource: 'public-domain',
+    }))
+  })
+
   it('notifica a UI quando bookmarks sao restaurados depois da importacao individual', async () => {
     const file = new File(['epub'], 'book.epub', { type: 'application/epub+zip' })
     const onBookmarksRestored = vi.fn()

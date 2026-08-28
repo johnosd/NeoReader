@@ -181,6 +181,9 @@ export class BookImportService {
         sourceFolderId: null,
         uri: null,
         storageMode: 'embedded',
+        // Antes ficava implícito ('local'); agora propaga a origem real (ex:
+        // 'public-domain') pro Book salvo, igual o caminho nativo já fazia.
+        importSource: options.importSource,
         diagnostic,
       })
       await this.restoreBookmarksAfterImport(bookId, diagnostic, options)
