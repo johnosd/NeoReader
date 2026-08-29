@@ -405,8 +405,8 @@ Dados atuais do projeto Android:
 | Campo | Valor |
 |---|---|
 | `appId` / package | `com.johnny.neoreader` |
-| `versionName` | `1.0.14` |
-| `versionCode` | `18` |
+| `versionName` | `1.0.16` |
+| `versionCode` | `20` |
 | `minSdk` | `24` |
 | `compileSdk` / `targetSdk` | `36` |
 | Backup Android | desativado (`allowBackup=false`) |
@@ -628,6 +628,7 @@ Backlog de testes conhecido fica em `docs/test-backlog.md`.
 - `docs/android-log-qa-checklist.md`: checklist de logs Android.
 - `docs/book-info-architecture.md`: arquitetura de metadados bibliograficos.
 - `docs/code-review-2026-06-14.md`: revisao tecnica completa recente.
+- `docs/deploy-play-console.md`: processo de deploy/release no Google Play Console.
 - `docs/monetization-status.md`: estado de Ads, RevenueCat e Pro.
 - `docs/persistence-audit.md`: auditoria de persistencia.
 - `docs/pro-benefits-quota-plan.md`: plano para beneficios Pro e quotas Free.
