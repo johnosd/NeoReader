@@ -7,6 +7,9 @@ import { BookDetailsScreen } from './screens/BookDetailsScreen'
 import { ReaderScreen } from './screens/ReaderScreen'
 import { VocabularyScreen } from './screens/VocabularyScreen'
 import { SettingsScreen } from './screens/SettingsScreen'
+import { OpdsCatalogSettingsScreen } from './screens/OpdsCatalogSettingsScreen'
+import { OpdsCatalogBrowseScreen } from './screens/OpdsCatalogBrowseScreen'
+import { PublicDomainCatalogScreen } from './screens/PublicDomainCatalogScreen'
 import { DiscoverScreen } from './screens/DiscoverScreen'
 import { ProfileScreen } from './screens/ProfileScreen'
 import { WelcomeScreen } from './screens/WelcomeScreen'
@@ -38,6 +41,9 @@ type Route =
   | { name: 'discover' }
   | { name: 'profile' }
   | { name: 'settings' }
+  | { name: 'opds-catalog-settings' }
+  | { name: 'opds-catalog-browse'; catalogId: number }
+  | { name: 'public-domain-catalog' }
   | { name: 'paywall' }
 
 const WELCOME_SEEN_KEY = 'neoreader:welcome-seen'
@@ -329,6 +335,9 @@ function App() {
             onOpenProfile={openProfile}
             onOpenPaywall={() => push({ name: 'paywall' })}
             onOpenBook={(book) => push({ name: 'book-details', book })}
+            onOpenOpdsCatalogBrowse={(catalogId) => push({ name: 'opds-catalog-browse', catalogId })}
+            onOpenPublicDomainCatalog={() => push({ name: 'public-domain-catalog' })}
+            onOpenOpdsCatalogSettings={() => push({ name: 'opds-catalog-settings' })}
           />
         </ErrorBoundary>
       )
@@ -354,6 +363,35 @@ function App() {
           <SettingsScreen
             onBack={pop}
             onOpenPaywall={() => push({ name: 'paywall' })}
+            onOpenOpdsCatalogs={() => push({ name: 'opds-catalog-settings' })}
+          />
+        </ErrorBoundary>
+      )
+
+    case 'opds-catalog-settings':
+      return (
+        <ErrorBoundary key="opds-catalog-settings" screen="opds-catalog-settings">
+          <OpdsCatalogSettingsScreen onBack={pop} />
+        </ErrorBoundary>
+      )
+
+    case 'opds-catalog-browse':
+      return (
+        <ErrorBoundary key="opds-catalog-browse" screen="opds-catalog-browse">
+          <OpdsCatalogBrowseScreen
+            catalogId={current.catalogId}
+            onBack={pop}
+            onOpenBook={(book) => push({ name: 'book-details', book })}
+          />
+        </ErrorBoundary>
+      )
+
+    case 'public-domain-catalog':
+      return (
+        <ErrorBoundary key="public-domain-catalog" screen="public-domain-catalog">
+          <PublicDomainCatalogScreen
+            onBack={pop}
+            onOpenBook={(book) => push({ name: 'book-details', book })}
           />
         </ErrorBoundary>
       )

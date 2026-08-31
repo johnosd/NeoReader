@@ -99,3 +99,56 @@ declare module 'foliate-js/epubcfi.js' {
   export function compare(a: string, b: string): number
   export function collapse(cfi: string, toEnd?: boolean): string
 }
+
+declare module 'foliate-js/opds.js' {
+  export interface OpdsLink {
+    rel?: string[]
+    href?: string
+    type?: string
+    title?: string
+  }
+
+  export interface OpdsPublication {
+    metadata: {
+      id?: string
+      title: string
+      author: { name: string; links: OpdsLink[] }[]
+    }
+    links: OpdsLink[]
+    images: OpdsLink[]
+  }
+
+  export interface OpdsNavigationItem extends OpdsLink {
+    title?: string
+  }
+
+  export interface OpdsFeedResult {
+    metadata: {
+      id?: string
+      title?: string
+      subtitle?: string
+      updated?: string
+    }
+    links: OpdsLink[]
+    publications?: OpdsPublication[]
+    navigation?: OpdsNavigationItem[]
+  }
+
+  export const REL: {
+    ACQ: string
+    FACET: string
+    GROUP: string
+    COVER: string[]
+    THUMBNAIL: string[]
+  }
+
+  export function isOPDSCatalog(contentType: string | null | undefined): boolean
+  export function isOPDSSearch(contentType: string | null | undefined): boolean
+  export function getFeed(doc: Document): OpdsFeedResult
+  export function getPublication(entry: Element): OpdsPublication
+  export function getOpenSearch(doc: Document): {
+    metadata: { title?: string; description?: string }
+    search: (params: Map<string | null, Map<string, string>>) => string
+    params: { ns: string | null; name: string; required: boolean; value: string }[]
+  }
+}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { ArrowLeft, Check, ChevronDown, ChevronRight, CloudUpload, Compass, Eye, EyeOff, Gauge, Globe, Info, KeyRound, Mic2, Palette, PlayCircle, ScanText, Smartphone, Sparkles, Volume2 } from 'lucide-react'
+import { ArrowLeft, Check, ChevronDown, ChevronRight, CloudUpload, Compass, Eye, EyeOff, Gauge, Globe, Info, KeyRound, Mic2, Palette, PlayCircle, Rss, ScanText, Smartphone, Sparkles, Volume2 } from 'lucide-react'
 import { Badge, BottomSheet, Input, ListItem, Spinner, Switch } from '../components/ui'
 import { WakeLockService } from '../services/WakeLockService'
 import { IntegrationEducationCard } from '../components/IntegrationEducationCard'
@@ -41,6 +41,7 @@ import { APP_LOCALE_PREFERENCES, useI18n, type AppLocalePreference, type Message
 interface SettingsScreenProps {
   onBack: () => void
   onOpenPaywall: () => void
+  onOpenOpdsCatalogs: () => void
 }
 
 type KeyValidationStatus = 'idle' | 'validating' | 'valid' | 'invalid'
@@ -159,7 +160,7 @@ function getEducationStatus(state: KeyValidationState, t: TranslateFn): {
   return { statusLabel: t('settings.status.notConfigured'), statusTone: 'neutral' }
 }
 
-export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
+export function SettingsScreen({ onBack, onOpenPaywall, onOpenOpdsCatalogs }: SettingsScreenProps) {
   const entitlements = useEntitlements()
   const bookmarkSyncStatus = useBookmarkDriveSyncStatus(entitlements.isPro)
   const progressSyncStatus = useProgressDriveSyncStatus(entitlements.isPro)
@@ -505,6 +506,22 @@ export function SettingsScreen({ onBack, onOpenPaywall }: SettingsScreenProps) {
               meta={currentAppLocale}
               trailing={<ChevronRight size={18} />}
               onClick={() => setAppLangSheetOpen(true)}
+              divider={false}
+            />
+          </SettingsGroup>
+        </SettingsSection>
+
+        <SettingsSection
+          icon={<Rss size={17} />}
+          label={t('settings.opdsCatalogs.sectionLabel')}
+          description={t('settings.opdsCatalogs.sectionDescription')}
+        >
+          <SettingsGroup>
+            <ListItem
+              leading={<Rss size={20} />}
+              title={t('settings.opdsCatalogs.title')}
+              trailing={<ChevronRight size={18} />}
+              onClick={onOpenOpdsCatalogs}
               divider={false}
             />
           </SettingsGroup>

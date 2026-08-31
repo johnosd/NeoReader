@@ -260,6 +260,14 @@ npm run android:run
 
 | Área | Estado |
 | --- | --- |
+| Setup (Fase 1) | Concluída — `src/types/opds.ts` novo, `BookImportSource += 'opds'`, `npx tsc --noEmit` limpo |
+| Foundational (Fase 2) | Concluída — Dexie v17, secure storage nativo, parsers Atom/JSON, `OpdsCatalogService`. 37/37 testes novos passando, lint/typecheck limpos |
+| User Story 1 (Fase 3) | Concluída — row do Gutenberg em Descobrir + download ponta a ponta até a Biblioteca. 38/38 testes novos, suíte completa 676/676, build limpo. Verificação em device real pendente (sem device conectado nesta sessão) |
+| User Story 2 (Fase 4) | Concluída — CRUD de catálogo self-hosted em Settings, sugestões reais (Standard Ebooks/Internet Archive), validação de credencial pós-save. 24/24 testes novos, suíte completa 686/686, build limpo. Verificação em device real pendente |
+| User Story 3 (Fase 5) | Concluída — navegação completa (breadcrumb, paginação via IntersectionObserver, busca com debounce), "ver mais" ligado. 23/23 testes novos, suíte completa 701/701, build limpo. Verificação em device real pendente |
+| User Story 4 (Fase 6) | Concluída — "Clássicos em Inglês" migrado pro layout row+ver-mais, amostra ao vivo via parser dedicado (feed real não é OPDS — usa rel="enclosure", descoberta em campo). Suíte completa 714/714, build limpo. Verificação em device real pendente |
+| User Story 5 (Fase 7) | Concluída — erro isolado por catálogo com retry, offline detectado, estado vazio geral com CTA (FR-023). Corrigido comportamento incorreto herdado da US1 (rows com erro ficavam escondidas em vez de mostrar erro claro). Suíte completa 720/720, build limpo. Verificação em device real pendente |
+| Polish (Fase N) | Concluída, exceto T063 — i18n revisado (sem chave órfã, sem chave faltando), comentários confirmados, README.md atualizado. `quickstart.md` em device real **não executado** (sem device Android conectado nesta sessão) — pendência explícita antes de produção |
 
 ## Riscos e Decisões
 
@@ -274,6 +282,7 @@ npm run android:run
 | R-002 | `androidx.security:security-crypto` — versão exata compatível com `compileSdk`/`minSdk` do projeto ainda não confirmada (não testado nesta fase de planejamento). | Baixo — biblioteca estável e amplamente usada, mas incompatibilidade de versão só aparece ao rodar `npx cap sync android` / build Gradle real. | Confirmar versão na Fase Foundational do `sdd-execute`, antes de escrever os métodos do plugin — task dedicada em `tasks.md`. |
 | R-003 | Certificado self-assinado não suportado (`research.md` #4) pode bloquear uma fração real de usuários self-hosted caseiros (Calibre-Web/Kavita atrás de HTTPS self-signed sem reverse proxy). | Médio pro segmento self-hosted mais avançado — não bloqueia o mecanismo em si (HTTP puro ou cert válido continuam funcionando). | Nenhuma ação nesta fase — limitação documentada e aceita (`research.md` #4). Candidato a revisitar numa fase futura via `network_security_config.xml` por domain-config, se virar demanda real. |
 | R-004 | SC-002/SC-003 (`spec.md`) exigem telemetria agregada entre usuários pra serem medidos — o NeoReader não tem analytics remoto hoje (local-first, sem backend de dados de uso), mesma lacuna já identificada e aceita na feature 002 (R-005 do `plan.md` dela). Achado do Analyze do `sdd-plan` desta feature. | Baixo pro mecanismo em si (a feature funciona sem isso), mas SC-002/SC-003 ficam inverificáveis em produção. | **Resolvido**: mesma decisão já tomada na 002 aplicada aqui por precedente direto — não adicionar infraestrutura de analytics só por causa desta feature. SC-002/SC-003 marcados como não mensuráveis nesta fase em `spec.md`; sem task de instrumentação em `tasks.md`. Revisitar só se/quando o produto decidir adicionar telemetria de uso de forma geral. |
+| R-005 | O feed `standardebooks.org/feeds/atom/new-releases`, usado pra alimentar a amostra de "Clássicos em Inglês", **não é um feed OPDS de verdade** — usa `rel="enclosure"` (Atom/RSS genérico), não `rel="http://opds-spec.org/acquisition"` (OPDS-spec). Descoberto ao inspecionar o XML real ao vivo durante a implementação da Fase 6 (User Story 4). | Médio na hora da descoberta (invalidava a premissa de "reusar OpdsAtomParser" do plano original) — baixo depois de resolvido, já que o formato de saída (`PublicDomainCatalogEntry`) não mudou pra nenhum consumidor. | **Resolvido**: escrito `parseNewReleasesFeed` dedicado em `PublicDomainCatalogService.ts`, extraindo authorSlug/titleSlug do `<id>` de cada entry em vez de depender de `rel` de aquisição. Nenhum outro arquivo (`PublicDomainBookCard`, `PublicDomainDownloadService`, `buildStandardEbooksUrls`) precisou mudar. |
 
 ## Execution Notes
 
@@ -285,17 +294,59 @@ npm run android:run
 
 | Data | Fase/Story | Resumo | Pendência Principal |
 | --- | --- | --- | --- |
+| 2026-08-31 | Setup (Fase 1) | T001-T002 implementadas: `src/types/opds.ts` novo (OpdsCatalog, OpdsDownloadedEntry, OpdsFeedEntry, OpdsFeedPage, OpdsDownloadState, OpdsCatalogError), `BookImportSource += 'opds'`. `npx tsc --noEmit` sem erros. | Nenhuma. |
+| 2026-08-31 | Foundational (Fase 2) | T003-T017 implementadas. Dexie v17 com seed do Gutenberg; secure storage nativo completo (Gradle, 3 métodos Java com `EncryptedSharedPreferences`, bridge TS); `opdsCatalogs.ts`/`opdsDownloadedEntries.ts` (CRUD, dedupe de URL, reconciliação); `OpdsAtomParser.ts` (reusa `foliate-js/opds.js`, já dependência do projeto — zero dependência nova nesse ponto) e `OpdsJsonParser.ts` (normalizador próprio); `OpdsCatalogService.ts` orquestrando fetch/auth/detecção de formato/busca (2 hops Atom, 1 hop JSON). 2 bugs reais (capa não resolvida pra URL absoluta) pegos pelos próprios testes escritos nesta fase e corrigidos antes de fechar. 37/37 testes novos passando, lint/typecheck limpos. Achado fora de escopo (não corrigido, só logado): `vitest.config.ts` usa `test.poolOptions`, removido no Vitest 4 (warning de depreciação, não bloqueia) — registrado em `.planning/backlog.md` como `[Bug]`. | R-002 (versão do `androidx.security:security-crypto`) segue não validada contra build Gradle real. |
 
-**PRÓXIMO**: —
+| 2026-08-31 | User Story 1 (Fase 3) | T018-T029 implementadas. Row do Gutenberg em Descobrir, download real via `CapacitorHttp` alimentando `BookImportService.importEpub`, vínculo gravado em `opdsDownloadedEntries`, erro isolado por catálogo (não derruba as demais rows). 1 bug de lint pego e corrigido: `setState` síncrono em efeito no `useOpdsCatalogs`. 38/38 testes novos passando; suíte completa 676/676 (2 skipped pré-existentes) sem regressão; `npx tsc --noEmit`, `npx eslint` e `npm run build` limpos. | Verificação manual em device Android real (download de fato) ainda não feita — sem device conectado nesta sessão (`adb devices` vazio); fica pro `quickstart.md` no Polish. |
+
+| 2026-08-31 | User Story 2 (Fase 4) | T030-T037 implementadas. `OpdsCatalogSettingsScreen` completa (CRUD via `useLiveQuery`, sugestões de Standard Ebooks/Internet Archive com URLs verificadas ao vivo nesta sessão, validação de credencial pós-save mostrando erro específico FR-005). Descoberta: mecanismo de "refresh após CRUD" em `useOpdsCatalogs` não tinha nenhum chamador real (a navegação em pilha do `App.tsx` já remonta a tela ao voltar de Settings) — removido em vez de mantido como abstração morta (T033/T036 viraram, na prática, uma simplificação em vez de uma feature nova). Remoção de catálogo é direta (sem passo de confirmação), mesmo precedente de `CollectionManagerSheet`. 24/24 testes novos passando; suíte completa 686/686 sem regressão; `npx tsc --noEmit`, `npx eslint` e `npm run build` limpos. | Verificação manual em device real (Cenário 2 do quickstart, incluindo Basic Auth correto/incorreto) ainda pendente — sem device conectado nesta sessão. |
+
+| 2026-08-31 | User Story 3 (Fase 5) | T038-T045 implementadas. `useOpdsCatalogBrowse` (breadcrumb com jump direto, paginação, busca debounced via ref pra evitar fetch duplicado), `OpdsCatalogBrowseScreen` ("carregar mais" automático por `IntersectionObserver`, não botão — releitura literal de FR-009/AC3), rota nova, "ver mais" ligado de ponta a ponta. `fetchPage`/`search` de `OpdsCatalogService` já tinham sido implementados por completo na Foundational (T039 virou só confirmação). 23/23 testes novos passando; suíte completa 701/701 sem regressão; `npx tsc --noEmit`, `npx eslint` e `npm run build` limpos. | Verificação manual em device real (Cenário 3 do quickstart) ainda pendente. |
+
+| 2026-08-31 | User Story 4 (Fase 6) | T046-T053 implementadas. **Descoberta importante**: `standardebooks.org/feeds/atom/new-releases` inspecionado ao vivo — NÃO é OPDS de verdade (`rel="enclosure"`, não `rel="http://opds-spec.org/acquisition"`); `OpdsAtomParser` classificaria tudo como navegação. Escrito um parser pequeno dedicado (`parseNewReleasesFeed`) extraindo authorSlug/titleSlug do `<id>` de cada entry, devolvendo o mesmo formato `PublicDomainCatalogEntry` da lista curada — `buildStandardEbooksUrls`/`PublicDomainDownloadService`/`PublicDomainBookCard` ficaram 100% intocados. Nova tela `PublicDomainCatalogScreen` (não prevista no plano original) como destino do "ver mais", já que a lista completa virou algo que precisa de um lugar próprio pra morar. Bug de timing real pego por teste: fallback do feed-ao-vivo-falhou usava `entries` via ref, mas a ordem de resolução entre os 2 efeitos paralelos não é garantida — corrigido re-chamando `listCatalog()` direto no `.catch()`. 20/20 testes novos passando; suíte completa 714/714 sem regressão; `npx tsc --noEmit`, `npx eslint` e `npm run build` limpos. | Verificação manual em device real (Cenário 4 do quickstart) ainda pendente. |
+
+| 2026-08-31 | User Story 5 (Fase 7) | T054-T060 implementadas. Erro isolado por catálogo com offline detection e retry por row; estado vazio geral (FR-023) com CTA pra Settings. **Correção de comportamento incorreto** herdado da própria Fase 3 desta feature: `DiscoverScreen` escondia inteiramente a row de um catálogo com erro (`error ? null : ...`) em vez de mostrar erro claro nela — corrigido agora que existe UI de erro de verdade. `OpdsCatalogService`/`OpdsCatalogFetchError` (T057) já estavam prontos desde a Foundational, só faltava a UI consumir. 25/25 testes editados passando; suíte completa 720/720 sem regressão; `npx tsc --noEmit`, `npx eslint` e `npm run build` limpos. | Verificação manual em device real (edge cases do quickstart) ainda pendente. |
+
+| 2026-08-31 | Polish (Fase N) | T061, T062, T064 concluídas: i18n confirmado sem chave órfã/faltando (`satisfies Record<MessageKey, string>` já garante paridade en/es; grep confirmou uso real de toda chave nova), comentários dos pontos não óbvios confirmados presentes em todos os arquivos-chave, `README.md` atualizado (Descubra, Configuracoes, Stack, Persistencia local — v17, Proximos passos). `npm run lint` (projeto inteiro), `npm test` (720/720, 2 skipped) e `npm run build` limpos como fechamento. T063 (`quickstart.md` em device real) **não executado** — sem device Android conectado nesta sessão (`adb devices` vazio o dia inteiro). | T063 — validação manual em device real com servidor Calibre-Web/Kavita de teste, incluindo Basic Auth correto/incorreto e credencial sobrevivendo a restart do app. |
+
+**PRÓXIMO**: Feature funcionalmente completa (T001-T064, exceto T063 como pendência explícita de verificação manual em device real). Rodar `sdd-converge` pra confirmar convergência, e/ou conectar um device Android + servidor Calibre-Web/Kavita de teste pra fechar o `quickstart.md`.
 
 ## Arquivos Principais
 
 <!-- Sobrescrita a cada checkpoint — foco da etapa atual, não a árvore inteira. -->
 
-- (nenhum ainda)
+- `src/db/database.ts` (`version(17)`: `opdsCatalogs`, `opdsDownloadedEntries`, seed Gutenberg)
+- `src/db/opdsCatalogs.ts` (novo — CRUD)
+- `src/db/opdsDownloadedEntries.ts` (novo)
+- `android/app/build.gradle` (`androidx.security:security-crypto`)
+- `android/app/src/main/java/com/johnny/neoreader/NeoReaderLibraryPlugin.java` (3 métodos de credencial)
+- `src/services/opds/OpdsCredentialStore.ts` (novo)
+- `src/services/opds/OpdsAtomParser.ts` (novo)
+- `src/services/opds/OpdsJsonParser.ts` (novo)
+- `src/services/opds/OpdsCatalogService.ts` (novo)
+- `src/types/foliate.d.ts` (editado — `declare module 'foliate-js/opds.js'`)
+- `src/services/opds/OpdsDownloadCoordinator.ts` (novo)
+- `src/services/opds/OpdsDownloadService.ts` (novo)
+- `src/components/OpdsEntryCard.tsx` (novo)
+- `src/components/OpdsCatalogRow.tsx` (novo)
+- `src/hooks/useOpdsCatalogs.ts` (novo)
+- `src/screens/DiscoverScreen.tsx` (editado — rows OPDS)
+- `src/i18n/messages.ts` (editado — chaves `discover.opds.*`, `settings.opdsCatalogs.*`)
+- `src/screens/OpdsCatalogSettingsScreen.tsx` (novo)
+- `src/screens/SettingsScreen.tsx` (editado — item de menu)
+- `src/App.tsx` (editado — rotas `opds-catalog-settings` e `opds-catalog-browse`)
+- `src/hooks/useOpdsCatalogBrowse.ts` (novo)
+- `src/screens/OpdsCatalogBrowseScreen.tsx` (novo)
+- `src/services/PublicDomainCatalogService.ts` (editado — `fetchNewReleasesSample`, parser dedicado não-OPDS)
+- `src/hooks/usePublicDomainCatalog.ts` (editado — `sampleEntries`/fallback)
+- `src/components/PublicDomainCatalogSection.tsx` (editado — reskin row+vermais)
+- `src/screens/PublicDomainCatalogScreen.tsx` (novo — destino do "ver mais")
+- `src/hooks/useOpdsCatalogs.ts` (editado — offline/retryCatalog)
+- `src/components/OpdsCatalogRow.tsx` (editado — estado de erro/retry)
+- `README.md` (editado — seções Descubra/Configuracoes/Stack/Persistencia local/Proximos passos)
 
 ## Cuidados para Retomada
 
 <!-- Armadilhas operacionais específicas desta feature, anexadas conforme descobertas. -->
 
-- (nenhum ainda)
+- `vi.useFakeTimers()` + `@testing-library/react`'s `waitFor` não se dão bem juntos nesta suíte — `waitFor` faz polling com timers reais internamente, então fake timers deixam o teste travado até o timeout (visto em `useOpdsCatalogBrowse.test.ts`, testes de busca com debounce). Pra testar debounce, prefira timers reais com um `timeout` maior no `waitFor` (`{ timeout: 2000 }`) em vez de `vi.advanceTimersByTimeAsync`.

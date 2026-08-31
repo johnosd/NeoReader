@@ -93,6 +93,16 @@ describe('SettingsScreen', () => {
     expect(screen.getByText('Build')).not.toBeNull()
   })
 
+  it('mostra o item de menu "Catalogos OPDS" e navega ao tocar', async () => {
+    const onOpenOpdsCatalogs = vi.fn()
+    render(<SettingsScreen onBack={vi.fn()} onOpenOpdsCatalogs={onOpenOpdsCatalogs} />)
+
+    const item = await screen.findByText('Gerenciar catalogos')
+    fireEvent.click(item)
+
+    expect(onOpenOpdsCatalogs).toHaveBeenCalledTimes(1)
+  })
+
   it('mostra sync de bookmarks como recurso Pro nas configuracoes', async () => {
     const onOpenPaywall = vi.fn()
     render(<SettingsScreen onBack={vi.fn()} onOpenPaywall={onOpenPaywall} />)
