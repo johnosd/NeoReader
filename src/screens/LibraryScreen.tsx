@@ -775,7 +775,14 @@ function LibraryBookRow({ book, onOpenBook, onOpenOptions, onOpenTags }: {
         className="h-[92px] w-[62px] shrink-0 overflow-hidden rounded-md border border-white/10 bg-bg-surface-2 active:opacity-80"
       >
         {coverUrl ? (
-          <img src={coverUrl} alt="" className="h-full w-full object-cover" onContextMenu={(e) => e.preventDefault()} />
+          <img
+            src={coverUrl}
+            alt=""
+            className="h-full w-full object-cover"
+            loading="lazy"
+            decoding="async"
+            onContextMenu={(e) => e.preventDefault()}
+          />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-white/30">
             <BookOpen size={24} />

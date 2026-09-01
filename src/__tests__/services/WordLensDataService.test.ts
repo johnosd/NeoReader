@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  clearWordLensDictionaryPartitionsCache,
   loadWordLensData,
   loadWordLensDefinition,
   resetWordLensDataCacheForTests,
@@ -94,6 +95,24 @@ describe('WordLensDataService', () => {
 
     expect(fetchImpl).toHaveBeenCalledTimes(4)
     expect(fetchImpl).toHaveBeenLastCalledWith(expect.stringContaining('/dictionary/ub.json'))
+  })
+
+  it('limpa o cache de particoes sem afetar o cache de dados base (manifest/levels/lemmas)', async () => {
+    const fetchImpl = createDataFetch()
+    const data = await loadWordLensData({ enabled: true, language: 'en', userLevel: 'B1', fetchImpl })
+    await loadWordLensDefinition('ubiquitous', data!, fetchImpl)
+    expect(fetchImpl).toHaveBeenCalledTimes(4) // manifest + levels + lemmas + dictionary/ub.json
+
+    clearWordLensDictionaryPartitionsCache()
+
+    // particao foi limpa: mesmo lemma refaz o fetch da particao
+    await loadWordLensDefinition('ubiquitous', data!, fetchImpl)
+    expect(fetchImpl).toHaveBeenCalledTimes(5)
+
+    // dados base continuam memoizados (clearWordLensDictionaryPartitionsCache não é resetWordLensDataCacheForTests)
+    const second = await loadWordLensData({ enabled: true, language: 'en', userLevel: 'B1', fetchImpl })
+    expect(second).toBe(data)
+    expect(fetchImpl).toHaveBeenCalledTimes(5)
   })
 
   it('nao faz fetch quando o manifesto nao oferece a particao', async () => {

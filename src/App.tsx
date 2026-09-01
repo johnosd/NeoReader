@@ -29,6 +29,7 @@ import { createFlowId, getDiagnosticsNowMs, logEvent } from './services/Diagnost
 import { cleanupExpiredTtsVoiceCaches } from './db/ttsVoiceCaches'
 import { getBookById } from './db/books'
 import { scheduleVocabularyDriveSync } from './services/VocabularyDriveSyncService'
+import { clearWordLensDictionaryPartitionsCache } from './services/WordLensDataService'
 import type { Book } from './types/book'
 import type { LibraryFilter } from './hooks/useLibraryCatalog'
 
@@ -144,6 +145,9 @@ function App() {
     const listenerPromise = CapApp.addListener('appStateChange', (state) => {
       if (!disposed && !state.isActive) {
         BookImportService.cancelActiveImport('app-backgrounded')
+        // App em background: libera o cache de partições do dicionário do
+        // Word Lens (não tinha nenhum gatilho de liberação fora de testes).
+        clearWordLensDictionaryPartitionsCache()
       }
     })
 

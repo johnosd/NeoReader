@@ -39,7 +39,14 @@ export function BookCard({ book, onPress, onOpenOptions }: BookCardProps) {
         }}
       >
         {coverUrl ? (
-          <img src={coverUrl} alt={book.title} className="w-full h-full object-cover" onContextMenu={(e) => e.preventDefault()} />
+          <img
+            src={coverUrl}
+            alt={book.title}
+            className="w-full h-full object-cover"
+            loading="lazy"
+            decoding="async"
+            onContextMenu={(e) => e.preventDefault()}
+          />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
             <BookOpen size={28} className="text-white/15" />
