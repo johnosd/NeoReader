@@ -9,11 +9,11 @@ import {
   subscribeOpdsDownloads,
 } from '../services/opds/OpdsDownloadCoordinator'
 import type { Book } from '../types/book'
-import type { OpdsCatalog, OpdsDownloadState, OpdsFeedEntry, OpdsFeedPage } from '../types/opds'
+import type { OpdsCatalog, OpdsDownloadState, OpdsFeedEntry, OpdsFeedPage, OpdsSortOrder } from '../types/opds'
 
 const SEARCH_DEBOUNCE_MS = 400
 
-interface BreadcrumbItem {
+export interface BreadcrumbItem {
   title: string
   url: string
 }
@@ -26,6 +26,8 @@ interface UseOpdsCatalogBrowseResult {
   canSearch: boolean
   searchQuery: string
   setSearchQuery: (query: string) => void
+  sortOrder: OpdsSortOrder
+  setSortOrder: (sortOrder: OpdsSortOrder) => void
   hasMore: boolean
   loadingMore: boolean
   loadMore: () => void
@@ -40,8 +42,15 @@ export function useOpdsCatalogBrowse(
   catalog: OpdsCatalog,
   rootTitle: string,
   onOpenBook: (book: Book) => void,
+  // Permite abrir a tela já dentro de uma pasta específica (ex: usuário tocou
+  // numa entry de navegação direto na row de amostra de Descobrir, sem passar
+  // pela raiz do catálogo primeiro) — o breadcrumb já nasce com os 2 níveis,
+  // então "voltar" continua funcionando normalmente.
+  initialFolder?: BreadcrumbItem,
 ): UseOpdsCatalogBrowseResult {
-  const [breadcrumb, setBreadcrumb] = useState<BreadcrumbItem[]>([{ title: rootTitle, url: catalog.baseUrl }])
+  const [breadcrumb, setBreadcrumb] = useState<BreadcrumbItem[]>(
+    initialFolder ? [{ title: rootTitle, url: catalog.baseUrl }, initialFolder] : [{ title: rootTitle, url: catalog.baseUrl }],
+  )
   const [entries, setEntries] = useState<OpdsFeedEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -49,6 +58,11 @@ export function useOpdsCatalogBrowse(
   const [nextPageUrl, setNextPageUrl] = useState<string | undefined>()
   const [canSearch, setCanSearch] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  // Convenção do Gutenberg (sort_order), não padrão OPDS — ver
+  // OpdsCatalogService.ts. Fica em state (não resetado ao navegar) de
+  // propósito: se o usuário volta pra raiz do catálogo depois de entrar
+  // numa pasta, a ordem escolhida continua aplicada.
+  const [sortOrder, setSortOrder] = useState<OpdsSortOrder>('default')
   const [, forceRender] = useState(0)
 
   const currentUrl = breadcrumb[breadcrumb.length - 1]!.url
@@ -78,10 +92,13 @@ export function useOpdsCatalogBrowse(
       setLoading(true)
       setError(false)
       const request = trimmedQuery && searchUrlRef.current
-        ? OpdsCatalogService.search(catalog, searchUrlRef.current, trimmedQuery)
-        : OpdsCatalogService.fetchPage(catalog, currentUrl)
+        ? OpdsCatalogService.search(catalog, searchUrlRef.current, trimmedQuery, sortOrder)
+        : OpdsCatalogService.fetchPage(catalog, currentUrl, sortOrder)
 
       request
+        // Catálogo com credencial exige auth em toda URL, inclusive capa —
+        // <img src> puro nunca carregaria (mesmo caso de useOpdsCatalogs.ts).
+        .then((page) => OpdsCatalogService.resolveEntryCovers(catalog, page.entries).then((entries) => ({ ...page, entries })))
         .then((page) => applyPage(page, Boolean(trimmedQuery)))
         .catch(() => {
           if (cancelled) return
@@ -104,7 +121,7 @@ export function useOpdsCatalogBrowse(
     return () => {
       cancelled = true
     }
-  }, [currentUrl, searchQuery, catalog])
+  }, [currentUrl, searchQuery, catalog, sortOrder])
 
   useEffect(() => subscribeOpdsDownloads(() => forceRender((count) => count + 1)), [])
 
@@ -139,12 +156,15 @@ export function useOpdsCatalogBrowse(
     canSearch,
     searchQuery,
     setSearchQuery,
+    sortOrder,
+    setSortOrder,
     hasMore: Boolean(nextPageUrl),
     loadingMore,
     loadMore: () => {
       if (!nextPageUrl || loadingMore) return
       setLoadingMore(true)
       OpdsCatalogService.fetchPage(catalog, nextPageUrl)
+        .then((page) => OpdsCatalogService.resolveEntryCovers(catalog, page.entries).then((entries) => ({ ...page, entries })))
         .then((page) => {
           setEntries((prev) => [...prev, ...page.entries])
           setNextPageUrl(page.nextPageUrl)

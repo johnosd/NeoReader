@@ -1,21 +1,34 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, ChevronRight, Rss, Search, Wifi } from 'lucide-react'
 import { EmptyState, Input, Spinner } from '../components/ui'
-import { OpdsEntryCard } from '../components/OpdsEntryCard'
+import { OpdsEntryCard, OpdsFolderListRow } from '../components/OpdsEntryCard'
 import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
-import { useOpdsCatalogBrowse } from '../hooks/useOpdsCatalogBrowse'
+import { useOpdsCatalogBrowse, type BreadcrumbItem } from '../hooks/useOpdsCatalogBrowse'
 import { useI18n } from '../i18n'
 import { getCatalog } from '../db/opdsCatalogs'
 import type { Book } from '../types/book'
-import type { OpdsCatalog } from '../types/opds'
+import type { MessageKey } from '../i18n'
+import type { OpdsCatalog, OpdsSortOrder } from '../types/opds'
+
+// Convenção do Gutenberg (`?sort_order=...`), não padrão OPDS — ver
+// OpdsCatalogService.ts. Mostrado só na raiz do catálogo (sem pasta aberta);
+// servidor que não reconhece o parâmetro ignora, então oferecer isso pra
+// qualquer catálogo é inofensivo mesmo quando não faz nada.
+const SORT_OPTIONS: { id: OpdsSortOrder; labelKey: MessageKey }[] = [
+  { id: 'default', labelKey: 'opdsBrowse.sort.default' },
+  { id: 'downloads', labelKey: 'opdsBrowse.sort.popular' },
+  { id: 'release_date', labelKey: 'opdsBrowse.sort.latest' },
+  { id: 'random', labelKey: 'opdsBrowse.sort.random' },
+]
 
 interface OpdsCatalogBrowseScreenProps {
   catalogId: number
   onBack: () => void
   onOpenBook: (book: Book) => void
+  initialFolder?: BreadcrumbItem
 }
 
-export function OpdsCatalogBrowseScreen({ catalogId, onBack, onOpenBook }: OpdsCatalogBrowseScreenProps) {
+export function OpdsCatalogBrowseScreen({ catalogId, onBack, onOpenBook, initialFolder }: OpdsCatalogBrowseScreenProps) {
   const { t } = useI18n()
   useCapacitorBackButton(onBack)
   // undefined = carregando; null = catálogo não encontrado (ex: removido em
@@ -49,7 +62,7 @@ export function OpdsCatalogBrowseScreen({ catalogId, onBack, onOpenBook }: OpdsC
     )
   }
 
-  return <OpdsCatalogBrowseContent catalog={catalog} onBack={onBack} onOpenBook={onOpenBook} />
+  return <OpdsCatalogBrowseContent catalog={catalog} onBack={onBack} onOpenBook={onOpenBook} initialFolder={initialFolder} />
 }
 
 function BrowseHeader({ title, onBack }: { title: string; onBack: () => void }) {
@@ -72,13 +85,15 @@ function OpdsCatalogBrowseContent({
   catalog,
   onBack,
   onOpenBook,
+  initialFolder,
 }: {
   catalog: OpdsCatalog
   onBack: () => void
   onOpenBook: (book: Book) => void
+  initialFolder?: BreadcrumbItem
 }) {
   const { t } = useI18n()
-  const browse = useOpdsCatalogBrowse(catalog, catalog.name, onOpenBook)
+  const browse = useOpdsCatalogBrowse(catalog, catalog.name, onOpenBook, initialFolder)
   const sentinelRef = useRef<HTMLDivElement | null>(null)
 
   // "Carregar mais" automático ao rolar até o fim (FR-009, User Story 3
@@ -127,6 +142,26 @@ function OpdsCatalogBrowseContent({
         </div>
       )}
 
+      {browse.breadcrumb.length === 1 && (
+        <div className="px-4 mb-4 flex items-center gap-2 overflow-x-auto scrollbar-hide">
+          {SORT_OPTIONS.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => browse.setSortOrder(option.id)}
+              className={[
+                'h-8 shrink-0 rounded-pill border px-3 text-xs font-semibold transition-colors',
+                browse.sortOrder === option.id
+                  ? 'border-purple-primary bg-purple-primary text-white'
+                  : 'border-white/10 bg-white/5 text-text-secondary active:bg-white/10',
+              ].join(' ')}
+            >
+              {t(option.labelKey)}
+            </button>
+          ))}
+        </div>
+      )}
+
       {browse.loading && (
         <div className="flex justify-center py-12"><Spinner /></div>
       )}
@@ -149,18 +184,29 @@ function OpdsCatalogBrowseContent({
 
       {!browse.loading && !browse.error && browse.entries.length > 0 && (
         <>
-          <div className="grid grid-cols-3 gap-3 px-4">
-            {browse.entries.map((entry) => (
-              <OpdsEntryCard
-                key={entry.id}
-                entry={entry}
-                state={browse.getState(entry)}
-                onDownload={browse.download}
-                onOpenDownloaded={browse.openDownloaded}
-                onOpenFolder={browse.navigateTo}
-              />
-            ))}
-          </div>
+          {browse.entries.every((entry) => entry.kind === 'navigation') ? (
+            // Página só de pastas (ex: resultado de busca do Gutenberg, cada
+            // entry é um livro diferente sem capa) — lista compacta em vez de
+            // grid de cards vazios lado a lado (ver OpdsFolderListRow).
+            <div className="flex flex-col px-2">
+              {browse.entries.map((entry) => (
+                <OpdsFolderListRow key={entry.id} entry={entry} onOpenFolder={browse.navigateTo} />
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-3 px-4">
+              {browse.entries.map((entry) => (
+                <OpdsEntryCard
+                  key={entry.id}
+                  entry={entry}
+                  state={browse.getState(entry)}
+                  onDownload={browse.download}
+                  onOpenDownloaded={browse.openDownloaded}
+                  onOpenFolder={browse.navigateTo}
+                />
+              ))}
+            </div>
+          )}
           {browse.hasMore && (
             <div ref={sentinelRef} className="flex justify-center py-6">
               {browse.loadingMore && <Spinner size={20} label={t('opdsBrowse.loadingMore')} />}

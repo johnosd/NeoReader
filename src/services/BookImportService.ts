@@ -73,6 +73,9 @@ export interface ImportProgress {
 export interface ImportBookOptions {
   onBookmarksRestored?: (count: number) => void
   importSource?: BookImportSource
+  // Só usado hoje pelo import via OPDS (assunto/idioma do feed viram tag
+  // automática) — outros chamadores continuam sem passar nada e caem no [].
+  tags?: number[]
 }
 
 interface ImportSingleEpubOptions {
@@ -177,7 +180,7 @@ export class BookImportService {
       const bookId = await this.importSingleEpubRecord(file, {
         metadata,
         fileHash,
-        tags: [],
+        tags: options.tags ?? [],
         sourceFolderId: null,
         uri: null,
         storageMode: 'embedded',

@@ -108,11 +108,19 @@ declare module 'foliate-js/opds.js' {
     title?: string
   }
 
+  export interface OpdsSubject {
+    name?: string | null
+    code?: string | null
+    scheme?: string | null
+  }
+
   export interface OpdsPublication {
     metadata: {
       id?: string
       title: string
       author: { name: string; links: OpdsLink[] }[]
+      language?: string
+      subject?: OpdsSubject[]
     }
     links: OpdsLink[]
     images: OpdsLink[]

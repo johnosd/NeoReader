@@ -5,12 +5,17 @@ import type { OpdsCatalog, OpdsFeedEntry, OpdsFeedPage } from '@/types/opds'
 const mocks = vi.hoisted(() => ({
   fetchPage: vi.fn(),
   search: vi.fn(),
+  // Identidade por padrão — resolução de capa autenticada é testada à parte
+  // em OpdsCatalogService.test.ts, não precisa mudar as entries aqui.
+  resolveEntryCovers: vi.fn((_catalog: OpdsCatalog, entries: OpdsFeedEntry[]) => Promise.resolve(entries)),
   findDownloadedBookId: vi.fn(),
   download: vi.fn(),
   getBookById: vi.fn(),
 }))
 
-vi.mock('@/services/opds/OpdsCatalogService', () => ({ OpdsCatalogService: { fetchPage: mocks.fetchPage, search: mocks.search } }))
+vi.mock('@/services/opds/OpdsCatalogService', () => ({
+  OpdsCatalogService: { fetchPage: mocks.fetchPage, search: mocks.search, resolveEntryCovers: mocks.resolveEntryCovers },
+}))
 vi.mock('@/db/opdsDownloadedEntries', () => ({ findDownloadedBookId: mocks.findDownloadedBookId }))
 vi.mock('@/services/opds/OpdsDownloadService', () => ({ OpdsDownloadService: { download: mocks.download } }))
 vi.mock('@/db/books', () => ({ getBookById: mocks.getBookById }))
@@ -53,7 +58,7 @@ describe('useOpdsCatalogBrowse', () => {
     const { result } = renderHook(() => useOpdsCatalogBrowse(catalog, 'Project Gutenberg', vi.fn()))
 
     await waitFor(() => expect(result.current.loading).toBe(false))
-    expect(mocks.fetchPage).toHaveBeenCalledWith(catalog, catalog.baseUrl)
+    expect(mocks.fetchPage).toHaveBeenCalledWith(catalog, catalog.baseUrl, 'default')
     expect(result.current.entries).toEqual([folderEntry, bookEntry])
     expect(result.current.breadcrumb).toEqual([{ title: 'Project Gutenberg', url: catalog.baseUrl }])
     expect(result.current.hasMore).toBe(true)
@@ -69,7 +74,7 @@ describe('useOpdsCatalogBrowse', () => {
     act(() => result.current.navigateTo(folderEntry))
 
     await waitFor(() => expect(result.current.breadcrumb).toHaveLength(2))
-    expect(mocks.fetchPage).toHaveBeenLastCalledWith(catalog, folderEntry.navigationUrl)
+    expect(mocks.fetchPage).toHaveBeenLastCalledWith(catalog, folderEntry.navigationUrl, 'default')
     await waitFor(() => expect(result.current.entries).toEqual([bookEntry]))
   })
 
@@ -107,7 +112,7 @@ describe('useOpdsCatalogBrowse', () => {
     mocks.search.mockResolvedValueOnce(page([{ ...bookEntry, title: 'Resultado da busca' }]))
     act(() => result.current.setSearchQuery('dune'))
 
-    await waitFor(() => expect(mocks.search).toHaveBeenCalledWith(catalog, 'search{?q}', 'dune'), { timeout: 2000 })
+    await waitFor(() => expect(mocks.search).toHaveBeenCalledWith(catalog, 'search{?q}', 'dune', 'default'), { timeout: 2000 })
     await waitFor(() => expect(result.current.entries[0]?.title).toBe('Resultado da busca'))
   })
 
@@ -130,6 +135,20 @@ describe('useOpdsCatalogBrowse', () => {
 
     await waitFor(() => expect(result.current.error).toBe(true))
     expect(result.current.entries).toEqual([])
+  })
+
+  it('setSortOrder refaz o fetch da URL atual com o sort_order escolhido (convenção do Gutenberg)', async () => {
+    mocks.fetchPage.mockResolvedValueOnce(page([bookEntry]))
+    const { result } = renderHook(() => useOpdsCatalogBrowse(catalog, 'Project Gutenberg', vi.fn()))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.sortOrder).toBe('default')
+
+    const popularBook: OpdsFeedEntry = { ...bookEntry, title: 'Foundation' }
+    mocks.fetchPage.mockResolvedValueOnce(page([popularBook]))
+    act(() => result.current.setSortOrder('downloads'))
+
+    await waitFor(() => expect(result.current.entries[0]?.title).toBe('Foundation'))
+    expect(mocks.fetchPage).toHaveBeenLastCalledWith(catalog, catalog.baseUrl, 'downloads')
   })
 
   it('reconcilia "já na biblioteca" pra entries carregadas na navegação (US3, AC5)', async () => {

@@ -42,7 +42,7 @@ type Route =
   | { name: 'profile' }
   | { name: 'settings' }
   | { name: 'opds-catalog-settings' }
-  | { name: 'opds-catalog-browse'; catalogId: number }
+  | { name: 'opds-catalog-browse'; catalogId: number; initialFolder?: { title: string; url: string } }
   | { name: 'public-domain-catalog' }
   | { name: 'paywall' }
 
@@ -335,7 +335,7 @@ function App() {
             onOpenProfile={openProfile}
             onOpenPaywall={() => push({ name: 'paywall' })}
             onOpenBook={(book) => push({ name: 'book-details', book })}
-            onOpenOpdsCatalogBrowse={(catalogId) => push({ name: 'opds-catalog-browse', catalogId })}
+            onOpenOpdsCatalogBrowse={(catalogId, initialFolder) => push({ name: 'opds-catalog-browse', catalogId, initialFolder })}
             onOpenPublicDomainCatalog={() => push({ name: 'public-domain-catalog' })}
             onOpenOpdsCatalogSettings={() => push({ name: 'opds-catalog-settings' })}
           />
@@ -371,7 +371,10 @@ function App() {
     case 'opds-catalog-settings':
       return (
         <ErrorBoundary key="opds-catalog-settings" screen="opds-catalog-settings">
-          <OpdsCatalogSettingsScreen onBack={pop} />
+          <OpdsCatalogSettingsScreen
+            onBack={pop}
+            onOpenCatalog={(catalogId) => push({ name: 'opds-catalog-browse', catalogId })}
+          />
         </ErrorBoundary>
       )
 
@@ -380,6 +383,7 @@ function App() {
         <ErrorBoundary key="opds-catalog-browse" screen="opds-catalog-browse">
           <OpdsCatalogBrowseScreen
             catalogId={current.catalogId}
+            initialFolder={current.initialFolder}
             onBack={pop}
             onOpenBook={(book) => push({ name: 'book-details', book })}
           />

@@ -364,6 +364,34 @@ class NeoReaderDB extends Dexie {
         })
       }
     })
+
+    // v18: corrige `opdsCatalogs` — v17 não indexava `createdAt`, mas
+    // `listCatalogs()` usa `.orderBy('createdAt')`, o que o Dexie rejeita em
+    // runtime com SchemaError ("KeyPath createdAt on object store
+    // opdsCatalogs is not indexed"). Bug só apareceu em teste manual real
+    // (mocks de teste unitário não pegam isso porque simulam o Dexie
+    // inteiro). Só adiciona o índice — sem `.upgrade()`, o Dexie reindexa os
+    // registros existentes sozinho (mesmo padrão da v5, que adicionou
+    // `sectionIndex` em `bookmarks` sem callback).
+    this.version(18).stores({
+      books:         '++id, title, author, addedAt, importedAt, lastOpenedAt, fileName, fileSize, fileHash, format, readingStatus, isFavorite, *tags, sourceFolderId, missingFile, storageMode, collectionId',
+      bookCovers:    'bookId, updatedAt, source',
+      progress:      '++id, bookId, updatedAt',
+      bookmarks:     '++id, bookId, createdAt, updatedAt, deletedAt',
+      vocabulary:    '++id, bookId, createdAt',
+      translations:  '++id, textHash, createdAt',
+      settings:      '++id',
+      bookSettings:  '++id, bookId',
+      ttsVoiceCaches:'++id, &cacheKey, provider, language, updatedAt',
+      authors:       '&authorName, *bookIds, fetchedAt, videosFetchedAt',
+      bookInfo:      '&bookId, updatedAt',
+      epubExtras:    '&bookId, updatedAt',
+      tags:          '++id, &name, createdAt, updatedAt',
+      sourceFolders: '++id, name, uri, createdAt, lastScannedAt',
+      collections:   '++id, &name, createdAt, updatedAt',
+      opdsCatalogs:          '++id, baseUrl, isDefault, createdAt',
+      opdsDownloadedEntries: '++id, &[catalogId+entryId], bookId',
+    })
   }
 }
 

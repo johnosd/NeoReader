@@ -4,7 +4,7 @@ import { parseAtomFeed, parseOpenSearchDescription } from '@/services/opds/OpdsA
 const BASE_URL = 'https://example.com/opds/catalog'
 
 const REAL_STYLE_FEED = `<?xml version="1.0" encoding="UTF-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom">
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:dcterms="http://purl.org/dc/terms/">
   <id>urn:test:catalog</id>
   <title>Test Catalog</title>
   <link rel="next" href="/catalog?page=2" type="application/atom+xml;profile=opds-catalog"/>
@@ -21,6 +21,12 @@ const REAL_STYLE_FEED = `<?xml version="1.0" encoding="UTF-8"?>
     <link rel="http://opds-spec.org/acquisition" href="/download/1.epub" type="application/epub+zip"/>
     <link rel="http://opds-spec.org/acquisition" href="/download/1.mobi" type="application/x-mobipocket-ebook"/>
     <link rel="http://opds-spec.org/image" href="/covers/1.jpg" type="image/jpeg"/>
+    <category scheme="http://purl.org/dc/terms/LCSH" term="England -- Fiction"/>
+    <category scheme="http://purl.org/dc/terms/LCSH" term="Love stories"/>
+    <category scheme="http://purl.org/dc/terms/LCSH" term="Sisters -- Fiction"/>
+    <category scheme="http://purl.org/dc/terms/LCSH" term="Domestic fiction"/>
+    <category scheme="http://purl.org/dc/terms/DCMIType" term="Text"/>
+    <dcterms:language>en</dcterms:language>
   </entry>
   <entry>
     <title>Some PDF-only Book</title>
@@ -62,6 +68,9 @@ describe('OpdsAtomParser', () => {
       author: 'Jane Austen',
       acquisitionUrl: 'https://example.com/download/1.epub',
       coverUrl: 'https://example.com/covers/1.jpg', // resolvido contra baseUrl, não cru
+      // 4 LCSH no feed, cap em 3; DCMIType ("Text") excluído por não ser assunto/gênero.
+      subjects: ['England -- Fiction', 'Love stories', 'Sisters -- Fiction'],
+      language: 'en',
     })
   })
 

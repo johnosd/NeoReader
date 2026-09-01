@@ -13,4 +13,4 @@ sdd-*. Mantido automaticamente por update-feature-status.ps1.
 | --- | --- | --- | --- | --- |
 | 001-audiobook-background-playback | Audiobook (TTS) sem interrupção com tela apagada ou app em segundo plano | Convergida | 49/49 tasks | 2026-08-27 |
 | 002-biblioteca-dominio-publico | Biblioteca de Domínio Público (Standard Ebooks) | Convergida | 40/41 tasks | 2026-08-28 |
-| 003-opds-catalogos | Suporte a Catálogos OPDS (Públicos e Self-Hosted) | Em Execução | 72/74 tasks | 2026-08-31 |
+| 003-opds-catalogos | Suporte a Catálogos OPDS (Públicos e Self-Hosted) | Convergência Pendente | 86/87 tasks | 2026-09-01 |

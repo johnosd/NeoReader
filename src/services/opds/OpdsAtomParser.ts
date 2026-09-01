@@ -1,4 +1,4 @@
-import { getFeed, getOpenSearch, REL, type OpdsLink } from 'foliate-js/opds.js'
+import { getFeed, getOpenSearch, REL, type OpdsLink, type OpdsSubject } from 'foliate-js/opds.js'
 import type { OpdsFeedEntry, OpdsFeedPage } from '../../types/opds'
 
 const EPUB_TYPE = 'application/epub+zip'
@@ -38,6 +38,25 @@ function pickCoverUrl(images: OpdsLink[], baseUrl: string): string | undefined {
   return href ? resolveUrl(href, baseUrl) : undefined
 }
 
+const DCMI_TYPE_SCHEME = 'http://purl.org/dc/terms/DCMIType'
+const MAX_SUBJECT_TAGS = 3
+
+// Vira tag automática no livro baixado (OpdsDownloadService), não é exibido
+// na navegação — por isso fica frouxo: usa label quando existe (mais legível,
+// ex: "Language and Literatures: English literature") senão cai pro term
+// cru (ex: "Love stories"). Só exclui DCMIType (classificação de tipo de
+// conteúdo, ex: "Text" — sempre igual pra todo EPUB, zero valor como filtro),
+// mantém LCSH/LCC/qualquer outro esquema. Cap em 3 pra não poluir a lista de
+// tags do usuário com assuntos hiper-granulares de um catálogo só.
+function pickSubjects(subjects: OpdsSubject[] | undefined): string[] | undefined {
+  if (!subjects?.length) return undefined
+  const names = subjects
+    .filter((subject) => subject.scheme !== DCMI_TYPE_SCHEME)
+    .map((subject) => subject.name ?? subject.code)
+    .filter((name): name is string => Boolean(name))
+  return names.length ? names.slice(0, MAX_SUBJECT_TAGS) : undefined
+}
+
 function resolveUrl(href: string, baseUrl: string): string {
   return new URL(href, baseUrl).toString()
 }
@@ -50,6 +69,10 @@ export function parseAtomFeed(xml: string, baseUrl: string): OpdsFeedPage {
 
   for (const navItem of feed.navigation ?? []) {
     // FR-013: entry de navegação (pasta/seção) sempre passa, sem filtro de formato.
+    // Sem capa de propósito: catálogos reais (Gutenberg confirmado ao vivo)
+    // mandam um link de imagem na entry de navegação, mas é um ícone
+    // genérico idêntico pra toda entry do feed, não uma capa por item — usar
+    // isso deixaria a UI pior, não melhor (ver R-008 em plan.md).
     if (!navItem.href) continue
     entries.push({
       id: resolveUrl(navItem.href, baseUrl),
@@ -68,6 +91,8 @@ export function parseAtomFeed(xml: string, baseUrl: string): OpdsFeedPage {
       title: publication.metadata.title || 'Sem título',
       author: publication.metadata.author[0]?.name,
       coverUrl: pickCoverUrl(publication.images, baseUrl),
+      subjects: pickSubjects(publication.metadata.subject),
+      language: publication.metadata.language,
       kind: 'publication',
       acquisitionUrl: resolveUrl(acquisitionUrl, baseUrl),
     })

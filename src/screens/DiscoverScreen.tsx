@@ -33,7 +33,7 @@ interface DiscoverScreenProps {
   onOpenProfile: () => void
   onOpenPaywall?: () => void
   onOpenBook: (book: Book) => void
-  onOpenOpdsCatalogBrowse: (catalogId: number) => void
+  onOpenOpdsCatalogBrowse: (catalogId: number, initialFolder?: { title: string; url: string }) => void
   onOpenPublicDomainCatalog: () => void
   onOpenOpdsCatalogSettings: () => void
 }
@@ -112,6 +112,9 @@ export function DiscoverScreen({ onBack, onOpenHome, onOpenLibrary, onOpenProfil
             onDownload={(entry) => opdsCatalogs.download(catalog, entry)}
             onOpenDownloaded={(entry) => opdsCatalogs.openDownloaded(catalog, entry)}
             onSeeMore={() => onOpenOpdsCatalogBrowse(catalog.id!)}
+            onOpenFolder={(entry) => {
+              if (entry.navigationUrl) onOpenOpdsCatalogBrowse(catalog.id!, { title: entry.title, url: entry.navigationUrl })
+            }}
           />
         ))}
 

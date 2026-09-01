@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   importEpub: vi.fn(),
   getCredential: vi.fn(),
   recordDownload: vi.fn(),
+  createTag: vi.fn(),
 }))
 
 vi.mock('@capacitor/core', () => ({
@@ -24,6 +25,10 @@ vi.mock('@/services/opds/OpdsCredentialStore', () => ({
 
 vi.mock('@/db/opdsDownloadedEntries', () => ({
   recordDownload: mocks.recordDownload,
+}))
+
+vi.mock('@/db/tags', () => ({
+  createTag: mocks.createTag,
 }))
 
 import { OpdsDownloadService } from '@/services/opds/OpdsDownloadService'
@@ -58,6 +63,7 @@ describe('OpdsDownloadService', () => {
     mocks.importEpub.mockReset()
     mocks.getCredential.mockReset()
     mocks.recordDownload.mockReset()
+    mocks.createTag.mockReset()
   })
 
   it('baixa via CapacitorHttp e importa o File resultante, gravando o vínculo', async () => {
@@ -74,13 +80,27 @@ describe('OpdsDownloadService', () => {
       responseType: 'arraybuffer',
     }))
 
-    const [file, options] = mocks.importEpub.mock.calls[0] as [File, { importSource: string }]
+    const [file, options] = mocks.importEpub.mock.calls[0] as [File, { importSource: string; tags: number[] }]
     expect(file).toBeInstanceOf(File)
     expect(file.name).toBe('opds-dune.epub')
-    expect(options).toEqual({ importSource: 'opds' })
+    expect(options).toEqual({ importSource: 'opds', tags: [] })
 
     expect(mocks.recordDownload).toHaveBeenCalledWith(1, 'urn:book-1', 77)
     expect(getOpdsDownloadState(1, 'urn:book-1')).toEqual({ key: '1:urn:book-1', status: 'success', bookId: 77 })
+  })
+
+  it('resolve assunto/idioma da entry em tags via createTag e passa pro import (FR de organização/filtro)', async () => {
+    mocks.request.mockResolvedValue({ status: 200, data: base64Of([1, 2, 3]) })
+    mocks.importEpub.mockResolvedValue(88)
+    mocks.createTag.mockImplementation((name: string) => Promise.resolve({ 'Love stories': 10, Inglês: 11 }[name] ?? 0))
+
+    const entryWithMetadata: OpdsFeedEntry = { ...entry, id: 'e6', subjects: ['Love stories'], language: 'en' }
+    await OpdsDownloadService.download(catalog, entryWithMetadata)
+
+    expect(mocks.createTag).toHaveBeenCalledWith('Love stories')
+    expect(mocks.createTag).toHaveBeenCalledWith('Inglês')
+    const [, options] = mocks.importEpub.mock.calls[0] as [File, { tags: number[] }]
+    expect(options.tags).toEqual([10, 11])
   })
 
   it('adiciona Authorization Basic quando o catálogo tem credencial', async () => {
@@ -100,6 +120,25 @@ describe('OpdsDownloadService', () => {
 
     await expect(OpdsDownloadService.download(catalog, { ...entry, id: 'e3' })).rejects.toThrow('network fail')
     expect(getOpdsDownloadState(1, 'e3')).toEqual({ key: '1:e3', status: 'error', errorMessage: 'network fail' })
+  })
+
+  it('faz upgrade de http:// pra https:// no link de aquisição antes de baixar, quando o catálogo em si é https (research.md #10)', async () => {
+    mocks.request.mockResolvedValue({ status: 200, data: base64Of([1, 2, 3]) })
+    mocks.importEpub.mockResolvedValue(9)
+
+    await OpdsDownloadService.download(catalog, { ...entry, id: 'e-http', acquisitionUrl: 'http://example.com/download/1.epub' })
+
+    expect(mocks.request).toHaveBeenCalledWith(expect.objectContaining({ url: 'https://example.com/download/1.epub' }))
+  })
+
+  it('NÃO faz upgrade pra https quando o catálogo em si é http:// — self-hosted na rede local costuma ser http:// puro de propósito (R-010)', async () => {
+    mocks.request.mockResolvedValue({ status: 200, data: base64Of([1, 2, 3]) })
+    mocks.importEpub.mockResolvedValue(10)
+
+    const httpCatalog = { ...catalog, id: 3, baseUrl: 'http://192.168.0.14:8083/opds' }
+    await OpdsDownloadService.download(httpCatalog, { ...entry, id: 'e-lan', acquisitionUrl: 'http://192.168.0.14:8083/opds/book/1.epub' })
+
+    expect(mocks.request).toHaveBeenCalledWith(expect.objectContaining({ url: 'http://192.168.0.14:8083/opds/book/1.epub' }))
   })
 
   it('recusa rodar fora do Android nativo', async () => {

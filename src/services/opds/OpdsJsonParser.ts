@@ -17,10 +17,16 @@ interface JsonAuthor {
   name?: string
 }
 
+interface JsonSubject {
+  name?: string
+}
+
 interface JsonPublication {
   metadata?: {
     title?: string
     author?: JsonAuthor | JsonAuthor[] | string
+    subject?: (JsonSubject | string)[]
+    language?: string | string[]
   }
   links?: JsonLink[]
   images?: JsonLink[]
@@ -54,6 +60,23 @@ function pickAcquisitionUrl(links: JsonLink[]): string | undefined {
 function pickCoverUrl(images: JsonLink[] | undefined, baseUrl: string): string | undefined {
   const href = images?.[0]?.href
   return href ? resolveUrl(href, baseUrl) : undefined
+}
+
+const MAX_SUBJECT_TAGS = 3
+
+// Mesma ideia do OpdsAtomParser: vira tag automática, cap em 3 pra não
+// poluir a lista de tags do usuário. OPDS 2.0/Readium Web Pub Manifest
+// permite "subject" como array de string OU de objeto com "name".
+function pickSubjects(subject: (JsonSubject | string)[] | undefined): string[] | undefined {
+  if (!subject?.length) return undefined
+  const names = subject
+    .map((item) => (typeof item === 'string' ? item : item.name))
+    .filter((name): name is string => Boolean(name))
+  return names.length ? names.slice(0, MAX_SUBJECT_TAGS) : undefined
+}
+
+function primaryLanguage(language: string | string[] | undefined): string | undefined {
+  return Array.isArray(language) ? language[0] : language
 }
 
 function authorName(author: JsonAuthor | JsonAuthor[] | string | undefined): string | undefined {
@@ -95,6 +118,8 @@ export function parseJsonFeed(json: unknown, baseUrl: string): OpdsFeedPage {
       title: publication.metadata?.title || 'Sem título',
       author: authorName(publication.metadata?.author),
       coverUrl: pickCoverUrl(publication.images, baseUrl),
+      subjects: pickSubjects(publication.metadata?.subject),
+      language: primaryLanguage(publication.metadata?.language),
       kind: 'publication',
       acquisitionUrl: resolveUrl(acquisitionUrl, baseUrl),
     })

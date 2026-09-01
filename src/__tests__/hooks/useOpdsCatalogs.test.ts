@@ -6,13 +6,18 @@ import type { OpdsCatalog, OpdsFeedEntry, OpdsFeedPage } from '@/types/opds'
 const mocks = vi.hoisted(() => ({
   listCatalogs: vi.fn(),
   fetchSample: vi.fn(),
+  // Identidade por padrão — resolução de capa autenticada é testada à parte
+  // em OpdsCatalogService.test.ts, não precisa mudar as entries aqui.
+  resolveEntryCovers: vi.fn((_catalog: OpdsCatalog, entries: OpdsFeedEntry[]) => Promise.resolve(entries)),
   findDownloadedBookId: vi.fn(),
   download: vi.fn(),
   getBookById: vi.fn(),
 }))
 
 vi.mock('@/db/opdsCatalogs', () => ({ listCatalogs: mocks.listCatalogs }))
-vi.mock('@/services/opds/OpdsCatalogService', () => ({ OpdsCatalogService: { fetchSample: mocks.fetchSample } }))
+vi.mock('@/services/opds/OpdsCatalogService', () => ({
+  OpdsCatalogService: { fetchSample: mocks.fetchSample, resolveEntryCovers: mocks.resolveEntryCovers },
+}))
 vi.mock('@/db/opdsDownloadedEntries', () => ({ findDownloadedBookId: mocks.findDownloadedBookId }))
 vi.mock('@/services/opds/OpdsDownloadService', () => ({ OpdsDownloadService: { download: mocks.download } }))
 vi.mock('@/db/books', () => ({ getBookById: mocks.getBookById }))

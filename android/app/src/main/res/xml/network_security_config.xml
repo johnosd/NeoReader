@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Sem isso, o Android bloqueia qualquer request http:// por padrão a partir
+  do targetSdk 28 — inclusive pra servidor self-hosted na rede local
+  (Calibre-Web, Kavita) sem certificado TLS configurado, o caso mais comum
+  de uso real de OPDS self-hosted (confirmado ao vivo: sem isso, catálogo
+  http:// puro nunca conecta, mesmo com credencial correta). Https continua
+  funcionando normalmente independente disso — isso só libera o caso
+  http:// explícito, que hoje só acontece quando o próprio usuário cadastra
+  um catálogo OPDS com essa URL (OpdsCatalogService.ts/OpdsDownloadService.ts
+  só fazem upgrade automático pra https quando o catálogo em si já é https,
+  ver R-010 em plan.md).
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

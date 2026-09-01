@@ -69,8 +69,12 @@ export function useOpdsCatalogs(onOpenBook: (book: Book) => void): UseOpdsCatalo
     const catalogId = catalog.id
 
     OpdsCatalogService.fetchSample(catalog)
-      .then((page) => {
-        setSamples((prev) => ({ ...prev, [catalogId]: { entries: page.entries, loading: false, error: false, offline: false } }))
+      // Catálogo com credencial (ex: Calibre) exige auth em toda URL,
+      // inclusive capa — <img src> puro nunca carregaria (sem header
+      // Authorization). Resolve pra data URI antes de exibir.
+      .then((page) => OpdsCatalogService.resolveEntryCovers(catalog, page.entries))
+      .then((entries) => {
+        setSamples((prev) => ({ ...prev, [catalogId]: { entries, loading: false, error: false, offline: false } }))
       })
       .catch(() => {
         // Erro de um catálogo fica isolado nesse catálogo — os demais

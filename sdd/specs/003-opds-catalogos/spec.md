@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-31
 
-**Status**: Em Execução
+**Status**: Convergência Pendente
 
 **Input**: Permitir que o usuário adicione catálogos OPDS (públicos ou self-hosted, ex: Calibre-Web, Kavita), navegue neles e baixe livros direto pro app. Usando o handoff de `sdd/assessments/suporte-catlogos-opds-pblicos-self-hosted/decision.md` (veredito `go`) como contexto de entrada.
 
@@ -152,6 +152,13 @@ O usuário está sem conexão, ou o catálogo cadastrado responde com um feed in
 - **FR-021**: Sistema DEVE exibir um estado vazio claro (ex.: "sem conexão") com opção de tentar novamente quando a tela Descobrir não conseguir buscar dados de rede, sem travar a navegação.
 - **FR-022**: Sistema DEVE restringir esta feature a Android nativo no v1 — build Web fica fora de escopo.
 - **FR-023**: Sistema DEVE permitir remover o catálogo padrão como qualquer outro catálogo cadastrado; se o usuário remover todos os catálogos, a tela Descobrir DEVE mostrar um estado vazio com opção de adicionar um novo.
+- **FR-024**: Sistema DEVE atribuir automaticamente tags de assunto e idioma ao livro baixado de um catálogo OPDS, extraídas dos metadados da entry quando disponíveis, reaproveitando o mecanismo de tags já existente na Biblioteca (sem tela nova).
+- **FR-025**: Sistema DEVE oferecer, na navegação completa de um catálogo, opções de ordenação (Padrão/Populares/Recentes/Aleatório) — convenção específica do Gutenberg (`sort_order`), aplicada genericamente como parâmetro extra em qualquer catálogo; servidor que não reconhece o parâmetro deve ser ignorado sem erro.
+- **FR-026**: Sistema DEVE alternar automaticamente, na navegação completa de um catálogo, entre layout de lista (página só com entries de navegação) e grid de cards (página com pelo menos uma entry de publicação), sem opção manual do usuário.
+- **FR-027**: Sistema DEVE, ao salvar um catálogo (novo ou editado) em Settings, testar a conexão com exatamente os dados informados antes de persistir — só grava o catálogo se a conexão for bem-sucedida; falha exibe o motivo específico (rede, formato ou credencial) sem salvar nada.
+- **FR-028**: Sistema DEVE exibir, na lista de catálogos em Settings, um indicador de status de conexão por catálogo (conectado/sem conexão/verificando) e um atalho que abre a navegação completa daquele catálogo diretamente, sem depender da tela Descobrir.
+- **FR-029**: Sistema DEVE, ao buscar a capa de uma entry de catálogo com credencial, autenticar essa requisição da mesma forma que o restante do catálogo — servidores self-hosted que exigem auth em toda URL (ex.: Calibre) não podem depender de um `<img>` sem credencial.
+- **FR-030**: Sistema DEVE exibir, no estado de erro de um download, o motivo específico quando disponível (ex.: "já está na biblioteca"), em vez de sempre um texto genérico.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -189,3 +196,7 @@ O usuário está sem conexão, ou o catálogo cadastrado responde com um feed in
 - Q: Quantos títulos aparecem na row de amostra de cada catálogo? → A: Primeiros itens do feed, sem contagem fixa exata (o que a 1ª página do servidor devolver).
 - Q: No formulário de adicionar/editar catálogo, o usuário escolhe explicitamente o esquema de auth, ou só informa usuário+senha? → A: Só usuário+senha; o app negocia o esquema sozinho.
 - Q: O que o usuário vê quando o login falha ao acessar um catálogo (credencial errada)? → A: Mensagem específica de credencial inválida, distinta de erro genérico.
+
+### Sessão 2026-09-01
+
+- Q: Ao salvar um catálogo cuja conexão falha (rede/formato), o app deve salvar mesmo assim (comportamento original, `tasks.md` T030) ou bloquear o save? → A: Bloquear — só persiste se a conexão for bem-sucedida (FR-027). Decisão revertida após teste ao vivo contra um Calibre self-hosted real mostrar que o usuário ficava "no escuro" sobre catálogos salvos que nunca funcionaram.

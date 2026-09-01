@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Check, Download, Folder, RotateCcw } from 'lucide-react'
+import { Check, ChevronRight, Download, Folder, RotateCcw } from 'lucide-react'
 import { Spinner } from './ui'
 import { useI18n } from '../i18n'
 import type { OpdsDownloadState, OpdsFeedEntry } from '../types/opds'
@@ -14,6 +14,10 @@ interface OpdsEntryCardProps {
 
 // Entry de navegação (pasta/seção do catálogo) — sempre passa o filtro
 // EPUB-only (FR-013), então tem visual próprio, sem estado de download.
+// Sem capa de propósito: catálogos reais que testamos (Gutenberg) mandam um
+// link de imagem na entry de navegação, mas é um ícone genérico idêntico pra
+// toda entry do feed, não uma capa por item — mostrar isso deixa a UI pior,
+// não melhor (tentado e revertido, ver R-008 em plan.md).
 function OpdsFolderCard({ entry, onOpenFolder }: { entry: OpdsFeedEntry; onOpenFolder?: (entry: OpdsFeedEntry) => void }) {
   return (
     <div
@@ -38,6 +42,32 @@ function OpdsFolderCard({ entry, onOpenFolder }: { entry: OpdsFeedEntry; onOpenF
         {entry.title}
       </p>
     </div>
+  )
+}
+
+// Linha de lista pra página que é só pastas (ex: resultado de busca do
+// Gutenberg, onde cada entry é um livro diferente, sem capa nenhuma — ver
+// OpdsFolderCard acima). Grid de cards vazios lado a lado ficava ruim
+// visualmente; lista compacta é mais honesta sobre não ter imagem nenhuma
+// pra mostrar (feedback do usuário após ver a tela real no device).
+export function OpdsFolderListRow({ entry, onOpenFolder }: { entry: OpdsFeedEntry; onOpenFolder?: (entry: OpdsFeedEntry) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onOpenFolder?.(entry)}
+      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-left active:bg-white/5 transition-colors"
+    >
+      <div
+        className="shrink-0 flex items-center justify-center rounded-md"
+        style={{ width: 44, height: 44, background: '#1e0e2d', border: '1px solid rgba(255,255,255,0.07)' }}
+      >
+        <Folder size={20} color="rgba(203,213,225,0.5)" />
+      </div>
+      <span className="flex-1 min-w-0 text-[14px] font-semibold truncate" style={{ color: '#f1f5f9' }}>
+        {entry.title}
+      </span>
+      <ChevronRight size={18} color="rgba(148,163,184,0.6)" className="shrink-0" />
+    </button>
   )
 }
 
@@ -135,7 +165,11 @@ export function OpdsEntryCard({ entry, state, onDownload, onOpenDownloaded, onOp
         )}
         {isError && (
           <p className="text-[10px] mt-[2px] font-semibold" style={{ color: '#f87171' }}>
-            {state.offline ? t('discover.opds.offline') : t('discover.opds.error')}
+            {/* Mostra o motivo real quando disponível (ex: "Este livro ja
+                esta na biblioteca." de BookImportService) — antes caía
+                sempre no texto genérico, escondendo por que o download
+                falhou de verdade. */}
+            {state.offline ? t('discover.opds.offline') : state.errorMessage || t('discover.opds.error')}
           </p>
         )}
       </div>

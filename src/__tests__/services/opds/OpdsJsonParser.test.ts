@@ -14,7 +14,13 @@ const FEED = {
   ],
   publications: [
     {
-      metadata: { title: 'Dune', author: { name: 'Frank Herbert' } },
+      metadata: {
+        title: 'Dune',
+        author: { name: 'Frank Herbert' },
+        // 4 assuntos (string e objeto {name} misturados) pra testar cap em 3.
+        subject: ['Science fiction', { name: 'Adventure' }, 'Desert planets', 'Politics'],
+        language: ['en', 'fr'],
+      },
       links: [
         { rel: 'http://opds-spec.org/acquisition', href: '/download/1.epub', type: 'application/epub+zip' },
         { rel: 'http://opds-spec.org/acquisition', href: '/download/1.mobi', type: 'application/x-mobipocket-ebook' },
@@ -48,6 +54,8 @@ describe('OpdsJsonParser', () => {
       author: 'Frank Herbert',
       acquisitionUrl: 'https://example.com/download/1.epub',
       coverUrl: 'https://example.com/covers/1.jpg',
+      subjects: ['Science fiction', 'Adventure', 'Desert planets'], // cap em 3
+      language: 'en', // primeiro item quando "language" vem como array
     })
   })
 

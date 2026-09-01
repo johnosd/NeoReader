@@ -1,17 +1,30 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { ArrowLeft, Plus, Rss, Trash2 } from 'lucide-react'
-import { Button, EmptyState, Input, ListItem, Spinner, Switch } from '../components/ui'
+import { ArrowLeft, BookOpen, Plus, Rss, Trash2, Wifi, WifiOff } from 'lucide-react'
+import { Button, EmptyState, Input, ListItem, Spinner, Switch, Toast } from '../components/ui'
 import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
-import { useI18n } from '../i18n'
+import { useI18n, type MessageKey } from '../i18n'
 import { createCatalog, deleteCatalog, DuplicateCatalogUrlError, listCatalogs, updateCatalog } from '../db/opdsCatalogs'
 import { OpdsCatalogFetchError, OpdsCatalogService } from '../services/opds/OpdsCatalogService'
 import type { OpdsCredential } from '../services/opds/OpdsCredentialStore'
-import type { OpdsCatalog } from '../types/opds'
+import type { OpdsCatalog, OpdsCatalogErrorKind } from '../types/opds'
+
+// Mensagem especifica por tipo de falha do teste de conexao (pedido do
+// usuario: nao salvar um catalogo que nao conecta, em vez de descobrir isso
+// so depois) -- distingue credencial errada de servidor inalcancavel/formato
+// invalido, cada um com um proximo passo diferente pro usuario.
+const TEST_ERROR_MESSAGE_KEYS: Record<OpdsCatalogErrorKind, MessageKey> = {
+  'invalid-credential': 'settings.opdsCatalogs.form.invalidCredential',
+  network: 'settings.opdsCatalogs.form.testNetworkError',
+  'invalid-format': 'settings.opdsCatalogs.form.testFormatError',
+}
 
 interface OpdsCatalogSettingsScreenProps {
   onBack: () => void
+  onOpenCatalog: (catalogId: number) => void
 }
+
+type ConnectionStatus = 'checking' | 'connected' | 'error'
 
 // URLs verificadas ao vivo durante o planejamento desta feature — Standard
 // Ebooks exige conta (feed completo restrito a supporters, confirmado 401
@@ -45,7 +58,7 @@ function resolveCredentialForSave(form: FormState): OpdsCredential | null | unde
   return undefined
 }
 
-export function OpdsCatalogSettingsScreen({ onBack }: OpdsCatalogSettingsScreenProps) {
+export function OpdsCatalogSettingsScreen({ onBack, onOpenCatalog }: OpdsCatalogSettingsScreenProps) {
   const { t } = useI18n()
   useCapacitorBackButton(onBack)
 
@@ -53,6 +66,24 @@ export function OpdsCatalogSettingsScreen({ onBack }: OpdsCatalogSettingsScreenP
   const [form, setForm] = useState<FormState | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [successToast, setSuccessToast] = useState<string | null>(null)
+  const [connectionStatus, setConnectionStatus] = useState<Record<number, ConnectionStatus>>({})
+
+  // Pedido do usuário: mostrar de cara se cada catálogo cadastrado está
+  // respondendo, sem precisar abrir Descobrir só pra descobrir isso.
+  // `catalogs` só muda de referência quando o Dexie live query detecta uma
+  // mudança real (CRUD) — não a cada re-render deste componente.
+  useEffect(() => {
+    if (!catalogs) return
+    for (const catalog of catalogs) {
+      if (catalog.id == null) continue
+      const catalogId = catalog.id
+      setConnectionStatus((prev) => ({ ...prev, [catalogId]: 'checking' }))
+      OpdsCatalogService.fetchSample(catalog)
+        .then(() => setConnectionStatus((prev) => ({ ...prev, [catalogId]: 'connected' })))
+        .catch(() => setConnectionStatus((prev) => ({ ...prev, [catalogId]: 'error' })))
+    }
+  }, [catalogs])
 
   function openCreateForm(suggestion?: { name: string; baseUrl: string }) {
     setError(null)
@@ -79,40 +110,59 @@ export function OpdsCatalogSettingsScreen({ onBack }: OpdsCatalogSettingsScreenP
     && (!form.requiresAuth || form.mode === 'edit' || (form.username.trim() && form.password.trim())),
   )
 
+  // Testa com exatamente o que o formulário salvaria, sem persistir nada
+  // ainda. Create (ou edit com credencial nova/removida): credencial vem
+  // direto do formulário, sem tocar no storage nativo. Edit com senha em
+  // branco ("manter a atual"): testa contra o que já está salvo pra esse
+  // catálogo, via fetchSample (única situação que precisa do storage nativo
+  // aqui, porque é a única em que a credencial não está em memória).
+  async function testConnection(form: FormState) {
+    const baseUrl = form.baseUrl.trim()
+
+    if (form.mode === 'edit' && form.requiresAuth && !(form.username.trim() && form.password.trim())) {
+      const current = catalogs?.find((c) => c.id === form.catalogId)
+      if (current) {
+        await OpdsCatalogService.fetchSample({ ...current, baseUrl })
+        return
+      }
+    }
+
+    const credential = form.requiresAuth && form.username.trim() && form.password.trim()
+      ? { username: form.username.trim(), password: form.password.trim() }
+      : undefined
+    await OpdsCatalogService.testConnection(baseUrl, credential)
+  }
+
   async function handleSave() {
     if (!form || !canSave) return
     setSaving(true)
     setError(null)
 
+    // Testa ANTES de persistir — pedido do usuário: só salvar se a conexão
+    // realmente funcionar, em vez de descobrir isso só depois em Descobrir.
+    try {
+      await testConnection(form)
+    } catch (validationError) {
+      const messageKey = validationError instanceof OpdsCatalogFetchError
+        ? TEST_ERROR_MESSAGE_KEYS[validationError.kind]
+        : 'settings.opdsCatalogs.form.testNetworkError'
+      setError(t(messageKey))
+      setSaving(false)
+      return
+    }
+
     try {
       const name = form.name.trim()
       const baseUrl = form.baseUrl.trim()
-      let catalogId: number
 
       if (form.mode === 'create') {
-        catalogId = await createCatalog({ name, baseUrl, credential: resolveCredentialForSave(form) ?? undefined })
+        await createCatalog({ name, baseUrl, credential: resolveCredentialForSave(form) ?? undefined })
       } else {
-        catalogId = form.catalogId!
-        await updateCatalog(catalogId, { name, baseUrl, credential: resolveCredentialForSave(form) })
-      }
-
-      // Confirma que o catálogo responde (com a credencial, se houver) já no
-      // formulário — feedback específico de credencial inválida em vez de só
-      // descobrir depois em Descobrir (US2, Acceptance Scenario 3 / FR-005).
-      try {
-        const saved = (await listCatalogs()).find((c) => c.id === catalogId)
-        if (saved) await OpdsCatalogService.fetchSample(saved)
-      } catch (validationError) {
-        if (validationError instanceof OpdsCatalogFetchError && validationError.kind === 'invalid-credential') {
-          setError(t('settings.opdsCatalogs.form.invalidCredential'))
-          setSaving(false)
-          return
-        }
-        // Erro de rede/formato não bloqueia salvar — o catálogo já foi
-        // gravado e pode ser tentado de novo em Descobrir.
+        await updateCatalog(form.catalogId!, { name, baseUrl, credential: resolveCredentialForSave(form) })
       }
 
       setForm(null)
+      setSuccessToast(t('settings.opdsCatalogs.form.testSuccess'))
     } catch (err) {
       setError(err instanceof DuplicateCatalogUrlError
         ? t('settings.opdsCatalogs.form.duplicateUrl')
@@ -154,29 +204,64 @@ export function OpdsCatalogSettingsScreen({ onBack }: OpdsCatalogSettingsScreenP
           />
         ) : (
           <div className="rounded-md border border-border bg-bg-surface overflow-hidden mb-4">
-            {catalogs.map((catalog, index) => (
-              <ListItem
-                key={catalog.id}
-                leading={<Rss size={20} className="text-purple-light" />}
-                title={catalog.name}
-                meta={catalog.baseUrl}
-                onClick={() => openEditForm(catalog)}
-                divider={index < catalogs.length - 1}
-                trailing={(
-                  <button
-                    type="button"
-                    aria-label={t('settings.opdsCatalogs.remove')}
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      void handleDelete(catalog)
-                    }}
-                    className="p-2 text-error active:opacity-70"
-                  >
-                    <Trash2 size={18} />
-                  </button>
-                )}
-              />
-            ))}
+            {catalogs.map((catalog, index) => {
+              const status = catalog.id != null ? connectionStatus[catalog.id] : undefined
+              return (
+                <ListItem
+                  key={catalog.id}
+                  leading={<Rss size={20} className="text-purple-light" />}
+                  title={catalog.name}
+                  meta={catalog.baseUrl}
+                  onClick={() => openEditForm(catalog)}
+                  divider={index < catalogs.length - 1}
+                  trailing={(
+                    <div className="flex items-center gap-1">
+                      <span
+                        aria-label={
+                          status === 'connected'
+                            ? t('settings.opdsCatalogs.status.connected')
+                            : status === 'error'
+                              ? t('settings.opdsCatalogs.status.disconnected')
+                              : t('settings.opdsCatalogs.status.checking')
+                        }
+                        className="p-2"
+                      >
+                        {status === 'connected' ? (
+                          <Wifi size={16} className="text-success" />
+                        ) : status === 'error' ? (
+                          <WifiOff size={16} className="text-error" />
+                        ) : (
+                          <Spinner size={16} label="" />
+                        )}
+                      </span>
+                      <button
+                        type="button"
+                        aria-label={t('settings.opdsCatalogs.open')}
+                        disabled={catalog.id == null}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          if (catalog.id != null) onOpenCatalog(catalog.id)
+                        }}
+                        className="p-2 text-purple-light active:opacity-70 disabled:opacity-40"
+                      >
+                        <BookOpen size={18} />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={t('settings.opdsCatalogs.remove')}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          void handleDelete(catalog)
+                        }}
+                        className="p-2 text-error active:opacity-70"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                  )}
+                />
+              )
+            })}
           </div>
         )}
 
@@ -256,6 +341,12 @@ export function OpdsCatalogSettingsScreen({ onBack }: OpdsCatalogSettingsScreenP
             </div>
           </div>
         </div>
+      )}
+
+      {successToast && (
+        <Toast tone="success" onDismiss={() => setSuccessToast(null)}>
+          {successToast}
+        </Toast>
       )}
     </div>
   )

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { OpdsEntryCard } from '@/components/OpdsEntryCard'
+import { OpdsEntryCard, OpdsFolderListRow } from '@/components/OpdsEntryCard'
 import type { OpdsDownloadState, OpdsFeedEntry } from '@/types/opds'
 
 const publicationEntry: OpdsFeedEntry = {
@@ -54,21 +54,30 @@ describe('OpdsEntryCard', () => {
     expect(onDownload).not.toHaveBeenCalled()
   })
 
-  it('mostra erro específico de credencial/rede e permite tentar de novo', () => {
+  it('mostra o motivo específico do erro (ex: já está na biblioteca) em vez do texto genérico, e permite tentar de novo', () => {
     const onDownload = vi.fn()
-    const state: OpdsDownloadState = { key: publicationEntry.id, status: 'error', errorMessage: 'Usuário ou senha incorretos para este catálogo.' }
+    const state: OpdsDownloadState = { key: publicationEntry.id, status: 'error', errorMessage: 'Este livro ja esta na biblioteca.' }
     render(<OpdsEntryCard entry={publicationEntry} state={state} onDownload={onDownload} onOpenDownloaded={vi.fn()} />)
 
-    expect(screen.getByText('Nao foi possivel baixar. Toque para tentar de novo.')).toBeTruthy()
+    expect(screen.getByText('Este livro ja esta na biblioteca.')).toBeTruthy()
+    expect(screen.queryByText('Nao foi possivel baixar. Toque para tentar de novo.')).toBeNull()
     fireEvent.click(screen.getByRole('button'))
     expect(onDownload).toHaveBeenCalledWith(publicationEntry)
   })
 
-  it('mostra mensagem de offline quando o erro foi por falta de conexão', () => {
+  it('cai no texto genérico quando o erro não tem uma mensagem específica', () => {
+    const state: OpdsDownloadState = { key: publicationEntry.id, status: 'error' }
+    render(<OpdsEntryCard entry={publicationEntry} state={state} onDownload={vi.fn()} onOpenDownloaded={vi.fn()} />)
+
+    expect(screen.getByText('Nao foi possivel baixar. Toque para tentar de novo.')).toBeTruthy()
+  })
+
+  it('mostra mensagem de offline quando o erro foi por falta de conexão, mesmo com errorMessage técnico presente', () => {
     const state: OpdsDownloadState = { key: publicationEntry.id, status: 'error', errorMessage: 'network fail', offline: true }
     render(<OpdsEntryCard entry={publicationEntry} state={state} onDownload={vi.fn()} onOpenDownloaded={vi.fn()} />)
 
     expect(screen.getByText('Sem conexao. Toque para tentar de novo.')).toBeTruthy()
+    expect(screen.queryByText('network fail')).toBeNull()
   })
 
   it('cai pro fallback de texto quando a capa remota falha ao carregar', () => {
@@ -92,6 +101,15 @@ describe('OpdsEntryCard', () => {
         onOpenFolder={onOpenFolder}
       />,
     )
+
+    expect(screen.getByText('Ficção Científica')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button'))
+    expect(onOpenFolder).toHaveBeenCalledWith(navigationEntry)
+  })
+
+  it('OpdsFolderListRow mostra título e chama onOpenFolder ao tocar (layout de lista pra página só de pastas)', () => {
+    const onOpenFolder = vi.fn()
+    render(<OpdsFolderListRow entry={navigationEntry} onOpenFolder={onOpenFolder} />)
 
     expect(screen.getByText('Ficção Científica')).toBeTruthy()
     fireEvent.click(screen.getByRole('button'))

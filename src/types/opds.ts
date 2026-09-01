@@ -32,6 +32,11 @@ export interface OpdsFeedEntry {
   title: string
   author?: string
   coverUrl?: string
+  // Assunto/idioma do feed (quando o catálogo manda) — usados só pra virar
+  // tag automática no livro importado (OpdsDownloadService), não exibidos
+  // na UI de navegação/amostra.
+  subjects?: string[]
+  language?: string
   kind: 'publication' | 'navigation'
   navigationUrl?: string
   acquisitionUrl?: string
@@ -43,6 +48,15 @@ export interface OpdsFeedPage {
   nextPageUrl?: string
   searchUrl?: string
 }
+
+// Convenção do Gutenberg (`?sort_order=...`), não parte do padrão OPDS —
+// confirmado ao vivo que o feed raiz do Gutenberg (`/ebooks.opds/`) expõe
+// "Popular"/"Latest"/"Random" como pastas de navegação apontando pra esses
+// mesmos valores. Enviado como query param extra em qualquer catálogo:
+// servidor que não reconhece o parâmetro tipicamente ignora e devolve a
+// ordem padrão, sem erro — não é uma garantia formal, só um "tenta e não
+// atrapalha" (mesmo espírito de research.md #10).
+export type OpdsSortOrder = 'default' | 'downloads' | 'release_date' | 'random'
 
 export type OpdsDownloadStatus = 'idle' | 'downloading' | 'success' | 'error'
 

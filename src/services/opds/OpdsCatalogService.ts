@@ -1,8 +1,8 @@
 import { Capacitor, CapacitorHttp } from '@capacitor/core'
 import { parseAtomFeed, parseOpenSearchDescription } from './OpdsAtomParser'
 import { parseJsonFeed } from './OpdsJsonParser'
-import { OpdsCredentialStore } from './OpdsCredentialStore'
-import type { OpdsCatalog, OpdsCatalogErrorKind, OpdsFeedPage } from '../../types/opds'
+import { OpdsCredentialStore, type OpdsCredential } from './OpdsCredentialStore'
+import type { OpdsCatalog, OpdsCatalogErrorKind, OpdsFeedEntry, OpdsFeedPage, OpdsSortOrder } from '../../types/opds'
 
 const REQUEST_TIMEOUT_MS = 15_000
 const ACCEPT_HEADER = 'application/atom+xml, application/opds+json;q=0.9'
@@ -26,20 +26,40 @@ function getHeaderValue(headers: Record<string, string>, name: string): string {
   return entry?.[1] ?? ''
 }
 
-async function buildAuthHeaders(catalog: OpdsCatalog): Promise<Record<string, string>> {
-  if (!catalog.hasCredential || catalog.id == null) return {}
+// Separado de buildAuthHeaders (abaixo) pra poder testar conexão com uma
+// credencial ainda só em memória no formulário (não persistida no storage
+// nativo ainda) — ver testConnection().
+async function resolveCredentialFromStorage(catalog: OpdsCatalog): Promise<OpdsCredential | undefined> {
+  if (!catalog.hasCredential || catalog.id == null) return undefined
   const credential = await OpdsCredentialStore.get(catalog.id)
+  return credential ?? undefined
+}
+
+// Basic Auth simples — negociação de esquema (Digest) fica fora do v1
+// (research.md #5): CapacitorHttp não suporta nativamente e exigiria MD5 do
+// zero, ausente do Web Crypto.
+function buildAuthHeaders(credential: OpdsCredential | undefined): Record<string, string> {
   if (!credential) return {}
-  // Basic Auth simples — negociação de esquema (Digest) fica fora do v1
-  // (research.md #5): CapacitorHttp não suporta nativamente e exigiria MD5
-  // do zero, ausente do Web Crypto.
   return { Authorization: `Basic ${btoa(`${credential.username}:${credential.password}`)}` }
 }
 
+// research.md #10: servidor real pode devolver link http:// mesmo servindo
+// HTTPS (confirmado ao vivo — o OpenSearch description do Gutenberg anuncia
+// template com "http://m.gutenberg.org/..."). Mas NÃO upgrada quando o
+// catálogo em si já é http:// — self-hosted na rede local (Calibre-Web,
+// Kavita) frequentemente é http:// puro de propósito, sem TLS configurado
+// (confirmado ao vivo: forçar https nesse caso quebra a conexão, já que o
+// servidor não fala TLS naquela porta). R-010 em plan.md.
+function upgradeToHttps(url: string, catalogBaseUrl: string): string {
+  if (!catalogBaseUrl.startsWith('https://')) return url
+  return url.startsWith('http://') ? `https://${url.slice('http://'.length)}` : url
+}
+
 async function rawRequest(
-  catalog: OpdsCatalog,
+  catalogBaseUrl: string,
   url: string,
   accept: string,
+  credential: OpdsCredential | undefined,
 ): Promise<{ headers: Record<string, string>; body: string }> {
   // Feature é Android-only por escopo (FR-022) — CapacitorHttp fora do
   // nativo cai pra fetch() do browser, sujeito a CORS que self-hosted
@@ -48,12 +68,12 @@ async function rawRequest(
     throw new OpdsCatalogFetchError('network', 'Catálogos OPDS só são suportados no Android nativo.')
   }
 
-  const headers = { Accept: accept, ...(await buildAuthHeaders(catalog)) }
+  const headers = { Accept: accept, ...buildAuthHeaders(credential) }
 
   let response
   try {
     response = await CapacitorHttp.request({
-      url,
+      url: upgradeToHttps(url, catalogBaseUrl),
       method: 'GET',
       headers,
       responseType: 'text',
@@ -99,13 +119,25 @@ function parseFeedBody(format: 'atom' | 'json', body: string, url: string): Opds
 }
 
 async function fetchFeedPage(catalog: OpdsCatalog, url: string): Promise<OpdsFeedPage> {
-  const { headers, body } = await rawRequest(catalog, url, ACCEPT_HEADER)
+  const credential = await resolveCredentialFromStorage(catalog)
+  const { headers, body } = await rawRequest(catalog.baseUrl, url, ACCEPT_HEADER, credential)
   const format = detectFormat(headers, body)
   return parseFeedBody(format, body, url)
 }
 
 function resolveUrl(href: string, baseUrl: string): string {
   return new URL(href, baseUrl).toString()
+}
+
+// Convenção do Gutenberg (`?sort_order=downloads|release_date|random`), não
+// padrão OPDS — confirmado ao vivo contra o feed raiz real (`/ebooks.opds/`,
+// entries "Popular"/"Latest"/"Random"). Anexado como query param extra em
+// qualquer catálogo: servidor que não reconhece tipicamente ignora e
+// devolve a ordem de sempre, sem erro.
+function appendSortOrder(url: string, sortOrder?: OpdsSortOrder): string {
+  if (!sortOrder || sortOrder === 'default') return url
+  const separator = url.includes('?') ? '&' : '?'
+  return `${url}${separator}sort_order=${sortOrder}`
 }
 
 // Só a variável de busca (`searchTerms`/`query`), sem depender de uma lib de
@@ -128,9 +160,37 @@ async function resolveSearchUrl(catalog: OpdsCatalog, rawSearchUrl: string, quer
   }
 
   const descriptionUrl = resolveUrl(rawSearchUrl, catalog.baseUrl)
-  const { body } = await rawRequest(catalog, descriptionUrl, 'application/opensearchdescription+xml')
+  const credential = await resolveCredentialFromStorage(catalog)
+  const { body } = await rawRequest(catalog.baseUrl, descriptionUrl, 'application/opensearchdescription+xml', credential)
   const buildSearchUrl = parseOpenSearchDescription(body, descriptionUrl)
   return buildSearchUrl(query)
+}
+
+// Capa protegida por auth (ex: Calibre content server exige Basic Auth em
+// todo endpoint, capa inclusa) nunca carregaria via <img src> direto — a tag
+// não manda o header Authorization. Busca autenticada + converte pra data
+// URI, que o <img> consegue renderizar sem precisar de rede de novo. Só
+// entries de catálogo COM credencial passam por aqui (sem credencial, a URL
+// original já funciona direto e evita esse round-trip extra).
+async function fetchCoverDataUrl(catalog: OpdsCatalog, coverUrl: string, credential: OpdsCredential | undefined): Promise<string | undefined> {
+  if (!Capacitor.isNativePlatform()) return coverUrl
+  try {
+    const response = await CapacitorHttp.request({
+      url: upgradeToHttps(coverUrl, catalog.baseUrl),
+      method: 'GET',
+      headers: buildAuthHeaders(credential),
+      responseType: 'arraybuffer',
+      connectTimeout: REQUEST_TIMEOUT_MS,
+      readTimeout: REQUEST_TIMEOUT_MS,
+    })
+    if (response.status < 200 || response.status >= 300) return undefined
+    const contentType = getHeaderValue(response.headers, 'content-type') || 'image/jpeg'
+    // CapacitorHttp devolve corpo binário como string base64 quando
+    // responseType é 'arraybuffer' — já é o formato que <img src="data:..."> espera.
+    return `data:${contentType};base64,${response.data as string}`
+  } catch {
+    return undefined
+  }
 }
 
 export const OpdsCatalogService = {
@@ -138,12 +198,37 @@ export const OpdsCatalogService = {
     return fetchFeedPage(catalog, catalog.baseUrl)
   },
 
-  async fetchPage(catalog: OpdsCatalog, url: string): Promise<OpdsFeedPage> {
-    return fetchFeedPage(catalog, url)
+  async fetchPage(catalog: OpdsCatalog, url: string, sortOrder?: OpdsSortOrder): Promise<OpdsFeedPage> {
+    return fetchFeedPage(catalog, appendSortOrder(url, sortOrder))
   },
 
-  async search(catalog: OpdsCatalog, searchUrl: string, query: string): Promise<OpdsFeedPage> {
+  async search(catalog: OpdsCatalog, searchUrl: string, query: string, sortOrder?: OpdsSortOrder): Promise<OpdsFeedPage> {
     const resolvedUrl = await resolveSearchUrl(catalog, searchUrl, query)
-    return fetchFeedPage(catalog, resolvedUrl)
+    return fetchFeedPage(catalog, appendSortOrder(resolvedUrl, sortOrder))
+  },
+
+  // Testa conectividade com uma credencial explícita (ainda em memória no
+  // formulário, não persistida) — usado por Settings pra validar ANTES de
+  // salvar o catálogo (pedido do usuário: não salvar se a conexão falhar).
+  // Não depende de um `id`/storage nativo como fetchSample.
+  async testConnection(baseUrl: string, credential?: OpdsCredential): Promise<OpdsFeedPage> {
+    const { headers, body } = await rawRequest(baseUrl, baseUrl, ACCEPT_HEADER, credential)
+    const format = detectFormat(headers, body)
+    return parseFeedBody(format, body, baseUrl)
+  },
+
+  // Resolve capas protegidas por auth pra data URI (ver fetchCoverDataUrl).
+  // Catálogo sem credencial devolve as entries como vieram — sem round-trip
+  // extra, já que <img src> direto funciona nesse caso.
+  async resolveEntryCovers(catalog: OpdsCatalog, entries: OpdsFeedEntry[]): Promise<OpdsFeedEntry[]> {
+    if (!catalog.hasCredential) return entries
+    const credential = await resolveCredentialFromStorage(catalog)
+    if (!credential) return entries
+
+    return Promise.all(entries.map(async (entry) => {
+      if (!entry.coverUrl) return entry
+      const dataUrl = await fetchCoverDataUrl(catalog, entry.coverUrl, credential)
+      return dataUrl ? { ...entry, coverUrl: dataUrl } : { ...entry, coverUrl: undefined }
+    }))
   },
 }

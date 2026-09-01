@@ -1,6 +1,8 @@
 import { Capacitor, CapacitorHttp } from '@capacitor/core'
 import { BookImportService } from '../BookImportService'
 import { recordDownload } from '../../db/opdsDownloadedEntries'
+import { createTag } from '../../db/tags'
+import { getLanguageLabel } from '../../utils/languageOptions'
 import { OpdsCredentialStore } from './OpdsCredentialStore'
 import { beginOpdsDownload, completeOpdsDownload, failOpdsDownload } from './OpdsDownloadCoordinator'
 import type { OpdsCatalog, OpdsFeedEntry } from '../../types/opds'
@@ -39,6 +41,15 @@ function buildFileName(entry: OpdsFeedEntry): string {
   return `opds-${safeTitle}.epub`
 }
 
+// research.md #10 / mesmo caso de OpdsCatalogService.ts: servidor real pode
+// anunciar link http:// mesmo servindo HTTPS. Mas NÃO upgrada quando o
+// catálogo em si já é http:// — self-hosted na rede local costuma ser
+// http:// puro de propósito, sem TLS configurado (R-010 em plan.md).
+function upgradeToHttps(url: string, catalog: OpdsCatalog): string {
+  if (!catalog.baseUrl.startsWith('https://')) return url
+  return url.startsWith('http://') ? `https://${url.slice('http://'.length)}` : url
+}
+
 async function fetchEpubBytes(catalog: OpdsCatalog, url: string): Promise<ArrayBuffer> {
   if (!Capacitor.isNativePlatform()) {
     throw new Error('Download de catálogo OPDS só é suportado no Android nativo.')
@@ -51,7 +62,7 @@ async function fetchEpubBytes(catalog: OpdsCatalog, url: string): Promise<ArrayB
   }
 
   const response = await CapacitorHttp.request({
-    url,
+    url: upgradeToHttps(url, catalog),
     method: 'GET',
     headers,
     responseType: 'arraybuffer',
@@ -68,6 +79,17 @@ async function fetchEpubBytes(catalog: OpdsCatalog, url: string): Promise<ArrayB
   return decodeBase64ToArrayBuffer(response.data as string)
 }
 
+// Assunto/idioma do feed viram tag automática no livro importado —
+// createTag já é idempotente por nome (case-insensitive), então baixar o
+// mesmo assunto/idioma em livros diferentes reusa a mesma tag em vez de
+// duplicar.
+async function resolveEntryTags(entry: OpdsFeedEntry): Promise<number[]> {
+  const names = [...(entry.subjects ?? []), getLanguageLabel(entry.language)].filter(
+    (name): name is string => Boolean(name),
+  )
+  return Promise.all(names.map((name) => createTag(name)))
+}
+
 export const OpdsDownloadService = {
   // Retorna o bookId em sucesso, ou null se um download pra mesma entry já
   // estava em andamento (toque duplicado ignorado).
@@ -77,11 +99,14 @@ export const OpdsDownloadService = {
     if (!beginOpdsDownload(catalog.id, entry.id)) return null
 
     try {
-      const epubBuffer = await fetchEpubBytes(catalog, entry.acquisitionUrl)
+      const [epubBuffer, tagIds] = await Promise.all([
+        fetchEpubBytes(catalog, entry.acquisitionUrl),
+        resolveEntryTags(entry),
+      ])
       const fileName = buildFileName(entry)
       const file = new File([epubBuffer], fileName, { type: 'application/epub+zip' })
 
-      const bookId = await BookImportService.importEpub(file, { importSource: 'opds' })
+      const bookId = await BookImportService.importEpub(file, { importSource: 'opds', tags: tagIds })
       await recordDownload(catalog.id, entry.id, bookId)
       completeOpdsDownload(catalog.id, entry.id, bookId)
       return bookId
