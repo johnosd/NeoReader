@@ -1,9 +1,10 @@
-# Bug Test: Uso de memória acima do threshold do Play Console
+# Bug Verification: Uso de memória acima do threshold do Play Console
 
 - **Slug**: alerta-play-console-uso-memoria-acima
 - **Testado**: 2026-09-01
+- **Assessment**: ./assessment.md
 - **Fix**: ./fix.md
-- **Resultado**: verified (com ressalva explícita — ver Result)
+- **Result**: verified (com ressalva explícita — ver seção Result abaixo)
 
 ## Recap
 
