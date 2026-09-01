@@ -100,12 +100,18 @@ tags, pastas de origem e caches ficam no dispositivo.
 - Catalogos OPDS (publicos ou self-hosted, ex: Calibre-Web, Kavita): uma row
   de amostra por catalogo cadastrado, com "ver mais" levando a navegacao
   completa daquele servidor (pastas, paginacao automatica ao rolar, busca por
-  texto). Suporta OPDS 1.x (Atom) e OPDS 2.0 (JSON), detectados por
-  `Content-Type`. Project Gutenberg vem pre-configurado por padrao; catalogos
+  texto, ordenacao Padrao/Populares/Recentes/Aleatorio quando o servidor
+  suporta, layout de lista ou grid dependendo se a pagina e so de pastas ou
+  tem livros). Suporta OPDS 1.x (Atom) e OPDS 2.0 (JSON), detectados por
+  `Content-Type`. Livro baixado ganha tags automaticas de assunto/idioma
+  quando o catalogo informa esses metadados. Project Gutenberg vem
+  pre-configurado por padrao; catalogos
   self-hosted com Basic Auth sao gerenciados em Configuracoes > Catalogos
   OPDS, com a credencial guardada fora de texto puro (Keystore Android via
-  plugin nativo). Erro de um catalogo fica isolado nele (com retry), nunca
-  esconde os demais. Restrito a Android nativo.
+  plugin nativo) — capas e demais requisicoes de um catalogo com credencial
+  sao autenticadas da mesma forma, nao so o feed. Erro de um catalogo fica
+  isolado nele (com retry e mensagem especifica quando disponivel, ex: "ja
+  esta na biblioteca"), nunca esconde os demais. Restrito a Android nativo.
 - Secao "Classicos em Ingles": segue o mesmo mecanismo de row-amostra + "ver
   mais" dos catalogos OPDS, mas a amostra vem de um feed proprio do Standard
   Ebooks (nao e OPDS de verdade) e o "ver mais" continua abrindo a lista
@@ -288,9 +294,13 @@ ficha manualmente.
 - API keys locais para Speechify, ElevenLabs, Fish Audio e YouTube Data API.
 - Aviso de que variaveis `VITE_` ficam embutidas no bundle.
 - Catalogos OPDS: listar, adicionar, editar e remover catalogos (nome, URL,
-  usuario/senha opcional). Sugestoes pre-preenchidas de Standard Ebooks e
-  Internet Archive/Open Library no formulario de adicionar (nao habilitadas
-  por padrao).
+  usuario/senha opcional) — salvar testa a conexao com os dados informados
+  antes de persistir, so grava se conectar (mostra o motivo especifico se
+  falhar). Cada catalogo mostra um indicador de status (conectado/sem
+  conexao) e um atalho pra abrir a navegacao completa direto, sem passar por
+  Descubra. Sugestoes pre-preenchidas de Standard Ebooks e Internet
+  Archive/Open Library no formulario de adicionar (nao habilitadas por
+  padrao).
 
 ### Monetizacao
 

@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-31
 
-**Status**: Convergência Pendente
+**Status**: Convergida
 
 **Input**: Permitir que o usuário adicione catálogos OPDS (públicos ou self-hosted, ex: Calibre-Web, Kavita), navegue neles e baixe livros direto pro app. Usando o handoff de `sdd/assessments/suporte-catlogos-opds-pblicos-self-hosted/decision.md` (veredito `go`) como contexto de entrada.
 

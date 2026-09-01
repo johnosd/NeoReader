@@ -99,10 +99,18 @@ bug real (ver R-009 em `plan.md`), corrigido e reverificado.
    antes de qualquer request OPDS; reverificado ao vivo, busca por "love"
    agora retorna resultados reais (Pride and Prejudice, Jane Eyre, Middlemarch
    etc.) e pastas de navegação (Authors, Subjects, Bookshelves).
-5. [ ] Baixar um item a partir dessa tela; navegar até ele de novo depois →
-   confirmar estado "já na biblioteca" sem re-baixar (FR-016) — ainda não
-   reexercitado especificamente a partir da tela de busca (já confirmado a
-   partir da navegação por pasta no Cenário 1).
+5. [X] Baixar um item a partir dessa tela; navegar até ele de novo depois →
+   confirmar estado "já na biblioteca" sem re-baixar (FR-016). **Verificado
+   ao vivo em 2026-09-01** (device `RXCX103NMVZ`, automatizado via `adb`):
+   busca "philosophy" no Gutenberg → pasta "The Man Who Was Thursday: A
+   Nightmare" → baixada a 1ª edição (import confirmado na Biblioteca, 131
+   livros, tags automáticas aplicadas: `#Fantasy fiction`, `#Detective and
+   mystery stories`, `#London (England) -- Fiction`, `#Inglês`) → saiu da
+   tela por completo (foi pra aba Library, voltou por Discover → Gutenberg →
+   nova busca "philosophy" → mesma pasta) → item continuou marcado "In your
+   library" sem re-baixar. Confirmado também via `adb logcat` que só existe
+   1 request de download do `.epub` no log inteiro da sessão (nenhum
+   disparado ao reabrir a pasta).
 
 ## Cenário 4 — "Clássicos em Inglês" sobre OPDS (User Story 4)
 
