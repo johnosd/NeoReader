@@ -160,9 +160,31 @@ vi.mock('@/screens/SettingsScreen', () => ({
     return (
       <div data-testid="settings">
         <button data-testid="back" onClick={() => (props.onBack as () => void)()}>Voltar</button>
+        <button data-testid="open-appearance" onClick={() => (props.onOpenAppearance as () => void)()}>
+          Aparencia
+        </button>
+        <button data-testid="open-sync" onClick={() => (props.onOpenSync as () => void)()}>
+          Sincronizacao
+        </button>
       </div>
     )
   },
+}))
+
+vi.mock('@/screens/SettingsAppearanceScreen', () => ({
+  SettingsAppearanceScreen: (props: Record<string, unknown>) => (
+    <div data-testid="settings-appearance">
+      <button data-testid="back" onClick={() => (props.onBack as () => void)()}>Voltar</button>
+    </div>
+  ),
+}))
+
+vi.mock('@/screens/SettingsSyncScreen', () => ({
+  SettingsSyncScreen: (props: Record<string, unknown>) => (
+    <div data-testid="settings-sync">
+      <button data-testid="back" onClick={() => (props.onBack as () => void)()}>Voltar</button>
+    </div>
+  ),
 }))
 
 vi.mock('@/screens/WelcomeScreen', () => ({
@@ -429,6 +451,44 @@ describe('App navigation and auth gate', () => {
 
     fireEvent.click(screen.getByTestId('back'))
     assertScreen('home')
+  })
+
+  it('Home -> Settings -> Aparencia -> Back -> Settings(menu) -> Back -> Home', () => {
+    render(<App />)
+
+    fireEvent.click(screen.getByTestId('open-settings'))
+    assertScreen('settings')
+
+    fireEvent.click(screen.getByTestId('open-appearance'))
+    assertScreen('settings-appearance')
+    assertNoScreen('settings')
+
+    fireEvent.click(screen.getByTestId('back'))
+    assertScreen('settings')
+    assertNoScreen('settings-appearance')
+
+    fireEvent.click(screen.getByTestId('back'))
+    assertScreen('home')
+    assertNoScreen('settings')
+  })
+
+  it('Home -> Settings -> Sincronizacao -> Back -> Settings(menu) -> Back -> Home', () => {
+    render(<App />)
+
+    fireEvent.click(screen.getByTestId('open-settings'))
+    assertScreen('settings')
+
+    fireEvent.click(screen.getByTestId('open-sync'))
+    assertScreen('settings-sync')
+    assertNoScreen('settings')
+
+    fireEvent.click(screen.getByTestId('back'))
+    assertScreen('settings')
+    assertNoScreen('settings-sync')
+
+    fireEvent.click(screen.getByTestId('back'))
+    assertScreen('home')
+    assertNoScreen('settings')
   })
 
   it('BookDetails -> Settings -> Back -> BookDetails', () => {

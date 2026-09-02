@@ -24,7 +24,11 @@ tags, pastas de origem e caches ficam no dispositivo.
   ocultados para usuario Pro quando o entitlement estiver ativo.
 - Drive Sync de bookmarks existe via Google Drive `appDataFolder`, bloqueado
   pelo entitlement Pro. Progresso, vocabulario, EPUB e recursos de IA ainda nao
-  entram no sync.
+  entram no sync. O token de acesso se renova sozinho (silenciosamente, sem
+  pedir reconexao manual) sempre que uma sincronizacao encontra o token
+  ausente ou expirado; um bookmark pendente ou com erro tambem pode ser
+  sincronizado direto pelo proprio icone de nuvem na tela de Detalhes do
+  Livro, sem precisar abrir Configuracoes.
 - Review/Author/Descubra usam quota Free mensal local-first; cache ja carregado
   continua visivel e Pro remove a quota.
 
@@ -43,7 +47,8 @@ tags, pastas de origem e caches ficam no dispositivo.
 | i18n | Provider local em `src/i18n` |
 | Traducao | MyMemory API |
 | Metadados | EPUB metadata, Google Books, Open Library, YouTube Data API v3 |
-| Descoberta | NYT Books API |
+| Descoberta | NYT Books API + catalogos OPDS (publicos/self-hosted) |
+| Credencial segura | AndroidX Security Crypto (Keystore) via plugin nativo — nunca texto puro no Dexie |
 | TTS premium | Speechify, ElevenLabs e Fish Audio |
 | TTS nativo | `@capacitor-community/text-to-speech` |
 | Billing | RevenueCat (`@revenuecat/purchases-capacitor`) |
@@ -96,11 +101,27 @@ tags, pastas de origem e caches ficam no dispositivo.
 
 ### Descubra
 
-- Secao "Classicos em Ingles": catalogo curado de EPUBs de dominio publico do
-  Standard Ebooks, disponivel offline (capa/titulo/autor bundled no app).
-  Download individual restrito a Android nativo; o livro baixado entra na
-  Biblioteca pelo mesmo pipeline de importacao normal. Sem busca/filtro nesta
-  fase.
+- Catalogos OPDS (publicos ou self-hosted, ex: Calibre-Web, Kavita): uma row
+  de amostra por catalogo cadastrado, com "ver mais" levando a navegacao
+  completa daquele servidor (pastas, paginacao automatica ao rolar, busca por
+  texto, ordenacao Padrao/Populares/Recentes/Aleatorio quando o servidor
+  suporta, layout de lista ou grid dependendo se a pagina e so de pastas ou
+  tem livros). Suporta OPDS 1.x (Atom) e OPDS 2.0 (JSON), detectados por
+  `Content-Type`. Livro baixado ganha tags automaticas de assunto/idioma
+  quando o catalogo informa esses metadados. Project Gutenberg vem
+  pre-configurado por padrao; catalogos
+  self-hosted com Basic Auth sao gerenciados em Configuracoes > Catalogos
+  OPDS, com a credencial guardada fora de texto puro (Keystore Android via
+  plugin nativo) — capas e demais requisicoes de um catalogo com credencial
+  sao autenticadas da mesma forma, nao so o feed. Erro de um catalogo fica
+  isolado nele (com retry e mensagem especifica quando disponivel, ex: "ja
+  esta na biblioteca"), nunca esconde os demais. Restrito a Android nativo.
+- Secao "Classicos em Ingles": segue o mesmo mecanismo de row-amostra + "ver
+  mais" dos catalogos OPDS, mas a amostra vem de um feed proprio do Standard
+  Ebooks (nao e OPDS de verdade) e o "ver mais" continua abrindo a lista
+  curada de EPUBs de dominio publico bundled no app (capa/titulo/autor
+  offline). Download individual restrito a Android nativo; o livro baixado
+  entra na Biblioteca pelo mesmo pipeline de importacao normal.
 - Tela com listas atuais do NYT Best Sellers quando `VITE_NYT_API_KEY` esta
   configurada.
 - Secao "Tendencias no Mundo":
@@ -268,14 +289,31 @@ ficha manualmente.
 
 ### Configuracoes
 
-- Status do plano NeoReader Pro.
-- Status de backup/restauracao de bookmarks na nuvem.
-- Idioma do app.
-- Defaults globais de aparencia do leitor.
-- Idioma padrao das traducoes.
-- Painel de narracao indicando fallback nativo.
-- API keys locais para Speechify, ElevenLabs, Fish Audio e YouTube Data API.
-- Aviso de que variaveis `VITE_` ficam embutidas no bundle.
+Menu principal em categorias clicaveis (Plano, Idioma, Aparencia, Word Lens,
+Narracao, Integracoes, Catalogos OPDS, Sincronizacao na Nuvem); cada
+categoria abre uma subtela dedicada mostrando so aquele grupo, voltar
+retorna ao menu.
+
+- Plano: badge PRO/Free no menu; a subtela mostra status completo do
+  NeoReader Pro (acesso ao Paywall) e as cotas de uso mensal (Book
+  Intelligence, Descubra/NYT).
+- Idioma: idioma do app e idioma padrao das traducoes juntos na mesma
+  subtela.
+- Aparencia: defaults globais de aparencia do leitor.
+- Word Lens: ativacao e nivel CEFR.
+- Narracao: painel indicando fallback nativo e API keys locais para
+  Speechify, ElevenLabs e Fish Audio.
+- Integracoes: API key local do YouTube Data API.
+- Sincronizacao na Nuvem: status de backup/restauracao de bookmarks,
+  progresso e vocabulario.
+- Catalogos OPDS: listar, adicionar, editar e remover catalogos (nome, URL,
+  usuario/senha opcional) — salvar testa a conexao com os dados informados
+  antes de persistir, so grava se conectar (mostra o motivo especifico se
+  falhar). Cada catalogo mostra um indicador de status (conectado/sem
+  conexao) e um atalho pra abrir a navegacao completa direto, sem passar por
+  Descubra. Sugestoes pre-preenchidas de Standard Ebooks e Internet
+  Archive/Open Library no formulario de adicionar (nao habilitadas por
+  padrao).
 
 ### Monetizacao
 
@@ -445,7 +483,7 @@ npx @capacitor/assets generate --android
 
 ## Persistencia local
 
-O banco local usa Dexie em `NeoReaderDB`. O schema atual esta na versao 16.
+O banco local usa Dexie em `NeoReaderDB`. O schema atual esta na versao 17.
 
 | Tabela | Conteudo |
 |---|---|
@@ -463,6 +501,8 @@ O banco local usa Dexie em `NeoReaderDB`. O schema atual esta na versao 16.
 | `epubExtras` | Descricao, idioma, TOC, preview e diagnosticos extraidos do EPUB |
 | `tags` | Tags criadas pelo usuario |
 | `sourceFolders` | Pastas usadas como origem de importacao |
+| `opdsCatalogs` | Catalogos OPDS cadastrados (nome, URL, flag de credencial) — a credencial em si fica fora do Dexie, no secure storage nativo |
+| `opdsDownloadedEntries` | Vinculo entry OPDS -> livro baixado, usado pro estado "ja na biblioteca" |
 
 Modos de armazenamento de livros:
 
@@ -640,6 +680,11 @@ Backlog de testes conhecido fica em `docs/test-backlog.md`.
 - Atualizar docs auxiliares que ficaram desatualizadas, especialmente
   `docs/persistence-audit.md` (schema v14) e `docs/qa-manual.md` (Capacitor 8).
 - Separar `LibraryScreen.tsx` em componentes menores para importacao, sort e tags.
+- Catalogos OPDS: Digest Auth (self-hosted em modo Digest nao funciona hoje,
+  so Basic), certificado self-assinado (self-hosted caseiro atras de HTTPS
+  self-signed falha, sem tolerancia automatica) e build Web (restrito a
+  Android nativo por causa de CORS) ficam como limitacoes conhecidas,
+  documentadas em `sdd/specs/003-opds-catalogos/research.md`.
 - Configurar na Play Console e no RevenueCat os produtos `pro_monthly` e
   `pro_annual`, ambos mapeados ao entitlement `NeoReader Pro`.
 - Validar compra mensal/anual e grants manuais de admin no RevenueCat em build

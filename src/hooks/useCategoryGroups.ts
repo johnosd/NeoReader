@@ -25,6 +25,11 @@ interface CategoryGroupsResult {
 const MIN_BOOKS_PER_ROW = 2
 // Limita rows na Home para evitar scroll infinito
 const MAX_ROWS_HOME = 6
+// Limita quantos livros cada row individual carrega — sem isso, um gênero
+// com muitos livros tentava montar todas as capas de uma vez (achado do
+// bug alerta-play-console-uso-memoria-acima). "Ver todos" (onViewAll)
+// continua acessível pra lista completa do gênero.
+const MAX_BOOKS_PER_ROW_HOME = 20
 
 export function useCategoryGroups(): CategoryGroupsResult {
   // Mesmo padrão de useLibraryGroups: query reativa + memo separado
@@ -69,7 +74,7 @@ export function useCategoryGroups(): CategoryGroupsResult {
       .map(genre => ({
         genre,
         label: GENRE_LABELS[genre],
-        books: grouped.get(genre)!,
+        books: grouped.get(genre)!.slice(0, MAX_BOOKS_PER_ROW_HOME),
       }))
 
     return { isLoading: false, groups }

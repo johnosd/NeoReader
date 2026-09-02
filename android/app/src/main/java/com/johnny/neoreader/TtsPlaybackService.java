@@ -5,6 +5,7 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.ComponentCallbacks2;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
@@ -128,9 +129,22 @@ public class TtsPlaybackService extends Service {
             mediaSession.release();
             mediaSession = null;
         }
+        releaseCoverBitmap();
         instance = null;
         Log.d(TAG, "onDestroy: foreground service parado");
         super.onDestroy();
+    }
+
+    // Nada no app reagia a pressão de memória (achado do alerta de "bad
+    // behavior" no Play Console) — o Service roda como foreground service
+    // durante audiobooks, então pode ficar vivo por bastante tempo com o
+    // app em background sem nunca liberar o bitmap de capa.
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND) {
+            releaseCoverBitmap();
+        }
     }
 
     /** Atualiza metadata (título/capítulo/capa) sem reiniciar o Service — chamado pelo plugin. */
@@ -140,13 +154,26 @@ public class TtsPlaybackService extends Service {
         if (coverBase64 != null) {
             try {
                 byte[] bytes = Base64.decode(coverBase64, Base64.DEFAULT);
-                currentCoverBitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                Bitmap decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                // Recicla a capa anterior só depois de decodificar a nova
+                // com sucesso — ela já foi entregue ao NotificationManager/
+                // MediaSession em chamadas passadas (parcelada pro lado do
+                // sistema), então reciclar aqui não afeta o que já foi exibido.
+                releaseCoverBitmap();
+                currentCoverBitmap = decoded;
             } catch (Exception error) {
                 Log.w(TAG, "updateMetadata: falha ao decodificar capa", error);
             }
         }
         updateMediaSessionMetadata();
         refreshNotification();
+    }
+
+    private void releaseCoverBitmap() {
+        if (currentCoverBitmap != null && !currentCoverBitmap.isRecycled()) {
+            currentCoverBitmap.recycle();
+        }
+        currentCoverBitmap = null;
     }
 
     /** Sincroniza o estado play/pause exibido — chamado pelo plugin quando o JS pausa/retoma. */

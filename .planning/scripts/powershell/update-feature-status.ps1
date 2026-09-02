@@ -33,8 +33,9 @@ if (-not (Test-Path -LiteralPath $backlogPath -PathType Leaf)) {
     $skeleton = @"
 # Backlog
 
-Painel único de ideias futuras e status de features geridas pelo sistema
-sdd-*. Mantido automaticamente por update-feature-status.ps1.
+Painel único de ideias futuras e status de features/bugs geridas pelo
+sistema sdd-*. Mantido automaticamente por update-feature-status.ps1 e
+update-bug-status.ps1.
 
 ## Ideias Futuras
 
@@ -42,6 +43,11 @@ sdd-*. Mantido automaticamente por update-feature-status.ps1.
 
 | Slug | Título | Status | Progresso | Última Atualização |
 | --- | --- | --- | --- | --- |
+
+## Bugs
+
+| Slug | Título | Fase Atual | Veredito/Status | Próximo Passo | Última Atualização |
+| --- | --- | --- | --- | --- | --- |
 "@
     $planningDir = Join-Path $repoRoot '.planning'
     if (-not (Test-Path -LiteralPath $planningDir -PathType Container)) {

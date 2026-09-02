@@ -7,6 +7,16 @@ import { BookDetailsScreen } from './screens/BookDetailsScreen'
 import { ReaderScreen } from './screens/ReaderScreen'
 import { VocabularyScreen } from './screens/VocabularyScreen'
 import { SettingsScreen } from './screens/SettingsScreen'
+import { SettingsPlanScreen } from './screens/SettingsPlanScreen'
+import { SettingsLanguageScreen } from './screens/SettingsLanguageScreen'
+import { SettingsAppearanceScreen } from './screens/SettingsAppearanceScreen'
+import { SettingsWordLensScreen } from './screens/SettingsWordLensScreen'
+import { SettingsNarrationScreen } from './screens/SettingsNarrationScreen'
+import { SettingsIntegrationsScreen } from './screens/SettingsIntegrationsScreen'
+import { SettingsSyncScreen } from './screens/SettingsSyncScreen'
+import { OpdsCatalogSettingsScreen } from './screens/OpdsCatalogSettingsScreen'
+import { OpdsCatalogBrowseScreen } from './screens/OpdsCatalogBrowseScreen'
+import { PublicDomainCatalogScreen } from './screens/PublicDomainCatalogScreen'
 import { DiscoverScreen } from './screens/DiscoverScreen'
 import { ProfileScreen } from './screens/ProfileScreen'
 import { WelcomeScreen } from './screens/WelcomeScreen'
@@ -26,6 +36,7 @@ import { createFlowId, getDiagnosticsNowMs, logEvent } from './services/Diagnost
 import { cleanupExpiredTtsVoiceCaches } from './db/ttsVoiceCaches'
 import { getBookById } from './db/books'
 import { scheduleVocabularyDriveSync } from './services/VocabularyDriveSyncService'
+import { clearWordLensDictionaryPartitionsCache } from './services/WordLensDataService'
 import type { Book } from './types/book'
 import type { LibraryFilter } from './hooks/useLibraryCatalog'
 
@@ -38,6 +49,16 @@ type Route =
   | { name: 'discover' }
   | { name: 'profile' }
   | { name: 'settings' }
+  | { name: 'settings-plan' }
+  | { name: 'settings-language' }
+  | { name: 'settings-appearance' }
+  | { name: 'settings-word-lens' }
+  | { name: 'settings-narration' }
+  | { name: 'settings-integrations' }
+  | { name: 'settings-sync' }
+  | { name: 'opds-catalog-settings' }
+  | { name: 'opds-catalog-browse'; catalogId: number; initialFolder?: { title: string; url: string } }
+  | { name: 'public-domain-catalog' }
   | { name: 'paywall' }
 
 const WELCOME_SEEN_KEY = 'neoreader:welcome-seen'
@@ -138,6 +159,9 @@ function App() {
     const listenerPromise = CapApp.addListener('appStateChange', (state) => {
       if (!disposed && !state.isActive) {
         BookImportService.cancelActiveImport('app-backgrounded')
+        // App em background: libera o cache de partições do dicionário do
+        // Word Lens (não tinha nenhum gatilho de liberação fora de testes).
+        clearWordLensDictionaryPartitionsCache()
       }
     })
 
@@ -329,6 +353,9 @@ function App() {
             onOpenProfile={openProfile}
             onOpenPaywall={() => push({ name: 'paywall' })}
             onOpenBook={(book) => push({ name: 'book-details', book })}
+            onOpenOpdsCatalogBrowse={(catalogId, initialFolder) => push({ name: 'opds-catalog-browse', catalogId, initialFolder })}
+            onOpenPublicDomainCatalog={() => push({ name: 'public-domain-catalog' })}
+            onOpenOpdsCatalogSettings={() => push({ name: 'opds-catalog-settings' })}
           />
         </ErrorBoundary>
       )
@@ -353,7 +380,95 @@ function App() {
         <ErrorBoundary key="settings" screen="settings">
           <SettingsScreen
             onBack={pop}
-            onOpenPaywall={() => push({ name: 'paywall' })}
+            onOpenPlan={() => push({ name: 'settings-plan' })}
+            onOpenLanguage={() => push({ name: 'settings-language' })}
+            onOpenAppearance={() => push({ name: 'settings-appearance' })}
+            onOpenWordLens={() => push({ name: 'settings-word-lens' })}
+            onOpenNarration={() => push({ name: 'settings-narration' })}
+            onOpenIntegrations={() => push({ name: 'settings-integrations' })}
+            onOpenOpdsCatalogs={() => push({ name: 'opds-catalog-settings' })}
+            onOpenSync={() => push({ name: 'settings-sync' })}
+          />
+        </ErrorBoundary>
+      )
+
+    case 'settings-plan':
+      return (
+        <ErrorBoundary key="settings-plan" screen="settings-plan">
+          <SettingsPlanScreen onBack={pop} onOpenPaywall={() => push({ name: 'paywall' })} />
+        </ErrorBoundary>
+      )
+
+    case 'settings-language':
+      return (
+        <ErrorBoundary key="settings-language" screen="settings-language">
+          <SettingsLanguageScreen onBack={pop} />
+        </ErrorBoundary>
+      )
+
+    case 'settings-appearance':
+      return (
+        <ErrorBoundary key="settings-appearance" screen="settings-appearance">
+          <SettingsAppearanceScreen onBack={pop} />
+        </ErrorBoundary>
+      )
+
+    case 'settings-word-lens':
+      return (
+        <ErrorBoundary key="settings-word-lens" screen="settings-word-lens">
+          <SettingsWordLensScreen onBack={pop} />
+        </ErrorBoundary>
+      )
+
+    case 'settings-narration':
+      return (
+        <ErrorBoundary key="settings-narration" screen="settings-narration">
+          <SettingsNarrationScreen onBack={pop} />
+        </ErrorBoundary>
+      )
+
+    case 'settings-integrations':
+      return (
+        <ErrorBoundary key="settings-integrations" screen="settings-integrations">
+          <SettingsIntegrationsScreen onBack={pop} />
+        </ErrorBoundary>
+      )
+
+    case 'settings-sync':
+      return (
+        <ErrorBoundary key="settings-sync" screen="settings-sync">
+          <SettingsSyncScreen onBack={pop} />
+        </ErrorBoundary>
+      )
+
+    case 'opds-catalog-settings':
+      return (
+        <ErrorBoundary key="opds-catalog-settings" screen="opds-catalog-settings">
+          <OpdsCatalogSettingsScreen
+            onBack={pop}
+            onOpenCatalog={(catalogId) => push({ name: 'opds-catalog-browse', catalogId })}
+          />
+        </ErrorBoundary>
+      )
+
+    case 'opds-catalog-browse':
+      return (
+        <ErrorBoundary key="opds-catalog-browse" screen="opds-catalog-browse">
+          <OpdsCatalogBrowseScreen
+            catalogId={current.catalogId}
+            initialFolder={current.initialFolder}
+            onBack={pop}
+            onOpenBook={(book) => push({ name: 'book-details', book })}
+          />
+        </ErrorBoundary>
+      )
+
+    case 'public-domain-catalog':
+      return (
+        <ErrorBoundary key="public-domain-catalog" screen="public-domain-catalog">
+          <PublicDomainCatalogScreen
+            onBack={pop}
+            onOpenBook={(book) => push({ name: 'book-details', book })}
           />
         </ErrorBoundary>
       )

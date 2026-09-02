@@ -27,6 +27,14 @@ Os 3 arquivos vivem em `sdd/bugs/<slug>/` — pasta própria, separada de
 `sdd/specs/`, sem numeração sequencial (o slug é o único identificador, igual ao
 design original).
 
+Cada fase termina rodando `update-bug-status.ps1`, que atualiza o painel
+`## Bugs` em `.planning/backlog.md` (fase atual, veredito/status, próximo
+passo). É o análogo do `## Features` que `update-feature-status.ps1` mantém
+pras features — sem isso, um bug em andamento não deixava rastro em lugar
+nenhum fora da própria pasta. Antes de rodar Assess num bug novo, olhe esse
+painel: se já existir uma linha pro mesmo assunto, é retomar a fase indicada
+em vez de recomeçar do zero.
+
 ## Fluxo
 
 ### 1. Resolve o bug e a fase
@@ -68,7 +76,11 @@ evidência nova) ou se está satisfeito.
    `.planning/templates/bug-assessment-template.md`.
 7. Se a origem for uma entrada `[Bug]` de `.planning/backlog.md`, remova
    essa entrada (o bug agora está sendo rastreado em `sdd/bugs/`).
-8. Relata: slug, caminho do `assessment.md`, veredito, severidade, próximo
+8. Rode
+   `.\.planning\scripts\powershell\update-bug-status.ps1 -Slug <slug>` —
+   atualiza o painel `## Bugs` em `backlog.md` com fase/veredito/próximo
+   passo, pra dar pra retomar de relance sem abrir a pasta do bug.
+9. Relata: slug, caminho do `assessment.md`, veredito, severidade, próximo
    passo ("rode a fase Fix nesse bug").
 
 ### 3. Fase Fix (única fase que edita código)
@@ -96,9 +108,12 @@ evidência nova) ou se está satisfeito.
    projeto). Não rode suites destrutivas/dependentes de rede sem
    consentimento explícito.
 10. Escreve `fix.md` a partir de `.planning/templates/bug-fix-template.md`.
-11. Relata: slug, caminho do `fix.md`, status, próximo passo ("rode a fase
+11. Rode
+    `.\.planning\scripts\powershell\update-bug-status.ps1 -Slug <slug>` —
+    atualiza o painel `## Bugs` em `backlog.md`.
+12. Relata: slug, caminho do `fix.md`, status, próximo passo ("rode a fase
     Test").
-12. Sugere ponto de commit — nunca commita sozinho.
+13. Sugere ponto de commit — nunca commita sozinho.
 
 ### 4. Fase Test (read-only)
 
@@ -123,7 +138,10 @@ evidência nova) ou se está satisfeito.
    - **Nunca marque `verified` se a reprodução não foi de fato executada**
      — desça pra `partial` e diga isso explicitamente.
 6. Escreve `test.md` a partir de `.planning/templates/bug-test-template.md`.
-7. Relata: slug, caminho do `test.md`, resultado, recomendação (fechar /
+7. Rode
+   `.\.planning\scripts\powershell\update-bug-status.ps1 -Slug <slug>` —
+   atualiza o painel `## Bugs` em `backlog.md` com o resultado final.
+8. Relata: slug, caminho do `test.md`, resultado, recomendação (fechar /
    segurar / reabrir). Se `failed`, recomende rodar a fase Assess de novo
    com a evidência nova capturada em `test.md`.
 

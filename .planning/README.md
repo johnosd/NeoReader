@@ -371,7 +371,8 @@ flowchart TD
     C -->|assess| D["Ingere report,\nlocaliza código suspeito"]
     D --> E["Avalia mérito/severidade,\npropõe remediação"]
     E --> F["Escreve assessment.md"]
-    F --> G(["Relata veredito +\npróximo passo: Fix"])
+    F --> F2["update-bug-status.ps1\n(painel ## Bugs)"]
+    F2 --> G(["Relata veredito +\npróximo passo: Fix"])
     C -->|fix| H{"Veredito era\ninvalid?"}
     H -->|Sim| I(["Pára — nada a corrigir"])
     H -->|Não| J["Confirma plano,\naplica remediação"]
@@ -380,7 +381,8 @@ flowchart TD
     K -->|Sim| M["Adiciona testes,\nroda checagens locais"]
     L --> M
     M --> N["Escreve fix.md"]
-    N --> O(["Relata status +\npróximo passo: Test"])
+    N --> N2["update-bug-status.ps1\n(painel ## Bugs)"]
+    N2 --> O(["Relata status +\npróximo passo: Test"])
     C -->|test| P["Replaneja validação:\nreprodução + testes + regressão"]
     P --> Q["Executa checagens\n(nunca inventa resultado)"]
     Q --> R{"Reprodução foi\nde fato executada?"}
@@ -388,7 +390,8 @@ flowchart TD
     R -->|Sim| T["Julga: verified /\npartial / failed"]
     S --> U["Escreve test.md"]
     T --> U
-    U --> V(["Relata resultado +\nrecomendação"])
+    U --> U2["update-bug-status.ps1\n(painel ## Bugs)"]
+    U2 --> V(["Relata resultado +\nrecomendação"])
     C -->|complete| W(["Informa status final,\npergunta se reabre"])
 ```
 
@@ -402,6 +405,7 @@ flowchart TD
 | `check-prerequisites.ps1` | Gate por estágio (specify/plan/execute/converge) — bloqueia com mensagem específica de qual arquivo falta e qual skill rodar |
 | `update-feature-status.ps1` | Recalcula progresso, atualiza `backlog.md` e a linha `**Status**:` de `spec.md`; autocria `backlog.md` se não existir |
 | `resolve-bug.ps1` | Cria/acha `sdd/bugs/<slug>/` (sem numeração, só slug) e reporta qual fase (assess/fix/test/complete) rodar a seguir, baseado em quais relatórios já existem |
+| `update-bug-status.ps1` | Recalcula fase/veredito/próximo passo a partir de `sdd/bugs/<slug>/*.md` e atualiza o painel `## Bugs` em `backlog.md`; autocria `backlog.md` se não existir |
 | `resolve-assessment.ps1` | Cria/acha `sdd/assessments/<slug>/` (sem numeração, só slug) e reporta qual fase (define/decide/complete) rodar a seguir — Explora é opcional e nunca entra nessa resolução automática |
 
 Todos são agnósticos de projeto — funcionam em qualquer repositório que tenha
@@ -489,11 +493,14 @@ vezes por feature (pré e pós-design). Se não existir ainda, o próprio
 `sdd-plan` bootstrapa com uma entrevista curta na primeira vez que alguém
 tenta planejar algo — não precisa existir de antemão.
 
-### Backlog com dois propósitos
+### Backlog com três propósitos
 
 `.planning/backlog.md` combina: `## Ideias Futuras` (features/bugs ainda sem
-spec) e `## Features` (painel de status de tudo que já tem `sdd/specs/<slug>/`).
-Mantido automaticamente, nunca editado à mão pras colunas de status.
+spec), `## Features` (painel de status de tudo que já tem
+`sdd/specs/<slug>/`) e `## Bugs` (painel de status de tudo que já tem
+`sdd/bugs/<slug>/`, mantido por `update-bug-status.ps1` ao final de cada
+fase do `sdd-bugfix`). Mantido automaticamente, nunca editado à mão pras
+colunas de status.
 
 ### ADRs vs constitution vs Decisões Invariantes
 

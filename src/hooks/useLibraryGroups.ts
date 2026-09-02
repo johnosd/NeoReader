@@ -17,8 +17,14 @@ interface LibraryGroups {
   isEmpty: boolean
   heroBook: BookWithProgress | null       // último livro aberto
   inProgressBooks: BookWithProgress[]     // com progresso > 0, exceto hero
-  recentBooks: BookWithProgress[]         // todos por addedAt desc, exceto hero
+  recentBooks: BookWithProgress[]         // top N por addedAt desc, exceto hero
 }
+
+// Cada capa renderizada é um bitmap decodificado; sem isso a row "Meus
+// livros" tentava montar a biblioteca inteira de uma vez (achado do bug
+// alerta-play-console-uso-memoria-acima). "Ver todos" continua acessível
+// pra lista completa.
+const MAX_RECENT_BOOKS_HOME = 20
 
 export function useLibraryGroups(): LibraryGroups {
   // Uma única query reativa que junta books + progress do IndexedDB.
@@ -68,10 +74,11 @@ export function useLibraryGroups(): LibraryGroups {
       .filter(b => b.readingStatus === 'reading' && b.id !== heroId)
       .sort((a, b) => (b.lastOpenedAt?.getTime() ?? 0) - (a.lastOpenedAt?.getTime() ?? 0))
 
-    // "Adicionados recentemente": todos exceto hero, por addedAt desc
+    // "Adicionados recentemente": top N exceto hero, por addedAt desc
     const recentBooks = withProgress
       .filter(b => b.id !== heroId)
       .sort((a, b) => b.addedAt.getTime() - a.addedAt.getTime())
+      .slice(0, MAX_RECENT_BOOKS_HOME)
 
     return { isLoading: false, isEmpty: false, heroBook, inProgressBooks, recentBooks }
   }, [data])

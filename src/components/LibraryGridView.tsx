@@ -33,6 +33,8 @@ function GridBookCard({ book, onOpenBook }: { book: LibraryBook; onOpenBook: (bo
           src={coverUrl}
           alt={book.title}
           className="h-full w-full object-cover"
+          loading="lazy"
+          decoding="async"
           onContextMenu={(e) => e.preventDefault()}
         />
       ) : (

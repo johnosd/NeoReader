@@ -56,6 +56,11 @@ dependencies {
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation "androidx.documentfile:documentfile:1.0.1"
+    // Credencial de catalogo OPDS (feature 003-opds-catalogos) — Keystore-backed
+    // EncryptedSharedPreferences, nunca texto puro. Versao alpha e a mais usada
+    // em producao pra essa API (1.1.0 estavel demorou a sair) — confirmar/atualizar
+    // no proximo `npx cap sync android` se uma versao estavel mais nova existir.
+    implementation "androidx.security:security-crypto:1.1.0-alpha06"
     implementation "androidx.media:media:$androidxMediaVersion"
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"

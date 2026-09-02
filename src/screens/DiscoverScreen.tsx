@@ -1,12 +1,14 @@
-import { Compass, Sparkles } from 'lucide-react'
+import { Compass, Rss, Sparkles } from 'lucide-react'
 import { AdBannerSlot } from '../components/AdBannerSlot'
 import { BottomNav } from '../components/BottomNav'
 import { NytBooksRow } from '../components/NytBooksRow'
+import { OpdsCatalogRow } from '../components/OpdsCatalogRow'
 import { PublicDomainCatalogSection } from '../components/PublicDomainCatalogSection'
 import { QuotaUsageHint } from '../components/QuotaUsageHint'
 import { Button, EmptyState } from '../components/ui'
 import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
 import { useEntitlements } from '../hooks/useEntitlements'
+import { useOpdsCatalogs } from '../hooks/useOpdsCatalogs'
 import { useI18n } from '../i18n'
 import { FeatureQuotaService } from '../services/FeatureQuotaService'
 import { NytBooksService } from '../services/NytBooksService'
@@ -31,11 +33,15 @@ interface DiscoverScreenProps {
   onOpenProfile: () => void
   onOpenPaywall?: () => void
   onOpenBook: (book: Book) => void
+  onOpenOpdsCatalogBrowse: (catalogId: number, initialFolder?: { title: string; url: string }) => void
+  onOpenPublicDomainCatalog: () => void
+  onOpenOpdsCatalogSettings: () => void
 }
 
-export function DiscoverScreen({ onBack, onOpenHome, onOpenLibrary, onOpenProfile, onOpenPaywall, onOpenBook }: DiscoverScreenProps) {
+export function DiscoverScreen({ onBack, onOpenHome, onOpenLibrary, onOpenProfile, onOpenPaywall, onOpenBook, onOpenOpdsCatalogBrowse, onOpenPublicDomainCatalog, onOpenOpdsCatalogSettings }: DiscoverScreenProps) {
   const { t } = useI18n()
   const { isPro } = useEntitlements()
+  const opdsCatalogs = useOpdsCatalogs(onOpenBook)
   useCapacitorBackButton(onBack)
   const hasNytApiKey = Boolean(import.meta.env.VITE_NYT_API_KEY)
   const hasAnyNytCache = hasNytApiKey && ALL_NYT_LISTS.some((listName) => NytBooksService.hasValidCache(listName))
@@ -73,7 +79,44 @@ export function DiscoverScreen({ onBack, onOpenHome, onOpenLibrary, onOpenProfil
         {/* Fora do gate de hasNytApiKey de proposito — funciona mesmo sem
             VITE_NYT_API_KEY configurada, já que a fonte é o catálogo bundled
             local, não uma API externa. */}
-        <PublicDomainCatalogSection onOpenBook={onOpenBook} />
+        <PublicDomainCatalogSection onOpenBook={onOpenBook} onSeeMore={onOpenPublicDomainCatalog} />
+
+        {/* Uma row por catálogo OPDS cadastrado (padrão Gutenberg + qualquer
+            self-hosted adicionado pelo usuário) — Standard Ebooks fica de
+            fora desta lista porque é tratado à parte pela
+            PublicDomainCatalogSection acima. Erro fica isolado na própria
+            row (com retry), nunca esconde o catálogo inteiro (US5, AC3). */}
+        {opdsCatalogs.rows.length === 0 && (
+          <EmptyState
+            icon={<Rss size={48} />}
+            title={t('discover.opds.emptyCatalogs.title')}
+            description={t('discover.opds.emptyCatalogs.description')}
+            action={(
+              <Button size="sm" fullWidth={false} onClick={onOpenOpdsCatalogSettings}>
+                {t('discover.opds.emptyCatalogs.cta')}
+              </Button>
+            )}
+          />
+        )}
+
+        {opdsCatalogs.rows.map(({ catalog, entries, loading, error, offline }) => (
+          <OpdsCatalogRow
+            key={catalog.id}
+            catalogName={catalog.name}
+            entries={entries}
+            loading={loading}
+            error={error}
+            offline={offline}
+            onRetry={() => opdsCatalogs.retryCatalog(catalog)}
+            getState={(entry) => opdsCatalogs.getState(catalog.id!, entry)}
+            onDownload={(entry) => opdsCatalogs.download(catalog, entry)}
+            onOpenDownloaded={(entry) => opdsCatalogs.openDownloaded(catalog, entry)}
+            onSeeMore={() => onOpenOpdsCatalogBrowse(catalog.id!)}
+            onOpenFolder={(entry) => {
+              if (entry.navigationUrl) onOpenOpdsCatalogBrowse(catalog.id!, { title: entry.title, url: entry.navigationUrl })
+            }}
+          />
+        ))}
 
         {hasNytApiKey ? (
           <>

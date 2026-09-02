@@ -9,6 +9,8 @@ import { QuotaUsageHint } from '../components/QuotaUsageHint'
 import { db } from '../db/database'
 import { toggleFavorite } from '../db/books'
 import { softDeleteBookmark } from '../db/bookmarks'
+import { scheduleBookmarkDriveSync } from '../services/BookmarkDriveSyncService'
+import { setBookmarkDriveSyncStatus } from '../services/BookmarkDriveSyncStatus'
 import { getBookSettings, updateBookSettings } from '../db/bookSettings'
 import { getSettings } from '../db/settings'
 import { useEntitlements } from '../hooks/useEntitlements'
@@ -96,6 +98,8 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
   const { locale, t } = useI18n()
   const { isPro } = useEntitlements()
   const [activeTab, setActiveTab] = useState<Tab>('chapters')
+  const [syncingBookmarks, setSyncingBookmarks] = useState(false)
+  const syncingBookmarksRef = useRef(false)
   const [descExpanded, setDescExpanded] = useState(false)
   const [extras, setExtras] = useState<EpubExtras | null>(null)
   const [extrasLoading, setExtrasLoading] = useState(true)
@@ -139,6 +143,30 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
     [book.id],
   ) ?? []
   const vocabCount = useLiveQuery(() => db.vocabulary.where('bookId').equals(book.id!).count(), [book.id]) ?? 0
+
+  // syncBookBookmarks(bookId) já sincroniza TODOS os bookmarks do livro de
+  // uma vez (FR-005) — não precisa de lógica por-bookmark aqui. Reseta o
+  // status pra 'pending-offline' antes de agendar porque o guard de
+  // 'permission-error' dentro de scheduleBookmarkDriveSync descartaria o
+  // toque silenciosamente se a última tentativa tivesse falhado (mesma
+  // dança que handleReconnectDrive já faz em SettingsSyncScreen.tsx).
+  //
+  // syncingBookmarksRef existe além do state: o state é atualizado de forma
+  // assíncrona/batched pelo React, então dois toques na mesma tick (antes do
+  // re-render) poderiam ambos ler `syncingBookmarks` como `false` e escapar
+  // do guard — o ref é mutado na hora, sem esperar re-render (FR-008).
+  async function handleSyncBookmarksTap() {
+    if (syncingBookmarksRef.current || book.id === undefined) return
+    syncingBookmarksRef.current = true
+    setSyncingBookmarks(true)
+    setBookmarkDriveSyncStatus('pending-offline')
+    try {
+      await scheduleBookmarkDriveSync(book.id)
+    } finally {
+      syncingBookmarksRef.current = false
+      setSyncingBookmarks(false)
+    }
+  }
   const storedBookSettingsRow = useLiveQuery(() => getBookSettings(book.id!), [book.id])
   const bookSettingsRow = optimisticBookSettings ?? storedBookSettingsRow
 
@@ -500,7 +528,14 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
         <div className="px-4 flex flex-col items-center gap-4 pt-2">
           <div className="w-40 aspect-[2/3] rounded-md shadow-card overflow-hidden bg-bg-surface flex items-center justify-center shrink-0">
             {coverUrl
-              ? <img src={coverUrl} alt={liveBook.title} className="w-full h-full object-cover" onContextMenu={(e) => e.preventDefault()} />
+              ? <img
+                  src={coverUrl}
+                  alt={liveBook.title}
+                  className="w-full h-full object-cover"
+                  loading="lazy"
+                  decoding="async"
+                  onContextMenu={(e) => e.preventDefault()}
+                />
               : <BookOpen size={40} className="text-text-muted" />
             }
           </div>
@@ -650,13 +685,30 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
                       onClick={() => openReader(bookmark.cfi)}
                       divider={index < bookmarks.length - 1}
                       trailing={(
-                        <div className="flex items-center gap-1">
+                        // gap-4 (não gap-1) e mesmo padding de toque (p-2 -m-2) do
+                        // botão de excluir ao lado — ícone de sync virou tocável
+                        // nesta feature, e ficar perto/pequeno demais do X de
+                        // excluir arriscava toque errado (achado testando no device).
+                        <div className="flex items-center gap-4">
                           {isPro === true && (
-                            bookmark.syncError
-                              ? <CloudOff size={13} className="text-error" />
-                              : bookmark.syncedAt
-                                ? <Cloud size={13} className="text-success" />
-                                : <Cloud size={13} className="text-text-muted" />
+                            syncingBookmarks ? (
+                              <Spinner size={13} tone="purple" />
+                            ) : bookmark.syncedAt && !bookmark.syncError ? (
+                              <Cloud size={13} className="text-success" />
+                            ) : (
+                              <button
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  void handleSyncBookmarksTap()
+                                }}
+                                className="p-2 -m-2"
+                                aria-label={t('bookDetails.syncBookmarks')}
+                              >
+                                {bookmark.syncError
+                                  ? <CloudOff size={13} className="text-error" />
+                                  : <Cloud size={13} className="text-text-muted" />}
+                              </button>
+                            )
                           )}
                           <button
                             onClick={(event) => {

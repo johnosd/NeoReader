@@ -8,6 +8,48 @@ const mocks = vi.hoisted(() => ({
   hasValidCache: vi.fn(),
   getBookById: vi.fn(),
   findBookByFileName: vi.fn(),
+  fetchNewReleasesSample: vi.fn(async () => []),
+  useOpdsCatalogs: vi.fn(() => ({
+    rows: [],
+    getState: vi.fn(),
+    download: vi.fn(),
+    openDownloaded: vi.fn(),
+    retryCatalog: vi.fn(),
+  })),
+}))
+
+// A amostra ao vivo (US4) usa CapacitorHttp, indisponível neste ambiente de
+// teste — mocka só fetchNewReleasesSample, mantendo o resto do módulo real
+// (listCatalog continua usando o fetch() global já stubado por cada teste).
+vi.mock('@/services/PublicDomainCatalogService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/services/PublicDomainCatalogService')>()
+  return {
+    ...actual,
+    PublicDomainCatalogService: {
+      ...actual.PublicDomainCatalogService,
+      fetchNewReleasesSample: mocks.fetchNewReleasesSample,
+    },
+  }
+})
+
+vi.mock('@/hooks/useOpdsCatalogs', () => ({
+  useOpdsCatalogs: mocks.useOpdsCatalogs,
+}))
+
+vi.mock('@/components/OpdsCatalogRow', () => ({
+  OpdsCatalogRow: ({
+    catalogName,
+    onSeeMore,
+    error,
+    offline,
+    onRetry,
+  }: { catalogName: string; onSeeMore?: () => void; error?: boolean; offline?: boolean; onRetry?: () => void }) => (
+    <div data-testid="opds-row" data-error={String(Boolean(error))} data-offline={String(Boolean(offline))}>
+      {catalogName}
+      {onSeeMore && <button onClick={onSeeMore}>{`Ver mais de ${catalogName}`}</button>}
+      {error && <button onClick={onRetry}>{`Tentar de novo ${catalogName}`}</button>}
+    </div>
+  ),
 }))
 
 vi.mock('@/db/books', () => ({
@@ -51,7 +93,7 @@ vi.mock('@/components/BottomNav', () => ({
 
 import { DiscoverScreen } from '@/screens/DiscoverScreen'
 
-function renderDiscoverScreen(apiKey?: string) {
+function renderDiscoverScreen(apiKey?: string, onOpenOpdsCatalogBrowse: (catalogId: number) => void = vi.fn()) {
   if (apiKey) vi.stubEnv('VITE_NYT_API_KEY', apiKey)
   else vi.stubEnv('VITE_NYT_API_KEY', '')
 
@@ -62,6 +104,8 @@ function renderDiscoverScreen(apiKey?: string) {
       onOpenProfile={vi.fn()}
       onOpenPaywall={vi.fn()}
       onOpenBook={vi.fn()}
+      onOpenOpdsCatalogBrowse={onOpenOpdsCatalogBrowse}
+      onOpenPublicDomainCatalog={vi.fn()}
     />,
   )
 }
@@ -71,6 +115,14 @@ describe('DiscoverScreen', () => {
     FeatureQuotaService.reset()
     mocks.findBookByFileName.mockReset().mockResolvedValue(undefined)
     mocks.hasValidCache.mockReturnValue(false)
+    mocks.fetchNewReleasesSample.mockReset().mockResolvedValue([])
+    mocks.useOpdsCatalogs.mockReset().mockReturnValue({
+      rows: [],
+      getState: vi.fn(),
+      download: vi.fn(),
+      openDownloaded: vi.fn(),
+      retryCatalog: vi.fn(),
+    })
   })
 
   afterEach(() => {
@@ -170,9 +222,11 @@ describe('DiscoverScreen', () => {
   })
 
   it('mostra a secao de dominio publico mesmo sem a chave NYT configurada (FR-009)', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify([
+    const sample = [
       { id: 'jane-austen_pride-and-prejudice', title: 'Pride and Prejudice', author: 'Jane Austen', authorSlug: 'jane-austen', titleSlug: 'pride-and-prejudice' },
-    ]))))
+    ]
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(sample))))
+    mocks.fetchNewReleasesSample.mockResolvedValue(sample)
 
     renderDiscoverScreen()
 
@@ -193,9 +247,11 @@ describe('DiscoverScreen', () => {
   })
 
   it('abre o livro ao tocar num card de dominio publico ja baixado', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify([
+    const sample = [
       { id: 'mary-shelley_frankenstein', title: 'Frankenstein', author: 'Mary Shelley', authorSlug: 'mary-shelley', titleSlug: 'frankenstein' },
-    ]))))
+    ]
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(sample))))
+    mocks.fetchNewReleasesSample.mockResolvedValue(sample)
     completePublicDomainDownload('mary-shelley_frankenstein', 42)
     const fakeBook = { id: 42, title: 'Frankenstein' } as Book
     mocks.getBookById.mockResolvedValue(fakeBook)
@@ -219,9 +275,11 @@ describe('DiscoverScreen', () => {
   })
 
   it('reconcilia com a Biblioteca real quando o titulo ja foi baixado numa sessao anterior', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify([
+    const sample = [
       { id: 'charles-dickens_a-christmas-carol', title: 'A Christmas Carol', author: 'Charles Dickens', authorSlug: 'charles-dickens', titleSlug: 'a-christmas-carol' },
-    ]))))
+    ]
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(sample))))
+    mocks.fetchNewReleasesSample.mockResolvedValue(sample)
     // Nada no coordinator desta sessao (simula app recem-aberto), mas o
     // livro ja existe na Biblioteca de uma sessao anterior.
     mocks.findBookByFileName.mockImplementation(async (fileName: string) =>
@@ -239,5 +297,104 @@ describe('DiscoverScreen', () => {
     )
 
     expect(await screen.findByText('Na biblioteca')).toBeTruthy()
+  })
+
+  it('renderiza uma row OPDS por catálogo retornado pelo hook (US1)', () => {
+    mocks.useOpdsCatalogs.mockReturnValue({
+      rows: [
+        {
+          catalog: { id: 1, name: 'Project Gutenberg', baseUrl: 'https://www.gutenberg.org/ebooks/search.opds/', hasCredential: false, isDefault: true, createdAt: new Date(), updatedAt: new Date() },
+          entries: [],
+          loading: false,
+          error: false,
+        },
+        {
+          catalog: { id: 2, name: 'Meu Calibre-Web', baseUrl: 'https://home.example.com/opds', hasCredential: true, isDefault: false, createdAt: new Date(), updatedAt: new Date() },
+          entries: [],
+          loading: false,
+          error: false,
+        },
+      ],
+      getState: vi.fn(),
+      download: vi.fn(),
+      openDownloaded: vi.fn(),
+      retryCatalog: vi.fn(),
+    })
+
+    renderDiscoverScreen()
+
+    const rows = screen.getAllByTestId('opds-row').map((row) => row.textContent)
+    expect(rows).toEqual(['Project GutenbergVer mais de Project Gutenberg', 'Meu Calibre-WebVer mais de Meu Calibre-Web'])
+  })
+
+  it('"ver mais" de uma row OPDS navega pro catálogo certo (US3)', () => {
+    mocks.useOpdsCatalogs.mockReturnValue({
+      rows: [
+        {
+          catalog: { id: 7, name: 'Meu Calibre-Web', baseUrl: 'https://home.example.com/opds', hasCredential: false, isDefault: false, createdAt: new Date(), updatedAt: new Date() },
+          entries: [],
+          loading: false,
+          error: false,
+        },
+      ],
+      getState: vi.fn(),
+      download: vi.fn(),
+      openDownloaded: vi.fn(),
+      retryCatalog: vi.fn(),
+    })
+    const onOpenOpdsCatalogBrowse = vi.fn()
+
+    renderDiscoverScreen(undefined, onOpenOpdsCatalogBrowse)
+    fireEvent.click(screen.getByText('Ver mais de Meu Calibre-Web'))
+
+    expect(onOpenOpdsCatalogBrowse).toHaveBeenCalledWith(7)
+  })
+
+  it('mantém a row visível com erro isolado (não esconde o catálogo inteiro, US5 AC3) e permite retry', () => {
+    const retryCatalog = vi.fn()
+    const brokenCatalog = { id: 1, name: 'Catálogo com erro', baseUrl: 'https://broken.example.com/opds', hasCredential: false, isDefault: false, createdAt: new Date(), updatedAt: new Date() }
+    mocks.useOpdsCatalogs.mockReturnValue({
+      rows: [{ catalog: brokenCatalog, entries: [], loading: false, error: true, offline: false }],
+      getState: vi.fn(),
+      download: vi.fn(),
+      openDownloaded: vi.fn(),
+      retryCatalog,
+    })
+
+    renderDiscoverScreen()
+
+    const row = screen.getByTestId('opds-row')
+    expect(row.getAttribute('data-error')).toBe('true')
+
+    fireEvent.click(screen.getByText('Tentar de novo Catálogo com erro'))
+    expect(retryCatalog).toHaveBeenCalledWith(brokenCatalog)
+  })
+
+  it('mostra estado vazio com CTA quando não há nenhum catálogo cadastrado (FR-023)', () => {
+    mocks.useOpdsCatalogs.mockReturnValue({
+      rows: [],
+      getState: vi.fn(),
+      download: vi.fn(),
+      openDownloaded: vi.fn(),
+      retryCatalog: vi.fn(),
+    })
+    const onOpenOpdsCatalogSettings = vi.fn()
+
+    render(
+      <DiscoverScreen
+        onBack={vi.fn()}
+        onOpenLibrary={vi.fn()}
+        onOpenProfile={vi.fn()}
+        onOpenPaywall={vi.fn()}
+        onOpenBook={vi.fn()}
+        onOpenOpdsCatalogBrowse={vi.fn()}
+        onOpenPublicDomainCatalog={vi.fn()}
+        onOpenOpdsCatalogSettings={onOpenOpdsCatalogSettings}
+      />,
+    )
+
+    expect(screen.getByText('Nenhum catalogo OPDS')).toBeTruthy()
+    fireEvent.click(screen.getByText('Adicionar catalogo'))
+    expect(onOpenOpdsCatalogSettings).toHaveBeenCalledTimes(1)
   })
 })

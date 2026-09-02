@@ -6,6 +6,7 @@ import type { TtsVoiceCacheRecord } from '../types/tts'
 import type { AuthorCacheRecord } from '../types/author'
 import type { StoredBookInfo } from '../types/bookInfo'
 import type { StoredEpubExtras } from '../services/EpubService'
+import type { OpdsCatalog, OpdsDownloadedEntry } from '../types/opds'
 
 type LegacyBookRecord = Book & { coverBlob?: Blob | null }
 type LegacyAuthorCacheRecord = AuthorCacheRecord & { bookIds?: number[] }
@@ -28,6 +29,8 @@ class NeoReaderDB extends Dexie {
   tags!: Table<BookTag, number>
   sourceFolders!: Table<SourceFolder, number>
   collections!: Table<BookCollection, number>
+  opdsCatalogs!: Table<OpdsCatalog, number>
+  opdsDownloadedEntries!: Table<OpdsDownloadedEntry, number>
 
   constructor() {
     // Isolamento por conta: cada uid usa seu próprio banco.
@@ -320,6 +323,74 @@ class NeoReaderDB extends Dexie {
           record.driveImportCount = 0
         }
       })
+    })
+
+    // v17: catálogos OPDS (públicos/self-hosted) e vínculo entry→livro baixado
+    // (feature 003-opds-catalogos). Credencial de auth NUNCA fica aqui — vive
+    // no secure storage nativo, referenciada só pelo id do catálogo.
+    this.version(17).stores({
+      books:         '++id, title, author, addedAt, importedAt, lastOpenedAt, fileName, fileSize, fileHash, format, readingStatus, isFavorite, *tags, sourceFolderId, missingFile, storageMode, collectionId',
+      bookCovers:    'bookId, updatedAt, source',
+      progress:      '++id, bookId, updatedAt',
+      bookmarks:     '++id, bookId, createdAt, updatedAt, deletedAt',
+      vocabulary:    '++id, bookId, createdAt',
+      translations:  '++id, textHash, createdAt',
+      settings:      '++id',
+      bookSettings:  '++id, bookId',
+      ttsVoiceCaches:'++id, &cacheKey, provider, language, updatedAt',
+      authors:       '&authorName, *bookIds, fetchedAt, videosFetchedAt',
+      bookInfo:      '&bookId, updatedAt',
+      epubExtras:    '&bookId, updatedAt',
+      tags:          '++id, &name, createdAt, updatedAt',
+      sourceFolders: '++id, name, uri, createdAt, lastScannedAt',
+      collections:   '++id, &name, createdAt, updatedAt',
+      opdsCatalogs:          '++id, baseUrl, isDefault',
+      opdsDownloadedEntries: '++id, &[catalogId+entryId], bookId',
+    }).upgrade(async (tx) => {
+      // Seed do catálogo padrão (Project Gutenberg) — só na primeira vez que
+      // esta versão roda (opdsCatalogs sempre começa vazia numa instalação
+      // existente migrando de v16, então isso roda exatamente uma vez).
+      const catalogsTable = tx.table('opdsCatalogs') as Table<OpdsCatalog, number>
+      const count = await catalogsTable.count()
+      if (count === 0) {
+        const now = new Date()
+        await catalogsTable.add({
+          name: 'Project Gutenberg',
+          baseUrl: 'https://www.gutenberg.org/ebooks/search.opds/',
+          hasCredential: false,
+          isDefault: true,
+          createdAt: now,
+          updatedAt: now,
+        })
+      }
+    })
+
+    // v18: corrige `opdsCatalogs` — v17 não indexava `createdAt`, mas
+    // `listCatalogs()` usa `.orderBy('createdAt')`, o que o Dexie rejeita em
+    // runtime com SchemaError ("KeyPath createdAt on object store
+    // opdsCatalogs is not indexed"). Bug só apareceu em teste manual real
+    // (mocks de teste unitário não pegam isso porque simulam o Dexie
+    // inteiro). Só adiciona o índice — sem `.upgrade()`, o Dexie reindexa os
+    // registros existentes sozinho (mesmo padrão da v5, que adicionou
+    // `sectionIndex` em `bookmarks` sem callback).
+    this.version(18).stores({
+      books:         '++id, title, author, addedAt, importedAt, lastOpenedAt, fileName, fileSize, fileHash, format, readingStatus, isFavorite, *tags, sourceFolderId, missingFile, storageMode, collectionId',
+      bookCovers:    'bookId, updatedAt, source',
+      progress:      '++id, bookId, updatedAt',
+      bookmarks:     '++id, bookId, createdAt, updatedAt, deletedAt',
+      vocabulary:    '++id, bookId, createdAt',
+      translations:  '++id, textHash, createdAt',
+      settings:      '++id',
+      bookSettings:  '++id, bookId',
+      ttsVoiceCaches:'++id, &cacheKey, provider, language, updatedAt',
+      authors:       '&authorName, *bookIds, fetchedAt, videosFetchedAt',
+      bookInfo:      '&bookId, updatedAt',
+      epubExtras:    '&bookId, updatedAt',
+      tags:          '++id, &name, createdAt, updatedAt',
+      sourceFolders: '++id, name, uri, createdAt, lastScannedAt',
+      collections:   '++id, &name, createdAt, updatedAt',
+      opdsCatalogs:          '++id, baseUrl, isDefault, createdAt',
+      opdsDownloadedEntries: '++id, &[catalogId+entryId], bookId',
     })
   }
 }

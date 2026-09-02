@@ -200,6 +200,14 @@ export function loadWordLensData({
   return cachedDataPromise
 }
 
+// Chamado quando o app vai pra background (App.tsx, appStateChange). As
+// partições do dicionário (até ~220 arquivos, ~7MB de JSON parseado) não
+// tinham nenhum gatilho de liberação fora de testes — ver bug
+// alerta-play-console-uso-memoria-acima.
+export function clearWordLensDictionaryPartitionsCache(): void {
+  cachedDictionaryPartitions.clear()
+}
+
 export function resetWordLensDataCacheForTests(): void {
   cachedDataPromise = null
   cachedDictionaryPartitions.clear()

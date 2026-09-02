@@ -18,6 +18,8 @@ import androidx.documentfile.provider.DocumentFile;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
+import androidx.security.crypto.EncryptedSharedPreferences;
+import androidx.security.crypto.MasterKey;
 
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
@@ -31,10 +33,12 @@ import java.io.Closeable;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.FileInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringReader;
 import java.io.OutputStream;
 import java.net.URI;
+import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -64,6 +68,10 @@ public class NeoReaderLibraryPlugin extends Plugin {
     static final int SELECT_FILE_REQUEST_CODE = 4702;
     private static final String TAG = "NeoReaderLibrary";
     private static final String PREFS_NAME = "NeoReaderLibraryPlugin";
+    // Arquivo separado do PREFS_NAME normal — nunca guardamos credencial OPDS
+    // junto com o resto (pending file selection etc.), que fica em
+    // SharedPreferences comum (nao criptografado).
+    private static final String OPDS_CREDENTIALS_PREFS_NAME = "NeoReaderOpdsCredentials";
     private static final String PENDING_FOLDER_RESULT_KEY = "pendingFolderResult";
     private static final String PENDING_FILE_RESULT_KEY = "pendingFileResult";
     private static final String SELECTED_FOLDER_FILES_KEY = "selectedFolderFiles";
@@ -76,6 +84,10 @@ public class NeoReaderLibraryPlugin extends Plugin {
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
     private final Map<String, FileReadSession> fileReadSessions = new ConcurrentHashMap<>();
     private final Set<String> canceledImports = ConcurrentHashMap.newKeySet();
+    // Criado sob demanda (primeira chamada de credencial OPDS) e cacheado —
+    // MasterKey.Builder().build() gera/abre a chave no Android Keystore, nao
+    // precisa refazer isso a cada chamada.
+    private volatile SharedPreferences opdsCredentialsPreferences;
 
     @PluginMethod
     public void setReaderImmersiveMode(PluginCall call) {
@@ -1241,6 +1253,108 @@ public class NeoReaderLibraryPlugin extends Plugin {
 
     private SharedPreferences getPreferences() {
         return getContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+    }
+
+    // Credencial de catalogo OPDS (feature 003-opds-catalogos) — nunca em
+    // texto puro: EncryptedSharedPreferences com chave gerenciada pelo
+    // Android Keystore (androidx.security:security-crypto), separado do
+    // SharedPreferences comum usado pelo resto do plugin.
+    @PluginMethod
+    public void storeOpdsCredential(PluginCall call) {
+        Integer catalogId = call.getInt("catalogId");
+        String username = call.getString("username");
+        String password = call.getString("password");
+        if (catalogId == null || username == null || password == null) {
+            call.reject("catalogId, username e password sao obrigatorios.");
+            return;
+        }
+
+        ioExecutor.execute(() -> {
+            try {
+                getOpdsCredentialsPreferences().edit()
+                    .putString(opdsUsernameKey(catalogId), username)
+                    .putString(opdsPasswordKey(catalogId), password)
+                    .apply();
+                call.resolve();
+            } catch (Exception error) {
+                call.reject("Erro ao guardar credencial do catalogo OPDS.", error);
+            }
+        });
+    }
+
+    @PluginMethod
+    public void getOpdsCredential(PluginCall call) {
+        Integer catalogId = call.getInt("catalogId");
+        if (catalogId == null) {
+            call.reject("catalogId e obrigatorio.");
+            return;
+        }
+
+        ioExecutor.execute(() -> {
+            try {
+                SharedPreferences prefs = getOpdsCredentialsPreferences();
+                String username = prefs.getString(opdsUsernameKey(catalogId), null);
+                String password = prefs.getString(opdsPasswordKey(catalogId), null);
+                JSObject response = new JSObject();
+                // Objeto vazio (nao erro) quando nao ha credencial guardada —
+                // mesma convencao tolerante dos outros metodos deste plugin.
+                if (username != null) response.put("username", username);
+                if (password != null) response.put("password", password);
+                call.resolve(response);
+            } catch (Exception error) {
+                call.reject("Erro ao ler credencial do catalogo OPDS.", error);
+            }
+        });
+    }
+
+    @PluginMethod
+    public void deleteOpdsCredential(PluginCall call) {
+        Integer catalogId = call.getInt("catalogId");
+        if (catalogId == null) {
+            call.reject("catalogId e obrigatorio.");
+            return;
+        }
+
+        ioExecutor.execute(() -> {
+            try {
+                getOpdsCredentialsPreferences().edit()
+                    .remove(opdsUsernameKey(catalogId))
+                    .remove(opdsPasswordKey(catalogId))
+                    .apply();
+                call.resolve();
+            } catch (Exception error) {
+                call.reject("Erro ao remover credencial do catalogo OPDS.", error);
+            }
+        });
+    }
+
+    private String opdsUsernameKey(int catalogId) {
+        return "opds-credential-" + catalogId + "-username";
+    }
+
+    private String opdsPasswordKey(int catalogId) {
+        return "opds-credential-" + catalogId + "-password";
+    }
+
+    private SharedPreferences getOpdsCredentialsPreferences() throws GeneralSecurityException, IOException {
+        SharedPreferences cached = opdsCredentialsPreferences;
+        if (cached != null) return cached;
+
+        synchronized (this) {
+            if (opdsCredentialsPreferences == null) {
+                MasterKey masterKey = new MasterKey.Builder(getContext())
+                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                    .build();
+                opdsCredentialsPreferences = EncryptedSharedPreferences.create(
+                    getContext(),
+                    OPDS_CREDENTIALS_PREFS_NAME,
+                    masterKey,
+                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+                );
+            }
+            return opdsCredentialsPreferences;
+        }
     }
 
     @SuppressWarnings("deprecation")

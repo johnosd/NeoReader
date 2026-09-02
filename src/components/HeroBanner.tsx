@@ -34,12 +34,15 @@ export function HeroBanner({ book, onPress, onOpenOptions }: HeroBannerProps) {
     <section className="relative w-full overflow-hidden" style={{ minHeight: '60vh' }}>
       {coverUrl ? (
         <>
-          {/* Blurred ambient background */}
+          {/* Blurred ambient background — above-the-fold (primeira coisa
+              visível na Home), por isso sem loading="lazy": só decoding
+              async pra não travar a main thread no decode. */}
           <img
             src={coverUrl}
             alt=""
             aria-hidden
             className="absolute inset-0 h-full w-full scale-110 object-cover opacity-25 blur-2xl"
+            decoding="async"
             onContextMenu={(e) => e.preventDefault()}
           />
           {/* Main artwork - fills top portion */}
@@ -48,6 +51,7 @@ export function HeroBanner({ book, onPress, onOpenOptions }: HeroBannerProps) {
             alt={book.title}
             className="absolute top-0 left-0 right-0 w-full object-cover object-top"
             style={{ height: '68%' }}
+            decoding="async"
             onContextMenu={(e) => e.preventDefault()}
           />
         </>

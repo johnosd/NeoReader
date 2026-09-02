@@ -154,18 +154,34 @@ function toNativeAuthUser(user: NativeFirebaseUser): AuthUser {
   }
 }
 
-// Solicita novo token Drive ao Google. Mostra seletor de conta no Android —
-// chamar apenas em resposta a ação explícita do usuário (ex: botão em Settings).
-// Não chamar no startup para evitar seletor de conta inesperado ao abrir o app.
+// Solicita novo token Drive ao Google. Mostra seletor de conta só se o
+// escopo ainda não tiver sido concedido antes — quando já foi, o próprio
+// Google Identity Services retorna sem exibir nada (silencioso). Por isso
+// passou a ser chamada também automaticamente por GoogleDriveAppDataService
+// quando um request falha por token ausente/expirado, não só pelo botão
+// manual em Settings.
+let inFlightDriveTokenRefresh: Promise<void> | null = null
+
 export async function refreshDriveToken(): Promise<void> {
-  try {
-    const result = await FirebaseAuthentication.signInWithGoogle({
-      scopes: [GOOGLE_DRIVE_APPDATA_SCOPE],
-    })
-    rememberGoogleDriveAccessToken(result.credential?.accessToken)
-  } catch {
-    // Usuário cancelou ou falha silenciosa.
-  }
+  // Coalesce chamadas concorrentes (ex: bookmark, progresso e vocabulário
+  // falhando quase ao mesmo tempo) numa única tentativa de renovação, em vez
+  // de disparar 3 chamadas simultâneas ao Google.
+  if (inFlightDriveTokenRefresh) return inFlightDriveTokenRefresh
+
+  inFlightDriveTokenRefresh = (async () => {
+    try {
+      const result = await FirebaseAuthentication.signInWithGoogle({
+        scopes: [GOOGLE_DRIVE_APPDATA_SCOPE],
+      })
+      rememberGoogleDriveAccessToken(result.credential?.accessToken)
+    } catch {
+      // Usuário cancelou ou falha silenciosa.
+    } finally {
+      inFlightDriveTokenRefresh = null
+    }
+  })()
+
+  return inFlightDriveTokenRefresh
 }
 
 export function observeFirebaseAuth(callback: (user: AuthUser | null) => void): Unsubscribe {
