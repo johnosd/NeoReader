@@ -4,10 +4,17 @@ import {
   GoogleDriveAppDataService,
 } from '@/services/GoogleDriveAppDataService'
 
-function makeService(fetchImpl: typeof fetch, token: string | null = 'drive-token') {
+// refreshAccessToken no-op por padrão — sem isso, o retry-once chamaria o
+// refreshDriveToken real (Capacitor/Firebase) dentro destes testes unitários.
+function makeService(
+  fetchImpl: typeof fetch,
+  token: string | null = 'drive-token',
+  refreshAccessToken: () => Promise<void> = async () => {},
+) {
   return new GoogleDriveAppDataService({
     fetchImpl,
     getAccessToken: () => token,
+    refreshAccessToken,
   })
 }
 
@@ -83,26 +90,29 @@ describe('GoogleDriveAppDataService', () => {
     expect(String(init?.body)).toContain('"syncKey":"a"')
   })
 
-  it('falha sem token sem chamar fetch', async () => {
+  it('falha sem token sem chamar fetch (apos tentar renovar)', async () => {
     const fetchImpl = vi.fn() as unknown as typeof fetch
-    const service = makeService(fetchImpl, null)
+    const refreshAccessToken = vi.fn(async () => {})
+    const service = makeService(fetchImpl, null, refreshAccessToken)
 
     await expect(service.list()).rejects.toBeInstanceOf(GoogleDriveAppDataError)
     await expect(service.list()).rejects.toMatchObject({
       code: 'missing-token',
     })
     expect(fetchImpl).not.toHaveBeenCalled()
+    // 2 chamadas de .list() acima, 1 renovacao cada — nunca mais que isso por tentativa.
+    expect(refreshAccessToken).toHaveBeenCalledTimes(2)
   })
 
-  it('mapeia HTTP 403 como permissao negada', async () => {
+  it('mapeia HTTP 403 como permissao negada (apos tentar renovar)', async () => {
     const fetchImpl = vi.fn(async () => new Response('{}', { status: 403 })) as unknown as typeof fetch
-    const service = makeService(fetchImpl)
+    const refreshAccessToken = vi.fn(async () => {})
+    const service = makeService(fetchImpl, 'drive-token', refreshAccessToken)
 
     await expect(service.list()).rejects.toBeInstanceOf(GoogleDriveAppDataError)
-    await expect(service.list()).rejects.toMatchObject({
-      code: 'permission-denied',
-      status: 403,
-    })
+    await expect(refreshAccessToken).toHaveBeenCalledTimes(1)
+    // 1 request original + 1 retry apos a renovacao — nunca mais que isso.
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
   })
 
   it('mapeia erro de rede como offline', async () => {
@@ -115,5 +125,34 @@ describe('GoogleDriveAppDataService', () => {
     await expect(service.list()).rejects.toMatchObject({
       code: 'offline',
     })
+  })
+
+  it('token ausente: renova e repete a requisicao com sucesso', async () => {
+    const getAccessToken = vi.fn()
+      .mockReturnValueOnce(null)
+      .mockReturnValue('renewed-token')
+    const refreshAccessToken = vi.fn(async () => {})
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ files: [] }))) as unknown as typeof fetch
+    const service = new GoogleDriveAppDataService({ fetchImpl, getAccessToken, refreshAccessToken })
+
+    await expect(service.list()).resolves.toEqual([])
+
+    expect(refreshAccessToken).toHaveBeenCalledTimes(1)
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    const [, init] = vi.mocked(fetchImpl).mock.calls[0]
+    expect((init?.headers as Record<string, string>).Authorization).toBe('Bearer renewed-token')
+  })
+
+  it('HTTP 401/403: renova e repete a requisicao com sucesso', async () => {
+    const refreshAccessToken = vi.fn(async () => {})
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(new Response('{}', { status: 401 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ files: [] }))) as unknown as typeof fetch
+    const service = makeService(fetchImpl, 'drive-token', refreshAccessToken)
+
+    await expect(service.list()).resolves.toEqual([])
+
+    expect(refreshAccessToken).toHaveBeenCalledTimes(1)
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
   })
 })

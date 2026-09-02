@@ -152,4 +152,15 @@ describe('FirebaseAuthService', () => {
     expect(mocks.signInWithRedirect).not.toHaveBeenCalled()
     expect(getGoogleDriveAccessToken()).toBe('native-drive-token')
   })
+
+  it('refreshDriveToken coalesce chamadas concorrentes numa unica renovacao', async () => {
+    const { refreshDriveToken } = await importService()
+
+    const first = refreshDriveToken()
+    const second = refreshDriveToken()
+
+    await expect(first).resolves.toBeUndefined()
+    await expect(second).resolves.toBeUndefined()
+    expect(mocks.nativeSignInWithGoogle).toHaveBeenCalledTimes(1)
+  })
 })

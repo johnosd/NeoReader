@@ -41,14 +41,14 @@ interface BookmarkSnapshot {
 const inFlightBookIds = new Set<number>()
 const rerunBookIds = new Set<number>()
 
-export function scheduleBookmarkDriveSync(bookId: number): void {
-  if (!Number.isFinite(bookId)) return
-  if (getCachedBookmarkDriveSyncStatus().code === 'permission-error') return
+export function scheduleBookmarkDriveSync(bookId: number): Promise<void> {
+  if (!Number.isFinite(bookId)) return Promise.resolve()
+  if (getCachedBookmarkDriveSyncStatus().code === 'permission-error') return Promise.resolve()
   if (inFlightBookIds.has(bookId)) {
     rerunBookIds.add(bookId)
-    return
+    return Promise.resolve()
   }
-  void runScheduledBookmarkDriveSync(bookId)
+  return runScheduledBookmarkDriveSync(bookId)
 }
 
 export async function syncBookBookmarks(

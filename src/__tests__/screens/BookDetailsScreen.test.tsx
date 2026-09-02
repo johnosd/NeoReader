@@ -21,6 +21,9 @@ const mocks = vi.hoisted(() => ({
   saveBookInfo: vi.fn(),
   patchBookInfo: vi.fn(),
   collectBookInfo: vi.fn(),
+  useEntitlements: vi.fn(),
+  scheduleBookmarkDriveSync: vi.fn(),
+  setBookmarkDriveSyncStatus: vi.fn(),
 }))
 
 vi.mock('dexie-react-hooks', () => ({
@@ -87,13 +90,15 @@ vi.mock('@/hooks/useBookCoverUrl', () => ({
 }))
 
 vi.mock('@/hooks/useEntitlements', () => ({
-  useEntitlements: () => ({
-    isPro: false,
-    isLoading: false,
-    expiresAt: undefined,
-    activeProductId: undefined,
-    refresh: vi.fn(),
-  }),
+  useEntitlements: mocks.useEntitlements,
+}))
+
+vi.mock('@/services/BookmarkDriveSyncService', () => ({
+  scheduleBookmarkDriveSync: mocks.scheduleBookmarkDriveSync,
+}))
+
+vi.mock('@/services/BookmarkDriveSyncStatus', () => ({
+  setBookmarkDriveSyncStatus: mocks.setBookmarkDriveSyncStatus,
 }))
 
 vi.mock('@/services/EpubService', () => ({
@@ -250,6 +255,17 @@ describe('BookDetailsScreen chapters', () => {
     mocks.saveBookInfo.mockReset()
     mocks.patchBookInfo.mockReset()
     mocks.collectBookInfo.mockReset()
+    mocks.useEntitlements.mockReset()
+    mocks.useEntitlements.mockReturnValue({
+      isPro: false,
+      isLoading: false,
+      expiresAt: undefined,
+      activeProductId: undefined,
+      refresh: vi.fn(),
+    })
+    mocks.scheduleBookmarkDriveSync.mockReset()
+    mocks.scheduleBookmarkDriveSync.mockResolvedValue(undefined)
+    mocks.setBookmarkDriveSyncStatus.mockReset()
     FeatureQuotaService.reset()
     mocks.getStoredBookInfo.mockResolvedValue(emptyBookInfo())
     mocks.collectBookInfo.mockResolvedValue(emptyBookInfo())
@@ -688,6 +704,150 @@ describe('BookDetailsScreen chapters', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Detalhes' }))
     expect(await screen.findByText('4.7/5')).toBeTruthy()
     expect(mocks.collectBookInfo).not.toHaveBeenCalled()
+  })
+
+  function pendingBookmarkFixture(overrides: Partial<Bookmark> = {}): Bookmark {
+    return {
+      id: 77,
+      bookId: 1,
+      cfi: 'epubcfi(/6/8!/4/2/10/2,/1:0,/1:20)',
+      label: 'Capitulo salvo',
+      percentage: 32,
+      snippet: 'Trecho salvo localmente',
+      color: 'indigo',
+      syncKey: 'bookmark-key',
+      syncedAt: null,
+      syncError: null,
+      createdAt: new Date('2026-05-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-05-01T00:00:00.000Z'),
+      deletedAt: null,
+      ...overrides,
+    }
+  }
+
+  it('icone de bookmark pendente/com erro fica tocavel pra usuario Pro', async () => {
+    mocks.useEntitlements.mockReturnValue({
+      isPro: true,
+      isLoading: false,
+      expiresAt: undefined,
+      activeProductId: 'pro-lifetime',
+      refresh: vi.fn(),
+    })
+    mocks.bookmarks = [pendingBookmarkFixture()]
+
+    render(
+      <BookDetailsScreen book={book} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} onOpenPaywall={vi.fn()} />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Marcacoes/ }))
+
+    expect(await screen.findByRole('button', { name: 'Sincronizar marcacoes' })).toBeTruthy()
+  })
+
+  it('icone de bookmark ja sincronizado (sem erro) nao e tocavel', async () => {
+    mocks.useEntitlements.mockReturnValue({
+      isPro: true,
+      isLoading: false,
+      expiresAt: undefined,
+      activeProductId: 'pro-lifetime',
+      refresh: vi.fn(),
+    })
+    mocks.bookmarks = [pendingBookmarkFixture({ syncedAt: new Date('2026-05-01T00:05:00.000Z'), syncError: null })]
+
+    render(
+      <BookDetailsScreen book={book} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} onOpenPaywall={vi.fn()} />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Marcacoes/ }))
+    await screen.findByText('Capitulo salvo')
+
+    expect(screen.queryByRole('button', { name: 'Sincronizar marcacoes' })).toBeNull()
+  })
+
+  it('tocar no icone reseta o status e agenda a sincronizacao do livro', async () => {
+    mocks.useEntitlements.mockReturnValue({
+      isPro: true,
+      isLoading: false,
+      expiresAt: undefined,
+      activeProductId: 'pro-lifetime',
+      refresh: vi.fn(),
+    })
+    mocks.bookmarks = [pendingBookmarkFixture({ syncError: 'permission-denied:403' })]
+
+    render(
+      <BookDetailsScreen book={book} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} onOpenPaywall={vi.fn()} />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Marcacoes/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Sincronizar marcacoes' }))
+
+    await waitFor(() => {
+      expect(mocks.scheduleBookmarkDriveSync).toHaveBeenCalledWith(1)
+    })
+    expect(mocks.setBookmarkDriveSyncStatus).toHaveBeenCalledWith('pending-offline')
+  })
+
+  it('mostra estado de sincronizando enquanto a promise esta pendente', async () => {
+    mocks.useEntitlements.mockReturnValue({
+      isPro: true,
+      isLoading: false,
+      expiresAt: undefined,
+      activeProductId: 'pro-lifetime',
+      refresh: vi.fn(),
+    })
+    mocks.bookmarks = [pendingBookmarkFixture()]
+    let resolveSync: () => void = () => {}
+    mocks.scheduleBookmarkDriveSync.mockImplementation(() => new Promise<void>((resolve) => {
+      resolveSync = resolve
+    }))
+
+    render(
+      <BookDetailsScreen book={book} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} onOpenPaywall={vi.fn()} />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Marcacoes/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Sincronizar marcacoes' }))
+
+    expect(await screen.findByRole('status')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Sincronizar marcacoes' })).toBeNull()
+
+    resolveSync()
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).toBeNull()
+    })
+  })
+
+  it('toque duplicado enquanto sincroniza dispara a sincronizacao so 1 vez', async () => {
+    mocks.useEntitlements.mockReturnValue({
+      isPro: true,
+      isLoading: false,
+      expiresAt: undefined,
+      activeProductId: 'pro-lifetime',
+      refresh: vi.fn(),
+    })
+    mocks.bookmarks = [pendingBookmarkFixture()]
+    let resolveSync: () => void = () => {}
+    mocks.scheduleBookmarkDriveSync.mockImplementation(() => new Promise<void>((resolve) => {
+      resolveSync = resolve
+    }))
+
+    render(
+      <BookDetailsScreen book={book} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} onOpenPaywall={vi.fn()} />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Marcacoes/ }))
+    const syncButton = await screen.findByRole('button', { name: 'Sincronizar marcacoes' })
+    // 2 cliques na mesma tick, sem await entre eles — simula o toque duplo
+    // rápido acontecendo antes do React re-renderizar (o state `syncingBookmarks`
+    // sozinho não pegaria isso a tempo; o guard real é o ref síncrono).
+    fireEvent.click(syncButton)
+    fireEvent.click(syncButton)
+    resolveSync()
+
+    await waitFor(() => {
+      expect(mocks.scheduleBookmarkDriveSync).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('mostra nota indisponivel no cabecalho quando nenhuma fonte retorna rating', async () => {

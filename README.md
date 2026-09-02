@@ -24,7 +24,11 @@ tags, pastas de origem e caches ficam no dispositivo.
   ocultados para usuario Pro quando o entitlement estiver ativo.
 - Drive Sync de bookmarks existe via Google Drive `appDataFolder`, bloqueado
   pelo entitlement Pro. Progresso, vocabulario, EPUB e recursos de IA ainda nao
-  entram no sync.
+  entram no sync. O token de acesso se renova sozinho (silenciosamente, sem
+  pedir reconexao manual) sempre que uma sincronizacao encontra o token
+  ausente ou expirado; um bookmark pendente ou com erro tambem pode ser
+  sincronizado direto pelo proprio icone de nuvem na tela de Detalhes do
+  Livro, sem precisar abrir Configuracoes.
 - Review/Author/Descubra usam quota Free mensal local-first; cache ja carregado
   continua visivel e Pro remove a quota.
 
@@ -285,14 +289,23 @@ ficha manualmente.
 
 ### Configuracoes
 
-- Status do plano NeoReader Pro.
-- Status de backup/restauracao de bookmarks na nuvem.
-- Idioma do app.
-- Defaults globais de aparencia do leitor.
-- Idioma padrao das traducoes.
-- Painel de narracao indicando fallback nativo.
-- API keys locais para Speechify, ElevenLabs, Fish Audio e YouTube Data API.
-- Aviso de que variaveis `VITE_` ficam embutidas no bundle.
+Menu principal em categorias clicaveis (Plano, Idioma, Aparencia, Word Lens,
+Narracao, Integracoes, Catalogos OPDS, Sincronizacao na Nuvem); cada
+categoria abre uma subtela dedicada mostrando so aquele grupo, voltar
+retorna ao menu.
+
+- Plano: badge PRO/Free no menu; a subtela mostra status completo do
+  NeoReader Pro (acesso ao Paywall) e as cotas de uso mensal (Book
+  Intelligence, Descubra/NYT).
+- Idioma: idioma do app e idioma padrao das traducoes juntos na mesma
+  subtela.
+- Aparencia: defaults globais de aparencia do leitor.
+- Word Lens: ativacao e nivel CEFR.
+- Narracao: painel indicando fallback nativo e API keys locais para
+  Speechify, ElevenLabs e Fish Audio.
+- Integracoes: API key local do YouTube Data API.
+- Sincronizacao na Nuvem: status de backup/restauracao de bookmarks,
+  progresso e vocabulario.
 - Catalogos OPDS: listar, adicionar, editar e remover catalogos (nome, URL,
   usuario/senha opcional) — salvar testa a conexao com os dados informados
   antes de persistir, so grava se conectar (mostra o motivo especifico se

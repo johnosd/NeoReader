@@ -19,6 +19,8 @@ update-bug-status.ps1.
 | 001-audiobook-background-playback | Audiobook (TTS) sem interrupção com tela apagada ou app em segundo plano | Convergida | 49/49 tasks | 2026-08-27 |
 | 002-biblioteca-dominio-publico | Biblioteca de Domínio Público (Standard Ebooks) | Convergida | 40/41 tasks | 2026-08-28 |
 | 003-opds-catalogos | Suporte a Catálogos OPDS (Públicos e Self-Hosted) | Convergida | 87/87 tasks | 2026-09-01 |
+| 004-settings-categorias | Reorganizar Tela de Settings em Categorias Navegáveis | Convergida | 50/50 tasks | 2026-09-02 |
+| 005-sync-drive-inline | Renovação Silenciosa do Token do Google Drive e Sincronização Inline pelo Ícone de Bookmark | Convergida | 27/27 tasks | 2026-09-02 |
 
 ## Bugs
 
@@ -27,3 +29,5 @@ update-bug-status.ps1.
 | alerta-play-console-uso-memoria-acima | Uso de memória acima do threshold do Play Console | Test | verified (com ressalva explícita — ver seção Result abaixo) | Concluído | 2026-09-01 |
 | bookmarkdrivesyncintegration-beforeall-hooktimeout-flaky-vit | Timeouts flaky no Vitest sob carga (hookTimeout/testTimeout) | Test | partial | Concluído (com ressalva) ou reabrir Assess | 2026-09-01 |
 | npm-run-androidrun-falha-gradlew-not | `npm run android:run` falha no Windows (`'gradlew' is not recognized`) | Test | verified | Concluído | 2026-09-01 |
+| tela-sincronizacao-na-nuvem-sem-opcao | Sincronização na Nuvem sem opção de conectar/reconectar fora do caso "token expirado" | Test | verified | Concluído | 2026-09-02 |
+| reconectar-google-drive-nao-recupera-bookmarks | Reconectar Google Drive não recupera bookmarks sem tentativa prévia registrada | Test | verified | Concluído | 2026-09-02 |

@@ -78,7 +78,8 @@
       "PowerShell(adb shell *)",
       "PowerShell(cd C:\\\\Users\\\\johns\\\\Documents\\\\Projetos\\\\NeoReader\\\\NeoReader; powershell -File \".\\\\.planning\\\\scripts\\\\powershell\\\\update-feature-status.ps1\" -Slug \"001-audiobook-background-playback\" -Json)",
       "Bash(git mv *)",
-      "Edit(/.claude/skills/sdd-specify/**)"
+      "Edit(/.claude/skills/sdd-specify/**)",
+      "Bash(powershell -NoProfile -File \".\\\\.planning\\\\scripts\\\\powershell\\\\check-prerequisites.ps1\" -Stage plan -Slug \"004-settings-categorias\" -Json)"
     ]
   }
 }

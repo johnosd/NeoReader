@@ -1,15 +1,6 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SettingsScreen } from '@/screens/SettingsScreen'
-import { FeatureQuotaService } from '@/services/FeatureQuotaService'
-
-const mocks = vi.hoisted(() => ({
-  getSettings: vi.fn(),
-  updateAppSettings: vi.fn(),
-  updateReaderDefaults: vi.fn(),
-  validateSpeechifyKey: vi.fn(),
-  validateElevenLabsKey: vi.fn(),
-}))
 
 vi.mock('@capacitor/app', () => ({
   App: {
@@ -17,265 +8,122 @@ vi.mock('@capacitor/app', () => ({
   },
 }))
 
+const mocks = vi.hoisted(() => ({
+  useEntitlements: vi.fn(),
+}))
+
 vi.mock('@/hooks/useEntitlements', () => ({
-  useEntitlements: () => ({
+  useEntitlements: mocks.useEntitlements,
+  useRefreshEntitlementsOnFocus: () => undefined,
+}))
+
+function freeEntitlements() {
+  return {
     isPro: false,
     isLoading: false,
     expiresAt: undefined,
     activeProductId: undefined,
     refresh: vi.fn(),
-  }),
-  useRefreshEntitlementsOnFocus: () => undefined,
-}))
-
-vi.mock('@/db/settings', () => ({
-  getSettings: mocks.getSettings,
-  updateAppSettings: mocks.updateAppSettings,
-  updateReaderDefaults: mocks.updateReaderDefaults,
-}))
-
-vi.mock('@/services/SpeechifyService', () => ({
-  SpeechifyService: {
-    validateApiKey: mocks.validateSpeechifyKey,
-  },
-}))
-
-vi.mock('@/services/ElevenLabsService', () => ({
-  ElevenLabsService: {
-    validateApiKey: mocks.validateElevenLabsKey,
-  },
-}))
-
-function settingsFixture() {
-  return {
-    appSettings: {
-      appLocale: 'auto',
-      speechifyApiKey: '',
-      elevenLabsApiKey: '',
-      fishAudioApiKey: '',
-      translationTargetLang: 'pt-BR',
-      youtubeApiKey: '',
-    },
-    readerDefaults: {
-      defaultFontSize: 'md',
-      lineHeight: 'comfortable',
-      readerTheme: 'dark',
-      fontFamily: 'classic',
-      overrideBookFont: true,
-      overrideBookColors: true,
-      wordLensEnabled: true,
-      wordLensLevel: 'B1',
-    },
-    updatedAt: new Date(),
   }
 }
 
-describe('SettingsScreen', () => {
+function renderSettingsScreen(overrides: Partial<Record<
+  'onBack' | 'onOpenPlan' | 'onOpenLanguage' | 'onOpenAppearance' | 'onOpenWordLens'
+  | 'onOpenNarration' | 'onOpenIntegrations' | 'onOpenOpdsCatalogs' | 'onOpenSync',
+  () => void
+>> = {}) {
+  return render(
+    <SettingsScreen
+      onBack={vi.fn()}
+      onOpenPlan={vi.fn()}
+      onOpenLanguage={vi.fn()}
+      onOpenAppearance={vi.fn()}
+      onOpenWordLens={vi.fn()}
+      onOpenNarration={vi.fn()}
+      onOpenIntegrations={vi.fn()}
+      onOpenOpdsCatalogs={vi.fn()}
+      onOpenSync={vi.fn()}
+      {...overrides}
+    />,
+  )
+}
+
+describe('SettingsScreen (menu de categorias)', () => {
   beforeEach(() => {
-    mocks.getSettings.mockResolvedValue(settingsFixture())
-    mocks.updateAppSettings.mockResolvedValue(undefined)
-    mocks.updateReaderDefaults.mockResolvedValue(undefined)
-    mocks.validateSpeechifyKey.mockResolvedValue({ isValid: true, message: 'ok' })
-    mocks.validateElevenLabsKey.mockResolvedValue({ isValid: true, message: 'ok' })
-    FeatureQuotaService.reset()
-    vi.clearAllMocks()
+    mocks.useEntitlements.mockReturnValue(freeEntitlements())
   })
 
-  it('organiza configuracoes por secoes de leitor e integracoes', async () => {
-    render(<SettingsScreen onBack={vi.fn()} />)
+  it('mostra as 8 categorias clicaveis no menu principal, incluindo Plano', () => {
+    renderSettingsScreen()
 
-    await screen.findByText('Leitor')
-
-    expect(screen.getByText('Aparencia')).not.toBeNull()
-    expect(screen.getByText('Traducao')).not.toBeNull()
-    expect(screen.getByText('Narracao')).not.toBeNull()
-    expect(screen.getByText('Integracoes')).not.toBeNull()
-    expect(screen.getByText('Build')).not.toBeNull()
+    expect(screen.getByText('Plano')).toBeTruthy()
+    expect(screen.getByText('Idioma')).toBeTruthy()
+    expect(screen.getByText('Aparencia')).toBeTruthy()
+    expect(screen.getByText('Word Lens')).toBeTruthy()
+    expect(screen.getByText('Narracao')).toBeTruthy()
+    expect(screen.getByText('Integracoes')).toBeTruthy()
+    expect(screen.getByText('Catalogos OPDS')).toBeTruthy()
+    expect(screen.getByText('Sincronizacao na nuvem')).toBeTruthy()
   })
 
-  it('mostra o item de menu "Catalogos OPDS" e navega ao tocar', async () => {
+  it('mostra badge Free ou PRO na linha Plano conforme o entitlement do usuario', () => {
+    renderSettingsScreen()
+    expect(screen.getByText('Free')).toBeTruthy()
+
+    mocks.useEntitlements.mockReturnValue({
+      isPro: true,
+      isLoading: false,
+      expiresAt: undefined,
+      activeProductId: 'pro-lifetime',
+      refresh: vi.fn(),
+    })
+    renderSettingsScreen()
+    expect(screen.getByText('PRO')).toBeTruthy()
+  })
+
+  it('toca em cada categoria e dispara o callback onOpen* correspondente', () => {
+    const onOpenPlan = vi.fn()
+    const onOpenLanguage = vi.fn()
+    const onOpenAppearance = vi.fn()
+    const onOpenWordLens = vi.fn()
+    const onOpenNarration = vi.fn()
+    const onOpenIntegrations = vi.fn()
     const onOpenOpdsCatalogs = vi.fn()
-    render(<SettingsScreen onBack={vi.fn()} onOpenOpdsCatalogs={onOpenOpdsCatalogs} />)
+    const onOpenSync = vi.fn()
 
-    const item = await screen.findByText('Gerenciar catalogos')
-    fireEvent.click(item)
+    renderSettingsScreen({
+      onOpenPlan,
+      onOpenLanguage,
+      onOpenAppearance,
+      onOpenWordLens,
+      onOpenNarration,
+      onOpenIntegrations,
+      onOpenOpdsCatalogs,
+      onOpenSync,
+    })
 
+    fireEvent.click(screen.getByText('Plano'))
+    expect(onOpenPlan).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByText('Idioma'))
+    expect(onOpenLanguage).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByText('Aparencia'))
+    expect(onOpenAppearance).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByText('Word Lens'))
+    expect(onOpenWordLens).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByText('Narracao'))
+    expect(onOpenNarration).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByText('Integracoes'))
+    expect(onOpenIntegrations).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByText('Catalogos OPDS'))
     expect(onOpenOpdsCatalogs).toHaveBeenCalledTimes(1)
-  })
 
-  it('mostra sync de bookmarks como recurso Pro nas configuracoes', async () => {
-    const onOpenPaywall = vi.fn()
-    render(<SettingsScreen onBack={vi.fn()} onOpenPaywall={onOpenPaywall} />)
-
-    await screen.findByText('Backup de bookmarks')
-
-    expect(screen.getByText('Backup de bookmarks')).toBeTruthy()
-    // Os três itens de sync (bookmarks, progress, vocabulary) mostram "Recurso Pro" quando isPro=false
-    expect(screen.getAllByText('Recurso Pro').length).toBeGreaterThan(0)
-    // getDataSyncMeta reutiliza a mesma descrição pro-required para os três tipos de sync
-    expect(screen.getAllByText(/Bookmarks locais continuam disponiveis/).length).toBeGreaterThan(0)
-    expect(onOpenPaywall).not.toHaveBeenCalled()
-  })
-
-  it('mostra status Free e quotas restantes nas configuracoes', async () => {
-    FeatureQuotaService.consume('book-intelligence', { isPro: false, subjectKey: 'book:1' })
-
-    render(<SettingsScreen onBack={vi.fn()} />)
-
-    await screen.findByText('Uso Free')
-
-    expect(screen.getByText('Review e Autor')).toBeTruthy()
-    expect(screen.getByText(/Restam 4 de 5 livros este mes/)).toBeTruthy()
-    expect(screen.getByText('Descubra/NYT')).toBeTruthy()
-    expect(screen.getByText(/Restam 5 de 5 atualizacoes este mes/)).toBeTruthy()
-  })
-
-  it('mantem campos de integracao compactos ate o usuario expandir', async () => {
-    render(<SettingsScreen onBack={vi.fn()} />)
-
-    await screen.findByText('Integracoes')
-
-    expect(screen.queryByPlaceholderText('sk-...')).toBeNull()
-
-    fireEvent.click(screen.getByRole('button', { name: /Speechify/ }))
-
-    expect(await screen.findByPlaceholderText('sk-...')).not.toBeNull()
-  })
-
-  it('explica o que cada API key habilita nas integracoes', async () => {
-    render(<SettingsScreen onBack={vi.fn()} />)
-
-    await screen.findByText('Integracoes')
-    fireEvent.click(screen.getByRole('button', { name: /Speechify/ }))
-
-    expect(await screen.findByText(/Vozes Speechify/)).toBeTruthy()
-    expect(screen.getByText(/A key fica salva neste dispositivo/)).toBeTruthy()
-
-    fireEvent.click(screen.getByRole('button', { name: /YouTube Data API/ }))
-
-    expect(await screen.findByText(/Reviews em video/)).toBeTruthy()
-    expect(screen.getByText(/entrevistas e palestras/)).toBeTruthy()
-  })
-
-  it('salva defaults do leitor ao alterar tamanho de fonte', async () => {
-    render(<SettingsScreen onBack={vi.fn()} />)
-
-    await screen.findByText('Aparencia')
-    fireEvent.click(screen.getByRole('button', { name: 'Fonte Grande' }))
-
-    expect(mocks.updateReaderDefaults).toHaveBeenCalledWith({ defaultFontSize: 'lg' })
-  })
-
-  it('mostra o Word Lens ativo em B1 sem carregar o data pack', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch')
-    render(<SettingsScreen onBack={vi.fn()} />)
-
-    expect((await screen.findByRole('switch', { name: 'Ativar Word Lens' }) as HTMLButtonElement).getAttribute('aria-checked')).toBe('true')
-    expect((screen.getByRole('combobox', { name: 'Nivel CEFR do Word Lens' }) as HTMLSelectElement).value).toBe('B1')
-    expect(fetchSpy).not.toHaveBeenCalled()
-    fetchSpy.mockRestore()
-  })
-
-  it('exibe legenda, versao, limitacoes e atribuicoes do Word Lens', async () => {
-    render(<SettingsScreen onBack={vi.fn()} />)
-
-    await screen.findByText('Como a marcacao aparece')
-
-    expect(screen.getByText('Palavra acima do nivel escolhido')).toBeTruthy()
-    expect(screen.getByText(/Pacote 1\.0\.0/)).toBeTruthy()
-    expect(screen.getByText(/CEFR-J Wordlist 1\.5/)).toBeTruthy()
-    expect(screen.getByText(/Octanove Vocabulary Profile C1\/C2 1\.0 \(CC BY-SA 4\.0\)/)).toBeTruthy()
-    expect(screen.getByText(/Open English WordNet 2025 \(CC BY 4\.0\)/)).toBeTruthy()
-    expect(screen.getByText(/mostra sentidos disponiveis.*nao interpreta o contexto/)).toBeTruthy()
-  })
-
-  it('salva ativacao e nivel do Word Lens', async () => {
-    render(<SettingsScreen onBack={vi.fn()} />)
-
-    await screen.findByRole('switch', { name: 'Ativar Word Lens' })
-    fireEvent.change(screen.getByRole('combobox', { name: 'Nivel CEFR do Word Lens' }), {
-      target: { value: 'C2' },
-    })
-    expect(mocks.updateReaderDefaults).toHaveBeenCalledWith({ wordLensLevel: 'C2' })
-
-    const toggle = await screen.findByRole('switch', { name: 'Ativar Word Lens' })
-    fireEvent.click(toggle)
-    expect(mocks.updateReaderDefaults).toHaveBeenCalledWith({ wordLensEnabled: false })
-  })
-
-  it('modo original respeita fonte e cores do EPUB nos defaults globais', async () => {
-    render(<SettingsScreen onBack={vi.fn()} />)
-
-    await screen.findByText('Modo de leitura')
-    fireEvent.click(screen.getByText('Original'))
-
-    expect(mocks.updateReaderDefaults).toHaveBeenCalledWith({
-      fontFamily: 'publisher',
-      overrideBookFont: false,
-      overrideBookColors: false,
-    })
-  })
-
-  it('modo confortavel reativa fonte e cores do NeoReader nos defaults globais', async () => {
-    mocks.getSettings.mockResolvedValue({
-      ...settingsFixture(),
-      readerDefaults: {
-        ...settingsFixture().readerDefaults,
-        fontFamily: 'publisher',
-        overrideBookFont: false,
-        overrideBookColors: false,
-      },
-    })
-
-    render(<SettingsScreen onBack={vi.fn()} />)
-
-    await screen.findByText('Modo de leitura')
-    fireEvent.click(screen.getByText('Confortavel'))
-
-    expect(mocks.updateReaderDefaults).toHaveBeenCalledWith({
-      fontFamily: 'classic',
-      overrideBookFont: true,
-      overrideBookColors: true,
-    })
-  })
-
-  it('salva idioma padrao pelo bottom sheet', async () => {
-    render(<SettingsScreen onBack={vi.fn()} />)
-
-    const languageRows = await screen.findAllByText('Idioma padrao das traducoes')
-    fireEvent.click(languageRows[0])
-    const spanishOptions = screen.getAllByText('Espanhol')
-    fireEvent.click(spanishOptions[spanishOptions.length - 1])
-
-    expect(mocks.updateAppSettings).toHaveBeenCalledWith({ translationTargetLang: 'es' })
-  })
-
-  it('salva idioma do app pelo bottom sheet', async () => {
-    render(<SettingsScreen onBack={vi.fn()} />)
-
-    const appLanguageLabels = await screen.findAllByText('Idioma do app')
-    const appLanguageRow = appLanguageLabels[0].closest('[role="button"]')
-    expect(appLanguageRow).not.toBeNull()
-    fireEvent.click(appLanguageRow!)
-    const englishOptions = screen.getAllByText('Inglês')
-    fireEvent.click(englishOptions[0])
-
-    expect(mocks.updateAppSettings).toHaveBeenCalledWith({ appLocale: 'en' })
-  })
-
-  it('valida e salva key da Speechify no blur', async () => {
-    render(<SettingsScreen onBack={vi.fn()} />)
-
-    await screen.findByText('Integracoes')
-    fireEvent.click(screen.getByRole('button', { name: /Speechify/ }))
-
-    const input = await screen.findByPlaceholderText('sk-...')
-    fireEvent.change(input, { target: { value: 'speechify-valid-key' } })
-    fireEvent.blur(input)
-
-    await waitFor(() => {
-      expect(mocks.validateSpeechifyKey).toHaveBeenCalledWith('speechify-valid-key')
-    })
-    expect(mocks.updateAppSettings).toHaveBeenCalledWith({ speechifyApiKey: 'speechify-valid-key' })
+    fireEvent.click(screen.getByText('Sincronizacao na nuvem'))
+    expect(onOpenSync).toHaveBeenCalledTimes(1)
   })
 })
