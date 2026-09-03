@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   transaction: vi.fn(),
   booksToArray: vi.fn(),
   restoreBookBookmarksFromDrive: vi.fn(),
+  resizeCoverBlob: vi.fn(),
 }))
 
 vi.mock('@/db/books', () => ({
@@ -66,6 +67,10 @@ vi.mock('@/services/BookmarkDriveRestoreService', () => ({
   restoreBookBookmarksFromDrive: mocks.restoreBookBookmarksFromDrive,
 }))
 
+vi.mock('@/utils/imageResize', () => ({
+  resizeCoverBlob: mocks.resizeCoverBlob,
+}))
+
 import { BookImportService } from '@/services/BookImportService'
 
 describe('BookImportService', () => {
@@ -83,6 +88,11 @@ describe('BookImportService', () => {
     mocks.transaction.mockReset()
     mocks.booksToArray.mockReset()
     mocks.restoreBookBookmarksFromDrive.mockReset()
+    mocks.resizeCoverBlob.mockReset()
+    // Passthrough por padrão — testes que não mockam resizeCoverBlob
+    // explicitamente continuam recebendo o blob original em saveBookCover,
+    // como antes desta feature.
+    mocks.resizeCoverBlob.mockImplementation((blob: Blob) => Promise.resolve(blob))
     mocks.booksToArray.mockResolvedValue([])
     mocks.saveSourceFolder.mockResolvedValue(3)
     mocks.deleteLocalBookFile.mockResolvedValue(true)
@@ -147,6 +157,27 @@ describe('BookImportService', () => {
       }),
     }))
     expect(mocks.restoreBookBookmarksFromDrive).toHaveBeenCalledWith(42)
+  })
+
+  it('redimensiona a capa extraída antes de salvá-la (T004, US1 da spec 007)', async () => {
+    const file = new File(['epub'], 'book.epub', { type: 'application/epub+zip' })
+    const coverBlob = new Blob(['cover'], { type: 'image/jpeg' })
+    const resizedBlob = new Blob(['cover-resized'], { type: 'image/jpeg' })
+
+    mocks.parseMetadata.mockResolvedValue({
+      title: 'Imported Book',
+      author: 'Imported Author',
+      coverBlob,
+    })
+    mocks.addBook.mockResolvedValue(42)
+    mocks.resizeCoverBlob.mockResolvedValue(resizedBlob)
+
+    await BookImportService.importEpub(file)
+
+    expect(mocks.resizeCoverBlob).toHaveBeenCalledWith(coverBlob, 2000)
+    // O que chega em saveBookCover é o resultado de resizeCoverBlob, não o
+    // coverBlob original extraído do EPUB.
+    expect(mocks.saveBookCover).toHaveBeenCalledWith(42, resizedBlob, 'epub-extracted')
   })
 
   it('propaga importSource para o Book salvo quando informado (fix R-001)', async () => {
@@ -241,6 +272,28 @@ describe('BookImportService', () => {
     expect(mocks.saveBookCover).toHaveBeenCalledWith(9, coverBlob, 'epub-extracted')
   })
 
+  it('redimensiona a capa antes de salvar ao recriar capa (T006, US2 da spec 007)', async () => {
+    const book = {
+      id: 9,
+      title: 'Stored Book',
+      fileBlob: new Blob(['epub'], { type: 'application/epub+zip' }),
+    }
+    const coverBlob = new Blob(['cover'], { type: 'image/png' })
+    const resizedBlob = new Blob(['cover-resized'], { type: 'image/png' })
+
+    mocks.parseMetadata.mockResolvedValue({
+      title: 'Stored Book',
+      author: 'Author',
+      coverBlob,
+    })
+    mocks.resizeCoverBlob.mockResolvedValue(resizedBlob)
+
+    await BookImportService.reextractCover(book)
+
+    expect(mocks.resizeCoverBlob).toHaveBeenCalledWith(coverBlob, 2000)
+    expect(mocks.saveBookCover).toHaveBeenCalledWith(9, resizedBlob, 'epub-extracted')
+  })
+
   it('bloqueia importacao individual quando o livro ja existe', async () => {
     const file = new File(['epub'], 'book.epub', { type: 'application/epub+zip' })
 
@@ -271,6 +324,17 @@ describe('BookImportService', () => {
     await BookImportService.updateManualCover(15, coverBlob)
 
     expect(mocks.saveBookCover).toHaveBeenCalledWith(15, coverBlob, 'manual-upload')
+  })
+
+  it('redimensiona a capa antes de salvar ao escolher imagem manualmente (T007, US2 da spec 007)', async () => {
+    const coverBlob = new Blob(['manual'], { type: 'image/png' })
+    const resizedBlob = new Blob(['manual-resized'], { type: 'image/png' })
+    mocks.resizeCoverBlob.mockResolvedValue(resizedBlob)
+
+    await BookImportService.updateManualCover(15, coverBlob)
+
+    expect(mocks.resizeCoverBlob).toHaveBeenCalledWith(coverBlob, 2000)
+    expect(mocks.saveBookCover).toHaveBeenCalledWith(15, resizedBlob, 'manual-upload')
   })
 
   it('salva importacao nativa como arquivo local privado e preserva a URI original', async () => {

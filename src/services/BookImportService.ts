@@ -26,8 +26,15 @@ import {
   subscribeImportActivity,
 } from './ImportCoordinator'
 import { restoreBookBookmarksFromDrive } from './BookmarkDriveRestoreService'
+import { resizeCoverBlob } from '@/utils/imageResize'
 import type { Book, BookImportSource, BookStorageMode, SourceFolder } from '../types/book'
 import type { BookIdentifier, ResolvedBookInfo } from '../types/bookInfo'
+
+// Teto de dimensão pra capas salvas — cobre a maior exibição real de capa
+// no app (HeroBanner/grid da Biblioteca, sem largura máxima travada, em
+// viewports largos como tablet/desktop) com margem de segurança. Ver
+// spec 007-redimensionamento-capas.
+const MAX_COVER_DIMENSION_PX = 2000
 
 export interface FolderImportOptions {
   folderName: string
@@ -631,14 +638,16 @@ export class BookImportService {
     const metadata = await EpubService.parseMetadata(await BookFileResolver.resolveEpubFile(book))
     if (!metadata.coverBlob) return false
 
-    await saveBookCover(book.id, metadata.coverBlob, 'epub-extracted')
+    const resizedCover = await resizeCoverBlob(metadata.coverBlob, MAX_COVER_DIMENSION_PX)
+    await saveBookCover(book.id, resizedCover, 'epub-extracted')
     // Invalida cache de extras para refletir possíveis mudanças no EPUB
     EpubService.invalidateExtrasCache(book.id)
     return true
   }
 
   static async updateManualCover(bookId: number, coverBlob: Blob): Promise<void> {
-    await saveBookCover(bookId, coverBlob, 'manual-upload')
+    const resizedCover = await resizeCoverBlob(coverBlob, MAX_COVER_DIMENSION_PX)
+    await saveBookCover(bookId, resizedCover, 'manual-upload')
   }
 
   private static async collectAndSaveBookInfo(
@@ -712,6 +721,14 @@ export class BookImportService {
       })
     }
 
+    // Redimensiona ANTES da transação Dexie abrir — createImageBitmap/
+    // canvas.toBlob são promises não-Dexie, e Dexie fecha a transação
+    // automaticamente se uma delas for aguardada dentro do escopo dela
+    // (ver plan.md R-001, spec 007-redimensionamento-capas).
+    const resizedCoverBlob = metadata.coverBlob
+      ? await resizeCoverBlob(metadata.coverBlob, MAX_COVER_DIMENSION_PX)
+      : null
+
     const transaction = db.transaction('rw', db.books, db.bookCovers, async () => {
       const bookId = await addBook({
         title: metadata.title,
@@ -736,16 +753,16 @@ export class BookImportService {
         importSource: options.importSource,
       })
 
-      if (metadata.coverBlob) {
+      if (resizedCoverBlob) {
         if (diagnostic) {
           logImportDiagnostic(diagnostic, 'cover-save-start', {
             bookId,
             fileName,
-            coverType: metadata.coverBlob.type,
-            coverSize: metadata.coverBlob.size,
+            coverType: resizedCoverBlob.type,
+            coverSize: resizedCoverBlob.size,
           })
         }
-        await saveBookCover(bookId, metadata.coverBlob, 'epub-extracted')
+        await saveBookCover(bookId, resizedCoverBlob, 'epub-extracted')
         if (diagnostic) {
           logImportDiagnostic(diagnostic, 'cover-save-finished', {
             bookId,

@@ -82,6 +82,10 @@ tags, pastas de origem e caches ficam no dispositivo.
 - Catalogo completo da biblioteca local, com lista e grid virtualizados
   (`@tanstack/react-virtual`) — renderiza so os livros visiveis no DOM,
   independente do tamanho da biblioteca.
+- Capas de EPUB (import automatico, "Recriar capa" e "Escolher imagem") sao
+  redimensionadas no cliente pra um teto de 2000px no lado mais longo antes
+  de salvar, sem upscale — evita capas de scan de impressao virarem bitmaps
+  de dezenas de MB decodificados.
 - Busca por titulo, autor, nome do arquivo, formato e tags.
 - Filtros: todos, lendo, nao lidos, concluidos, favoritos, sem tag e tags
   criadas pelo usuario.
