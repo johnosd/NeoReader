@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-03
 
-**Status**: Implementada
+**Status**: Convergida
 
 **Input**: Handoff do assessment `sdd/assessments/migrar-speechify-simba-englishsimba-multilingual-simba-32sim/decision.md` (veredito `go`). A Speechify está retirando os modelos TTS `simba-english`/`simba-multilingual` — não selecionáveis a partir da versão de API `2026-09-21` (`400 model_retired`), desligados incondicionalmente em `2026-11-21`. `src/services/SpeechifyService.ts` hardcoda esses dois nomes em `pickSpeechifyModel` e não fixa `Speechify-Version`, então o projeto fica exposto já em `2026-09-21` (~18 dias a partir da criação desta spec).
 

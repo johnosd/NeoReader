@@ -157,7 +157,7 @@ npm run build
 | ID | Risco/Decisão | Impacto | Mitigação/Encaminhamento |
 | --- | --- | --- | --- |
 | R-001 | Não confirmado se `GET /v1/voices` retorna literalmente `"simba-3.2"` em `models[].name` na API viva (só inferido por analogia ao padrão atual, onde o nome já bate com o valor de `model` da síntese). | Se o nome real for diferente, nenhuma voz seria detectada como suportando `simba-3.2` e tudo cairia pra `simba-3.0` — sem quebra, só sem o ganho de latência. | **Resolvido**: confirmado contra a API viva em 2026-09-03 (script único, fora do repo) — `GET /v1/voices` retorna 992 vozes, 8 delas com `simba-3.2` literal em `models[].name` (`beatrice_32`, `dominic_32`, `edmund_32`, `geffen_32`, `harper_32`, `hugh_32`, `imogen_32`, `wyatt_32` — todas `en-US`/`en-GB`). A voz padrão `carly` NÃO suporta `simba-3.2` (só `simba-3.0`/`simba-english`/`simba-multilingual`) — confirma que o fallback da Decisão Invariante é o caminho real pra maioria dos usuários hoje, não só um caso teórico. |
-| R-002 | Não há telemetria de quais vozes/idiomas usuários reais têm salvos hoje em produção. | Não dá pra testar contra a distribuição real de vozes salvas. | O fallback fail-safe (Decisões Invariantes) garante que qualquer voz hoje funcional continua sintetizando, independente de qual seja — não depende de conhecer a distribuição real. |
+| R-002 | Não há telemetria de quais vozes/idiomas usuários reais têm salvos hoje em produção. | Não dá pra testar contra a distribuição real de vozes salvas. | **Resolvido**: mitigação confirmada pela auditoria de convergência — o teste no device real usou justamente `carly` (a voz padrão, sem suporte a `simba-3.2`) e o fallback funcionou exatamente como projetado, sem depender de conhecer a distribuição real de vozes salvas. |
 | R-003 | A conta associada à key local de `.env` está sem créditos (`402 payment_required` em toda chamada `POST /v1/audio/speech`, inclusive com o modelo antigo `simba-english` — não é um erro `model_retired`, é billing). Não foi possível confirmar ponta a ponta que a síntese retorna áudio válido com `simba-3.0`/`simba-3.2`. | FR-008/SC-002 ("confirmar áudio válido") não pode ser fechado 100% sem créditos na conta — só a parte de metadados de voz (`GET /v1/voices`) foi confirmada ao vivo. | **Resolvido**: usuário testou no device real (2026-09-03) — narração em inglês usou `simba-3.2` e em português usou `simba-3.0`, exatamente como projetado. Síntese de áudio confirmada ponta a ponta na prática (o 402 do script isolado não refletia o app real — key/conta usada pelo app tinha crédito). FR-008/SC-001/SC-002/SC-003 fechados por completo. |
 
 ## Execution Notes
@@ -201,3 +201,44 @@ npm run build
   `POST /v1/audio/speech`, confirmado 2026-09-03) — qualquer validação
   futura de síntese de áudio ao vivo (não só metadados de `/v1/voices`) exige
   créditos antes. Não confundir esse 402 com um erro de código.
+
+## Resultado Final
+
+<!-- Anexado pelo sdd-converge — convergência limpa, sem achados. -->
+
+Auditoria de convergência (2026-09-03) confirmou fidelidade total entre
+`spec.md`/`plan.md` e o código real — nenhum achado de lacuna, contradição
+ou scope creep. Verificado diretamente no código (não só reafirmado dos
+Registros de Fase):
+
+- `pickSpeechifyModel` (`SpeechifyService.ts:156-158`) nunca envia
+  `simba-english`/`simba-multilingual` — só `simba-3.2` (inglês, voz com
+  suporte declarado) ou `simba-3.0` (todo o resto, fail-safe). Confirmado
+  que nenhum arquivo de `src/` referencia os modelos retirados como valor
+  funcional (só um comentário explicando o porquê).
+- `modelId` flui ponta a ponta exatamente como desenhado:
+  `SpeechifyService.listCompatibleVoices` (`voiceSupportsSimba32`) →
+  `TtsVoiceOption`/`TtsVoiceSelection` → `TtsPlaybackConfig` →
+  `getPlaybackTtsVoiceModelId` (`ttsVoiceSelection.ts`) →
+  `speakWithPremium`/`prefetchPremiumChunk` (`useTTS.ts`) →
+  `SpeechifyService.synthesize`.
+- As 5 Decisões Invariantes seguem intactas: decisão por síntese individual
+  (não por sessão), fail-safe nunca assume suporte não declarado, `modelId`
+  só vem da própria API (nunca inferido/hardcoded), sem pin de
+  `Speechify-Version`, sem mudança de schema Dexie.
+- Os 5 princípios da constitution seguem compatíveis — confirmado contra o
+  código, não só reafirmado do Constitution Check original (comentários nos
+  pontos não óbvios, nenhuma abstração nova além do necessário, build/lint
+  limpos, nenhuma dependência nova).
+- Único desvio real do plano original: a abordagem mudou de "simba-3.0 pra
+  tudo" (recomendação do assessment) pro split `simba-3.2`/`simba-3.0` por
+  voz, decidido na entrevista do `sdd-specify` — já registrado em
+  `## Clarifications` de `spec.md`, não é uma divergência silenciosa.
+- Validação end-to-end aconteceu em duas camadas: contra a API viva
+  diretamente (`GET /v1/voices`, resolveu R-001) e no device Android real
+  (resolveu R-003) — narração em inglês usou `simba-3.2`, em português usou
+  `simba-3.0`, confirmando SC-001/SC-002/SC-003 na prática, não só em teste
+  automatizado.
+- `README.md` do projeto não precisou de nenhuma edição — referências a
+  "Speechify" ali são genéricas (nome do provider, env var), sem menção a
+  nomes de modelo especificos.
