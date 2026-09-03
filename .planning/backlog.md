@@ -20,7 +20,7 @@ update-bug-status.ps1.
 | 005-sync-drive-inline | Renovação Silenciosa do Token do Google Drive e Sincronização Inline pelo Ícone de Bookmark | Convergida | 27/27 tasks | 2026-09-02 |
 | 006-virtualizacao-biblioteca | Virtualização da tela de Biblioteca (grid e lista) | Convergida | 30/30 tasks | 2026-09-03 |
 | 007-redimensionamento-capas | Redimensionamento e recompressão de capas de EPUB no import | Convergida | 19/19 tasks | 2026-09-03 |
-| 008-migracao-speechify-simba-3 | Migração Speechify simba-english/simba-multilingual → simba-3.2/simba-3.0 | Em Execução | 3/20 tasks | 2026-09-03 |
+| 008-migracao-speechify-simba-3 | Migração Speechify simba-english/simba-multilingual → simba-3.2/simba-3.0 | Implementada | 20/20 tasks | 2026-09-03 |
 
 ## Bugs
 

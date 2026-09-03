@@ -541,7 +541,7 @@ describe('provider API key validation', () => {
         avatar_image: 'https://cdn.example/silvia.webp',
         models: [
           {
-            name: 'simba-multilingual',
+            name: 'simba-3.0',
             languages: [
               {
                 locale: 'pt-BR',
@@ -569,6 +569,41 @@ describe('provider API key validation', () => {
     expect(mockSetCachedTtsVoiceOptions).toHaveBeenCalledOnce()
   })
 
+  it('marca modelId simba-3.2 quando a voz da Speechify declara suporte', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify([
+      {
+        id: 'aria',
+        display_name: 'Aria',
+        locale: 'en-US',
+        models: [
+          { name: 'simba-3.2', languages: [{ locale: 'en-US' }] },
+          { name: 'simba-3.0', languages: [{ locale: 'en-US' }] },
+        ],
+      },
+    ]), { status: 200 })))
+
+    const result = await SpeechifyService.listCompatibleVoices('en-US', 'speechify-model-key')
+
+    expect(result[0].modelId).toBe('simba-3.2')
+  })
+
+  it('deixa modelId indefinido quando a voz da Speechify nao declara suporte a simba-3.2', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify([
+      {
+        id: 'bruno',
+        display_name: 'Bruno',
+        locale: 'en-US',
+        models: [
+          { name: 'simba-3.0', languages: [{ locale: 'en-US' }] },
+        ],
+      },
+    ]), { status: 200 })))
+
+    const result = await SpeechifyService.listCompatibleVoices('en-US', 'speechify-model-key-2')
+
+    expect(result[0].modelId).toBeUndefined()
+  })
+
   it('refaz a busca da Speechify depois de uma falha de rede', async () => {
     const fetchMock = vi.fn()
       .mockRejectedValueOnce(new Error('boom'))
@@ -580,7 +615,7 @@ describe('provider API key validation', () => {
           gender: 'female',
           models: [
             {
-              name: 'simba-multilingual',
+              name: 'simba-3.0',
               languages: [{ locale: 'pt-BR' }],
             },
           ],
@@ -659,6 +694,42 @@ describe('provider API key validation', () => {
     const body = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
     expect(body.model).toBe('simba-3.0')
     expect(body.language).toBe('pt-BR')
+  })
+
+  it('sintetiza ingles com simba-3.2 quando a voz selecionada suporta', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      audio_data: 'YQ==',
+      speech_marks: [],
+    }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await SpeechifyService.synthesize('Hello world', {
+      apiKey: 'valid-key',
+      language: 'en-US',
+      rate: 1,
+      modelId: 'simba-3.2',
+    })
+
+    const body = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
+    expect(body.model).toBe('simba-3.2')
+  })
+
+  it('ignora modelId simba-3.2 fora do ingles e mantem simba-3.0', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      audio_data: 'YQ==',
+      speech_marks: [],
+    }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await SpeechifyService.synthesize('Ola mundo', {
+      apiKey: 'valid-key',
+      language: 'pt-BR',
+      rate: 1,
+      modelId: 'simba-3.2',
+    })
+
+    const body = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
+    expect(body.model).toBe('simba-3.0')
   })
 
   it('valida uma API key da Fish Audio pela lista de modelos do usuario', async () => {

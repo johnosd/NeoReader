@@ -147,16 +147,18 @@ npm run build
 
 | Área | Estado |
 | --- | --- |
-| US1 — modelo seguro (`simba-3.0` sempre) | Concluída. `pickSpeechifyModel(language, modelId?)` já com a assinatura final; nenhum call site passa `modelId` ainda. |
-| US2 — `simba-3.2` por voz + fallback | Pendente. |
-| Validação manual (FR-008/quickstart.md) | Pendente. |
+| US1 — modelo seguro (`simba-3.0` sempre) | Concluída. |
+| US2 — `simba-3.2` por voz + fallback | Concluída. `modelId` flui de `listCompatibleVoices` até `synthesize` via `TtsPlaybackConfig`/`useTTS.ts`. |
+| Validação manual (FR-008/quickstart.md) | Fechada com confirmação parcial (decisão do usuário 2026-09-03) — metadados de voz confirmados ao vivo (R-001 resolvido); síntese de áudio não confirmada por falta de créditos na conta (R-003, fica em aberto pra quando houver créditos). |
+| Feature | **Implementada** — todas as 19 tasks concluídas, gate final limpo. |
 
 ## Riscos e Decisões
 
 | ID | Risco/Decisão | Impacto | Mitigação/Encaminhamento |
 | --- | --- | --- | --- |
-| R-001 | Não confirmado se `GET /v1/voices` retorna literalmente `"simba-3.2"` em `models[].name` na API viva (só inferido por analogia ao padrão atual, onde o nome já bate com o valor de `model` da síntese). | Se o nome real for diferente, nenhuma voz seria detectada como suportando `simba-3.2` e tudo cairia pra `simba-3.0` — sem quebra, só sem o ganho de latência. | Confirmado na validação manual da FR-008/quickstart.md antes de fechar a feature; ajustar a string de comparação em `SpeechifyService.ts` se necessário. |
+| R-001 | Não confirmado se `GET /v1/voices` retorna literalmente `"simba-3.2"` em `models[].name` na API viva (só inferido por analogia ao padrão atual, onde o nome já bate com o valor de `model` da síntese). | Se o nome real for diferente, nenhuma voz seria detectada como suportando `simba-3.2` e tudo cairia pra `simba-3.0` — sem quebra, só sem o ganho de latência. | **Resolvido**: confirmado contra a API viva em 2026-09-03 (script único, fora do repo) — `GET /v1/voices` retorna 992 vozes, 8 delas com `simba-3.2` literal em `models[].name` (`beatrice_32`, `dominic_32`, `edmund_32`, `geffen_32`, `harper_32`, `hugh_32`, `imogen_32`, `wyatt_32` — todas `en-US`/`en-GB`). A voz padrão `carly` NÃO suporta `simba-3.2` (só `simba-3.0`/`simba-english`/`simba-multilingual`) — confirma que o fallback da Decisão Invariante é o caminho real pra maioria dos usuários hoje, não só um caso teórico. |
 | R-002 | Não há telemetria de quais vozes/idiomas usuários reais têm salvos hoje em produção. | Não dá pra testar contra a distribuição real de vozes salvas. | O fallback fail-safe (Decisões Invariantes) garante que qualquer voz hoje funcional continua sintetizando, independente de qual seja — não depende de conhecer a distribuição real. |
+| R-003 | A conta associada à key local de `.env` está sem créditos (`402 payment_required` em toda chamada `POST /v1/audio/speech`, inclusive com o modelo antigo `simba-english` — não é um erro `model_retired`, é billing). Não foi possível confirmar ponta a ponta que a síntese retorna áudio válido com `simba-3.0`/`simba-3.2`. | FR-008/SC-002 ("confirmar áudio válido") não pode ser fechado 100% sem créditos na conta — só a parte de metadados de voz (`GET /v1/voices`) foi confirmada ao vivo. | **Em aberto — decisão do usuário**: (a) adicionar créditos e reexecutar a validação de síntese, (b) aceitar a confirmação parcial (nomes de modelo + voz padrão reais, código inalterado na forma da requisição além do valor de `model`) como suficiente por ora, ou (c) validar manualmente pela UI assim que houver créditos, antes de 2026-09-21. |
 
 ## Execution Notes
 
@@ -169,15 +171,21 @@ npm run build
 | Data | Fase/Story | Resumo | Pendência Principal |
 | --- | --- | --- | --- |
 | 2026-09-03 | Fase 3 (US1) | `pickSpeechifyModel` reescrito com assinatura final `(language, modelId?)`; sem `modelId` disponível ainda, tudo sintetiza via `simba-3.0` — risco de `model_retired` já eliminado. 2 testes novos (en/pt-BR) cobrindo `model` e `language` enviados. `npx vitest run providerValidation.test.ts` 26/26, `npm run lint` e `npm run build` limpos. | Fase 4 (US2) ainda não iniciada — `simba-3.2` ainda não é usado em nenhum caso. |
+| 2026-09-03 | Fase 4 (US2) | `modelId` plugado ponta a ponta: `SpeechifyService` marca `modelId: 'simba-3.2'` na voz quando `models[].name` declara suporte (`voiceSupportsSimba32`); `PremiumTtsSynthesisOptions`/`SpeechifySpeechOptions` ganharam o campo; `getPlaybackTtsVoiceModelId` novo em `ttsVoiceSelection.ts`; `useTTS.ts` repassa nos 2 pontos de síntese premium. `providerValidation.test.ts` 30/30, `useTTS.test.tsx` 23/23, `npm run lint` e `npm run build` limpos. | Validação manual contra API viva (FR-008) ainda não feita — R-001 (`models[].name` real bater com `'simba-3.2'`) segue em aberto até essa validação. |
+| 2026-09-03 | Fase 5 (Polish, parcial) | T013 feito (fixtures antigas atualizadas, 30/30 continua passando). T014: rodei `GET /v1/voices`/`POST /v1/audio/speech` reais contra a API da Speechify com a key de `.env` — `GET /v1/voices` confirmou `simba-3.2` real em 8 vozes (`carly` não é uma delas), resolvendo R-001. `POST /v1/audio/speech` retornou `402 payment_required` em toda tentativa (inclusive com o modelo antigo `simba-english` — é billing, não `model_retired`) — não deu pra confirmar áudio válido ponta a ponta. Pausei aqui (R-003) em vez de decidir sozinho se isso fecha FR-008. | R-003 (créditos) bloqueia fechar FR-008/SC-002 100% — decisão do usuário. |
+| 2026-09-03 | Fase 5 (Polish, fechamento) | Usuário decidiu aceitar a confirmação parcial de FR-008 (R-003 fica registrado, não bloqueia mais). T015 (gate final) rodado: `npm run lint` limpo, `npx tsc --noEmit` limpo, `npm test` (suite inteira) 804/806 passando (2 skipped pré-existentes, não relacionados), `npm run build` limpo. Todas as 19 tasks de `tasks.md` marcadas, Checklist de Release completo. Feature implementada. | Nenhuma pra fechar a implementação. R-003 segue como nota pra quando houver créditos na conta (não bloqueia mais o backlog). |
 
-**PRÓXIMO**: Fase 4 (User Story 2) — plumbing de `modelId` (`TtsProviderRegistry.ts`, `SpeechifyService.ts`, `ttsVoiceSelection.ts`, `useTTS.ts`) pra usar `simba-3.2` quando a voz suportar.
+**PRÓXIMO**: Nenhum — feature implementada. `sdd-converge` pode rodar quando o usuário quiser conferir a implementação contra spec/plan/tasks/constitution. R-003 (créditos) fica registrado caso alguém queira reconfirmar síntese de áudio ao vivo mais tarde.
 
 ## Arquivos Principais
 
 <!-- Sobrescrita a cada checkpoint — foco da etapa atual, não a árvore inteira. -->
 
-- `src/services/SpeechifyService.ts` — `pickSpeechifyModel` (assinatura final, ainda sem `modelId` plugado)
-- `src/__tests__/services/providerValidation.test.ts` — 2 testes novos (US1)
+- `src/services/SpeechifyService.ts` — `pickSpeechifyModel`, `voiceSupportsSimba32`, `modelId` em `SpeechifySpeechOptions`/`listCompatibleVoices`
+- `src/services/TtsProviderRegistry.ts` — `PremiumTtsSynthesisOptions.modelId`
+- `src/utils/ttsVoiceSelection.ts` — `getPlaybackTtsVoiceModelId` (novo)
+- `src/hooks/useTTS.ts` — thread do `modelId` em `speakWithPremium`/`prefetchPremiumChunk`
+- `src/__tests__/services/providerValidation.test.ts` — 6 testes novos (US1 + US2)
 
 ## Cuidados para Retomada
 
@@ -187,3 +195,7 @@ npm run build
   selecionáveis em **2026-09-21** — não é um prazo flexível de projeto.
 - A key da Speechify pra validação manual (FR-008) já existe localmente em
   `.env` (`VITE_SPEECHIFY_API_KEY`) — não pedir uma nova ao usuário.
+- A conta dessa key está **sem créditos** (`402 payment_required` em toda
+  `POST /v1/audio/speech`, confirmado 2026-09-03) — qualquer validação
+  futura de síntese de áudio ao vivo (não só metadados de `/v1/voices`) exige
+  créditos antes. Não confundir esse 402 com um erro de código.

@@ -73,18 +73,18 @@ Nenhuma fase Foundational necessária — User Story 1 é autocontida (só alter
 
 ### Testes da Fase
 
-- [ ] T004 [P] [US2] Editar `src/__tests__/services/providerValidation.test.ts` — novo teste: voz cuja resposta de `/v1/voices` inclui `models: [{ name: 'simba-3.2', ... }]` resulta em `TtsVoiceOption.modelId === 'simba-3.2'` após `SpeechifyService.listCompatibleVoices`.
-- [ ] T005 [P] [US2] Editar `src/__tests__/services/providerValidation.test.ts` — novo teste: voz cuja resposta de `/v1/voices` NÃO inclui `simba-3.2` em `models[]` resulta em `TtsVoiceOption.modelId === undefined`.
-- [ ] T006 [P] [US2] Editar `src/__tests__/services/providerValidation.test.ts` — novo teste: `SpeechifyService.synthesize` com `language: 'en-US'` e `modelId: 'simba-3.2'` nas options envia `model: 'simba-3.2'` no corpo.
-- [ ] T007 [P] [US2] Editar `src/__tests__/services/providerValidation.test.ts` — novo teste: `SpeechifyService.synthesize` com `language: 'en-US'` e `modelId` ausente/`undefined` envia `model: 'simba-3.0'` (fallback fail-safe, cobre também o caso da voz padrão `carly` sem seleção explícita).
-- [ ] T008 [P] [US2] Editar `src/__tests__/services/providerValidation.test.ts` — novo teste: `SpeechifyService.synthesize` com `language: 'pt-BR'` e `modelId: 'simba-3.2'` (mesmo se presente) ainda envia `model: 'simba-3.0'` — `simba-3.2` é exclusivo de inglês.
+- [X] T004 [P] [US2] Editar `src/__tests__/services/providerValidation.test.ts` — novo teste: voz cuja resposta de `/v1/voices` inclui `models: [{ name: 'simba-3.2', ... }]` resulta em `TtsVoiceOption.modelId === 'simba-3.2'` após `SpeechifyService.listCompatibleVoices`.
+- [X] T005 [P] [US2] Editar `src/__tests__/services/providerValidation.test.ts` — novo teste: voz cuja resposta de `/v1/voices` NÃO inclui `simba-3.2` em `models[]` resulta em `TtsVoiceOption.modelId === undefined`.
+- [X] T006 [P] [US2] Editar `src/__tests__/services/providerValidation.test.ts` — novo teste: `SpeechifyService.synthesize` com `language: 'en-US'` e `modelId: 'simba-3.2'` nas options envia `model: 'simba-3.2'` no corpo.
+- [X] T007 [P] [US2] ~~Editar providerValidation.test.ts~~ — já coberto pelo teste da T001 (Fase 3: `language: 'en-US'` sem `modelId` → `model: 'simba-3.0'`), que continua passando sem alteração após o plumbing da US2. Sem duplicar teste idêntico.
+- [X] T008 [P] [US2] Editar `src/__tests__/services/providerValidation.test.ts` — novo teste: `SpeechifyService.synthesize` com `language: 'pt-BR'` e `modelId: 'simba-3.2'` (mesmo se presente) ainda envia `model: 'simba-3.0'` — `simba-3.2` é exclusivo de inglês.
 
 ### Implementation
 
-- [ ] T009 [US2] Editar `src/services/TtsProviderRegistry.ts` — `PremiumTtsSynthesisOptions` ganha `modelId?: string | null`.
-- [ ] T010 [US2] Editar `src/services/SpeechifyService.ts` — `SpeechifySpeechOptions` ganha `modelId?: string | null`, repassado pra `pickSpeechifyModel` dentro de `synthesize` (a função em si já tem a assinatura certa desde T003, não muda de novo aqui); mapeamento voz→`TtsVoiceOption` dentro de `listCompatibleVoices` passa a setar `modelId: 'simba-3.2'` quando `models[].name` da voz (já parseado por `normalizeSpeechifyVoice`) incluir `'simba-3.2'`, senão deixa `undefined`. Comentário curto no ponto onde `modelId` é lido/repassado, explicando por que ausência de suporte declarado sempre cai pro modelo seguro (Constitution II, Decisões Invariantes de `plan.md`).
-- [ ] T011 [P] [US2] Criar `getPlaybackTtsVoiceModelId(config: TtsPlaybackConfig, provider: TtsProvider)` em `src/utils/ttsVoiceSelection.ts`, espelhando `getPlaybackTtsVoiceId` — lê de `config.voiceSelections?.[provider]?.modelId`.
-- [ ] T012 [US2] Editar `src/hooks/useTTS.ts` — em `speakWithPremium` (~linha 489-553) e `prefetchPremiumChunk` (~linha 757-773), obter `modelId` via `getPlaybackTtsVoiceModelId(config, provider)` e repassar em `synthesizePremiumTts(provider, text, { ..., modelId })`.
+- [X] T009 [US2] Editar `src/services/TtsProviderRegistry.ts` — `PremiumTtsSynthesisOptions` ganha `modelId?: string | null`.
+- [X] T010 [US2] Editar `src/services/SpeechifyService.ts` — `SpeechifySpeechOptions` ganha `modelId?: string | null`, repassado pra `pickSpeechifyModel` dentro de `synthesize` (a função em si já tem a assinatura certa desde T003, não muda de novo aqui); mapeamento voz→`TtsVoiceOption` dentro de `listCompatibleVoices` passa a setar `modelId: 'simba-3.2'` quando `models[].name` da voz (já parseado por `normalizeSpeechifyVoice`, checado pela nova `voiceSupportsSimba32`) incluir `'simba-3.2'`, senão deixa `undefined`. Comentário curto no ponto onde `modelId` é lido/repassado, explicando por que ausência de suporte declarado sempre cai pro modelo seguro (Constitution II, Decisões Invariantes de `plan.md`).
+- [X] T011 [P] [US2] Criar `getPlaybackTtsVoiceModelId(config: TtsPlaybackConfig, provider: TtsProvider)` em `src/utils/ttsVoiceSelection.ts`, espelhando `getPlaybackTtsVoiceId` — lê de `config.voiceSelections?.[provider]?.modelId`.
+- [X] T012 [US2] Editar `src/hooks/useTTS.ts` — em `speakWithPremium` (~linha 489-554) e `prefetchPremiumChunk` (~linha 758-775), obter `modelId` via `getPlaybackTtsVoiceModelId(config, provider)` e repassar em `synthesizePremiumTts(provider, text, { ..., modelId })`.
 
 **Critério de Conclusão**: vozes que declaram suporte a `simba-3.2` (via API, nunca inferido) são usadas em inglês; qualquer voz sem esse suporte — incluindo a padrão `carly` sem seleção explícita — cai automaticamente pra `simba-3.0`, sem erro exposto ao usuário; idiomas não-inglês permanecem em `simba-3.0` independente do `modelId`; T004-T008 passam; `npm run build` limpo.
 
@@ -92,10 +92,10 @@ Nenhuma fase Foundational necessária — User Story 1 é autocontida (só alter
 
 **Registro da Fase**:
 
-- Status: (vazio — preenchido pelo sdd-execute ao fechar o checkpoint)
-- Feito:
-- Testes executados:
-- Pendências:
+- Status: Concluída
+- Feito: `modelId` agora flui ponta a ponta — `SpeechifyService.listCompatibleVoices` marca `modelId: 'simba-3.2'` na `TtsVoiceOption` quando a voz declara suporte (`voiceSupportsSimba32`, checagem exata em `models[].name`); `PremiumTtsSynthesisOptions`/`SpeechifySpeechOptions` ganharam o campo; novo helper `getPlaybackTtsVoiceModelId` em `ttsVoiceSelection.ts`; `useTTS.ts` repassa o `modelId` da voz selecionada nos 2 pontos de síntese premium (`speakWithPremium`, `prefetchPremiumChunk`). `pickSpeechifyModel` (já com a assinatura certa desde a Fase 3) agora recebe `modelId` de verdade.
+- Testes executados: `npx vitest run src/__tests__/services/providerValidation.test.ts` — 30/30 passando (4 novos: T004, T005, T006, T008; T007 reaproveitou o teste da T001). `npx vitest run src/__tests__/hooks/useTTS.test.tsx` — 23/23 passando (threading do `modelId` não quebrou nenhum teste existente). `npm run lint` limpo. `npm run build` (`tsc -b` + Vite) limpo.
+- Pendências: nenhuma para esta fase. Fixtures de teste com `'simba-multilingual'` como nome de modelo de exemplo (linhas ~544/~583, hoje não afetadas pois `toEqual` ignora `modelId: undefined`) ficam pra limpeza na T013 (Polish).
 
 ---
 
@@ -103,17 +103,17 @@ Nenhuma fase Foundational necessária — User Story 1 é autocontida (só alter
 
 **Purpose**: Limpeza, gate final de qualidade e validação manual obrigatória contra a API viva.
 
-- [ ] T013 [P] Editar `src/__tests__/services/providerValidation.test.ts` — atualizar os 2 fixtures antigos que ainda citam `'simba-multilingual'` como exemplo de `models[].name` (linhas ~544 e ~583 no momento desta spec) para nomes atuais (`'simba-3.0'`/`'simba-3.2'`), evitando sugerir nomenclatura retirada. Não bloqueante — só clareza.
-- [ ] T014 Rodar a validação manual completa de `quickstart.md` (Cenários A, B e C) contra a API viva da Speechify (key local em `.env`) — obrigatória por FR-008/SC-002, a feature não pode ser reportada como concluída sem isso.
-- [ ] T015 Rodar `npm run lint && npm test && npx tsc --noEmit && npm run build` como gate final (Constitution IV).
+- [X] T013 [P] Editar `src/__tests__/services/providerValidation.test.ts` — atualizar os 2 fixtures antigos que ainda citam `'simba-multilingual'` como exemplo de `models[].name` (linhas ~544 e ~583 no momento desta spec) para nomes atuais (`'simba-3.0'`/`'simba-3.2'`), evitando sugerir nomenclatura retirada. Não bloqueante — só clareza.
+- [X] T014 Rodar a validação manual completa de `quickstart.md` (Cenários A, B e C) contra a API viva da Speechify (key local em `.env`) — obrigatória por FR-008/SC-002. **Fechada com confirmação parcial** (decisão do usuário em 2026-09-03): `GET /v1/voices` real confirmou `simba-3.2`/vozes/`carly` exatamente como o código espera (R-001 resolvido); `POST /v1/audio/speech` não pôde ser confirmado ponta a ponta por falta de créditos na conta (`402 payment_required` em qualquer modelo, inclusive o antigo) — ver R-003 em `plan.md`.
+- [X] T015 Rodar `npm run lint && npm test && npx tsc --noEmit && npm run build` como gate final (Constitution IV).
 
 ### Checklist de Release
 
-- [ ] Fase 3 (User Story 1) concluída
-- [ ] Fase 4 (User Story 2) concluída
-- [ ] Testes automatizados cobrindo os 3 caminhos de decisão de modelo (FR-007: inglês com voz suportada, inglês sem suporte, não-inglês) passando
-- [ ] Validação manual contra API viva da Speechify concluída (FR-008 / `quickstart.md`)
-- [ ] `npm run lint && npm test && npx tsc --noEmit && npm run build` limpos
+- [X] Fase 3 (User Story 1) concluída
+- [X] Fase 4 (User Story 2) concluída
+- [X] Testes automatizados cobrindo os 3 caminhos de decisão de modelo (FR-007: inglês com voz suportada, inglês sem suporte, não-inglês) passando
+- [X] Validação manual contra API viva da Speechify concluída (FR-008 / `quickstart.md`) — parcial, aceita pelo usuário (R-003 em `plan.md`: síntese de áudio não confirmada por falta de créditos na conta)
+- [X] `npm run lint && npm test && npx tsc --noEmit && npm run build` limpos
 
 ---
 

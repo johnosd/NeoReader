@@ -59,6 +59,13 @@ export function getPlaybackTtsVoiceId(config: TtsPlaybackConfig, provider: TtsPr
   return null
 }
 
+// Hoje só a Speechify usa isso (simba-3.2 exige voz com suporte declarado) — sem campo
+// legado por provider como getPlaybackTtsVoiceId, porque modelId nunca existiu fora de
+// voiceSelections.
+export function getPlaybackTtsVoiceModelId(config: TtsPlaybackConfig, provider: TtsProvider): string | null | undefined {
+  return config.voiceSelections?.[provider]?.modelId
+}
+
 export function buildTtsVoiceSelection(option: TtsVoiceOption | null): TtsVoiceSelection {
   return {
     id: option?.id ?? null,

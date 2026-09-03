@@ -66,6 +66,7 @@ interface SpeechifySpeechOptions {
   language: string
   rate: number
   voiceId?: string | null
+  modelId?: string | null
   signal?: AbortSignal
 }
 
@@ -210,6 +211,10 @@ function voiceMatchesLanguage(voice: SpeechifyVoice, language: string) {
   )
 }
 
+function voiceSupportsSimba32(voice: SpeechifyVoice) {
+  return voice.models.some((model) => model.name === 'simba-3.2')
+}
+
 async function fetchSpeechifyVoices(apiKey: string) {
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 8_000)
@@ -306,6 +311,10 @@ export const SpeechifyService = {
           previewUrl: pickVoicePreviewAudio(voice, normalizedLanguage),
           avatarUrl: voice.avatarImage,
           meta: voice.gender ?? voice.locale,
+          // simba-3.2 só sintetiza um conjunto curado de vozes — guarda aqui só quando a
+          // própria Speechify declara suporte (nunca inferido); sem isso, synthesize() cai
+          // pro simba-3.0, que aceita o catálogo completo.
+          modelId: voiceSupportsSimba32(voice) ? 'simba-3.2' : undefined,
         } satisfies TtsVoiceOption,
       }))
       .sort((left, right) => right.rank - left.rank || left.option.label.localeCompare(right.option.label))
@@ -339,7 +348,7 @@ export const SpeechifyService = {
         input: options.rate === 1 ? trimmedText : wrapWithRateSsml(trimmedText, options.rate),
         voice_id: voiceId,
         audio_format: 'mp3',
-        model: pickSpeechifyModel(normalizedLanguage),
+        model: pickSpeechifyModel(normalizedLanguage, options.modelId),
         language: normalizedLanguage,
       }),
       signal: controller.signal,
