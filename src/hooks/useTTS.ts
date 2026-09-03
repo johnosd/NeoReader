@@ -19,7 +19,7 @@ import {
 } from '../services/TtsProviderRegistry'
 import type { TtsPlaybackConfig, TtsProvider } from '../types/tts'
 import { clampTtsRate, normalizeLanguageTag } from '../utils/language'
-import { getPlaybackTtsVoiceId } from '../utils/ttsVoiceSelection'
+import { getPlaybackTtsVoiceId, getPlaybackTtsVoiceModelId } from '../utils/ttsVoiceSelection'
 import { useI18n, type TranslateFn } from '../i18n'
 
 type AudioSpeechMark = {
@@ -487,6 +487,7 @@ export function useTTS(options: UseTTSOptions) {
     const flowId = createFlowId(`tts-${provider}`)
     const startedAt = getDiagnosticsNowMs()
     const voiceId = getPlaybackTtsVoiceId(config, provider)
+    const modelId = getPlaybackTtsVoiceModelId(config, provider)
     const baseDetails = {
       textLength: text.length,
       paraIdx,
@@ -549,6 +550,7 @@ export function useTTS(options: UseTTSOptions) {
         language: config.language,
         rate: config.rate,
         voiceId,
+        modelId,
         signal: premiumSynthesisAbortController.signal,
       })
     } catch (error) {
@@ -755,6 +757,7 @@ export function useTTS(options: UseTTSOptions) {
     // Aborta se a sessão mudou (stop chamado ou novo play iniciado)
     if (shouldStopRef.current || playSessionRef.current !== session) return
     const voiceId = getPlaybackTtsVoiceId(config, provider)
+    const modelId = getPlaybackTtsVoiceModelId(config, provider)
     const cacheParams: PremiumTtsAudioCacheParams = {
       provider,
       voiceId,
@@ -769,6 +772,7 @@ export function useTTS(options: UseTTSOptions) {
         language: config.language,
         rate: config.rate,
         voiceId,
+        modelId,
         // Sem AbortSignal: o prefetch não deve ser cancelado pelo abort do chunk principal
       })
       // Verifica novamente após await — sessão pode ter mudado durante a síntese

@@ -66,6 +66,7 @@ interface SpeechifySpeechOptions {
   language: string
   rate: number
   voiceId?: string | null
+  modelId?: string | null
   signal?: AbortSignal
 }
 
@@ -149,8 +150,11 @@ function normalizeSpeechInput(text: string) {
     .trim()
 }
 
-function pickSpeechifyModel(language: string) {
-  return getBaseLanguage(language) === 'en' ? 'simba-english' : 'simba-multilingual'
+// simba-english/simba-multilingual (Simba 1.6) são retirados pela Speechify em 2026-09-21.
+// simba-3.2 só aceita um conjunto curado de vozes por idioma (inglês); sem confirmação de
+// que a voz suporta, cai pro simba-3.0 (aceita o catálogo completo) — nunca assume suporte.
+function pickSpeechifyModel(language: string, modelId?: string | null) {
+  return getBaseLanguage(language) === 'en' && modelId === 'simba-3.2' ? 'simba-3.2' : 'simba-3.0'
 }
 
 function normalizeSpeechifyVoice(rawVoice: RawSpeechifyVoice): SpeechifyVoice {
@@ -205,6 +209,10 @@ function voiceMatchesLanguage(voice: SpeechifyVoice, language: string) {
   return voice.models.some((model) =>
     model.languages.some((voiceLanguage) => isLanguageCompatible(voiceLanguage.locale, language)),
   )
+}
+
+function voiceSupportsSimba32(voice: SpeechifyVoice) {
+  return voice.models.some((model) => model.name === 'simba-3.2')
 }
 
 async function fetchSpeechifyVoices(apiKey: string) {
@@ -303,6 +311,10 @@ export const SpeechifyService = {
           previewUrl: pickVoicePreviewAudio(voice, normalizedLanguage),
           avatarUrl: voice.avatarImage,
           meta: voice.gender ?? voice.locale,
+          // simba-3.2 só sintetiza um conjunto curado de vozes — guarda aqui só quando a
+          // própria Speechify declara suporte (nunca inferido); sem isso, synthesize() cai
+          // pro simba-3.0, que aceita o catálogo completo.
+          modelId: voiceSupportsSimba32(voice) ? 'simba-3.2' : undefined,
         } satisfies TtsVoiceOption,
       }))
       .sort((left, right) => right.rank - left.rank || left.option.label.localeCompare(right.option.label))
@@ -336,7 +348,7 @@ export const SpeechifyService = {
         input: options.rate === 1 ? trimmedText : wrapWithRateSsml(trimmedText, options.rate),
         voice_id: voiceId,
         audio_format: 'mp3',
-        model: pickSpeechifyModel(normalizedLanguage),
+        model: pickSpeechifyModel(normalizedLanguage, options.modelId),
         language: normalizedLanguage,
       }),
       signal: controller.signal,

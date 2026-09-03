@@ -24,6 +24,7 @@ export interface PremiumTtsSynthesisOptions {
   language: string
   rate: number
   voiceId?: string | null
+  modelId?: string | null
   signal?: AbortSignal
 }
 
