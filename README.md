@@ -43,6 +43,7 @@ tags, pastas de origem e caches ficam no dispositivo.
 | Storage local | Dexie.js / IndexedDB |
 | Estado | Zustand + hooks locais |
 | Icones | Lucide React |
+| Virtualizacao | `@tanstack/react-virtual` (lista e grid da Biblioteca) |
 | Auth | Firebase Auth + `@capacitor-firebase/authentication` |
 | i18n | Provider local em `src/i18n` |
 | Traducao | MyMemory API |
@@ -78,7 +79,9 @@ tags, pastas de origem e caches ficam no dispositivo.
 
 ### Biblioteca
 
-- Catalogo completo da biblioteca local.
+- Catalogo completo da biblioteca local, com lista e grid virtualizados
+  (`@tanstack/react-virtual`) — renderiza so os livros visiveis no DOM,
+  independente do tamanho da biblioteca.
 - Busca por titulo, autor, nome do arquivo, formato e tags.
 - Filtros: todos, lendo, nao lidos, concluidos, favoritos, sem tag e tags
   criadas pelo usuario.

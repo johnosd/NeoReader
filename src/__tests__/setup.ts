@@ -144,4 +144,16 @@ if (!customElements.get('foliate-view')) {
   customElements.define('foliate-view', FoliateViewMock)
 }
 
+// jsdom nao implementa ResizeObserver — measureElement do @tanstack/react-virtual
+// (medicao dinamica de altura por item na Biblioteca virtualizada) depende dele.
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  class ResizeObserverMock {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  globalThis.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver
+}
+
+
 export type { FoliateViewMock }

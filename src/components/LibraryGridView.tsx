@@ -1,5 +1,7 @@
+import { useMemo } from 'react'
 import { BookOpen } from 'lucide-react'
 import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
+import { useWindowVirtualList } from '@/hooks/useWindowVirtualList'
 import type { Book } from '../types/book'
 import type { LibraryBook } from '../hooks/useLibraryCatalog'
 
@@ -8,12 +10,71 @@ interface LibraryGridViewProps {
   onOpenBook: (book: Book) => void
 }
 
+const GRID_COLUMNS = 3
+const GRID_GAP_PX = 2
+
+// Virtualiza por LINHA (grupos de 3 livros), nao por card — o virtualizador
+// e unidimensional e a grade e sempre 3 colunas fixas, entao mapear "linhas"
+// pro modelo dele e mais simples que virtualizacao 2D (ver research.md
+// Decisao 2).
+function chunkIntoRows<T>(items: T[], size: number): T[][] {
+  const rows: T[][] = []
+  for (let i = 0; i < items.length; i += size) {
+    rows.push(items.slice(i, i + size))
+  }
+  return rows
+}
+
+// Estimativa inicial da altura de uma linha, a partir da largura da janela
+// (nao ha padding horizontal no grid hoje) — so serve de ponto de partida,
+// measureElement corrige com a altura real depois do primeiro render.
+function estimateGridRowHeight(): number {
+  const columnWidth = (window.innerWidth - GRID_GAP_PX * (GRID_COLUMNS - 1)) / GRID_COLUMNS
+  return columnWidth * 1.5 // aspect-ratio dos cards e 2/3 (altura = largura * 3/2)
+}
+
 export function LibraryGridView({ books, onOpenBook }: LibraryGridViewProps) {
+  const rows = useMemo(() => chunkIntoRows(books, GRID_COLUMNS), [books])
+  const { containerRef, virtualizer } = useWindowVirtualList({
+    count: rows.length,
+    estimateSize: estimateGridRowHeight,
+  })
+
   return (
-    <div className="grid pb-10 pt-1" style={{ gridTemplateColumns: 'repeat(3, 1fr)', gap: '2px' }}>
-      {books.map((book) => (
-        <GridBookCard key={book.id} book={book} onOpenBook={onOpenBook} />
-      ))}
+    <div
+      ref={containerRef}
+      data-testid="library-virtual-grid"
+      className="pb-10 pt-1"
+      // overflowAnchor: none — evita o scroll anchoring nativo do browser
+      // brigar com o reset de scroll do useLibraryScrollRestore quando
+      // measureElement ajusta a altura estimada de uma linha (mesmo motivo
+      // de LibraryScreen.tsx/VirtualizedLibraryList).
+      style={{ position: 'relative', height: virtualizer.getTotalSize(), overflowAnchor: 'none' }}
+    >
+      {virtualizer.getVirtualItems().map((virtualItem) => {
+        const row = rows[virtualItem.index]
+        return (
+          <div
+            key={virtualItem.key}
+            ref={virtualizer.measureElement}
+            data-index={virtualItem.index}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              display: 'grid',
+              gridTemplateColumns: `repeat(${GRID_COLUMNS}, 1fr)`,
+              gap: `${GRID_GAP_PX}px`,
+              transform: `translateY(${virtualItem.start - virtualizer.options.scrollMargin}px)`,
+            }}
+          >
+            {row.map((book) => (
+              <GridBookCard key={book.id} book={book} onOpenBook={onOpenBook} />
+            ))}
+          </div>
+        )
+      })}
     </div>
   )
 }

@@ -13,6 +13,8 @@ import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
 import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
 import { useIsImportActive } from '../hooks/useImportActivity'
 import { useLibraryCatalog, type LibraryBook, type LibraryFilter, type LibrarySort } from '../hooks/useLibraryCatalog'
+import { useLibraryScrollRestore } from '@/hooks/useLibraryScrollRestore'
+import { useWindowVirtualList } from '@/hooks/useWindowVirtualList'
 import { GENRE_LABELS, type CanonicalGenre } from '../utils/categoryNormalizer'
 import { BookImportService, type FolderImportOptions, type ImportPreviewItem, type ImportProgress, type ImportSummary } from '../services/BookImportService'
 import { IMPORT_IN_PROGRESS_MESSAGE } from '../services/ImportCoordinator'
@@ -82,6 +84,11 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
   const fileInputRef = useRef<HTMLInputElement>(null)
   const importActive = useIsImportActive()
   const importBusy = importing || importActive
+
+  // Restaura a posicao de scroll ao voltar de um livro (App.tsx desmonta
+  // LibraryScreen de verdade ao navegar) e reseta pro topo quando
+  // filtro/busca/ordenacao mudam — cobre lista e grid via viewMode.
+  useLibraryScrollRestore({ viewMode, activeFilter, search, sort })
 
   function handleBookmarksRestored(count: number) {
     if (count > 0) setRestoredBookmarks(count)
@@ -531,17 +538,12 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
         )}
 
         {!isLoading && filteredBooks.length > 0 && viewMode === 'list' && (
-          <div className="divide-y divide-white/5">
-            {filteredBooks.map((book) => (
-              <LibraryBookRow
-                key={book.id}
-                book={book}
-                onOpenBook={onOpenBook}
-                onOpenOptions={setOptionsBook}
-                onOpenTags={setTagEditorBook}
-              />
-            ))}
-          </div>
+          <VirtualizedLibraryList
+            books={filteredBooks}
+            onOpenBook={onOpenBook}
+            onOpenOptions={setOptionsBook}
+            onOpenTags={setTagEditorBook}
+          />
         )}
       </main>
 
@@ -748,6 +750,62 @@ function FilterChip({ active, label, onClick }: { active: boolean; label: string
     >
       {label}
     </button>
+  )
+}
+
+// Altura aproximada de uma LibraryBookRow (capa 92px + paddings) — so serve
+// de estimativa inicial pro virtualizador; measureElement corrige com a
+// altura real depois do primeiro render de cada linha (tags podem quebrar
+// linha, "aberto em" e opcional).
+const LIST_ROW_ESTIMATED_HEIGHT = 148
+
+function VirtualizedLibraryList({ books, onOpenBook, onOpenOptions, onOpenTags }: {
+  books: LibraryBook[]
+  onOpenBook: (book: Book) => void
+  onOpenOptions: (book: LibraryBook) => void
+  onOpenTags: (book: LibraryBook) => void
+}) {
+  const { containerRef, virtualizer } = useWindowVirtualList({
+    count: books.length,
+    estimateSize: () => LIST_ROW_ESTIMATED_HEIGHT,
+  })
+
+  return (
+    <div
+      ref={containerRef}
+      data-testid="library-virtual-list"
+      // overflowAnchor: none — sem isso, o scroll anchoring nativo do
+      // browser "corrige" a posição de scroll toda vez que measureElement
+      // ajusta a altura estimada de uma linha, brigando com o reset pro
+      // topo do useLibraryScrollRestore (achado testando no browser real).
+      style={{ position: 'relative', height: virtualizer.getTotalSize(), overflowAnchor: 'none' }}
+    >
+      {virtualizer.getVirtualItems().map((virtualItem) => {
+        const book = books[virtualItem.index]
+        return (
+          <div
+            key={virtualItem.key}
+            ref={virtualizer.measureElement}
+            data-index={virtualItem.index}
+            className={virtualItem.index > 0 ? 'border-t border-white/5' : undefined}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              transform: `translateY(${virtualItem.start - virtualizer.options.scrollMargin}px)`,
+            }}
+          >
+            <LibraryBookRow
+              book={book}
+              onOpenBook={onOpenBook}
+              onOpenOptions={onOpenOptions}
+              onOpenTags={onOpenTags}
+            />
+          </div>
+        )
+      })}
+    </div>
   )
 }
 

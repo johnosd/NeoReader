@@ -39,6 +39,7 @@
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@fontsource/playfair-display": "^5.2.8",
     "@revenuecat/purchases-capacitor": "^11.0.0",
+    "@tanstack/react-virtual": "^3.14.10",
     "dexie": "^4.4.2",
     "dexie-react-hooks": "^4.4.0",
     "fflate": "^0.8.2",
