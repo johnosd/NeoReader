@@ -625,6 +625,42 @@ describe('provider API key validation', () => {
     expect(body.input).toBe('Hello world')
   })
 
+  it('sintetiza ingles com simba-3.0 quando nenhuma voz com suporte a simba-3.2 foi selecionada', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      audio_data: 'YQ==',
+      speech_marks: [],
+    }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await SpeechifyService.synthesize('Hello world', {
+      apiKey: 'valid-key',
+      language: 'en-US',
+      rate: 1,
+    })
+
+    const body = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
+    expect(body.model).toBe('simba-3.0')
+    expect(body.language).toBe('en-US')
+  })
+
+  it('sintetiza idioma nao-ingles com simba-3.0', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      audio_data: 'YQ==',
+      speech_marks: [],
+    }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await SpeechifyService.synthesize('Ola mundo', {
+      apiKey: 'valid-key',
+      language: 'pt-BR',
+      rate: 1,
+    })
+
+    const body = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
+    expect(body.model).toBe('simba-3.0')
+    expect(body.language).toBe('pt-BR')
+  })
+
   it('valida uma API key da Fish Audio pela lista de modelos do usuario', async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ total: 0, items: [] }), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)

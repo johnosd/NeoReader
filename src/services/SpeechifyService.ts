@@ -149,8 +149,11 @@ function normalizeSpeechInput(text: string) {
     .trim()
 }
 
-function pickSpeechifyModel(language: string) {
-  return getBaseLanguage(language) === 'en' ? 'simba-english' : 'simba-multilingual'
+// simba-english/simba-multilingual (Simba 1.6) são retirados pela Speechify em 2026-09-21.
+// simba-3.2 só aceita um conjunto curado de vozes por idioma (inglês); sem confirmação de
+// que a voz suporta, cai pro simba-3.0 (aceita o catálogo completo) — nunca assume suporte.
+function pickSpeechifyModel(language: string, modelId?: string | null) {
+  return getBaseLanguage(language) === 'en' && modelId === 'simba-3.2' ? 'simba-3.2' : 'simba-3.0'
 }
 
 function normalizeSpeechifyVoice(rawVoice: RawSpeechifyVoice): SpeechifyVoice {
