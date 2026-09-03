@@ -104,7 +104,7 @@ Nenhuma fase Foundational necessária — User Story 1 é autocontida (só alter
 **Purpose**: Limpeza, gate final de qualidade e validação manual obrigatória contra a API viva.
 
 - [X] T013 [P] Editar `src/__tests__/services/providerValidation.test.ts` — atualizar os 2 fixtures antigos que ainda citam `'simba-multilingual'` como exemplo de `models[].name` (linhas ~544 e ~583 no momento desta spec) para nomes atuais (`'simba-3.0'`/`'simba-3.2'`), evitando sugerir nomenclatura retirada. Não bloqueante — só clareza.
-- [X] T014 Rodar a validação manual completa de `quickstart.md` (Cenários A, B e C) contra a API viva da Speechify (key local em `.env`) — obrigatória por FR-008/SC-002. **Fechada com confirmação parcial** (decisão do usuário em 2026-09-03): `GET /v1/voices` real confirmou `simba-3.2`/vozes/`carly` exatamente como o código espera (R-001 resolvido); `POST /v1/audio/speech` não pôde ser confirmado ponta a ponta por falta de créditos na conta (`402 payment_required` em qualquer modelo, inclusive o antigo) — ver R-003 em `plan.md`.
+- [X] T014 Rodar a validação manual completa de `quickstart.md` (Cenários A, B e C) contra a API viva da Speechify (key local em `.env`) — obrigatória por FR-008/SC-002. **Concluída por completo**: `GET /v1/voices` confirmou `simba-3.2`/vozes/`carly` reais (R-001); depois o usuário instalou no device real (`npm run android:run`) e testou de verdade — narração em inglês usou `simba-3.2`, em português usou `simba-3.0`, exatamente como projetado (R-003 resolvido).
 - [X] T015 Rodar `npm run lint && npm test && npx tsc --noEmit && npm run build` como gate final (Constitution IV).
 
 ### Checklist de Release
@@ -112,7 +112,7 @@ Nenhuma fase Foundational necessária — User Story 1 é autocontida (só alter
 - [X] Fase 3 (User Story 1) concluída
 - [X] Fase 4 (User Story 2) concluída
 - [X] Testes automatizados cobrindo os 3 caminhos de decisão de modelo (FR-007: inglês com voz suportada, inglês sem suporte, não-inglês) passando
-- [X] Validação manual contra API viva da Speechify concluída (FR-008 / `quickstart.md`) — parcial, aceita pelo usuário (R-003 em `plan.md`: síntese de áudio não confirmada por falta de créditos na conta)
+- [X] Validação manual contra API viva da Speechify concluída (FR-008 / `quickstart.md`) — confirmada por completo: teste real no device (inglês → `simba-3.2`, português → `simba-3.0`)
 - [X] `npm run lint && npm test && npx tsc --noEmit && npm run build` limpos
 
 ---
