@@ -20,7 +20,7 @@ update-bug-status.ps1.
 | 006-virtualizacao-biblioteca | Virtualização da tela de Biblioteca (grid e lista) | Convergida | 30/30 tasks | 2026-09-03 |
 | 007-redimensionamento-capas | Redimensionamento e recompressão de capas de EPUB no import | Convergida | 19/19 tasks | 2026-09-03 |
 | 008-migracao-speechify-simba-3 | Migração Speechify simba-english/simba-multilingual → simba-3.2/simba-3.0 | Convergida | 20/20 tasks | 2026-09-03 |
-| 009-leitor-libera-recursos-book-destroy | Liberar recursos do leitor EPUB ao trocar de livro | Implementada | 13/13 tasks | 2026-09-04 |
+| 009-leitor-libera-recursos-book-destroy | Liberar recursos do leitor EPUB ao trocar de livro | Convergida | 14/14 tasks | 2026-09-04 |
 
 ## Bugs
 

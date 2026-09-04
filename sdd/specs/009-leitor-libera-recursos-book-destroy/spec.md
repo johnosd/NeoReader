@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-04
 
-**Status**: Implementada
+**Status**: Convergida
 
 **Input**: Assessment `sdd/assessments/foliate-js-nao-libera-capitulos-lidos-dommemoria/` (veredito `go`). O leitor EPUB nunca libera, ao fechar um livro, os recursos (imagens, fontes, CSS) que foram carregados durante a leitura — eles ficam retidos na memória indefinidamente, mesmo depois de o usuário trocar de livro ou sair do leitor. Isso foi identificado durante a investigação de um alerta de uso de memória do Play Console (`sdd/bugs/alerta-play-console-uso-memoria-acima/`), mas ficou fora do escopo daquele fix.
 

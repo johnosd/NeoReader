@@ -118,7 +118,7 @@ npm run build
 
 | ID | Risco/Decisão | Impacto | Mitigação/Encaminhamento |
 | --- | --- | --- | --- |
-| R-001 | `foliate.d.ts` é uma declaração manual de tipos de terceiro sem tipos nativos — se o commit pinado de `foliate-js` mudar no futuro e a API de `book.destroy()` mudar de nome/assinatura, o tipo ficaria desatualizado silenciosamente (TS não valida contra o pacote real). | Baixo — mesmo risco que já existe hoje para todo o resto de `foliate.d.ts`; não é introduzido por esta feature. | Nenhuma ação nova necessária; comportamento consistente com o padrão já aceito no projeto para esse arquivo. |
+| R-001 | `foliate.d.ts` é uma declaração manual de tipos de terceiro sem tipos nativos — se o commit pinado de `foliate-js` mudar no futuro e a API de `book.destroy()` mudar de nome/assinatura, o tipo ficaria desatualizado silenciosamente (TS não valida contra o pacote real). | Baixo — mesmo risco que já existe hoje para todo o resto de `foliate.d.ts`; não é introduzido por esta feature. | **Resolvido**: comportamento aceito, consistente com o padrão já existente no projeto para esse arquivo; sdd-converge não achou evidência de violação. |
 | R-002 | O `FoliateViewMock` em `setup.ts` inicializa `book` como campo de classe sempre presente (nunca `undefined`), diferente do `foliate-js` real onde `view.book` só existe depois de `open()` resolver — não é possível reproduzir no mock o cenário exato de FR-003 (cleanup rodando antes do book carregar). | Baixo — FR-003 já é satisfeito estruturalmente pelo optional chaining (`view?.book?.destroy?.()`), que é seguro por construção TypeScript/JS, não por um teste específico. | **Resolvido (revisado por T010)**: o mock foi reescrito — `book` agora só é populado dentro de `open()` (igual ao real), com controle `deferNextOpen()`/`resolveDeferredOpen()` pra testar timing. Motivo da revisão: esse gap de mock acabou mascarando um bug de verdade (ver R-003), então a decisão original de não testar foi refeita. |
 | R-003 | **(Achado em code review externo do PR #67, bot `chatgpt-codex-connector`, P2)** `view.open()` (`EpubViewer.tsx:3151`) é `await`ado antes de `view.book` existir de verdade (no `foliate-js` real, `this.book` só é atribuído dentro de `open()`, depois do parse). Se o cleanup rodar (troca de livro/saída do leitor) enquanto esse `open()` ainda está em voo, `view?.book?.destroy?.()` do cleanup não acha nada pra destruir, e o código original só fazia `if (cancelled) return` quando `open()` finalmente resolvia — vazando o book recém-criado pra sempre. Reintroduzia exatamente a classe de bug que esta feature corrige, no caso "abandonar um livro que ainda está carregando" (EPUB grande/rede lenta/device lento). | Médio — não é crash, mas é uma lacuna real na correção que esta própria feature entrega; plausível em uso real (OPDS remoto, sync na nuvem, devices lentos). | **Resolvido (T010)**: `EpubViewer.tsx:3152-3157` agora chama `view.book?.destroy?.()` antes de retornar quando `cancelled` já é `true` no momento em que `open()` resolve. Validado com teste de regressão (fix revertido temporariamente → teste falhou exatamente como previsto → fix restaurado → teste passa). |
 
@@ -154,3 +154,23 @@ npm run build
 <!-- Armadilhas operacionais específicas desta feature, anexadas conforme descobertas. -->
 
 - Se `gradlew.bat installDebug` (via `npm run android:run` / `scripts/run-android.ps1`) ficar com CPU do processo `java` parado (não crescendo por 10-15s) e `adb devices` vazio, o device caiu da conexão USB no meio do install — o processo Gradle não se recupera sozinho mesmo depois do device reconectar (a conexão adb que ele segurava fica obsoleta). Precisa encerrar o processo (`Stop-Process` no PID do `java`) e rodar `npm run android:run` de novo do zero.
+
+## Resultado Final
+
+<!-- Anexado pelo sdd-converge ao fechar a feature limpa. -->
+
+Convergência rodada em 2026-09-04 sobre `origin/main` (commit `93c9865`, merge dos PRs #67 e #68), depois de sincronizar a branch local. Mapeamento de todos os `FR-###`/`SC-###`/user story/edge cases da spec contra o código real não encontrou nenhuma lacuna (`missing`/`partial`/`contradicts`/`unrequested`) — feature convergiu limpa na primeira rodada.
+
+**O que foi construído, de fato**:
+
+- `view?.book?.destroy?.()` chamado em dois pontos de `EpubViewer.tsx`: no cleanup principal (`~3265`, cobre FR-001/FR-002 — saída do leitor e troca de livro) e no ponto em que `view.open()` resolve depois de `cancelled` já ser `true` (`~3152-3157`, cobre FR-003 — race descoberta em code review externo do PR #67 depois da feature já estar "Implementada", registrada como R-003 e corrigida como task ad-hoc T010).
+- `src/types/foliate.d.ts`: `View.book.destroy?(): void` adicionado (opcional, reflete declaração manual de tipo de terceiro).
+- Mock global de teste (`src/__tests__/setup.ts`) reescrito durante o T010: `book` só é populado dentro de `open()` (antes existia desde a construção do elemento) — isso fechou o R-002 original (mock não conseguia reproduzir a race) e tornou o R-003 testável de verdade.
+- 3 testes automatizados em `EpubViewer.test.tsx` cobrindo FR-001, FR-002 e a race do R-003/FR-003 — todos validados com o método "reverte o fix, confirma que o teste falha, restaura o fix" antes de aceitar como regressão real.
+- Validação manual em device real (Samsung SM-S911B, RXCX103NMVZ): 5+ ciclos abrir/trocar/sair de livro com `adb logcat` capturado em paralelo, zero erro/exceção/crash/ANR.
+
+**Desvios acumulados em relação ao plano original**: o único desvio é a descoberta e correção de R-003 depois da feature já ter sido marcada "Implementada" e ter PR aberto — não estava nas Decisões Invariantes originais porque só foi descoberto em code review externo. Tratado com a cerimônia de "task ad-hoc dentro do escopo da feature" (T010 em `tasks.md`), não como bug separado, já que é uma correção direta do mesmo mecanismo (`book.destroy()`) que esta feature introduziu.
+
+**SC-004 (verificação de memória via profiler)**: deliberadamente pulada, conforme já decidido como não-bloqueante na spec — coberta parcialmente pelos ciclos reais do T008 no device.
+
+**README.md do projeto**: conferido, nenhuma seção (features, stack, setup) referencia esse comportamento interno de gestão de memória do leitor — nenhuma edição necessária.
