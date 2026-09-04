@@ -450,8 +450,8 @@ Dados atuais do projeto Android:
 | Campo | Valor |
 |---|---|
 | `appId` / package | `com.johnny.neoreader` |
-| `versionName` | `1.0.16` |
-| `versionCode` | `20` |
+| `versionName` | `1.0.17` |
+| `versionCode` | `21` |
 | `minSdk` | `24` |
 | `compileSdk` / `targetSdk` | `36` |
 | Backup Android | desativado (`allowBackup=false`) |

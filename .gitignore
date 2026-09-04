@@ -77,3 +77,6 @@ debug-books/
 
 # Word Lens verified source cache (never bundled)
 .word-lens-cache/
+
+# Artefatos de release Android (AAB + mapping.txt) — arquivados localmente, nunca no Git
+release-artifacts/
