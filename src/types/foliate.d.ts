@@ -46,6 +46,8 @@ declare module 'foliate-js/view.js' {
       resources?: {
         manifest?: FoliateResource[]
       }
+      // Revoga os blob URLs de imagens/fontes/CSS acumulados durante a leitura (view.close() não chama isso sozinho)
+      destroy?(): void
     }
     renderer: HTMLElement & {
       primaryIndex: number

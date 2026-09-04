@@ -137,6 +137,7 @@ class FoliateViewMock extends HTMLElement {
       { label: 'Chapter 2', href: 'chapter-2.xhtml' },
       { label: 'Chapter 3', href: 'chapter-3.xhtml' },
     ],
+    destroy: vi.fn(),
   }
 }
 
