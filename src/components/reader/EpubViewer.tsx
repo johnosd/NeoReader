@@ -3255,6 +3255,9 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         cleanupPassiveEpubContentTransform?.()
         cleanupPassiveEpubContentTransform = null
         view?.close()
+        // view.close() do foliate-js não libera o book: sem isso, os blob URLs de
+        // imagens/fontes/CSS carregados durante a leitura vazam a cada troca de livro.
+        view?.book?.destroy?.()
         view?.remove()
         viewRef.current = null
       }

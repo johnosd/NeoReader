@@ -7,7 +7,6 @@ update-bug-status.ps1.
 ## Ideias Futuras
 
 - `[Bug]` Bucket "Optimization" (0%) do alerta de qualidade técnica do Play Console (release 20/1.0.16) — cobertura de shrink/obfuscate/optimize do R8 no DEX nativo. `minifyEnabled true`/`shrinkResources true` já ligados desde a versionCode 2, mas `android/app/proguard-rules.pro` tem `-keep class com.getcapacitor.** { *; }` genérico demais, isentando praticamente todo o código nativo (majoritariamente runtime do Capacitor) da otimização real. Achado durante a investigação do bug de memória (2026-09-01, ver `sdd/bugs/alerta-play-console-uso-memoria-acima/`), tratado como fora de escopo daquele fix. Enforcement do Google só em fev/2027, sem urgência.
-- `[Perf]` `foliate-js` (modo scroll contínuo do leitor) nunca libera capítulos já lidos do DOM/memória durante uma sessão de leitura longa — `#trimDistantViews` só evicta seções à frente do capítulo atual, nunca pra trás (comentário da própria lib: removê-las pra trás quebraria a posição de scroll). Investigado em 2026-09-01 (`sdd/bugs/alerta-play-console-uso-memoria-acima/assessment.md`). Duas abordagens possíveis: patchar `#trimDistantViews` pra evictar pra trás também (arriscado) ou chamar `view.book?.destroy?.()` como rede de segurança ao trocar de livro/sair do leitor (mais seguro, mitigação parcial). Projeto já tem infra de patch de vendor lib sem fork (`vite.config.ts`, plugin `harden-foliate-iframe-sandbox`) reaproveitável.
 
 ## Features
 
@@ -21,6 +20,7 @@ update-bug-status.ps1.
 | 006-virtualizacao-biblioteca | Virtualização da tela de Biblioteca (grid e lista) | Convergida | 30/30 tasks | 2026-09-03 |
 | 007-redimensionamento-capas | Redimensionamento e recompressão de capas de EPUB no import | Convergida | 19/19 tasks | 2026-09-03 |
 | 008-migracao-speechify-simba-3 | Migração Speechify simba-english/simba-multilingual → simba-3.2/simba-3.0 | Convergida | 20/20 tasks | 2026-09-03 |
+| 009-leitor-libera-recursos-book-destroy | Liberar recursos do leitor EPUB ao trocar de livro | Implementada | 13/13 tasks | 2026-09-04 |
 
 ## Bugs
 

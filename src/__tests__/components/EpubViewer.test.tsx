@@ -110,7 +110,7 @@ async function renderViewer(overrides: Record<string, unknown> = {}) {
   await act(async () => { await Promise.resolve() })
 
   const foliateEl = container.querySelector('foliate-view') as unknown as FoliateViewMock
-  return { viewerRef, foliateEl, props, container, rerender: rendered.rerender }
+  return { viewerRef, foliateEl, props, container, rerender: rendered.rerender, unmount: rendered.unmount }
 }
 
 /** Cria um Document mínimo e adiciona parágrafo com texto. */
@@ -2310,5 +2310,37 @@ describe('EpubViewer - imagens do leitor', () => {
       sectionIndex: 0,
       paragraphIndex: 0,
     })
+  })
+})
+
+describe('EpubViewer — liberação de recursos ao trocar de livro/desmontar', () => {
+  it('libera os recursos do livro ao sair do leitor (desmonte)', async () => {
+    const { foliateEl, unmount } = await renderViewer()
+
+    await act(async () => { unmount() })
+
+    expect(foliateEl.close).toHaveBeenCalledOnce()
+    expect(foliateEl.book.destroy).toHaveBeenCalledOnce()
+  })
+
+  it('libera os recursos do livro anterior ao trocar de livro', async () => {
+    const { viewerRef, foliateEl: firstFoliateEl, rerender, container } = await renderViewer()
+
+    const secondBook: Book = { ...mockBook, id: 2, title: 'Second Book' }
+    rerender(
+      <EpubViewer
+        ref={viewerRef}
+        {...(defaultProps({ book: secondBook }) as Parameters<typeof EpubViewer>[0])}
+      />,
+    )
+    // Flush promises: setup() da nova instância (import + open() + init() do mock resolvem imediatamente)
+    await act(async () => { await Promise.resolve() })
+
+    expect(firstFoliateEl.close).toHaveBeenCalledOnce()
+    expect(firstFoliateEl.book.destroy).toHaveBeenCalledOnce()
+
+    const secondFoliateEl = container.querySelector('foliate-view') as unknown as FoliateViewMock
+    expect(secondFoliateEl).not.toBe(firstFoliateEl)
+    expect(secondFoliateEl.book.destroy).not.toHaveBeenCalled()
   })
 })
