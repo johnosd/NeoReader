@@ -6,7 +6,7 @@ update-bug-status.ps1.
 
 ## Ideias Futuras
 
-- `[Bug]` Bucket "Optimization" (0%) do alerta de qualidade técnica do Play Console (release 20/1.0.16) — cobertura de shrink/obfuscate/optimize do R8 no DEX nativo. `minifyEnabled true`/`shrinkResources true` já ligados desde a versionCode 2, mas `android/app/proguard-rules.pro` tem `-keep class com.getcapacitor.** { *; }` genérico demais, isentando praticamente todo o código nativo (majoritariamente runtime do Capacitor) da otimização real. Achado durante a investigação do bug de memória (2026-09-01, ver `sdd/bugs/alerta-play-console-uso-memoria-acima/`), tratado como fora de escopo daquele fix. Enforcement do Google só em fev/2027, sem urgência.
+_(nenhuma no momento)_
 
 ## Features
 
@@ -32,3 +32,4 @@ update-bug-status.ps1.
 | tela-sincronizacao-na-nuvem-sem-opcao | Sincronização na Nuvem sem opção de conectar/reconectar fora do caso "token expirado" | Test | verified | Concluído | 2026-09-02 |
 | reconectar-google-drive-nao-recupera-bookmarks | Reconectar Google Drive não recupera bookmarks sem tentativa prévia registrada | Test | verified | Concluído | 2026-09-02 |
 | vitestconfigts-usa-pooloptions-depreciado-no-vitest | `vitest.config.ts` usa `test.poolOptions`, removido no Vitest 4 | Test | verified | Concluído | 2026-09-03 |
+| bucket-optimization-0-alerta-play-console | Bucket "Optimization" (0%) do alerta de qualidade técnica do Play Console | Assess | valid, held (low) — impacto real no Play Console é marginal (ver assessment.md) | Nenhum — held por decisão do usuário (ganho pequeno). Reabrir Fix se prioridade mudar | 2026-09-04 |
