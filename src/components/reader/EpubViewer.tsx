@@ -3149,7 +3149,12 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         try {
           const readerSource = await BookFileResolver.resolveReaderSource(book)
           await (view.open as (source: Blob | string) => Promise<void>)(readerSource)
-          if (cancelled) return
+          if (cancelled) {
+            // O cleanup já rodou (e não achou view.book, que só existe depois do open()
+            // resolver) — sem isso, o book que acabou de terminar de abrir vaza pra sempre.
+            view.book?.destroy?.()
+            return
+          }
           registerUnmanifestedEpubStylesheets(view.book)
           cleanupPassiveEpubContentTransform = installPassiveEpubContentTransform(view)
 

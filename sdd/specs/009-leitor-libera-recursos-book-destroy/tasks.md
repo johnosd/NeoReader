@@ -70,6 +70,13 @@ description: "Lista de tasks para: Liberar recursos do leitor EPUB ao trocar de 
 - Testes executados: `npx vitest run src/__tests__/components/EpubViewer.test.tsx` → 76 passed (76), incluindo os 2 novos casos.
 - Pendências: nenhuma.
 
+**Task ad-hoc descoberta em code review (PR #67, bot `chatgpt-codex-connector`, P2)**:
+
+- [X] T010 [US1] Corrigir race: `view.open()` (`EpubViewer.tsx:3151`) é `await`ado antes de `view.book` existir de verdade — se o cleanup rodar (troca de livro/saída do leitor) enquanto esse `open()` ainda está em voo (EPUB grande/rede lenta), o `view?.book?.destroy?.()` do cleanup não acha nada pra destruir (book ainda não existia), e quando `open()` finalmente resolve, o código só fazia `if (cancelled) return` sem nunca destruir o book recém-criado — reintroduzindo exatamente o vazamento que esta feature corrige, só que no caso "abandonar um livro que ainda está carregando". Corrigido em `EpubViewer.tsx:3152-3157`: quando `cancelled` já é `true` no momento em que `open()` resolve, chama `view.book?.destroy?.()` antes de retornar.
+  - Teste novo em `EpubViewer.test.tsx` ("libera o book que termina de abrir depois do cleanup já ter rodado"), usando novo controle `deferNextOpen()`/`resolveDeferredOpen()` em `setup.ts` que faz a próxima chamada de `open()` do mock ficar pendente — necessário reescrever o timing do mock (`FoliateViewMock.book` agora só é populado quando `open()` resolve, igual ao `foliate-js` real, em vez de existir desde a construção do elemento) pra tornar essa race reproduzível em teste; sem essa mudança no mock, o gap ficava mascarado (R-002 em `plan.md`, agora resolvido).
+  - Confirmado que o teste pega o bug: revertido o fix temporariamente, teste falhou (`book.destroy` chamado 0 vezes) exatamente como o comentário do bot previa; fix restaurado, teste voltou a passar.
+  - `npx tsc --noEmit`, `npm run lint`, `npm test` (807 passed / 2 skipped, era 806 — +1 teste novo), `npm run build` — todos limpos.
+
 ---
 
 ## Phase 4: Polish & Cross-Cutting Concerns

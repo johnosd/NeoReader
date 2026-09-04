@@ -8,7 +8,7 @@ import {
 import { logEvent } from '@/services/DiagnosticsLogger'
 import type { Book } from '@/types/book'
 import { registerUnmanifestedEpubStylesheets } from '@/utils/epubResources'
-import { failNextOpen, type FoliateViewMock } from '../setup'
+import { failNextOpen, deferNextOpen, resolveDeferredOpen, type FoliateViewMock } from '../setup'
 
 // Mocka o import dinâmico de foliate-js — apenas registra o side-effect.
 // O elemento <foliate-view> é provido pelo FoliateViewMock registrado no setup.ts.
@@ -727,7 +727,7 @@ describe('EpubViewer — abertura do livro', () => {
       type: 'application/xhtml+xml',
     }
 
-    foliateEl.book.transformTarget.dispatchEvent(new CustomEvent('data', { detail }))
+    foliateEl.book!.transformTarget.dispatchEvent(new CustomEvent('data', { detail }))
     const transformed = await detail.data
     const parsed = new DOMParser().parseFromString(transformed, 'application/xhtml+xml')
 
@@ -1121,8 +1121,8 @@ describe('EpubViewer — posição visível', () => {
   it('usa progresso da secao como fallback quando o item do indice tem ancora', async () => {
     const onRelocate = vi.fn()
     const { foliateEl } = await renderViewer({ onRelocate })
-    foliateEl.book.sections = [{ href: 'chapter.xhtml', linear: 'yes' }]
-    foliateEl.book.toc = [
+    foliateEl.book!.sections = [{ href: 'chapter.xhtml', linear: 'yes' }]
+    foliateEl.book!.toc = [
       { label: 'Parte 1', href: 'chapter.xhtml#parte-1' },
       { label: 'Parte 2', href: 'chapter.xhtml#parte-2' },
     ]
@@ -1152,7 +1152,7 @@ describe('EpubViewer — posição visível', () => {
   it('omite progresso do capitulo quando nao ha indice confiavel', async () => {
     const onRelocate = vi.fn()
     const { foliateEl } = await renderViewer({ onRelocate })
-    foliateEl.book.toc = []
+    foliateEl.book!.toc = []
 
     const doc = makeFakeDoc(['Chapter without toc.'])
     loadSection(foliateEl, doc, 0)
@@ -1724,7 +1724,7 @@ describe('EpubViewer — chapter auto-advance', () => {
 
   it('pula páginas de parte mesmo quando elas têm um parágrafo curto extra', async () => {
     const { viewerRef, foliateEl } = await renderViewer()
-    foliateEl.book.sections = [
+    foliateEl.book!.sections = [
       { id: 'chapter-1.xhtml', href: 'chapter-1.xhtml', linear: 'yes' },
       { id: 'part-1.xhtml', href: 'part-1.xhtml', linear: 'yes' },
       { id: 'chapter-2.xhtml', href: 'chapter-2.xhtml', linear: 'yes' },
@@ -1767,7 +1767,7 @@ describe('EpubViewer — chapter auto-advance', () => {
     partDoc.body.append(part, watermark)
     injectFakeWindow(partDoc, 0, 800, 400)
 
-    foliateEl.book.sections = [
+    foliateEl.book!.sections = [
       { id: 'chapter-1.xhtml', href: 'chapter-1.xhtml', linear: 'yes' },
       { id: 'part-1.xhtml', href: 'part-1.xhtml', linear: 'yes' },
       { id: 'chapter-2.xhtml', href: 'chapter-2.xhtml', linear: 'yes' },
@@ -1787,7 +1787,7 @@ describe('EpubViewer — chapter auto-advance', () => {
 
   it('resolve href do indice por sufixo quando o caminho do spine tem prefixo OPF', async () => {
     const { viewerRef, foliateEl } = await renderViewer()
-    foliateEl.book.sections = [
+    foliateEl.book!.sections = [
       { id: 'OPS/Text/chapter-1.xhtml', href: 'OPS/Text/chapter-1.xhtml', linear: 'yes' },
       { id: 'OPS/Text/chapter-2.xhtml', href: 'OPS/Text/chapter-2.xhtml', linear: 'yes' },
     ]
@@ -1813,7 +1813,7 @@ describe('EpubViewer — chapter auto-advance', () => {
 
   it('resolve explicitamente fragments do indice mesmo quando o href bate com o spine', async () => {
     const { viewerRef, foliateEl } = await renderViewer()
-    foliateEl.book.sections = [
+    foliateEl.book!.sections = [
       { id: 'OPS/c01.xhtml', href: 'OPS/c01.xhtml', linear: 'yes' },
       { id: 'OPS/c02.xhtml', href: 'OPS/c02.xhtml', linear: 'yes' },
     ]
@@ -2320,7 +2320,7 @@ describe('EpubViewer — liberação de recursos ao trocar de livro/desmontar', 
     await act(async () => { unmount() })
 
     expect(foliateEl.close).toHaveBeenCalledOnce()
-    expect(foliateEl.book.destroy).toHaveBeenCalledOnce()
+    expect(foliateEl.book?.destroy).toHaveBeenCalledOnce()
   })
 
   it('libera os recursos do livro anterior ao trocar de livro', async () => {
@@ -2337,10 +2337,32 @@ describe('EpubViewer — liberação de recursos ao trocar de livro/desmontar', 
     await act(async () => { await Promise.resolve() })
 
     expect(firstFoliateEl.close).toHaveBeenCalledOnce()
-    expect(firstFoliateEl.book.destroy).toHaveBeenCalledOnce()
+    expect(firstFoliateEl.book?.destroy).toHaveBeenCalledOnce()
 
     const secondFoliateEl = container.querySelector('foliate-view') as unknown as FoliateViewMock
     expect(secondFoliateEl).not.toBe(firstFoliateEl)
-    expect(secondFoliateEl.book.destroy).not.toHaveBeenCalled()
+    expect(secondFoliateEl.book?.destroy).not.toHaveBeenCalled()
+  })
+
+  it('libera o book que termina de abrir depois do cleanup já ter rodado (open() pendente durante saída)', async () => {
+    // Simula EPUB grande/rede lenta: open() fica pendente além do flush inicial do renderViewer.
+    deferNextOpen()
+    const { foliateEl, unmount } = await renderViewer()
+
+    // Nesse instante, open() ainda não resolveu — view.book ainda não existe (igual ao foliate-js real).
+    expect(foliateEl.book).toBeUndefined()
+
+    await act(async () => { unmount() })
+    expect(foliateEl.close).toHaveBeenCalledOnce()
+
+    // open() só resolve DEPOIS do cleanup ter rodado — sem o fix, o book que acabou de
+    // nascer aqui vazaria pra sempre (cleanup já passou e não vai rodar de novo).
+    await act(async () => {
+      resolveDeferredOpen()
+      await Promise.resolve()
+    })
+
+    expect(foliateEl.book).toBeDefined()
+    expect(foliateEl.book?.destroy).toHaveBeenCalledOnce()
   })
 })
