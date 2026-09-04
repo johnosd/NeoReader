@@ -13,6 +13,39 @@ export function failNextOpen(err: Error) {
   nextOpenError = err
 }
 
+// Global flag: quando setado, a próxima chamada de open() fica pendente até
+// resolveDeferredOpen() ser chamado — simula EPUB grande/rede lenta pra testar
+// cleanup rodando antes de open() (e portanto view.book) resolver.
+let deferNextOpenFlag = false
+let deferredOpenResolve: (() => void) | null = null
+
+export function deferNextOpen() {
+  deferNextOpenFlag = true
+}
+
+export function resolveDeferredOpen() {
+  deferredOpenResolve?.()
+  deferredOpenResolve = null
+}
+
+function makeBookMock() {
+  return {
+    transformTarget: new EventTarget(),
+    metadata: {},
+    sections: [
+      { href: 'chapter-1.xhtml', linear: 'yes' },
+      { href: 'chapter-2.xhtml', linear: 'yes' },
+      { href: 'chapter-3.xhtml', linear: 'yes' },
+    ],
+    toc: [
+      { label: 'Chapter 1', href: 'chapter-1.xhtml' },
+      { label: 'Chapter 2', href: 'chapter-2.xhtml' },
+      { label: 'Chapter 3', href: 'chapter-3.xhtml' },
+    ],
+    destroy: vi.fn(),
+  }
+}
+
 // Mock foliate-view element used by EpubViewer tests.
 class FoliateViewMock extends HTMLElement {
   private foliateCallbacks = new Map<string, Array<(e: { detail: unknown }) => void>>()
@@ -61,6 +94,18 @@ class FoliateViewMock extends HTMLElement {
       nextOpenError = null
       return Promise.reject(err)
     }
+    // book só existe depois que open() resolve, igual ao foliate-js real
+    // (view.book é atribuído dentro de open(), depois do parse do EPUB).
+    if (deferNextOpenFlag) {
+      deferNextOpenFlag = false
+      return new Promise<void>((resolve) => {
+        deferredOpenResolve = () => {
+          this.book = makeBookMock()
+          resolve()
+        }
+      })
+    }
+    this.book = makeBookMock()
     return Promise.resolve()
   })
 
@@ -72,7 +117,7 @@ class FoliateViewMock extends HTMLElement {
     if (typeof target === 'number') this.rendererPrimaryIndex = target
     if (typeof target === 'string') {
       const targetDocument = target.split('#')[0]
-      const sectionIndex = this.book.sections.findIndex((section) => (
+      const sectionIndex = (this.book?.sections ?? []).findIndex((section) => (
         section.href === targetDocument ||
         section.id === targetDocument ||
         section.href?.endsWith(`/${targetDocument}`) ||
@@ -124,21 +169,7 @@ class FoliateViewMock extends HTMLElement {
     }),
   }
 
-  book = {
-    transformTarget: new EventTarget(),
-    metadata: {},
-    sections: [
-      { href: 'chapter-1.xhtml', linear: 'yes' },
-      { href: 'chapter-2.xhtml', linear: 'yes' },
-      { href: 'chapter-3.xhtml', linear: 'yes' },
-    ],
-    toc: [
-      { label: 'Chapter 1', href: 'chapter-1.xhtml' },
-      { label: 'Chapter 2', href: 'chapter-2.xhtml' },
-      { label: 'Chapter 3', href: 'chapter-3.xhtml' },
-    ],
-    destroy: vi.fn(),
-  }
+  book: ReturnType<typeof makeBookMock> | undefined = undefined
 }
 
 if (!customElements.get('foliate-view')) {
