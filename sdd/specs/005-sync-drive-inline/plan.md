@@ -307,4 +307,60 @@ checagem (Fase 5).
 
 <!-- Armadilhas operacionais específicas desta feature, anexadas conforme descobertas. -->
 
-- (nenhum ainda)
+- **A premissa central desta feature era falsa.** Não existe renovação
+  silenciosa do token do Drive nesta versão do plugin. Ver "Revisão
+  pós-implementação" abaixo antes de mexer em qualquer coisa aqui.
+- O `quickstart.md` desta feature tem um "Cenário 1 — Renovação silenciosa
+  (US1)" que **não é um roteiro válido de teste**: o comportamento que ele
+  manda verificar nunca existiu.
+
+## Revisão pós-implementação (2026-09-07)
+
+<!-- Anexado após o bugfix app-pedindo-login-google-muita-frequencia. Nada
+     acima foi reescrito: esta seção registra o que a realidade contrariou. -->
+
+A US1 ("renovação silenciosa") foi construída sobre uma premissa incorreta,
+descoberta ~5 dias depois pelo bug
+`sdd/bugs/app-pedindo-login-google-muita-frequencia/`.
+
+**O que o plano assumia** (linhas 42-46 desta página):
+
+> O comportamento "silencioso quando o escopo já foi concedido, visível
+> quando não" é nativo do próprio `signInWithGoogle`/Google Identity
+> Services (Android).
+
+**O que é verdade:** `@capacitor-firebase/authentication` (verificado em
+8.2.0 e na 8.5.1, a mais recente) monta a autorização com
+`requestOfflineAccess(clientId, /* forceCodeForRefreshToken */ true)`
+hardcoded, e o Google documenta que, com esse flag, **toda autorização depois
+da primeira exige consentimento do usuário de novo**. Não há caminho
+silencioso. Some-se que o ramo do Credential Manager resolvia com
+`accessToken` nulo quando o escopo já estava concedido, apagando o token
+válido em cache — o que fechava um loop de novas solicitações de login.
+
+**Consequência no código:** o retry-once com renovação, que a Decisão
+Invariante desta feature colocava em
+`GoogleDriveAppDataService.request()`/`resolveAccessToken()`, **foi removido**.
+Aquele ponto único, que a feature escolheu justamente por ser por onde todas
+as chamadas ao Drive passam, era o que transformava qualquer sync de
+background numa tela de consentimento. Hoje:
+
+- `GoogleDriveAppDataService` nunca renova token: lança `missing-token` /
+  `permission-denied` e o status vai para `permission-error`;
+- `refreshDriveToken` exige `{ userInitiated }` e só é chamado pelo botão
+  "Reconectar" em `SettingsSyncScreen` — o mesmo botão manual que a US1
+  queria tornar desnecessário;
+- as chamadas com escopo do Drive usam `useCredentialManager: false`.
+
+**O que sobreviveu desta feature:** a US2 (ícone de nuvem tocável em
+`BookDetailsScreen` disparando sync inline) segue válida e em produção. O
+coalescing de chamadas concorrentes em `refreshDriveToken` também.
+
+**O que continua verdade da spec original:** o FR-009 (não implementar
+`refresh_token` de longa duração / OAuth offline) permanece fora de escopo —
+e é justamente ele que resolveria o problema de raiz. O bug o registra como
+candidato a feature própria via `sdd-specify`, não como bugfix.
+
+A afirmação acima de que "nenhuma decisão técnica do plano original foi
+revertida ou substituída" valia no fechamento da Fase 5 e **deixou de valer**
+em 2026-09-07.

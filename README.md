@@ -24,11 +24,13 @@ tags, pastas de origem e caches ficam no dispositivo.
   ocultados para usuario Pro quando o entitlement estiver ativo.
 - Drive Sync de bookmarks existe via Google Drive `appDataFolder`, bloqueado
   pelo entitlement Pro. Progresso, vocabulario, EPUB e recursos de IA ainda nao
-  entram no sync. O token de acesso se renova sozinho (silenciosamente, sem
-  pedir reconexao manual) sempre que uma sincronizacao encontra o token
-  ausente ou expirado; um bookmark pendente ou com erro tambem pode ser
-  sincronizado direto pelo proprio icone de nuvem na tela de Detalhes do
-  Livro, sem precisar abrir Configuracoes.
+  entram no sync. O token de acesso **nao** se renova sozinho: renovar exige
+  abrir a tela de consentimento do Google (limitacao do plugin, ver
+  `sdd/bugs/app-pedindo-login-google-muita-frequencia/`), entao quando o token
+  expira (~1h) o sync para em silencio e o status vira erro de permissao — so
+  o botao "Reconectar" em Configuracoes > Sincronizacao na Nuvem pede login de
+  novo. Um bookmark pendente ou com erro pode ser sincronizado direto pelo
+  proprio icone de nuvem na tela de Detalhes do Livro, sem abrir Configuracoes.
 - Review/Author/Descubra usam quota Free mensal local-first; cache ja carregado
   continua visivel e Pro remove a quota.
 

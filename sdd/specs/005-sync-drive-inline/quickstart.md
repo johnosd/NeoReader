@@ -19,7 +19,17 @@ npm run build
 
 Todos os quatro devem passar sem erro.
 
-## Cenário 1 — Renovação silenciosa (US1)
+## Cenário 1 — Renovação silenciosa (US1) — ⚠️ OBSOLETO
+
+> **Não siga este cenário.** O comportamento que ele manda verificar nunca
+> existiu: não há renovação silenciosa do token do Drive nesta versão do
+> plugin, e o retry-once que a US1 introduziu foi removido pelo bug
+> `sdd/bugs/app-pedindo-login-google-muita-frequencia/` (2026-09-07).
+> Hoje o esperado é o oposto: com o token expirado, o sync **falha em
+> silêncio** e o status vai para `permission-error`, sem pedir login — só o
+> botão "Reconectar" em Configurações abre a tela do Google.
+> Ver "Revisão pós-implementação" em `plan.md`. O Cenário 2 (US2) segue válido.
+
 
 1. Logar como Pro, conectar o Google Drive normalmente uma vez (Configurações
    > Sincronização na Nuvem, ou aceitar o consentimento no próprio login).
