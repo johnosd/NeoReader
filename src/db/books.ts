@@ -37,10 +37,11 @@ export async function findBookByFileName(fileName: string): Promise<Book | undef
 
 export async function deleteBook(id: number): Promise<void> {
   // Apaga o livro e todos os dados relacionados numa transação atômica.
-  // Sem isso, progresso, marcadores, vocabulário e assets ficam órfãos no IndexedDB.
+  // Sem isso, progresso, marcadores, vocabulário, highlights e assets ficam
+  // órfãos no IndexedDB.
   await db.transaction(
     'rw',
-    [db.books, db.bookCovers, db.progress, db.bookmarks, db.vocabulary, db.bookSettings, db.bookInfo, db.epubExtras, db.authors],
+    [db.books, db.bookCovers, db.progress, db.bookmarks, db.vocabulary, db.bookSettings, db.bookInfo, db.epubExtras, db.authors, db.highlights],
     async () => {
       await db.books.delete(id)
       await db.bookCovers.delete(id)
@@ -50,6 +51,7 @@ export async function deleteBook(id: number): Promise<void> {
       await db.bookSettings.where('bookId').equals(id).delete()
       await db.bookInfo.delete(id)
       await db.epubExtras.delete(id)
+      await db.highlights.where('bookId').equals(id).delete()
       await unlinkBookFromAuthors(id)
     },
   )

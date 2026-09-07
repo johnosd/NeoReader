@@ -108,6 +108,62 @@ public class NeoReaderLibraryPlugin extends Plugin {
         });
     }
 
+    // Compartilhar o trecho selecionado (FR-003c). Existe aqui, e nao via
+    // navigator.share() do JS, porque o Android System WebView (diferente do
+    // Chrome for Android) nao implementa a Web Share API de forma confiavel —
+    // confirmado em device: o botao nao fazia nada. Intent.ACTION_SEND e o
+    // caminho nativo de verdade, e o mesmo padrao do setReaderImmersiveMode
+    // acima: capacidade nova no plugin ja existente, sem plugin novo.
+    @PluginMethod
+    public void shareText(PluginCall call) {
+        String text = call.getString("text", "");
+        if (text.isEmpty()) {
+            call.reject("Texto vazio.");
+            return;
+        }
+        Activity activity = getActivity();
+        if (activity == null) {
+            call.reject("Activity nativa indisponivel.");
+            return;
+        }
+
+        activity.runOnUiThread(() -> {
+            try {
+                Intent sendIntent = new Intent(Intent.ACTION_SEND);
+                sendIntent.setType("text/plain");
+                sendIntent.putExtra(Intent.EXTRA_TEXT, text);
+                activity.startActivity(Intent.createChooser(sendIntent, null));
+                call.resolve();
+            } catch (Exception error) {
+                call.reject("Nao foi possivel compartilhar.", error);
+            }
+        });
+    }
+
+    // Mesmo formato do setReaderImmersiveMode acima: flag de UI da Activity
+    // com escopo do leitor. A supressao em si vive na MainActivity, unico
+    // ponto onde da pra recusar o ActionMode flutuante do Chromium.
+    @PluginMethod
+    public void setSelectionMenuSuppressed(PluginCall call) {
+        boolean enabled = Boolean.TRUE.equals(call.getBoolean("enabled", false));
+        Activity activity = getActivity();
+        if (activity == null) {
+            call.reject("Activity nativa indisponivel.");
+            return;
+        }
+
+        activity.runOnUiThread(() -> {
+            try {
+                if (activity instanceof MainActivity) {
+                    ((MainActivity) activity).setSelectionMenuSuppressed(enabled);
+                }
+                call.resolve();
+            } catch (Exception error) {
+                call.reject("Nao foi possivel atualizar a supressao do menu de selecao.", error);
+            }
+        });
+    }
+
     @SuppressWarnings("deprecation")
     @PluginMethod
     public void selectEpubFolder(PluginCall call) {

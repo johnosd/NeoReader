@@ -1042,6 +1042,569 @@ describe('EpubViewer — seleção de texto', () => {
   })
 })
 
+// ─── Highlights de trecho selecionado (feature 010) ────────────────────────
+
+/** Substitui doc.getSelection() por um stub controlável — jsdom não implementa
+ * Selection de verdade em documentos avulsos (document.implementation.createHTMLDocument). */
+function setDocSelection(doc: Document, range: Range | null) {
+  const selectionStub = {
+    isCollapsed: !range || range.collapsed,
+    rangeCount: range ? 1 : 0,
+    getRangeAt: () => range as Range,
+    removeAllRanges: vi.fn(),
+  }
+  Object.defineProperty(doc, 'getSelection', {
+    configurable: true,
+    value: () => selectionStub,
+  })
+  return selectionStub
+}
+
+function fireSelectionChange(doc: Document) {
+  act(() => { doc.dispatchEvent(new Event('selectionchange')) })
+}
+
+/** Seleciona todo o conteúdo de texto de `el` — não colapsado, texto não vazio. */
+function selectWholeText(doc: Document, el: Element): Range {
+  const range = doc.createRange()
+  range.selectNodeContents(el)
+  return range
+}
+
+/** O menu de seleção abre no modo 'root' (Copiar/Compartilhar/Destacar); as
+ * cores só aparecem depois de tocar em "Destacar" (submenu). */
+function openColorsSubmenu(doc: Document): HTMLElement {
+  const menu = doc.getElementById('nr-selection-menu') as HTMLElement
+  const openColorsBtn = menu.querySelector('[data-nr-selection-open-colors]') as HTMLElement
+  click(openColorsBtn)
+  return menu
+}
+
+describe('EpubViewer — highlights de trecho selecionado', () => {
+  let fakeDoc: Document
+  let para: HTMLElement
+  let onTranslate: ReturnType<typeof vi.fn>
+  let onCreateHighlight: ReturnType<typeof vi.fn>
+  let foliateEl: FoliateViewMock
+  let viewerRef: ReturnType<typeof createRef<EpubViewerHandle>>
+
+  beforeEach(async () => {
+    onTranslate = vi.fn()
+    onCreateHighlight = vi.fn()
+    const setup = await renderViewer({ onTranslate, onCreateHighlight })
+    foliateEl = setup.foliateEl
+    viewerRef = setup.viewerRef
+
+    fakeDoc = makeFakeDoc(['First sentence. Second sentence.'])
+    para = fakeDoc.querySelector('p') as HTMLElement
+    loadSection(foliateEl, fakeDoc, 0)
+  })
+
+  it('T011: click com seleção ativa desde o touchstart é ignorado e não chama onTranslate', () => {
+    setDocSelection(fakeDoc, selectWholeText(fakeDoc, para))
+    touchAt(fakeDoc.documentElement, 'touchstart', 100, 300)
+
+    click(para)
+
+    expectTapIgnored('text-selection')
+    expect(onTranslate).not.toHaveBeenCalled()
+  })
+
+  it('T012: sem seleção, o toque curto continua abrindo a tradução (anti-regressão)', () => {
+    setDocSelection(fakeDoc, null)
+    touchAt(fakeDoc.documentElement, 'touchstart', 100, 300)
+
+    click(para)
+
+    expect(onTranslate).toHaveBeenCalledOnce()
+  })
+
+  it('T013: gesto de rolagem continua caindo em scroll-gesture, sem criar seleção nem menu', () => {
+    setDocSelection(fakeDoc, null)
+    touchAt(fakeDoc.documentElement, 'touchstart', 100, 300)
+    touchAt(fakeDoc.documentElement, 'touchmove', 100, 400)
+
+    click(para)
+
+    expectTapIgnored('scroll-gesture')
+    expect(fakeDoc.getElementById('nr-selection-menu')?.hidden).not.toBe(false)
+  })
+
+  it('T013a: as quatro rejeições de FR-006 não abrem o menu', () => {
+    // (a) seleção colapsada
+    const collapsed = fakeDoc.createRange()
+    collapsed.setStart(para.firstChild as Text, 3)
+    collapsed.collapse(true)
+    setDocSelection(fakeDoc, collapsed)
+    fireSelectionChange(fakeDoc)
+    expect(fakeDoc.getElementById('nr-selection-menu')?.hidden).not.toBe(false)
+
+    // (b) só espaços/quebras
+    const wsText = fakeDoc.createTextNode('   ')
+    para.appendChild(wsText)
+    const wsRange = fakeDoc.createRange()
+    wsRange.selectNodeContents(wsText)
+    setDocSelection(fakeDoc, wsRange)
+    fireSelectionChange(fakeDoc)
+    expect(fakeDoc.getElementById('nr-selection-menu')?.hidden).not.toBe(false)
+    wsText.remove()
+
+    // (c) contida no #nr-translation-block
+    click(para)
+    act(() => { viewerRef.current?.showTranslationLoading() })
+    const block = fakeDoc.getElementById('nr-translation-block')
+    expect(block).not.toBeNull()
+    const textSlot = block!.querySelector('[data-nr-translation-slot]') as HTMLElement
+    textSlot.textContent = 'Texto traduzido de teste'
+    const blockRange = fakeDoc.createRange()
+    blockRange.selectNodeContents(textSlot)
+    setDocSelection(fakeDoc, blockRange)
+    fireSelectionChange(fakeDoc)
+    expect(fakeDoc.getElementById('nr-selection-menu')?.hidden).not.toBe(false)
+
+    // (d) startContainer/endContainer em documentos diferentes
+    const otherDoc = makeFakeDoc(['Other doc paragraph.'])
+    const otherPara = otherDoc.querySelector('p') as HTMLElement
+    const crossRange = fakeDoc.createRange()
+    crossRange.setStart(para.firstChild as Text, 0)
+    crossRange.setEnd(otherPara.firstChild as Text, 3)
+    setDocSelection(fakeDoc, crossRange)
+    fireSelectionChange(fakeDoc)
+    expect(fakeDoc.getElementById('nr-selection-menu')?.hidden).not.toBe(false)
+  })
+
+  // ── Submenu de cores (achado do usuário testando em device: as 8 cores
+  // direto na fileira tomavam espaço demais; agora ficam atrás de um único
+  // botão "Destacar") ──────────────────────────────────────────────────────
+  it('T062: o menu abre no modo raiz (Copiar/Compartilhar/Destacar), sem as cores visiveis ainda', () => {
+    const range = selectWholeText(fakeDoc, para)
+    setDocSelection(fakeDoc, range)
+    fireSelectionChange(fakeDoc)
+
+    const menu = fakeDoc.getElementById('nr-selection-menu') as HTMLElement
+    expect(menu.querySelector('[data-nr-selection-run="copy"]')).not.toBeNull()
+    expect(menu.querySelector('[data-nr-selection-run="share"]')).not.toBeNull()
+    expect(menu.querySelector('[data-nr-selection-open-colors]')).not.toBeNull()
+    expect(menu.querySelectorAll('[data-nr-selection-color]').length).toBe(0)
+  })
+
+  it('T063: tocar em Destacar abre o submenu com as 8 cores e um botao de voltar; voltar retorna ao modo raiz', () => {
+    const range = selectWholeText(fakeDoc, para)
+    setDocSelection(fakeDoc, range)
+    fireSelectionChange(fakeDoc)
+    const menu = openColorsSubmenu(fakeDoc)
+
+    expect(menu.querySelectorAll('[data-nr-selection-color]').length).toBe(8)
+    expect(menu.querySelector('[data-nr-selection-back]')).not.toBeNull()
+    expect(menu.querySelector('[data-nr-selection-run="copy"]')).toBeNull()
+
+    const backBtn = menu.querySelector('[data-nr-selection-back]') as HTMLElement
+    click(backBtn)
+
+    expect(menu.querySelectorAll('[data-nr-selection-color]').length).toBe(0)
+    expect(menu.querySelector('[data-nr-selection-run="copy"]')).not.toBeNull()
+  })
+
+  it('T064: uma nova selecao sempre abre no modo raiz, mesmo se a anterior tinha ficado no submenu de cores', () => {
+    const range = selectWholeText(fakeDoc, para)
+    setDocSelection(fakeDoc, range)
+    fireSelectionChange(fakeDoc)
+    const menu = openColorsSubmenu(fakeDoc)
+    expect(menu.querySelectorAll('[data-nr-selection-color]').length).toBe(8)
+
+    // dispensa (seleção colapsa) e cria uma seleção nova
+    setDocSelection(fakeDoc, null)
+    fireSelectionChange(fakeDoc)
+    expect(menu.hidden).toBe(true)
+
+    setDocSelection(fakeDoc, selectWholeText(fakeDoc, para))
+    fireSelectionChange(fakeDoc)
+
+    expect(menu.hidden).toBe(false)
+    expect(menu.querySelectorAll('[data-nr-selection-color]').length).toBe(0)
+    expect(menu.querySelector('[data-nr-selection-open-colors]')).not.toBeNull()
+  })
+
+  it('T014: escolher uma cor chama onCreateHighlight com CFI de intervalo (range não colapsado), texto e cor', () => {
+    foliateEl.getCFI.mockImplementation((_index: number, range?: Range | null) => (
+      range?.collapsed ? 'epubcfi(collapsed)' : 'epubcfi(/6/4!/4/2/1:0,/1:32)'
+    ))
+
+    const range = selectWholeText(fakeDoc, para)
+    setDocSelection(fakeDoc, range)
+    fireSelectionChange(fakeDoc)
+
+    const menu = fakeDoc.getElementById('nr-selection-menu')
+    expect(menu?.hidden).toBe(false)
+    openColorsSubmenu(fakeDoc)
+    const colorBtn = menu!.querySelector('[data-nr-selection-color="indigo"]') as HTMLElement
+    expect(colorBtn).not.toBeNull()
+
+    click(colorBtn)
+
+    expect(onCreateHighlight).toHaveBeenCalledWith(expect.objectContaining({
+      cfi: 'epubcfi(/6/4!/4/2/1:0,/1:32)',
+      text: 'First sentence. Second sentence.',
+      sectionIndex: 0,
+      color: 'indigo',
+    }))
+    expect(foliateEl.getCFI).toHaveBeenCalledWith(0, expect.objectContaining({ collapsed: false }))
+  })
+
+  // T014b (ad-hoc, achado em device RXCX103NMVZ testando T024): no Android o
+  // WebView colapsa a seleção nativa como parte de processar o PRÓPRIO toque
+  // no swatch de cor — 'selectionchange' dispara com seleção vazia ANTES do
+  // 'click' do swatch rodar. Sem o fallback pro último range elegível, o
+  // toque na cor não fazia nada. Ver R-009 em plan.md.
+  it('T014b: escolher uma cor ainda cria o highlight mesmo se a seleção nativa colapsar antes do click (corrida do Android)', () => {
+    foliateEl.getCFI.mockImplementation((_index: number, range?: Range | null) => (
+      range?.collapsed ? 'epubcfi(collapsed)' : 'epubcfi(/6/4!/4/2/1:0,/1:32)'
+    ))
+
+    const range = selectWholeText(fakeDoc, para)
+    setDocSelection(fakeDoc, range)
+    fireSelectionChange(fakeDoc)
+    const menu = openColorsSubmenu(fakeDoc)
+    const colorBtn = menu.querySelector('[data-nr-selection-color="indigo"]') as HTMLElement
+
+    // O toque no swatch colapsa a seleção nativa ANTES do click chegar —
+    // reproduz exatamente a ordem observada em device.
+    setDocSelection(fakeDoc, null)
+    fireSelectionChange(fakeDoc)
+    expect(menu.hidden).toBe(true)
+
+    click(colorBtn)
+
+    expect(onCreateHighlight).toHaveBeenCalledWith(expect.objectContaining({
+      cfi: 'epubcfi(/6/4!/4/2/1:0,/1:32)',
+      color: 'indigo',
+    }))
+  })
+
+  it('T014a: seleção deixar de ser elegível fecha o menu sem criar highlight; mudar de extensão reancora', () => {
+    const range = selectWholeText(fakeDoc, para)
+    setDocSelection(fakeDoc, range)
+    fireSelectionChange(fakeDoc)
+    const menu = fakeDoc.getElementById('nr-selection-menu') as HTMLElement
+    expect(menu.hidden).toBe(false)
+    const topWhenOpen = menu.style.top
+
+    // Seleção muda de extensão (usuário arrastando uma alça) — reancora, não recria.
+    const narrower = fakeDoc.createRange()
+    narrower.setStart(para.firstChild as Text, 0)
+    narrower.setEnd(para.firstChild as Text, 5)
+    setDocSelection(fakeDoc, narrower)
+    fireSelectionChange(fakeDoc)
+    expect(fakeDoc.getElementById('nr-selection-menu')).toBe(menu)
+    expect(menu.hidden).toBe(false)
+    void topWhenOpen
+
+    // Seleção deixa de ser elegível (colapsada) — fecha sem criar highlight.
+    setDocSelection(fakeDoc, null)
+    fireSelectionChange(fakeDoc)
+    expect(menu.hidden).toBe(true)
+    expect(onCreateHighlight).not.toHaveBeenCalled()
+  })
+
+  // T024a-c (ad-hoc, achados rodando o Passo 6 do quickstart em Chromium real
+  // via Playwright MCP): três bugs que jsdom não pegava porque o harness roda
+  // tudo no mesmo realm e com passos discretos. Ver R-010/R-011/R-012 em plan.md.
+
+  // Na web a seleção NASCE durante o arrasto: no pointerdown não havia nada,
+  // então a guarda de estado-no-início-do-gesto (T011) não via seleção alguma e
+  // o click que encerra o arrasto abria a tradução e fechava o menu.
+  it('T024a: o click que encerra o arrasto de seleção (web/mouse) é ignorado e mantém o menu aberto', () => {
+    setDocSelection(fakeDoc, null)
+    act(() => { fakeDoc.documentElement.dispatchEvent(new Event('pointerdown', { bubbles: true })) })
+
+    // seleção aparece durante o arrasto, antes do mouseup/click
+    setDocSelection(fakeDoc, selectWholeText(fakeDoc, para))
+    fireSelectionChange(fakeDoc)
+    const menu = fakeDoc.getElementById('nr-selection-menu') as HTMLElement
+    expect(menu.hidden).toBe(false)
+
+    click(para)
+
+    expectTapIgnored('text-selection')
+    expect(onTranslate).not.toHaveBeenCalled()
+    expect(menu.hidden).toBe(false)
+  })
+
+  // `ev.target instanceof Element` é sempre falso para eventos vindos do iframe
+  // do EPUB (realms diferentes), então o `target` do handler cai no
+  // documentElement e `closest('[data-nr-selection-color]')` nunca acha o
+  // swatch — o clique na cor não fazia nada em browser real.
+  it('T024b: o swatch é resolvido por coordenada quando o target do evento não serve (cross-realm)', () => {
+    foliateEl.getCFI.mockImplementation((_index: number, range?: Range | null) => (
+      range?.collapsed ? 'epubcfi(collapsed)' : 'epubcfi(/6/4!/4/2/1:0,/1:32)'
+    ))
+
+    setDocSelection(fakeDoc, selectWholeText(fakeDoc, para))
+    fireSelectionChange(fakeDoc)
+    openColorsSubmenu(fakeDoc)
+    const colorBtn = fakeDoc.querySelector('[data-nr-selection-color="rose"]') as HTMLElement
+    setElementRect(colorBtn, { left: 200, top: 100, right: 224, bottom: 124, width: 24, height: 24 })
+
+    // click cujo target é o documentElement (o que o browser real entrega),
+    // com as coordenadas em cima do swatch
+    clickAt(fakeDoc.documentElement, 212, 112)
+
+    expect(onCreateHighlight).toHaveBeenCalledWith(expect.objectContaining({ color: 'rose' }))
+  })
+
+  it('T024c: a pintura passa a cor CSS da paleta, não a chave (o overlayer joga o valor no fill do SVG)', async () => {
+    const highlights = [
+      { id: 1, bookId: 1, cfi: 'epubcfi(/6/4!/4/2/1:0,/1:10)', paraCfi: 'epubcfi(/6/4!/4/2/1:0)', text: 'trecho', color: 'amber', sectionIndex: 3, percentage: 40, createdAt: new Date() },
+    ]
+    const setup = await renderViewer({ highlights })
+    loadSection(setup.foliateEl, makeFakeDoc(['Section paragraph.']), 3)
+
+    await waitFor(() => {
+      expect(setup.foliateEl.addAnnotation).toHaveBeenCalledWith({ value: 'epubcfi(/6/4!/4/2/1:0,/1:10)' })
+    })
+    const { overlayer } = setup.foliateEl.renderer.getContents()[0]
+    await waitFor(() => {
+      expect(overlayer.add).toHaveBeenCalledWith(
+        'epubcfi(/6/4!/4/2/1:0,/1:10)',
+        expect.anything(),
+        expect.anything(),
+        { color: '#f59e0b' },
+      )
+    })
+  })
+
+  // T024e (ad-hoc, achado em device abrindo o leitor direto num CFI a partir
+  // da US4): a navegação inicial do próprio leitor para o CFI-alvo corre com
+  // a nossa chamada de addAnnotation para o mesmo alvo — o CFI resolve (a
+  // MESMA chamada, feita um instante depois, pinta normalmente) mas
+  // 'draw-annotation' não dispara na primeira tentativa, sem erro nenhum.
+  // Reproduz aqui fazendo o addAnnotation resolver sem emitir o evento uma
+  // vez, então funcionar normalmente. Ver R-015 em plan.md.
+  it('T024e: quando draw-annotation não dispara na 1ª tentativa, uma retentativa pinta mesmo assim', async () => {
+    const highlights = [
+      { id: 2, bookId: 1, cfi: 'epubcfi(/6/6!/4/2/1:0,/1:12)', paraCfi: 'epubcfi(/6/6!/4/2/1:0)', text: 'trecho', color: 'rose', sectionIndex: 5, percentage: 60, createdAt: new Date() },
+    ]
+    const setup = await renderViewer({ highlights })
+    // 1ª chamada: resolve como o foliate real faz na corrida — sem emitir 'draw-annotation'
+    setup.foliateEl.addAnnotation.mockImplementationOnce(() => Promise.resolve(undefined))
+    loadSection(setup.foliateEl, makeFakeDoc(['Section paragraph.']), 5)
+
+    await waitFor(() => {
+      expect(setup.foliateEl.addAnnotation).toHaveBeenCalledTimes(2)
+    }, { timeout: 2000 })
+    const { overlayer } = setup.foliateEl.renderer.getContents()[0]
+    await waitFor(() => {
+      expect(overlayer.add).toHaveBeenCalledWith(
+        'epubcfi(/6/6!/4/2/1:0,/1:12)',
+        expect.anything(),
+        expect.anything(),
+        { color: '#f43f5e' },
+      )
+    })
+  })
+
+  // T024d (ad-hoc, achado em device RXCX103NMVZ): os highlights vêm de um
+  // useLiveQuery, então na reabertura do livro a lista quase sempre chega
+  // DEPOIS de 'load'/'create-overlay' — que repintavam com a lista vazia e
+  // nunca mais. Sintoma: highlight gravado no banco, mas livro reabre sem
+  // marcação nenhuma. Ver R-013 em plan.md.
+  it('T024d: highlights que chegam depois do load da seção ainda são pintados', async () => {
+    const { foliateEl, viewerRef, props, rerender } = await renderViewer({ highlights: [] })
+    loadSection(foliateEl, makeFakeDoc(['Section paragraph.']), 3)
+    expect(foliateEl.addAnnotation).not.toHaveBeenCalled()
+
+    const highlights = [
+      { id: 1, bookId: 1, cfi: 'epubcfi(/6/4!/4/2/1:0,/1:10)', paraCfi: 'epubcfi(/6/4!/4/2/1:0)', text: 'trecho', color: 'indigo', sectionIndex: 3, percentage: 40, createdAt: new Date() },
+    ]
+    await act(async () => {
+      rerender(
+        <EpubViewer ref={viewerRef} {...({ ...props, highlights } as Parameters<typeof EpubViewer>[0])} />,
+      )
+    })
+
+    await waitFor(() => {
+      expect(foliateEl.addAnnotation).toHaveBeenCalledWith({ value: 'epubcfi(/6/4!/4/2/1:0,/1:10)' })
+    })
+  })
+
+  // ── US3: gerenciar um highlight existente pelo próprio texto ────────────
+  // O toque sobre um highlight é detectado pelo hitTest do overlayer da seção
+  // (mesma fonte que o foliate usa pro 'show-annotation'), consultado dentro
+  // do nosso listener de click — assim o roteamento não depende da ordem em
+  // que os dois listeners foram registrados no mesmo documento (R-005).
+  async function renderComHighlightPintado(overrides: Record<string, unknown> = {}) {
+    const highlight = {
+      id: 7, bookId: 1, cfi: 'epubcfi(/6/4!/4/2/1:0,/1:10)', paraCfi: 'epubcfi(/6/4!/4/2/1:0)',
+      text: 'First sen', color: 'indigo', sectionIndex: 0, percentage: 10, createdAt: new Date(),
+    }
+    const setup = await renderViewer({ highlights: [highlight], ...overrides })
+    const doc = makeFakeDoc(['First sentence. Second sentence.'])
+    loadSection(setup.foliateEl, doc, 0)
+    const { overlayer } = setup.foliateEl.renderer.getContents()[0]
+    return { ...setup, doc, para: doc.querySelector('p') as HTMLElement, highlight, overlayer }
+  }
+
+  it('T030: toque sobre um highlight abre o menu do highlight e nao chama onTranslate', async () => {
+    const onTranslateSpy = vi.fn()
+    const { doc, para, highlight, overlayer } = await renderComHighlightPintado({ onTranslate: onTranslateSpy })
+    // hitTest do overlayer responde que o ponto caiu sobre este highlight
+    overlayer.hitTest.mockReturnValue([highlight.cfi, doc.createRange(), { left: 40, top: 120, right: 300, bottom: 140 }])
+
+    clickAt(para, 120, 130)
+
+    const menu = doc.getElementById('nr-highlight-menu')
+    expect(menu?.hidden).toBe(false)
+    expect(menu?.querySelector('[data-nr-highlight-remove]')).not.toBeNull()
+    expect(menu?.querySelectorAll('[data-nr-highlight-color]').length).toBe(8)
+    expect(onTranslateSpy).not.toHaveBeenCalled()
+    expectTapIgnored('highlight-menu')
+  })
+
+  it('T031: toque numa parte SEM highlight do mesmo paragrafo continua traduzindo', async () => {
+    const onTranslateSpy = vi.fn()
+    const { doc, para, overlayer } = await renderComHighlightPintado({ onTranslate: onTranslateSpy })
+    // hitTest vazio = ponto fora de qualquer highlight
+    overlayer.hitTest.mockReturnValue([])
+
+    clickAt(para, 120, 400)
+
+    expect(doc.getElementById('nr-highlight-menu')?.hidden).not.toBe(false)
+    expect(onTranslateSpy).toHaveBeenCalledOnce()
+  })
+
+  it('T032: remover chama deleteAnnotation e trocar a cor repinta na cor nova', async () => {
+    const onDeleteHighlight = vi.fn()
+    const onChangeHighlightAppearance = vi.fn()
+    const { foliateEl, doc, para, highlight, overlayer } = await renderComHighlightPintado({
+      onDeleteHighlight,
+      onChangeHighlightAppearance,
+    })
+    overlayer.hitTest.mockReturnValue([highlight.cfi, doc.createRange(), { left: 40, top: 120, right: 300, bottom: 140 }])
+
+    // abre o menu tocando no highlight
+    clickAt(para, 120, 130)
+    const menu = doc.getElementById('nr-highlight-menu') as HTMLElement
+
+    // troca a cor
+    click(menu.querySelector('[data-nr-highlight-color="rose"]') as HTMLElement)
+    expect(onChangeHighlightAppearance).toHaveBeenCalledWith(expect.objectContaining({ id: 7 }), { color: 'rose' })
+    await waitFor(() => {
+      expect(overlayer.add).toHaveBeenCalledWith(
+        highlight.cfi, expect.anything(), expect.anything(), { color: '#f43f5e' },
+      )
+    })
+    expect(menu.hidden).toBe(true)
+
+    // reabre e remove
+    clickAt(para, 120, 130)
+    click(menu.querySelector('[data-nr-highlight-remove]') as HTMLElement)
+    expect(onDeleteHighlight).toHaveBeenCalledWith(expect.objectContaining({ id: 7 }))
+    expect(foliateEl.deleteAnnotation).toHaveBeenCalledWith({ value: highlight.cfi })
+    expect(menu.hidden).toBe(true)
+  })
+
+  it('T032b: menu do highlight abre com o estilo atual marcado e trocar o estilo aplica na hora sem fechar', async () => {
+    const onChangeHighlightAppearance = vi.fn()
+    const highlight = {
+      id: 7, bookId: 1, cfi: 'epubcfi(/6/4!/4/2/1:0,/1:10)', paraCfi: 'epubcfi(/6/4!/4/2/1:0)',
+      text: 'First sen', color: 'indigo', style: 'underline' as const, sectionIndex: 0, percentage: 10, createdAt: new Date(),
+    }
+    const setup = await renderViewer({ highlights: [highlight], onChangeHighlightAppearance })
+    const doc = makeFakeDoc(['First sentence. Second sentence.'])
+    loadSection(setup.foliateEl, doc, 0)
+    const { overlayer } = setup.foliateEl.renderer.getContents()[0]
+    const para = doc.querySelector('p') as HTMLElement
+    overlayer.hitTest.mockReturnValue([highlight.cfi, doc.createRange(), { left: 40, top: 120, right: 300, bottom: 140 }])
+
+    clickAt(para, 120, 130)
+    const menu = doc.getElementById('nr-highlight-menu') as HTMLElement
+    expect(menu?.hidden).toBe(false)
+    expect(menu.querySelector('[data-nr-highlight-style="underline"]')?.getAttribute('aria-pressed')).toBe('true')
+    expect(menu.querySelector('[data-nr-highlight-style="background"]')?.getAttribute('aria-pressed')).toBe('false')
+
+    // troca pro estilo ondulado: aplica na hora e NAO fecha o menu
+    click(menu.querySelector('[data-nr-highlight-style="squiggly"]') as HTMLElement)
+    expect(onChangeHighlightAppearance).toHaveBeenCalledWith(expect.objectContaining({ id: 7 }), { style: 'squiggly' })
+    await waitFor(() => {
+      expect(overlayer.add).toHaveBeenCalledWith(
+        highlight.cfi, expect.anything(), expect.anything(), { color: '#6366f1' },
+      )
+    })
+    expect(menu.hidden).toBe(false)
+    expect(menu.querySelector('[data-nr-highlight-style="squiggly"]')?.getAttribute('aria-pressed')).toBe('true')
+  })
+
+  // ── FR-003c: Copiar e Compartilhar no menu de seleção ────────────────────
+  describe('Copiar e Compartilhar', () => {
+    let writeText: ReturnType<typeof vi.fn>
+    let share: ReturnType<typeof vi.fn>
+
+    beforeEach(() => {
+      writeText = vi.fn().mockResolvedValue(undefined)
+      share = vi.fn().mockResolvedValue(undefined)
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+      Object.defineProperty(navigator, 'share', { value: share, configurable: true })
+    })
+
+    it('T050: tocar em Copiar coloca o texto selecionado na area de transferencia, fecha o menu e nao cria highlight', () => {
+      const range = selectWholeText(fakeDoc, para)
+      setDocSelection(fakeDoc, range)
+      fireSelectionChange(fakeDoc)
+      const menu = fakeDoc.getElementById('nr-selection-menu') as HTMLElement
+      const copyBtn = menu.querySelector('[data-nr-selection-run="copy"]') as HTMLElement
+      expect(copyBtn).not.toBeNull()
+
+      click(copyBtn)
+
+      expect(writeText).toHaveBeenCalledWith('First sentence. Second sentence.')
+      expect(onCreateHighlight).not.toHaveBeenCalled()
+      expect(menu.hidden).toBe(true)
+    })
+
+    it('T051: tocar em Compartilhar abre o compartilhamento do sistema com o texto selecionado', () => {
+      const range = selectWholeText(fakeDoc, para)
+      setDocSelection(fakeDoc, range)
+      fireSelectionChange(fakeDoc)
+      const menu = fakeDoc.getElementById('nr-selection-menu') as HTMLElement
+      const shareBtn = menu.querySelector('[data-nr-selection-run="share"]') as HTMLElement
+
+      click(shareBtn)
+
+      expect(share).toHaveBeenCalledWith({ text: 'First sentence. Second sentence.' })
+      expect(onCreateHighlight).not.toHaveBeenCalled()
+      expect(menu.hidden).toBe(true)
+    })
+
+    // FR-003d: sem clipboard/share (navegador sem suporte), so nao conclui — sem lancar
+    it('T052: sem Web Share API disponivel, tocar em Compartilhar nao lanca erro', () => {
+      Object.defineProperty(navigator, 'share', { value: undefined, configurable: true })
+      const range = selectWholeText(fakeDoc, para)
+      setDocSelection(fakeDoc, range)
+      fireSelectionChange(fakeDoc)
+      const menu = fakeDoc.getElementById('nr-selection-menu') as HTMLElement
+      const shareBtn = menu.querySelector('[data-nr-selection-run="share"]') as HTMLElement
+
+      expect(() => click(shareBtn)).not.toThrow()
+      expect(menu.hidden).toBe(true)
+    })
+  })
+
+  it('T015: ao carregar uma seção, os highlights daquela seção são repintados via addAnnotation', async () => {
+    const highlights = [
+      { id: 1, bookId: 1, cfi: 'epubcfi(/6/4!/4/2/1:0,/1:10)', paraCfi: 'epubcfi(/6/4!/4/2/1:0)', text: 'trecho', color: 'indigo', sectionIndex: 2, percentage: 40, createdAt: new Date() },
+      { id: 2, bookId: 1, cfi: 'epubcfi(/6/8!/4/2/1:0,/1:10)', paraCfi: 'epubcfi(/6/8!/4/2/1:0)', text: 'outro', color: 'rose', sectionIndex: 5, percentage: 90, createdAt: new Date() },
+    ]
+    const setup = await renderViewer({ highlights })
+    const doc2 = makeFakeDoc(['Section two paragraph.'])
+    loadSection(setup.foliateEl, doc2, 2)
+
+    await waitFor(() => {
+      expect(setup.foliateEl.addAnnotation).toHaveBeenCalledWith({ value: 'epubcfi(/6/4!/4/2/1:0,/1:10)' })
+    })
+    expect(setup.foliateEl.addAnnotation).not.toHaveBeenCalledWith({ value: 'epubcfi(/6/8!/4/2/1:0,/1:10)' })
+  })
+})
+
 describe('EpubViewer — posição visível', () => {
   it('gera o CFI do início do parágrafo visível a partir do range atual', async () => {
     const { viewerRef, foliateEl } = await renderViewer()

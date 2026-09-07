@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cópia do layout do @capacitor/android (capacitor_bridge_layout_main.xml) com
+  UMA diferença: a classe do WebView é a nossa (NeoReaderWebView), que recusa a
+  barra flutuante de seleção do Android enquanto o leitor está aberto (FR-010).
+  Um recurso do app com o mesmo nome sobrescreve o da biblioteca — é o único
+  ponto de injeção, já que o Bridge infla este layout e busca R.id.webview.
+  Se o Capacitor mudar este layout, esta cópia precisa acompanhar.
+-->
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context="com.getcapacitor.BridgeActivity"
+    >
+
+    <com.johnny.neoreader.NeoReaderWebView
+        android:id="@+id/webview"
+        android:layout_width="fill_parent"
+        android:layout_height="fill_parent" />
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

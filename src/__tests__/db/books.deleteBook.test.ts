@@ -9,6 +9,13 @@ const mocks = vi.hoisted(() => {
     })),
   })
 
+  // Highlights (FR-018a) ganha mocks nomeados em vez do factory genérico —
+  // é o único where().equals().delete() desta feature que este teste
+  // precisa asseverar diretamente, não só "não quebrar".
+  const highlightsDelete = vi.fn(async () => undefined)
+  const highlightsEquals = vi.fn(() => ({ delete: highlightsDelete }))
+  const highlightsWhere = vi.fn(() => ({ equals: highlightsEquals }))
+
   return {
     books: { delete: vi.fn(async () => undefined) },
     bookCovers: { delete: vi.fn(async () => undefined) },
@@ -16,6 +23,10 @@ const mocks = vi.hoisted(() => {
     bookmarks: makeWhereDeleteTable(),
     vocabulary: makeWhereDeleteTable(),
     bookSettings: makeWhereDeleteTable(),
+    highlights: { where: highlightsWhere },
+    highlightsWhere,
+    highlightsEquals,
+    highlightsDelete,
     bookInfo: { delete: vi.fn(async () => undefined) },
     epubExtras: { delete: vi.fn(async () => undefined) },
     authors: {
@@ -45,6 +56,7 @@ vi.mock('@/db/database', () => ({
     bookmarks: mocks.bookmarks,
     vocabulary: mocks.vocabulary,
     bookSettings: mocks.bookSettings,
+    highlights: mocks.highlights,
     bookInfo: mocks.bookInfo,
     epubExtras: mocks.epubExtras,
     authors: mocks.authors,
@@ -63,6 +75,9 @@ describe('deleteBook', () => {
     mocks.authors.where.mockClear()
     mocks.authors.put.mockClear()
     mocks.transaction.mockClear()
+    mocks.highlightsWhere.mockClear()
+    mocks.highlightsEquals.mockClear()
+    mocks.highlightsDelete.mockClear()
   })
 
   it('remove metadados enriquecidos junto com o livro', async () => {
@@ -77,5 +92,14 @@ describe('deleteBook', () => {
       authorName: 'Autor',
       bookIds: [99],
     }))
+  })
+
+  // FR-018a: remover o livro não pode deixar highlights órfãos no IndexedDB.
+  it('remove os highlights do livro junto com ele', async () => {
+    await deleteBook(42)
+
+    expect(mocks.highlightsWhere).toHaveBeenCalledWith('bookId')
+    expect(mocks.highlightsEquals).toHaveBeenCalledWith(42)
+    expect(mocks.highlightsDelete).toHaveBeenCalled()
   })
 })

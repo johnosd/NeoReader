@@ -4,6 +4,7 @@ import { Volume2 } from 'lucide-react'
 import {
   EpubViewer,
   type EpubViewerHandle,
+  type HighlightCreationPayload,
   type ParagraphBookmarkPayload,
   type ReaderImageOpenPayload,
   type ReaderRelocatePayload,
@@ -27,6 +28,7 @@ import { deleteBook, updateLastOpened } from '../db/books'
 import { getBookCover } from '../db/bookCovers'
 import { addBookmark, restoreBookmark, softDeleteBookmark, updateBookmarkColor } from '../db/bookmarks'
 import { addVocabItem, getVocabSourceTextsByBookId } from '../db/vocabulary'
+import { addHighlight, deleteHighlight, getHighlightsByBookId, updateHighlightAppearance } from '../db/highlights'
 import { db } from '../db/database'
 import { useTTS } from '../hooks/useTTS'
 import { TtsMiniPlayer } from '../components/reader/TtsMiniPlayer'
@@ -45,9 +47,13 @@ import {
 import { Switch } from '../components/ui'
 import { translate } from '../services/TranslationService'
 import { createFlowId, getDiagnosticsNowMs, logError, logEvent } from '../services/DiagnosticsLogger'
-import { setReaderImmersiveMode } from '../services/NativeSystemUiService'
+import { setReaderImmersiveMode, setSelectionMenuSuppressed } from '../services/NativeSystemUiService'
 import { TtsPlaybackSessionService, type TtsPlaybackControlEvent, type TtsAudioFocusEvent } from '../services/TtsPlaybackSessionService'
 import type { Book } from '../types/book'
+// Import explícito e obrigatório: sem ele, `Highlight` resolve silenciosamente
+// para o tipo global do DOM (CSS Custom Highlight API) e o erro só aparece no
+// uso dos campos.
+import type { Highlight, HighlightStyle } from '../types/highlight'
 import type { TtsProvider } from '../types/tts'
 import { areCfisEquivalent, isCfiInLocation, normalizeCfi } from '../utils/cfi'
 import { areTocHrefDocumentSuffixesEqual, findTopLevelTocLabel } from '../utils/toc'
@@ -333,12 +339,18 @@ export function ReaderScreen({
     }, START_NAVIGATION_FALLBACK_MS)
   }, [clearStartNavigationFallbackTimer, setCurrentLoading])
 
-  // Inicia o auto-hide assim que o leitor monta
+  // Inicia o auto-hide assim que o leitor monta.
+  // A supressão do menu de seleção do sistema (FR-010) vive NESTE mesmo efeito
+  // de propósito: o flag é global à Activity, e ligá-lo/desligá-lo junto do
+  // modo imersivo é o que impede o estado de divergir e vazar para telas onde
+  // o menu do sistema é legítimo, como a busca da biblioteca (R-003).
   useEffect(() => {
     resetAutoHide()
     void setReaderImmersiveMode(true)
+    void setSelectionMenuSuppressed(true)
     return () => {
       void setReaderImmersiveMode(false)
+      void setSelectionMenuSuppressed(false)
       if (sectionChangeTimerRef.current) clearTimeout(sectionChangeTimerRef.current)
       clearStartNavigationFallbackTimer()
       // auto-hide e sleep timer cleanup são responsabilidade dos hooks respectivos
@@ -377,6 +389,13 @@ export function ReaderScreen({
   // Vocabulário salvo: frases originais para highlight passivo no texto
   const vocabWords = useLiveQuery(
     () => book.id ? getVocabSourceTextsByBookId(book.id) : Promise.resolve([]),
+    [book.id],
+  ) ?? []
+
+  // Highlights do livro atual (feature 010) — locais, sem sync no Drive
+  // (diferente de bookmarks acima). useLiveQuery reage sozinho a addHighlight.
+  const highlights = useLiveQuery(
+    () => book.id ? getHighlightsByBookId(book.id) : Promise.resolve([]),
     [book.id],
   ) ?? []
 
@@ -903,6 +922,9 @@ export function ReaderScreen({
   useCapacitorAppStateChange(({ isActive }) => {
     if (isActive) {
       void setReaderImmersiveMode(true)
+      // Reaplica junto: o processo pode ter sido recriado enquanto o app
+      // estava em segundo plano, e aí o flag da Activity voltou ao padrão.
+      void setSelectionMenuSuppressed(true)
       return
     }
 
@@ -988,6 +1010,36 @@ export function ReaderScreen({
 
   function handleParagraphBookmark(payload: ParagraphBookmarkPayload) {
     toggleBookmarkAtLocation(payload)
+  }
+
+  // Highlights (feature 010): grava direto, sem agendar sync no Drive
+  // (Invariante 7/FR-018) — useLiveQuery acima já reage à escrita sozinho.
+  function handleCreateHighlight(payload: HighlightCreationPayload) {
+    if (book.id === undefined) return
+    void addHighlight({
+      bookId: book.id,
+      cfi: payload.cfi,
+      paraCfi: payload.paraCfi,
+      text: payload.text,
+      color: payload.color,
+      style: payload.style,
+      sectionIndex: payload.sectionIndex,
+      percentage: payload.percentage,
+      createdAt: new Date(),
+    })
+  }
+
+  // US3: a pintura/despintura no texto é feita pelo próprio EpubViewer no
+  // mesmo toque; aqui só persiste. O useLiveQuery devolve a lista nova e o
+  // efeito de repintura do viewer cuida do resto.
+  function handleDeleteHighlight(highlight: Highlight) {
+    if (highlight.id === undefined) return
+    void deleteHighlight(highlight.id)
+  }
+
+  function handleChangeHighlightAppearance(highlight: Highlight, patch: { color?: string; style?: HighlightStyle }) {
+    if (highlight.id === undefined) return
+    void updateHighlightAppearance(highlight.id, patch)
   }
 
   async function handleRemoveMissingBook() {
@@ -1079,6 +1131,10 @@ export function ReaderScreen({
           onBookmarkParagraph={handleParagraphBookmark}
           onOpenImage={handleOpenImage}
           vocabWords={vocabWords}
+          highlights={highlights}
+          onCreateHighlight={handleCreateHighlight}
+          onDeleteHighlight={handleDeleteHighlight}
+          onChangeHighlightAppearance={handleChangeHighlightAppearance}
           />
         )}
       </div>

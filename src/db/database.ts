@@ -7,6 +7,7 @@ import type { AuthorCacheRecord } from '../types/author'
 import type { StoredBookInfo } from '../types/bookInfo'
 import type { StoredEpubExtras } from '../services/EpubService'
 import type { OpdsCatalog, OpdsDownloadedEntry } from '../types/opds'
+import type { Highlight } from '../types/highlight'
 
 type LegacyBookRecord = Book & { coverBlob?: Blob | null }
 type LegacyAuthorCacheRecord = AuthorCacheRecord & { bookIds?: number[] }
@@ -31,6 +32,7 @@ class NeoReaderDB extends Dexie {
   collections!: Table<BookCollection, number>
   opdsCatalogs!: Table<OpdsCatalog, number>
   opdsDownloadedEntries!: Table<OpdsDownloadedEntry, number>
+  highlights!: Table<Highlight>
 
   constructor() {
     // Isolamento por conta: cada uid usa seu próprio banco.
@@ -391,6 +393,29 @@ class NeoReaderDB extends Dexie {
       collections:   '++id, &name, createdAt, updatedAt',
       opdsCatalogs:          '++id, baseUrl, isDefault, createdAt',
       opdsDownloadedEntries: '++id, &[catalogId+entryId], bookId',
+    })
+
+    // v19: highlights de trecho selecionado no leitor (feature 010) — locais,
+    // sem sync no Drive (por isso sem syncKey/syncedAt, diferente de bookmarks).
+    this.version(19).stores({
+      books:         '++id, title, author, addedAt, importedAt, lastOpenedAt, fileName, fileSize, fileHash, format, readingStatus, isFavorite, *tags, sourceFolderId, missingFile, storageMode, collectionId',
+      bookCovers:    'bookId, updatedAt, source',
+      progress:      '++id, bookId, updatedAt',
+      bookmarks:     '++id, bookId, createdAt, updatedAt, deletedAt',
+      vocabulary:    '++id, bookId, createdAt',
+      translations:  '++id, textHash, createdAt',
+      settings:      '++id',
+      bookSettings:  '++id, bookId',
+      ttsVoiceCaches:'++id, &cacheKey, provider, language, updatedAt',
+      authors:       '&authorName, *bookIds, fetchedAt, videosFetchedAt',
+      bookInfo:      '&bookId, updatedAt',
+      epubExtras:    '&bookId, updatedAt',
+      tags:          '++id, &name, createdAt, updatedAt',
+      sourceFolders: '++id, name, uri, createdAt, lastScannedAt',
+      collections:   '++id, &name, createdAt, updatedAt',
+      opdsCatalogs:          '++id, baseUrl, isDefault, createdAt',
+      opdsDownloadedEntries: '++id, &[catalogId+entryId], bookId',
+      highlights:            '++id, bookId, createdAt',
     })
   }
 }

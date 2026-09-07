@@ -9,7 +9,7 @@ import { getSettings } from '@/db/settings'
 import { translate } from '@/services/TranslationService'
 import { addVocabItem } from '@/db/vocabulary'
 import { deleteBook } from '@/db/books'
-import { setReaderImmersiveMode } from '@/services/NativeSystemUiService'
+import { setReaderImmersiveMode, setSelectionMenuSuppressed } from '@/services/NativeSystemUiService'
 
 type MockTtsOptions = {
   onFinished?: () => void
@@ -61,6 +61,7 @@ const mocks = vi.hoisted(() => {
     },
     ttsOptions: null as MockTtsOptions | null,
     setReaderImmersiveMode: vi.fn().mockResolvedValue(undefined),
+  setSelectionMenuSuppressed: vi.fn().mockResolvedValue(undefined),
     loadWordLensData: vi.fn().mockResolvedValue(null),
     loadWordLensDefinition: vi.fn().mockResolvedValue(null),
     ttsPlaybackSessionService: {
@@ -196,6 +197,7 @@ vi.mock('@/services/TranslationService', () => ({
 
 vi.mock('@/services/NativeSystemUiService', () => ({
   setReaderImmersiveMode: mocks.setReaderImmersiveMode,
+  setSelectionMenuSuppressed: mocks.setSelectionMenuSuppressed,
 }))
 
 vi.mock('@/services/TtsPlaybackSessionService', () => ({
@@ -370,6 +372,7 @@ describe('ReaderScreen', () => {
     mocks.readerStore.toc = []
     mocks.readerStore.tocLabel = ''
     mocks.setReaderImmersiveMode.mockClear()
+    mocks.setSelectionMenuSuppressed.mockClear()
     mocks.loadWordLensData.mockClear()
     mocks.loadWordLensData.mockResolvedValue(null)
     mocks.loadWordLensDefinition.mockClear()
@@ -554,6 +557,48 @@ describe('ReaderScreen', () => {
     unmount()
 
     expect(setReaderImmersiveMode).toHaveBeenCalledWith(false)
+  })
+
+  // T025 (US2): a supressão do menu de seleção do sistema é global à Activity,
+  // então tem que acompanhar o ciclo de vida do leitor — se vazar, o menu do
+  // sistema some em telas onde ele é legítimo (R-003).
+  it('suprime o menu de selecao do sistema enquanto o leitor esta montado', async () => {
+    const { unmount } = render(
+      <ReaderScreen
+        book={book}
+        onBack={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+
+    await flushAsyncWork()
+
+    expect(setSelectionMenuSuppressed).toHaveBeenCalledWith(true)
+    expect(setSelectionMenuSuppressed).not.toHaveBeenCalledWith(false)
+
+    unmount()
+
+    expect(setSelectionMenuSuppressed).toHaveBeenCalledWith(false)
+  })
+
+  it('reaplica a supressao do menu de selecao quando o app volta para primeiro plano', async () => {
+    render(
+      <ReaderScreen
+        book={book}
+        onBack={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+
+    await flushAsyncWork()
+    vi.mocked(setSelectionMenuSuppressed).mockClear()
+
+    await act(async () => {
+      mocks.capacitorListeners.appStateChange?.({ isActive: true })
+      await Promise.resolve()
+    })
+
+    expect(setSelectionMenuSuppressed).toHaveBeenCalledWith(true)
   })
 
   it('reativa modo imersivo nativo quando o app volta para primeiro plano', async () => {

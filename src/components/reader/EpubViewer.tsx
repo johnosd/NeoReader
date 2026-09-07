@@ -1,9 +1,12 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { useSyncRef } from '../../hooks/useSyncRef'
 import type { Book, Bookmark } from '../../types/book'
+import type { Highlight, HighlightStyle } from '../../types/highlight'
 import type { View } from 'foliate-js/view.js'
+import type { Overlayer } from 'foliate-js/overlayer.js'
 import type { FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from '../../types/settings'
 import { getReaderFontFamilyValue, getReaderLineHeightValue, getReaderThemePalette } from '../../utils/readerPreferences'
+import { ANNOTATION_COLORS, annotationColorHex } from '../../utils/annotationColors'
 import { getSentenceAt, escapeHtml } from '../../utils/readerUtils'
 import { areCfisEquivalent, normalizeCfi } from '../../utils/cfi'
 import { registerUnmanifestedEpubStylesheets } from '../../utils/epubResources'
@@ -13,6 +16,7 @@ import { splitParagraphIntoTtsChunks } from '../../utils/ttsChunking'
 import { CEFR_LEVELS, type CefrLevel, type WordLensData, type WordLensDictionaryEntry } from '../../types/wordLens'
 import { scheduleWordLensDocument, type WordLensDocumentTask } from '../../utils/wordLensDom'
 import { BookFileResolver } from '../../services/BookFileResolver'
+import { shareText } from '../../services/NativeSystemUiService'
 import { createFlowId, logEvent } from '../../services/DiagnosticsLogger'
 import { useI18n } from '../../i18n'
 
@@ -73,6 +77,27 @@ const XML_BOOLEAN_ATTRIBUTES = new Set([
   'selected',
 ])
 
+// Ícones do menu de seleção (Copiar/Compartilhar, FR-003c) — mesmos paths do
+// lucide-react (a lib de ícones já usada no app) para bater visualmente com
+// o resto da UI, embutidos como string porque rodam dentro do doc do iframe.
+const SELECTION_RUN_ICON = {
+  copy: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>',
+  share: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><path d="m8.59 13.51 6.83 3.98"></path><path d="m15.41 6.51-6.82 3.98"></path></svg>',
+  highlighter: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 11-6 6v3h9l3-3"></path><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"></path></svg>',
+  back: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>',
+} as const
+
+// Ícones dos 3 estilos de marcação (FR-003c revisão, submenu "Destacar") — um
+// "A" com a decoração de cada HighlightStyle, mesma ideia visual de apps de
+// leitura de referência (fundo sólido / sublinhado reto / risco ondulado).
+// Ficam em currentColor: a cor real só é decidida quando o usuário toca numa
+// das 8 cores depois.
+const HIGHLIGHT_STYLE_ICON: Record<HighlightStyle, string> = {
+  background: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="3" fill="currentColor" opacity="0.28"></rect><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">A</text></svg>',
+  underline: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><text x="12" y="15" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor">A</text><rect x="4" y="18" width="16" height="2.4" rx="1.2" fill="currentColor"></rect></svg>',
+  squiggly: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><text x="12" y="15" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor">A</text><path d="M4 18q2-4 4 0t4 0t4 0t4 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path></svg>',
+}
+
 const TRANSLATION_ICON = {
   bot: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="7" width="16" height="11" rx="4"></rect><path d="M12 3v4"></path><path d="M9 13h.01"></path><path d="M15 13h.01"></path><path d="M9 18v2"></path><path d="M15 18v2"></path></svg>',
   next: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path><path d="M5 18l6-6-6-6"></path></svg>',
@@ -86,8 +111,10 @@ type InlineTranslationSource = 'tap' | 'next'
 type ReaderTapIgnoredReason =
   | 'bookmark-icon'
   | 'chrome-zone'
+  | 'highlight-menu'
   | 'no-readable-paragraph'
   | 'scroll-gesture'
+  | 'text-selection'
   | 'translation-block'
   | 'translation-loading'
   | 'tts-active'
@@ -1156,6 +1183,109 @@ function buildReaderCSS(
       background: ${palette.isDark ? 'rgba(255,255,255,0.03)' : 'rgba(15,23,42,0.03)'} !important;
       z-index: 9997 !important;
     }` : ''}
+    /* Menu de seleção (feature 010) — ancorado à seleção, mesma linguagem
+       visual do bloco de tradução (cartão flutuante). Rolagem horizontal
+       (FR-003b) garante espaço pra futuras ações além de highlight. */
+    #nr-selection-menu {
+      position: absolute !important;
+      z-index: 9998 !important;
+      max-width: min(92vw, 320px) !important;
+      padding: 8px !important;
+      border: 1px solid ${palette.translationBorder} !important;
+      border-radius: 16px !important;
+      background: ${palette.translationSurface} !important;
+      box-shadow: 0 0 20px ${palette.translationGlow} !important, 0 12px 28px rgba(0, 0, 0, 0.20) !important;
+    }
+    #nr-selection-menu[hidden] { display: none !important; }
+    /* Menu do highlight (US3): mesma caixa e mesmas classes internas do menu
+       de seleção — só o conteúdo muda (remover + cores). */
+    #nr-highlight-menu {
+      position: absolute !important;
+      z-index: 9998 !important;
+      max-width: min(92vw, 320px) !important;
+      padding: 8px !important;
+      border: 1px solid ${palette.translationBorder} !important;
+      border-radius: 16px !important;
+      background: ${palette.translationSurface} !important;
+      box-shadow: 0 0 20px ${palette.translationGlow} !important, 0 12px 28px rgba(0, 0, 0, 0.20) !important;
+    }
+    #nr-highlight-menu[hidden] { display: none !important; }
+    .nr-sel-text-btn {
+      appearance: none !important;
+      border: 1px solid ${palette.translationBorder} !important;
+      border-radius: 999px !important;
+      background: transparent !important;
+      color: ${palette.text} !important;
+      font-size: 0.85em !important;
+      padding: 4px 12px !important;
+      white-space: nowrap !important;
+      cursor: pointer !important;
+      -webkit-tap-highlight-color: transparent !important;
+      flex-shrink: 0 !important;
+    }
+    .nr-sel-text-btn:active { transform: scale(0.94) !important; }
+    .nr-sel-menu-inner {
+      display: flex !important;
+      align-items: center !important;
+      gap: 10px !important;
+      overflow-x: auto !important;
+    }
+    .nr-sel-action {
+      display: flex !important;
+      align-items: center !important;
+      gap: 8px !important;
+      flex-shrink: 0 !important;
+    }
+    .nr-sel-color {
+      appearance: none !important;
+      width: 24px !important;
+      height: 24px !important;
+      min-width: 24px !important;
+      border-radius: 50% !important;
+      border: 2px solid rgba(255, 255, 255, 0.35) !important;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25) !important;
+      cursor: pointer !important;
+      -webkit-tap-highlight-color: transparent !important;
+      transition: transform 120ms ease !important;
+      flex-shrink: 0 !important;
+    }
+    .nr-sel-color:active { transform: scale(0.88) !important; }
+    /* Copiar/Compartilhar (FR-003c) — mesmo grupo do menu de seleção, ícone
+       só, sem cor de fundo (não são highlight). */
+    .nr-sel-icon-btn {
+      appearance: none !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      width: 32px !important;
+      height: 32px !important;
+      min-width: 32px !important;
+      padding: 0 !important;
+      border: none !important;
+      border-radius: 50% !important;
+      background: ${palette.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.08)'} !important;
+      color: ${palette.text} !important;
+      cursor: pointer !important;
+      -webkit-tap-highlight-color: transparent !important;
+      transition: transform 120ms ease !important;
+      flex-shrink: 0 !important;
+    }
+    .nr-sel-icon-btn svg { width: 17px !important; height: 17px !important; }
+    .nr-sel-icon-btn:active { transform: scale(0.88) !important; }
+    /* Estilo de marcação ativo (fundo/sublinhado/ondulado) — anel ao redor do
+       ícone, mesma ideia do círculo na referência visual do usuário. */
+    .nr-sel-style-btn[aria-pressed="true"] {
+      background: ${palette.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(15,23,42,0.16)'} !important;
+      /* --color-purple-primary do design system (src/index.css) — fixo aqui
+         porque o menu roda fora do contexto Tailwind do app, dentro do iframe. */
+      box-shadow: 0 0 0 2px #7b2cbf !important;
+    }
+    .nr-sel-divider {
+      width: 1px !important;
+      height: 22px !important;
+      flex-shrink: 0 !important;
+      background: ${palette.translationBorder} !important;
+    }
     /* Vocabulário salvo: sublinhado pontilhado índigo nas frases/palavras já estudadas */
     .nr-vocab {
       text-decoration: underline dotted #6366f1 !important;
@@ -1222,6 +1352,19 @@ export interface ParagraphBookmarkPayload {
   label: string
   percentage: number
   snippet: string
+}
+
+// Payload de um highlight recém-criado (feature 010) — CFI de INTERVALO (não
+// colapsado, diferente de ParagraphBookmarkPayload), pronto pra persistir como
+// Highlight (falta só bookId/id/createdAt, que o ReaderScreen preenche).
+export interface HighlightCreationPayload {
+  cfi: string
+  paraCfi: string
+  text: string
+  sectionIndex: number
+  percentage: number
+  color: string
+  style: HighlightStyle
 }
 
 export interface VisibleReadingLocation {
@@ -1302,6 +1445,16 @@ interface EpubViewerProps {
   onOpenImage?: (payload: ReaderImageOpenPayload) => void
   // Vocabulário: frases originais já salvas pelo usuário para highlight passivo
   vocabWords?: string[]
+  // Highlights (feature 010): highlights do livro atual, pintados por seção
+  // conforme carregam. Toque longo + arrasto seleciona; escolher uma cor no
+  // menu chama onCreateHighlight.
+  highlights?: Highlight[]
+  onCreateHighlight?: (payload: HighlightCreationPayload) => void
+  // Gerenciar um highlight existente (US3): tocar sobre ele abre o menu de
+  // remover/trocar cor ou estilo em vez da tradução inline. Cada toque no
+  // menu (cor OU estilo) já aplica e persiste na hora — FR-022.
+  onDeleteHighlight?: (highlight: Highlight) => void
+  onChangeHighlightAppearance?: (highlight: Highlight, patch: { color?: string; style?: HighlightStyle }) => void
 }
 
 // forwardRef: padrão React para expor métodos imperativos ao componente pai.
@@ -1317,6 +1470,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       onBookmarkTap, onBookmarkParagraph,
       onOpenImage,
       vocabWords,
+      highlights, onCreateHighlight, onDeleteHighlight, onChangeHighlightAppearance,
     },
     ref,
   ) => {
@@ -1393,6 +1547,18 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const bookmarksRef = useSyncRef(bookmarks)
     const onBookmarkTapRef = useSyncRef(onBookmarkTap)
     const onBookmarkParagraphRef = useSyncRef(onBookmarkParagraph)
+    // Highlights (feature 010): ver getEligibleSelectionRange/paintHighlight mais abaixo.
+    const highlightsRef = useSyncRef(highlights ?? [])
+    const onCreateHighlightRef = useSyncRef(onCreateHighlight)
+    const onDeleteHighlightRef = useSyncRef(onDeleteHighlight)
+    const onChangeHighlightAppearanceRef = useSyncRef(onChangeHighlightAppearance)
+    // Import dinâmico de foliate-js/overlayer.js (mesmo padrão do view.js) — só
+    // precisa da classe pra chamar Overlayer.highlight como draw function.
+    // Carregado sem bloquear a abertura do leitor (ver setup()); paintHighlight
+    // espera a MESMA promise em vez de silenciosamente não pintar se um
+    // highlight tentar pintar antes do import resolver.
+    const overlayerCtorRef = useRef<typeof Overlayer | null>(null)
+    const overlayerModulePromiseRef = useRef<Promise<{ Overlayer: typeof Overlayer }> | null>(null)
 
     function renderWordLens(doc: Document, sectionIndex: number): void {
       const config = wordLensConfigRef.current
@@ -2223,6 +2389,386 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       return { payload, matchedBookmark }
     }
 
+    // ─── Highlights (feature 010) ──────────────────────────────────────────
+    // Predicado único de elegibilidade (FR-006): mesmo ponto de decisão usado
+    // pelo listener de selectionchange (abre/fecha o menu) e pela guarda de
+    // toque no click handler — nunca duplicar estas checagens em outro lugar.
+    function getEligibleSelectionRange(doc: Document): Range | null {
+      const selection = doc.getSelection?.()
+      if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null
+
+      const range = selection.getRangeAt(0)
+      if (range.collapsed) return null
+      if (!range.toString().replace(/\s+/g, ' ').trim()) return null
+
+      // Defensivo: cada seção do EPUB carrega em iframe próprio, então o
+      // WebView hoje não consegue criar seleção atravessando documentos — mas
+      // o predicado não deve depender disso continuar verdade.
+      if (range.startContainer.ownerDocument !== range.endContainer.ownerDocument) return null
+
+      const container = range.commonAncestorContainer
+      const containerEl = container.nodeType === Node.ELEMENT_NODE
+        ? container as Element
+        : container.parentElement
+      if (containerEl?.closest('#nr-translation-block')) return null
+
+      return range
+    }
+
+    // Acha um botão do menu de seleção pelo seletor de dados. Não basta
+    // `target.closest(...)`: o alvo do evento vem do realm do iframe do EPUB,
+    // e o `target` do listener de click já degradou para `documentElement`
+    // porque `ev.target instanceof Element` é sempre falso entre realms (o
+    // `Element` do nosso código é o do documento pai). Mesmo motivo pelo qual
+    // getTranslationActionAtPoint existe — daí o mesmo formato: alvo direto,
+    // depois hit-test por coordenada. Uma função só para cores, copiar/
+    // compartilhar, abrir-cores e voltar — eram 2 cópias quase idênticas
+    // antes do submenu de cores existir.
+    function getSelectionMenuButtonAtPoint(
+      target: Element,
+      doc: Document,
+      clientX: number,
+      clientY: number,
+      selector: string,
+    ): HTMLElement | null {
+      const directButton = target.closest?.(selector) as HTMLElement | null
+      if (directButton) return directButton
+
+      const hitButton = getElementFromPoint(doc, clientX, clientY)?.closest(selector) as HTMLElement | null
+      if (hitButton) return hitButton
+
+      return Array.from(doc.querySelectorAll<HTMLElement>(`#nr-selection-menu ${selector}`))
+        .find((button) => isPointInsideElement(button, clientX, clientY)) ?? null
+    }
+
+    // Mesma história do swatch de seleção (alvo cross-realm), agora para os
+    // botões do menu do highlight: remover e as cores.
+    function getHighlightMenuButtonAtPoint(
+      target: Element,
+      doc: Document,
+      clientX: number,
+      clientY: number,
+    ): HTMLElement | null {
+      const SELECTOR = '[data-nr-highlight-color], [data-nr-highlight-style], [data-nr-highlight-remove]'
+      const directButton = target.closest?.(SELECTOR) as HTMLElement | null
+      if (directButton) return directButton
+
+      const hitButton = getElementFromPoint(doc, clientX, clientY)?.closest(SELECTOR) as HTMLElement | null
+      if (hitButton) return hitButton
+
+      return Array.from(doc.querySelectorAll<HTMLElement>(`#nr-highlight-menu ${SELECTOR}`))
+        .find((button) => isPointInsideElement(button, clientX, clientY)) ?? null
+    }
+
+    // CFI de INTERVALO (não colapsado) — a diferença central em relação a
+    // getParagraphBookmarkPayload, que colapsa o range no início do parágrafo.
+    function buildHighlightPayloadFromRange(
+      range: Range,
+      sectionIndex: number,
+    ): Omit<HighlightCreationPayload, 'color' | 'style'> | null {
+      const view = viewRef.current
+      if (!view) return null
+
+      const text = range.toString().replace(/\s+/g, ' ').trim()
+      if (!text) return null
+
+      // ATENÇÃO: nunca passar isto por normalizeCfi() — normalizeCfi chama
+      // CFI.collapse(cfi) incondicionalmente (colapsa pro INÍCIO do range),
+      // que destruiria exatamente o que distingue um highlight de um
+      // marcador (FR-012: marcar o intervalo, não um ponto). Ver spec,
+      // Clarifications — este é o mesmo risco já registrado ali.
+      const cfi = view.getCFI(sectionIndex, range)
+      if (!cfi) return null
+
+      // Âncora de fallback (R-001): CFI colapsado do parágrafo onde o
+      // intervalo começa — reusa getOrCreateParagraphBookmarkCfi.
+      const startNode = range.startContainer
+      const startEl = startNode.nodeType === Node.ELEMENT_NODE
+        ? startNode as Element
+        : startNode.parentElement
+      const startPara = startEl?.closest(BLOCK) ?? null
+      const paraCfi = startPara ? (getOrCreateParagraphBookmarkCfi(startPara, sectionIndex) ?? cfi) : cfi
+
+      const location = lastRelocateRef.current ?? view.lastLocation
+      const fractions = view.getSectionFractions()
+      const sectionStart = fractions[sectionIndex] ?? location?.fraction ?? 0
+      const sectionEnd = fractions[sectionIndex + 1] ?? location?.fraction ?? sectionStart
+      const sectionContent = getLoadedSection(sectionIndex)
+      const sectionParagraphs = sectionContent?.paragraphs ?? ttsParagraphsRef.current
+      const paraIndex = startPara ? Math.max(0, sectionParagraphs.indexOf(startPara)) : 0
+      const paraFraction = sectionParagraphs.length > 1
+        ? paraIndex / (sectionParagraphs.length - 1)
+        : 0
+      const percentage = Math.round((sectionStart + (sectionEnd - sectionStart) * paraFraction) * 100)
+
+      return { cfi, paraCfi, text, sectionIndex, percentage }
+    }
+
+    // Menu de seleção: lista de ações (Invariante 6/FR-003a), em dois modos —
+    // 'root' (Copiar, Compartilhar, Destacar) e 'colors' (voltar + as 8 cores),
+    // pra não ocupar a fileira inteira com cores antes do usuário pedir
+    // (achado do usuário testando em device). Acrescentar uma ação futura ao
+    // nível raiz (traduzir, anotar, ouvir) continua sendo declarar mais um
+    // item aqui, sem tocar no gesto nem no posicionamento.
+    type SelectionMenuMode = 'root' | 'colors'
+
+    // Compartilhado com o menu de gerenciar highlight (US3) — mesma fileira de
+    // estilo em ambos: o item `data-nr-selection-style`/`data-nr-highlight-style`
+    // ativo ganha `aria-pressed` e a borda de "selecionado" via CSS.
+    function renderStyleButtonsHtml(activeStyle: HighlightStyle, attr: string): string {
+      return (['background', 'underline', 'squiggly'] as const).map((style) => `
+        <button type="button" class="nr-sel-icon-btn nr-sel-style-btn" ${attr}="${style}"
+          aria-pressed="${style === activeStyle}"
+          aria-label="${escapeHtml(t(`reader.selectionMenu.style.${style}`))}">${HIGHLIGHT_STYLE_ICON[style]}</button>
+      `).join('')
+    }
+
+    function renderSelectionMenuActionsHtml(mode: SelectionMenuMode, activeStyle: HighlightStyle = 'background'): string {
+      if (mode === 'colors') {
+        const colorSwatches = ANNOTATION_COLORS.map((c) => `
+          <button type="button" class="nr-sel-color" data-nr-selection-color="${c.key}"
+            style="background-color:${c.hex}"
+            aria-label="${escapeHtml(t('bookmark.color', { label: t(c.labelKey) }))}"></button>
+        `).join('')
+        return `
+          <div class="nr-sel-action" data-nr-selection-action="colors">
+            <button type="button" class="nr-sel-icon-btn" data-nr-selection-back="1"
+              aria-label="${escapeHtml(t('reader.selectionMenu.back'))}">${SELECTION_RUN_ICON.back}</button>
+            <div class="nr-sel-divider" aria-hidden="true"></div>
+            ${renderStyleButtonsHtml(activeStyle, 'data-nr-selection-style')}
+            <div class="nr-sel-divider" aria-hidden="true"></div>
+            ${colorSwatches}
+          </div>
+        `
+      }
+      return `
+        <div class="nr-sel-action" data-nr-selection-action="tools">
+          <button type="button" class="nr-sel-icon-btn" data-nr-selection-run="copy"
+            aria-label="${escapeHtml(t('reader.selectionMenu.copy'))}">${SELECTION_RUN_ICON.copy}</button>
+          <button type="button" class="nr-sel-icon-btn" data-nr-selection-run="share"
+            aria-label="${escapeHtml(t('reader.selectionMenu.share'))}">${SELECTION_RUN_ICON.share}</button>
+        </div>
+        <div class="nr-sel-divider" aria-hidden="true"></div>
+        <div class="nr-sel-action" data-nr-selection-action="highlight">
+          <button type="button" class="nr-sel-icon-btn" data-nr-selection-open-colors="1"
+            aria-label="${escapeHtml(t('reader.selectionMenu.highlight'))}">${SELECTION_RUN_ICON.highlighter}</button>
+        </div>
+      `
+    }
+
+    function ensureSelectionMenuEl(doc: Document): HTMLElement {
+      const existing = doc.getElementById('nr-selection-menu')
+      if (existing) return existing as HTMLElement
+
+      const el = doc.createElement('div')
+      el.id = 'nr-selection-menu'
+      el.hidden = true
+      // Anexado ao FIM do <body>, nunca com "range.after(...)" como o bloco de
+      // tradução faz com o parágrafo: um range de seleção arbitrário começa no
+      // meio de um nó de texto, e inserir um elemento ali deslocaria os índices
+      // de nó que os CFIs seguintes dependem.
+      el.innerHTML = `<div class="nr-sel-menu-inner">${renderSelectionMenuActionsHtml('root')}</div>`
+      doc.body.appendChild(el)
+      return el
+    }
+
+    // Troca de conteúdo do menu (root <-> colors) muda o tamanho da caixa —
+    // reposiciona sempre, usando o range atual como referência, senão o menu
+    // fica desalinhado ou cortado depois de crescer/encolher.
+    function setSelectionMenuMode(
+      doc: Document,
+      menuEl: HTMLElement,
+      mode: SelectionMenuMode,
+      range: Range | null,
+      activeStyle: HighlightStyle = 'background',
+    ): void {
+      const inner = menuEl.querySelector('.nr-sel-menu-inner')
+      if (inner) inner.innerHTML = renderSelectionMenuActionsHtml(mode, activeStyle)
+      if (range) positionSelectionMenu(doc, menuEl, range)
+    }
+
+    function positionSelectionMenu(doc: Document, menuEl: HTMLElement, range: Range): void {
+      menuEl.hidden = false
+      const win = doc.defaultView
+      const scrollX = win?.scrollX ?? 0
+      const scrollY = win?.scrollY ?? 0
+      const rect = range.getBoundingClientRect()
+      const GAP = 10
+      const top = scrollY + rect.top - menuEl.offsetHeight - GAP
+      menuEl.style.position = 'absolute'
+      menuEl.style.top = `${Math.max(scrollY + 4, top)}px`
+      menuEl.style.left = `${Math.max(4, scrollX + rect.left)}px`
+    }
+
+    function closeSelectionMenu(doc: Document): void {
+      const el = doc.getElementById('nr-selection-menu')
+      if (el) el.hidden = true
+    }
+
+    // Menu do highlight existente (US3) — mesma estrutura declarativa de ações
+    // do menu de seleção (Invariante 6), com remover + estilo + a mesma
+    // paleta. Diferente do menu de CRIAÇÃO: aqui não há "confirmar" — o
+    // highlight já existe, então cada toque (estilo OU cor) já aplica e
+    // persiste na hora (FR-022), por isso não precisa de um estado "armado".
+    function renderHighlightMenuActionsHtml(activeStyle: HighlightStyle): string {
+      const colorSwatches = ANNOTATION_COLORS.map((c) => `
+        <button type="button" class="nr-sel-color" data-nr-highlight-color="${c.key}"
+          style="background-color:${c.hex}"
+          aria-label="${escapeHtml(t('bookmark.color', { label: t(c.labelKey) }))}"></button>
+      `).join('')
+      return `
+        <div class="nr-sel-action" data-nr-highlight-action="remove">
+          <button type="button" class="nr-sel-text-btn" data-nr-highlight-remove="1">${escapeHtml(t('reader.highlightMenu.remove'))}</button>
+        </div>
+        <div class="nr-sel-divider" aria-hidden="true"></div>
+        <div class="nr-sel-action" data-nr-highlight-action="style">${renderStyleButtonsHtml(activeStyle, 'data-nr-highlight-style')}</div>
+        <div class="nr-sel-divider" aria-hidden="true"></div>
+        <div class="nr-sel-action" data-nr-highlight-action="color">${colorSwatches}</div>
+      `
+    }
+
+    function ensureHighlightMenuEl(doc: Document): HTMLElement {
+      const existing = doc.getElementById('nr-highlight-menu')
+      if (existing) return existing as HTMLElement
+
+      const el = doc.createElement('div')
+      el.id = 'nr-highlight-menu'
+      el.hidden = true
+      // Mesmo motivo do menu de seleção: anexado ao fim do <body>, nunca
+      // inserido perto do trecho marcado (deslocaria índices de CFI).
+      el.innerHTML = `<div class="nr-sel-menu-inner">${renderHighlightMenuActionsHtml('background')}</div>`
+      doc.body.appendChild(el)
+      return el
+    }
+
+    // Chamado ao abrir o menu num highlight específico, pra marcar o estilo
+    // ATUAL dele (não sempre 'background') — mesmo raciocínio do
+    // setSelectionMenuMode: o conteúdo muda de tamanho, reposiciona.
+    function setHighlightMenuAppearance(
+      doc: Document,
+      menuEl: HTMLElement,
+      activeStyle: HighlightStyle,
+      rect: { left: number; top: number },
+    ): void {
+      const inner = menuEl.querySelector('.nr-sel-menu-inner')
+      if (inner) inner.innerHTML = renderHighlightMenuActionsHtml(activeStyle)
+      positionMenuAtRect(doc, menuEl, rect)
+    }
+
+    function closeHighlightMenu(doc: Document): void {
+      const el = doc.getElementById('nr-highlight-menu')
+      if (el) el.hidden = true
+    }
+
+    function positionMenuAtRect(
+      doc: Document,
+      menuEl: HTMLElement,
+      rect: { left: number; top: number },
+    ): void {
+      menuEl.hidden = false
+      const win = doc.defaultView
+      const scrollX = win?.scrollX ?? 0
+      const scrollY = win?.scrollY ?? 0
+      const GAP = 10
+      menuEl.style.position = 'absolute'
+      menuEl.style.top = `${Math.max(scrollY + 4, scrollY + rect.top - menuEl.offsetHeight - GAP)}px`
+      menuEl.style.left = `${Math.max(4, scrollX + rect.left)}px`
+    }
+
+    // Toque sobre um highlight já existente. Usamos o hitTest do overlayer da
+    // seção em vez de escutar 'show-annotation': o evento do foliate nasce de
+    // um listener de click dele no MESMO documento, então depender dele nos
+    // deixaria reféns da ordem de registro dos dois listeners (R-005). O
+    // hitTest é a mesma fonte de dados, consultada quando nos convém.
+    function getHighlightAtPoint(sectionIndex: number, clientX: number, clientY: number): Highlight | null {
+      const contents = viewRef.current?.renderer?.getContents?.() ?? []
+      const overlayer = contents.find((c) => c.index === sectionIndex)?.overlayer
+      const [value] = overlayer?.hitTest?.({ x: clientX, y: clientY }) ?? []
+      if (!value) return null
+      return highlightsRef.current.find((h) => h.cfi === value) ?? null
+    }
+
+    // Pinta (ou repinta) um highlight via overlayer do foliate-js — nunca por
+    // wrapping de DOM como injectVocabHighlight faz: aquele mecanismo casa por
+    // texto e marcaria toda ocorrência da frase no documento (violaria FR-012,
+    // que exige marcar exatamente o intervalo selecionado), além de mutilar o
+    // DOM do EPUB e desestabilizar os CFIs de tudo ao redor.
+    // Um estilo por chave — 'background' cobre highlights antigos sem o
+    // campo (fallback do próprio Highlight.style). As três funções são do
+    // vendor, nenhuma é desenho nosso (ver HighlightStyle em types/highlight).
+    function getOverlayerDrawFn(OverlayerCtor: typeof Overlayer, style: HighlightStyle) {
+      if (style === 'underline') return OverlayerCtor.underline
+      if (style === 'squiggly') return OverlayerCtor.squiggly
+      return OverlayerCtor.highlight
+    }
+
+    async function paintHighlight(
+      cfi: string,
+      color: string,
+      style: HighlightStyle = 'background',
+      isRetry = false,
+    ): Promise<void> {
+      const view = viewRef.current
+      if (!view) return
+
+      // O import de overlayer.js não bloqueia a abertura do leitor (ver
+      // setup()) — se um highlight tentar pintar antes dele resolver, espera
+      // a MESMA promise em vez de desistir silenciosamente.
+      let OverlayerCtor = overlayerCtorRef.current
+      if (!OverlayerCtor) {
+        try {
+          OverlayerCtor = (await overlayerModulePromiseRef.current)?.Overlayer ?? null
+        } catch {
+          return
+        }
+      }
+      if (!OverlayerCtor) return
+
+      let handled = false
+      const handler = (e: CustomEvent<{
+        draw: (func: unknown, opts?: { color?: string }) => void
+        annotation: { value: string }
+      }>) => {
+        if (e.detail.annotation.value !== cfi) return
+        handled = true
+        view.removeEventListener('draw-annotation', handler as EventListener)
+        // O overlayer joga esse valor direto no atributo `fill`/`stroke` do
+        // SVG, então precisa ser cor CSS, não a chave da paleta ('amber',
+        // 'rose'... não são cores nomeadas em CSS e pintariam preto).
+        e.detail.draw(getOverlayerDrawFn(OverlayerCtor, style), { color: annotationColorHex(color) })
+      }
+      view.addEventListener('draw-annotation', handler)
+      try {
+        await view.addAnnotation({ value: cfi })
+      } catch {
+        // FR-017: CFI que não resolve mais não pode derrubar a leitura — só não pinta.
+      } finally {
+        if (!handled) view.removeEventListener('draw-annotation', handler as EventListener)
+      }
+
+      // Achado em device: abrir o leitor direto num CFI (US4, "voltar ao
+      // trecho" a partir da lista) corre com a navegação inicial do próprio
+      // leitor para esse mesmo alvo — a seção existe e o CFI resolve (a MESMA
+      // chamada, feita um instante depois, pinta normalmente), mas
+      // `resolveNavigation` do foliate devolve o overlayer antes de ele estar
+      // de fato pronto, e `draw-annotation` nunca dispara (sem erro, sem
+      // exceção). Uma única retentativa depois de ceder a vez ao browser
+      // resolve — não é timeout arbitrário, é dar tempo da MESMA navegação
+      // interna do foliate terminar.
+      if (!handled && !isRetry) {
+        await new Promise((resolve) => setTimeout(resolve, 300))
+        await paintHighlight(cfi, color, style, true)
+      }
+    }
+
+    // `list` explícita permite repintar com a lista que acabou de chegar do
+    // Dexie sem depender da ordem em que os efeitos do useSyncRef rodam.
+    function repaintHighlightsForSection(sectionIndex: number, list = highlightsRef.current): void {
+      for (const highlight of list) {
+        if (highlight.sectionIndex === sectionIndex) void paintHighlight(highlight.cfi, highlight.color, highlight.style ?? 'background')
+      }
+    }
+
     function syncActiveTranslationBookmarkAction(doc = currentDocRef.current): void {
       const actionBtn = doc?.getElementById('nr-translation-block')?.querySelector<HTMLButtonElement>('[data-nr-action="bookmark"]')
       if (!actionBtn) return
@@ -2833,6 +3379,24 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       syncActiveTranslationBookmarkActionRef.current?.()
     }, [bookmarks])
 
+    // Os highlights chegam do Dexie de forma assíncrona (useLiveQuery no
+    // ReaderScreen), quase sempre DEPOIS de 'load'/'create-overlay' das
+    // primeiras seções — sozinhos, aqueles eventos repintam com a lista ainda
+    // vazia e o livro reabre sem marcação nenhuma (achado em device). Este
+    // efeito repinta as seções já carregadas quando a lista chega ou muda;
+    // repintar é idempotente (view.addAnnotation remove a anotação de mesmo
+    // CFI antes de desenhar).
+    useEffect(() => {
+      const list = highlights ?? []
+      if (!list.length) return
+      for (const content of loadedSectionsRef.current.values()) {
+        repaintHighlightsForSection(content.index, list)
+      }
+      // repaintHighlightsForSection é recriada a cada render (função no corpo
+      // do componente); a lista é o que decide quando repintar.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [highlights])
+
     useEffect(() => {
       const wordLensTasks = wordLensTasksRef.current
       for (const content of loadedSectionsRef.current.values()) {
@@ -2895,10 +3459,24 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         }
         if (cancelled) return
 
+        // Overlayer.highlight é a draw function dos highlights (feature 010).
+        // Carregado em paralelo, sem bloquear a abertura do leitor — a promise
+        // fica guardada pra paintHighlight esperar por ela se um highlight
+        // tentar pintar antes de resolver, em vez de só não pintar.
+        const overlayerModulePromise = import('foliate-js/overlayer.js')
+        overlayerModulePromiseRef.current = overlayerModulePromise
+        overlayerModulePromise
+          .then((mod) => { overlayerCtorRef.current = mod.Overlayer })
+          .catch(() => {})
+
         view = document.createElement('foliate-view') as unknown as View
         view.style.cssText = 'width:100%;height:100%;display:block'
         container!.appendChild(view)
         viewRef.current = view
+
+        view.addEventListener('create-overlay', (e: CustomEvent<{ index: number }>) => {
+          repaintHighlightsForSection(e.detail.index)
+        })
 
         view.addEventListener('relocate', (e: CustomEvent<RelocateDetail>) => {
           const { cfi, fraction, tocItem, section } = e.detail
@@ -2942,6 +3520,10 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           renderBookmarkMarkers(doc)
           injectVocabHighlight(doc, vocabWordsRef.current)
           renderWordLens(doc, index)
+          // Repintura de highlights: cobre revisitar uma seção cujo overlayer já
+          // existe de antes. A primeira renderização é coberta pelo listener de
+          // 'create-overlay' acima — o overlayer só fica pronto DEPOIS de 'load'.
+          repaintHighlightsForSection(index)
 
           // didScroll: Android WebView dispara 'click' mesmo após scroll curto.
           // Rastreamos touchmove para distinguir tap intencional de fim de scroll.
@@ -2950,10 +3532,34 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           let touchStartY = 0
           let touchStartX = 0
           let didScroll = false
+          // Highlights (feature 010): "havia seleção quando ESTE gesto começou"
+          // — capturado aqui, nunca lido dentro do 'click'. No Android, quando o
+          // toque de dispensa da seleção chega, o WebView já colapsou a seleção
+          // anterior (confirmado em device, T010); por isso o estado precisa
+          // vir de antes, não do momento do click.
+          let hadSelectionAtTouchStart = false
+          // Range pendente enquanto o menu de seleção está aberto — consumido
+          // pelo próprio click ao tocar numa cor (ver mais abaixo).
+          let pendingHighlightRange: Range | null = null
+          // Estilo "armado" pro PRÓXIMO highlight a criar — trocado ao tocar
+          // num ícone de estilo (não fecha o menu), consumido ao tocar numa
+          // cor (que cria e fecha). Reseta pra 'background' em toda abertura
+          // nova do menu (não persiste de uma seleção pra outra).
+          let pendingHighlightStyle: HighlightStyle = 'background'
+          // Highlight cujo menu de gerenciamento está aberto (US3), e o rect
+          // de onde ele foi tocado — reusado ao trocar de estilo, que
+          // reposiciona sem fechar o menu (ver ramo do estilo no listener de
+          // click) e por isso não tem um novo hitTest à mão.
+          let activeHighlight: Highlight | null = null
+          let activeHighlightMenuRect: { left: number; top: number } | null = null
+          function captureSelectionStateAtGestureStart(): void {
+            hadSelectionAtTouchStart = getEligibleSelectionRange(doc) !== null
+          }
           doc.addEventListener('touchstart', (ev: TouchEvent) => {
             touchStartY = ev.touches[0].clientY
             touchStartX = ev.touches[0].clientX
             didScroll = false
+            captureSelectionStateAtGestureStart()
           }, { passive: true })
           doc.addEventListener('touchmove', (ev: TouchEvent) => {
             // Tap slop: tolera um pequeno deslocamento do dedo sem transformar tap em scroll.
@@ -2962,6 +3568,40 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             if (dy > TAP_SLOP_PX || dx > TAP_SLOP_PX) didScroll = true
           }, { passive: true })
           doc.addEventListener('touchend', () => {}, { passive: true })
+          // pointerdown cobre mouse na web (FR-029) — toque no Android já dispara
+          // 'touchstart' acima; capturar nos dois é redundante-mas-inofensivo
+          // quando ambos disparam pro mesmo toque físico.
+          doc.addEventListener('pointerdown', captureSelectionStateAtGestureStart, { passive: true })
+
+          // Abre/reancora/fecha o menu de seleção — um único caminho pros três
+          // casos (FR-004/FR-005): a seleção deixar de ser elegível fecha o
+          // menu; mudar de tamanho/posição reancora; nenhum listener de clique
+          // próprio é necessário pra fechar.
+          doc.addEventListener('selectionchange', () => {
+            const range = getEligibleSelectionRange(doc)
+            if (range) {
+              pendingHighlightRange = range
+              const menuEl = ensureSelectionMenuEl(doc)
+              // Reseta pra 'root'/estilo padrão só numa abertura de verdade
+              // (menu estava escondido) — se o usuário está ajustando as
+              // alças com o submenu de cores já aberto, modo e estilo
+              // armado continuam os mesmos.
+              if (menuEl.hidden) {
+                pendingHighlightStyle = 'background'
+                setSelectionMenuMode(doc, menuEl, 'root', null)
+              }
+              positionSelectionMenu(doc, menuEl, range)
+            } else {
+              // NÃO zera pendingHighlightRange aqui (achado em device): no
+              // Android, tocar num swatch de cor do próprio menu já dispara
+              // selectionchange (o WebView colapsa a seleção nativa como parte
+              // de processar ESSE MESMO toque) ANTES do 'click' do swatch
+              // rodar — zerar aqui apagaria o range bem na hora de usá-lo. Só
+              // esconde o menu; o range só é descartado depois de consumido
+              // (branch da cor) ou junto de um dismiss de verdade.
+              closeSelectionMenu(doc)
+            }
+          })
 
           doc.addEventListener('click', (ev: MouseEvent) => {
             // Ignora clicks que são resíduo de um gesto de scroll
@@ -2970,6 +3610,126 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
             if (didScroll) {
               logReaderTapIgnored('scroll-gesture')
+              return
+            }
+
+            // Botões do menu de seleção (Copiar/Compartilhar/Destacar, voltar,
+            // cores) têm prioridade sobre a guarda de seleção logo abaixo —
+            // senão a guarda engoliria o próprio toque nesses botões
+            // (Invariante 3). Sempre a MESMA leitura de range/menu: prefere a
+            // seleção viva, cai pro último range elegível se o WebView já
+            // colapsou por causa deste mesmo toque (Android, achado em device).
+            const liveOrPendingRange = () => getEligibleSelectionRange(doc) ?? pendingHighlightRange
+
+            const openColorsBtn = getSelectionMenuButtonAtPoint(target, ownerDocument, ev.clientX, ev.clientY, '[data-nr-selection-open-colors]')
+            if (openColorsBtn) {
+              ev.preventDefault()
+              ev.stopPropagation()
+              setSelectionMenuMode(doc, ensureSelectionMenuEl(doc), 'colors', liveOrPendingRange(), pendingHighlightStyle)
+              return
+            }
+
+            const backBtn = getSelectionMenuButtonAtPoint(target, ownerDocument, ev.clientX, ev.clientY, '[data-nr-selection-back]')
+            if (backBtn) {
+              ev.preventDefault()
+              ev.stopPropagation()
+              setSelectionMenuMode(doc, ensureSelectionMenuEl(doc), 'root', liveOrPendingRange())
+              return
+            }
+
+            // Ícone de estilo (dentro do submenu de cores): só troca o estilo
+            // "armado" e remarca visualmente — não fecha o menu nem cria nada
+            // ainda. A cor, tocada em seguida, é quem confirma e fecha.
+            const selectionStyleBtn = getSelectionMenuButtonAtPoint(target, ownerDocument, ev.clientX, ev.clientY, '[data-nr-selection-style]')
+            if (selectionStyleBtn) {
+              ev.preventDefault()
+              ev.stopPropagation()
+              const style = selectionStyleBtn.dataset.nrSelectionStyle as HighlightStyle | undefined
+              if (style) pendingHighlightStyle = style
+              setSelectionMenuMode(doc, ensureSelectionMenuEl(doc), 'colors', liveOrPendingRange(), pendingHighlightStyle)
+              return
+            }
+
+            const selectionRunBtn = getSelectionMenuButtonAtPoint(target, ownerDocument, ev.clientX, ev.clientY, '[data-nr-selection-run]')
+            if (selectionRunBtn) {
+              ev.preventDefault()
+              ev.stopPropagation()
+              const run = selectionRunBtn.dataset.nrSelectionRun
+              const text = liveOrPendingRange()?.toString().replace(/\s+/g, ' ').trim()
+              if (text) {
+                if (run === 'copy') {
+                  // Sem feedback textual de propósito — mesmo padrão de "um
+                  // toque, uma ação" das cores: o menu fechar já é o retorno.
+                  // FR-003d: sem clipboard disponível, apenas não copia.
+                  void navigator.clipboard?.writeText(text).catch(() => {})
+                } else if (run === 'share') {
+                  // Via NativeSystemUiService: no Android usa Intent.ACTION_SEND
+                  // nativo (o WebView não implementa Web Share de forma
+                  // confiável — achado real em device), com fallback pro
+                  // navigator.share do browser fora do Android.
+                  void shareText(text)
+                }
+              }
+              doc.getSelection?.()?.removeAllRanges()
+              pendingHighlightRange = null
+              closeSelectionMenu(doc)
+              return
+            }
+
+            const selectionColorBtn = getSelectionMenuButtonAtPoint(target, ownerDocument, ev.clientX, ev.clientY, '[data-nr-selection-color]')
+            if (selectionColorBtn) {
+              ev.preventDefault()
+              ev.stopPropagation()
+              const color = selectionColorBtn.dataset.nrSelectionColor
+              const range = liveOrPendingRange()
+              if (color && range) {
+                const basePayload = buildHighlightPayloadFromRange(range, index)
+                if (basePayload) {
+                  const payload: HighlightCreationPayload = { ...basePayload, color, style: pendingHighlightStyle }
+                  onCreateHighlightRef.current?.(payload)
+                  void paintHighlight(payload.cfi, color, pendingHighlightStyle)
+                }
+              }
+              doc.getSelection?.()?.removeAllRanges()
+              pendingHighlightRange = null
+              pendingHighlightStyle = 'background'
+              closeSelectionMenu(doc)
+              return
+            }
+
+            // Botões do menu do highlight (US3), pela mesma razão do ramo
+            // acima: se a guarda de seleção ou o roteamento normal viesse
+            // antes, o menu engoliria os próprios toques.
+            const highlightMenuBtn = getHighlightMenuButtonAtPoint(target, ownerDocument, ev.clientX, ev.clientY)
+            if (highlightMenuBtn) {
+              ev.preventDefault()
+              ev.stopPropagation()
+              const alvo = activeHighlight
+              const novaCor = highlightMenuBtn.dataset.nrHighlightColor
+              const novoEstilo = highlightMenuBtn.dataset.nrHighlightStyle as HighlightStyle | undefined
+              if (alvo && novaCor) {
+                onChangeHighlightAppearanceRef.current?.(alvo, { color: novaCor })
+                void paintHighlight(alvo.cfi, novaCor, alvo.style ?? 'background')
+                activeHighlight = null
+                activeHighlightMenuRect = null
+                closeHighlightMenu(doc)
+              } else if (alvo && novoEstilo) {
+                // Estilo aplica e persiste na hora, mas NÃO fecha o menu — o
+                // usuário pode continuar ajustando (trocar estilo de novo, ou
+                // escolher a cor em seguida). Só a cor fecha, como já era.
+                onChangeHighlightAppearanceRef.current?.(alvo, { style: novoEstilo })
+                void paintHighlight(alvo.cfi, alvo.color, novoEstilo)
+                activeHighlight = { ...alvo, style: novoEstilo }
+                if (activeHighlightMenuRect) {
+                  setHighlightMenuAppearance(doc, ensureHighlightMenuEl(doc), novoEstilo, activeHighlightMenuRect)
+                }
+              } else if (alvo && highlightMenuBtn.dataset.nrHighlightRemove === '1') {
+                onDeleteHighlightRef.current?.(alvo)
+                void viewRef.current?.deleteAnnotation({ value: alvo.cfi })
+                activeHighlight = null
+                activeHighlightMenuRect = null
+                closeHighlightMenu(doc)
+              }
               return
             }
 
@@ -3013,6 +3773,65 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
             if (isTranslationBlockTap(target, ownerDocument, ev.clientX, ev.clientY)) {
               logReaderTapIgnored('translation-block', activeTranslationParaRef.current)
+              return
+            }
+
+            // Guarda contra a restrição central desta feature: um toque que
+            // dispensa uma seleção não pode abrir a tradução por engano
+            // (confirmado como bug real em device antes desta guarda, T010).
+            // Vem depois dos botões acima — senão engoliria o próprio toque
+            // que cria o highlight — e antes de qualquer ramo que abra tradução.
+            //
+            // São DUAS leituras porque as plataformas produzem seleção em
+            // momentos diferentes do gesto:
+            //  - `hadSelectionAtTouchStart` (Android): no toque de dispensa o
+            //    WebView já colapsou a seleção antes do click chegar, então só
+            //    o estado capturado no início do gesto enxerga que ela existiu;
+            //  - `liveSelectionRange` (web com mouse): a seleção NASCE durante
+            //    o próprio arrasto, então no início do gesto não havia nada —
+            //    quem enxerga é a leitura viva no click que encerra o arrasto.
+            const liveSelectionRange = getEligibleSelectionRange(doc)
+            if (hadSelectionAtTouchStart || liveSelectionRange) {
+              logReaderTapIgnored('text-selection')
+              // Só fecha quando o gesto é dismiss de verdade. Se a seleção
+              // ainda está viva, este click é o fim do arrasto que acabou de
+              // criá-la: fechar aqui apagaria o menu recém-aberto.
+              if (!liveSelectionRange) {
+                pendingHighlightRange = null
+                closeSelectionMenu(doc)
+              }
+              return
+            }
+
+            // Menu do highlight aberto e o toque foi fora dele: fecha e
+            // consome o toque, em vez de abrir a tradução por baixo do menu.
+            if (activeHighlight) {
+              logReaderTapIgnored('highlight-menu')
+              activeHighlight = null
+              activeHighlightMenuRect = null
+              closeHighlightMenu(doc)
+              return
+            }
+
+            // Toque SOBRE um highlight abre o menu dele em vez da tradução
+            // (FR-019). Um toque numa parte sem highlight do mesmo parágrafo
+            // não casa no hitTest e segue o fluxo normal (FR-020).
+            const highlightUnderTap = getHighlightAtPoint(index, ev.clientX, ev.clientY)
+            if (highlightUnderTap) {
+              ev.preventDefault()
+              ev.stopPropagation()
+              activeHighlight = highlightUnderTap
+              const contents = viewRef.current?.renderer?.getContents?.() ?? []
+              const overlayer = contents.find((c) => c.index === index)?.overlayer
+              const [, , rect] = overlayer?.hitTest?.({ x: ev.clientX, y: ev.clientY }) ?? []
+              activeHighlightMenuRect = rect ?? { left: ev.clientX, top: ev.clientY }
+              setHighlightMenuAppearance(
+                doc,
+                ensureHighlightMenuEl(doc),
+                highlightUnderTap.style ?? 'background',
+                activeHighlightMenuRect,
+              )
+              logReaderTapIgnored('highlight-menu')
               return
             }
 

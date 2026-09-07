@@ -46,12 +46,29 @@ function makeBookMock() {
   }
 }
 
+// Stub de Overlayer por seção (feature 010, highlights) — observável em vez de
+// undefined, pra testes poderem asseverar que a pintura foi chamada com o range
+// e a cor certos. Não faz hit-testing real; hitTest sempre devolve vazio.
+function makeOverlayerMock() {
+  return {
+    add: vi.fn(),
+    remove: vi.fn(),
+    hitTest: vi.fn((): unknown[] => []),
+  }
+}
+
 // Mock foliate-view element used by EpubViewer tests.
 class FoliateViewMock extends HTMLElement {
   private foliateCallbacks = new Map<string, Array<(e: { detail: unknown }) => void>>()
   private rendererEvents = new EventTarget()
   private rendererContents: Array<{ doc: Document; index: number }> = []
   private rendererPrimaryIndex = 0
+  private overlayersByIndex = new Map<number, ReturnType<typeof makeOverlayerMock>>()
+
+  private getOverlayerFor(index: number) {
+    if (!this.overlayersByIndex.has(index)) this.overlayersByIndex.set(index, makeOverlayerMock())
+    return this.overlayersByIndex.get(index)!
+  }
 
   override addEventListener(
     event: string,
@@ -134,6 +151,26 @@ class FoliateViewMock extends HTMLElement {
   getProgressOf = vi.fn(() => ({ tocItem: { label: 'Mock Chapter', href: 'chapter-1.xhtml' } }))
   getSectionFractions = vi.fn(() => [0, 0.5, 1])
 
+  // addAnnotation/deleteAnnotation mimicam o contrato real (view.js resolve o
+  // CFI, acha o overlayer da seção e emite 'draw-annotation' com um
+  // draw(func, opts) que desenha via overlayer.add) sem fazer parsing real de
+  // CFI — sempre associa ao conteúdo mais recentemente carregado, o que basta
+  // pros testes desta feature (uma seção carregada por vez).
+  addAnnotation = vi.fn((annotation: { value: string }, remove = false) => {
+    const target = this.rendererContents[this.rendererContents.length - 1]
+    if (!target) return Promise.resolve(undefined)
+    const overlayer = this.getOverlayerFor(target.index)
+    overlayer.remove(annotation.value)
+    if (!remove) {
+      const range = target.doc.createRange()
+      const draw = (func: unknown, opts?: unknown) => overlayer.add(annotation.value, range, func, opts)
+      this.dispatchEvent(new CustomEvent('draw-annotation', { detail: { draw, annotation, doc: target.doc, range } }))
+    }
+    return Promise.resolve({ index: target.index, label: '' })
+  })
+
+  deleteAnnotation = vi.fn((annotation: { value: string }) => this.addAnnotation(annotation, true))
+
   renderer = {
     setAttribute: vi.fn(),
     removeAttribute: vi.fn(),
@@ -150,7 +187,7 @@ class FoliateViewMock extends HTMLElement {
     prevSection: vi.fn(() => Promise.resolve()),
     getContents: vi.fn(() => this.rendererContents.map((content) => ({
       ...content,
-      overlayer: undefined,
+      overlayer: this.getOverlayerFor(content.index),
     }))),
     scrollToAnchor: vi.fn(),
     addEventListener: vi.fn((

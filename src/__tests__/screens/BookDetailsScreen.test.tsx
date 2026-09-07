@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { BookDetailsScreen } from '@/screens/BookDetailsScreen'
 import { FeatureQuotaService } from '@/services/FeatureQuotaService'
 import type { Book, Bookmark, BookSettings, ReadingProgress } from '@/types/book'
+import type { Highlight } from '@/types/highlight'
 import { BOOK_INFO_SCHEMA_VERSION, type StoredBookInfo } from '@/types/bookInfo'
 
 const mocks = vi.hoisted(() => ({
@@ -14,6 +15,8 @@ const mocks = vi.hoisted(() => ({
   } as BookSettings,
   progress: null as ReadingProgress | null,
   bookmarks: [] as Bookmark[],
+  highlights: [] as Highlight[],
+  deleteHighlight: vi.fn(),
   updateBookSettings: vi.fn(),
   listSpeechifyVoices: vi.fn(),
   parseExtras: vi.fn(),
@@ -27,8 +30,11 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('dexie-react-hooks', () => ({
+  // Mock posicional: a ordem aqui espelha a ordem dos useLiveQuery no
+  // componente (liveBook, progress, bookmarks, vocabCount, highlights,
+  // bookSettings). Mexeu na ordem lá, mexe aqui.
   useLiveQuery: vi.fn(() => {
-    const values = [undefined, mocks.progress, mocks.bookmarks, 0, mocks.bookSettings]
+    const values = [undefined, mocks.progress, mocks.bookmarks, 0, mocks.highlights, mocks.bookSettings]
     const value = values[mocks.liveQueryIndex % values.length]
     mocks.liveQueryIndex += 1
     return value
@@ -51,6 +57,11 @@ vi.mock('@/db/books', () => ({
 
 vi.mock('@/db/bookmarks', () => ({
   softDeleteBookmark: vi.fn(),
+}))
+
+vi.mock('@/db/highlights', () => ({
+  getHighlightsByBookId: vi.fn(async () => mocks.highlights),
+  deleteHighlight: mocks.deleteHighlight,
 }))
 
 vi.mock('@/db/bookInfo', () => ({
@@ -250,6 +261,8 @@ describe('BookDetailsScreen chapters', () => {
       updatedAt: new Date('2024-01-02T00:00:00Z'),
     }
     mocks.bookmarks = []
+    mocks.highlights = []
+    mocks.deleteHighlight.mockReset()
     mocks.updateBookSettings.mockReset()
     mocks.getStoredBookInfo.mockReset()
     mocks.saveBookInfo.mockReset()
@@ -293,7 +306,7 @@ describe('BookDetailsScreen chapters', () => {
   })
 
   it('renderiza as abas na ordem definida para detalhes do livro', () => {
-    const expectedTabs = ['Capitulo', 'Marcacoes', 'Reviews', 'Autor', 'Configuracoes', 'Detalhes']
+    const expectedTabs = ['Capitulo', 'Marcacoes', 'Destaques', 'Reviews', 'Autor', 'Configuracoes', 'Detalhes']
 
     render(
       <BookDetailsScreen
@@ -310,6 +323,88 @@ describe('BookDetailsScreen chapters', () => {
     const tabsStart = tabLabels.indexOf('Capitulo')
 
     expect(tabLabels.slice(tabsStart, tabsStart + expectedTabs.length)).toEqual(expectedTabs)
+  })
+
+  // ── US4: aba de highlights ───────────────────────────────────────────────
+  function highlightFixture(patch: Partial<Highlight> = {}): Highlight {
+    return {
+      id: 1,
+      bookId: 1,
+      cfi: 'epubcfi(/6/4!/4/2/1:0,/1:20)',
+      paraCfi: 'epubcfi(/6/4!/4/2/1:0)',
+      text: 'Trecho marcado pelo leitor',
+      color: 'amber',
+      sectionIndex: 3,
+      percentage: 40,
+      createdAt: new Date('2026-03-04T12:00:00.000Z'),
+      ...patch,
+    }
+  }
+
+  it('T037: a aba lista os highlights na ordem de percentage, com trecho, cor, posicao e data', async () => {
+    // getHighlightsByBookId já devolve ordenado — a lista preserva essa ordem
+    mocks.highlights = [
+      highlightFixture({ id: 1, percentage: 12, text: 'Primeiro trecho', color: 'indigo' }),
+      highlightFixture({ id: 2, percentage: 77, text: 'Segundo trecho', color: 'rose' }),
+    ]
+
+    render(
+      <BookDetailsScreen book={book} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /^Destaques/ }))
+
+    const primeiro = await screen.findByText('Primeiro trecho')
+    const segundo = screen.getByText('Segundo trecho')
+    expect(primeiro.compareDocumentPosition(segundo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByText(/^12% ·/)).toBeTruthy()
+    expect(screen.getByText(/^77% ·/)).toBeTruthy()
+    // cor: bolinha com o hex da paleta compartilhada
+    const cores = document.querySelectorAll('[style*="background-color"]')
+    const hexes = [...cores].map((el) => (el as HTMLElement).style.backgroundColor)
+    expect(hexes).toContain('rgb(99, 102, 241)') // indigo #6366f1
+    expect(hexes).toContain('rgb(244, 63, 94)') // rose #f43f5e
+  })
+
+  it('T038: tocar num highlight abre o livro no CFI dele', async () => {
+    const onRead = vi.fn()
+    mocks.highlights = [highlightFixture({ cfi: 'epubcfi(/6/8!/4/2/1:5,/1:40)' })]
+
+    render(
+      <BookDetailsScreen book={book} onBack={vi.fn()} onRead={onRead} onOpenSettings={vi.fn()} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /^Destaques/ }))
+    fireEvent.click(await screen.findByText('Trecho marcado pelo leitor'))
+
+    await waitFor(() => {
+      expect(onRead).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), 'epubcfi(/6/8!/4/2/1:5,/1:40)')
+    })
+  })
+
+  it('T039: livro sem highlights mostra estado vazio, e o contador aparece junto de marcacoes e vocabulario', async () => {
+    mocks.highlights = []
+
+    render(
+      <BookDetailsScreen book={book} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} />,
+    )
+
+    expect(screen.getByText('destaques')).toBeTruthy()
+    expect(screen.getByText('marcadores')).toBeTruthy()
+    expect(screen.getByText('vocabulario')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /^Destaques/ }))
+    expect(await screen.findByText('Nenhum destaque ainda')).toBeTruthy()
+  })
+
+  it('T039a: remover pela lista chama deleteHighlight', async () => {
+    mocks.highlights = [highlightFixture({ id: 9 })]
+
+    render(
+      <BookDetailsScreen book={book} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /^Destaques/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Remover destaque' }))
+
+    expect(mocks.deleteHighlight).toHaveBeenCalledWith(9)
   })
 
   it('starts chapter groups collapsed and opens groups at the first navigable child', async () => {

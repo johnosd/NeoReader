@@ -1,6 +1,6 @@
 ﻿import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useCallback } from 'react'
-import { ArrowLeft, Star, ChevronRight, Globe, Calendar, HardDrive, Sparkles, BookOpen, Bookmark, X, Check, Volume2, Mic2, Gauge, Search, Play, Loader2, Cloud, CloudOff } from 'lucide-react'
+import { ArrowLeft, Star, ChevronRight, Globe, Calendar, HardDrive, Sparkles, BookOpen, Bookmark, Highlighter, X, Check, Volume2, Mic2, Gauge, Search, Play, Loader2, Cloud, CloudOff } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Badge, BottomSheet, Button, EmptyState, ListItem, Spinner } from '../components/ui'
 import { AuthorTab } from '../components/AuthorTab'
@@ -9,6 +9,8 @@ import { QuotaUsageHint } from '../components/QuotaUsageHint'
 import { db } from '../db/database'
 import { toggleFavorite } from '../db/books'
 import { softDeleteBookmark } from '../db/bookmarks'
+import { deleteHighlight, getHighlightsByBookId } from '../db/highlights'
+import { annotationColorHex } from '../utils/annotationColors'
 import { scheduleBookmarkDriveSync } from '../services/BookmarkDriveSyncService'
 import { setBookmarkDriveSyncStatus } from '../services/BookmarkDriveSyncStatus'
 import { getBookSettings, updateBookSettings } from '../db/bookSettings'
@@ -69,11 +71,12 @@ interface BookDetailsScreenProps {
   onOpenPaywall?: () => void
 }
 
-type Tab = 'chapters' | 'bookmarks' | 'settings' | 'details' | 'reviews' | 'autor'
+type Tab = 'chapters' | 'bookmarks' | 'highlights' | 'settings' | 'details' | 'reviews' | 'autor'
 
 const TABS: { id: Tab; labelKey: MessageKey }[] = [
   { id: 'chapters', labelKey: 'bookDetails.tab.chapters' },
   { id: 'bookmarks', labelKey: 'bookDetails.tab.bookmarks' },
+  { id: 'highlights', labelKey: 'bookDetails.tab.highlights' },
   { id: 'reviews', labelKey: 'bookDetails.tab.reviews' },
   { id: 'autor', labelKey: 'bookDetails.tab.author' },
   { id: 'settings', labelKey: 'bookDetails.tab.settings' },
@@ -143,6 +146,12 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
     [book.id],
   ) ?? []
   const vocabCount = useLiveQuery(() => db.vocabulary.where('bookId').equals(book.id!).count(), [book.id]) ?? 0
+  // Highlights do livro (US4). getHighlightsByBookId já ordena pela posição no
+  // texto (percentage), que é a ordem que a lista precisa exibir (FR-024).
+  const highlights = useLiveQuery(
+    () => book.id === undefined ? Promise.resolve([]) : getHighlightsByBookId(book.id),
+    [book.id],
+  ) ?? []
 
   // syncBookBookmarks(bookId) já sincroniza TODOS os bookmarks do livro de
   // uma vez (FR-005) — não precisa de lógica por-bookmark aqui. Reseta o
@@ -615,6 +624,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
             </div>
             <div className="flex gap-4 mt-3">
               <Stat value={bookmarks.length} label={t('bookDetails.stat.bookmarks')} />
+              <Stat value={highlights.length} label={t('bookDetails.stat.highlights')} />
               <Stat value={vocabCount} label={t('bookDetails.stat.vocabulary')} />
             </div>
           </Section>
@@ -627,9 +637,11 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
                 const active = activeTab === tab.id
                 const count = tab.id === 'bookmarks' && bookmarks.length > 0
                   ? bookmarks.length
-                  : tab.id === 'reviews' && youtubeReviews.length > 0
-                    ? youtubeReviews.length
-                    : null
+                  : tab.id === 'highlights' && highlights.length > 0
+                    ? highlights.length
+                    : tab.id === 'reviews' && youtubeReviews.length > 0
+                      ? youtubeReviews.length
+                      : null
                 return (
                   <button
                     key={tab.id}
@@ -730,6 +742,49 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
                   icon={<Bookmark size={32} />}
                   title={t('bookDetails.noBookmarks.title')}
                   description={t('bookDetails.noBookmarks.description')}
+                />
+              )
+            )}
+
+            {activeTab === 'highlights' && (
+              highlights.length > 0 ? (
+                <div className="rounded-md bg-bg-surface border border-border overflow-hidden">
+                  {highlights.map((highlight, index) => (
+                    <ListItem
+                      key={highlight.id}
+                      leading={(
+                        // `block` importa: o slot leading do ListItem não é um
+                        // container flex, então um span inline ignoraria w/h.
+                        <span
+                          className="block w-3 h-3 rounded-full border border-white/20"
+                          style={{ backgroundColor: annotationColorHex(highlight.color) }}
+                        />
+                      )}
+                      // O ListItem já trunca o título; o texto gravado continua inteiro.
+                      title={highlight.text}
+                      meta={`${highlight.percentage}% · ${formatDate(highlight.createdAt, locale)}`}
+                      onClick={() => openReader(highlight.cfi)}
+                      divider={index < highlights.length - 1}
+                      trailing={(
+                        <button
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            if (highlight.id !== undefined) void deleteHighlight(highlight.id)
+                          }}
+                          className="p-2 -m-2 text-text-muted active:text-error transition-colors"
+                          aria-label={t('bookDetails.removeHighlight')}
+                        >
+                          <X size={15} />
+                        </button>
+                      )}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <EmptyState
+                  icon={<Highlighter size={32} />}
+                  title={t('bookDetails.noHighlights.title')}
+                  description={t('bookDetails.noHighlights.description')}
                 />
               )
             )}

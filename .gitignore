@@ -80,3 +80,7 @@ debug-books/
 
 # Artefatos de release Android (AAB + mapping.txt) — arquivados localmente, nunca no Git
 release-artifacts/
+
+# Scripts/screenshots de debug em device e verificação Chromium via Playwright MCP — descartáveis
+.tmp-e2e/
+.playwright-mcp/
