@@ -16,6 +16,7 @@ import {
   type User,
 } from 'firebase/auth'
 import type { AuthUser } from '../types/auth'
+import { logWarn } from './DiagnosticsLogger'
 
 const REQUIRED_CONFIG_KEYS = [
   'VITE_FIREBASE_API_KEY',
@@ -40,6 +41,14 @@ let persistenceReady: Promise<void> | null = null
 const DRIVE_TOKEN_KEY = 'neoreader:drive-access-token'
 const DRIVE_TOKEN_EXPIRY_KEY = 'neoreader:drive-token-expiry'
 const DRIVE_TOKEN_TTL_MS = 55 * 60 * 1000
+
+// Renovar o token do Drive SEMPRE abre UI no Android (ver refreshDriveToken).
+// Chamadas que não partem de uma ação explícita do usuário passam por este
+// cooldown, para que nenhuma regressão futura volte a transformar sync de
+// background numa enxurrada de telas de consentimento.
+const DRIVE_REAUTH_COOLDOWN_KEY = 'neoreader:drive-reauth-cooldown-until'
+const DRIVE_REAUTH_COOLDOWN_MS = 30 * 60 * 1000
+const DRIVE_REAUTH_MAX_ATTEMPTS_PER_SESSION = 3
 
 function loadPersistedDriveToken(): string | null {
   try {
@@ -127,6 +136,29 @@ export function getGoogleDriveAccessToken(): string | null {
   return googleDriveAccessToken
 }
 
+function readDriveReauthCooldownUntil(): number {
+  try {
+    return parseInt(localStorage.getItem(DRIVE_REAUTH_COOLDOWN_KEY) ?? '0', 10) || 0
+  } catch {
+    return 0
+  }
+}
+
+function startDriveReauthCooldown() {
+  try {
+    localStorage.setItem(
+      DRIVE_REAUTH_COOLDOWN_KEY,
+      String(Date.now() + DRIVE_REAUTH_COOLDOWN_MS),
+    )
+  } catch { /* localStorage indisponível */ }
+}
+
+function clearDriveReauthCooldown() {
+  try {
+    localStorage.removeItem(DRIVE_REAUTH_COOLDOWN_KEY)
+  } catch { /* localStorage indisponível */ }
+}
+
 async function ensureLocalPersistence(auth: Auth) {
   persistenceReady ??= setPersistence(auth, browserLocalPersistence)
   await persistenceReady
@@ -154,28 +186,67 @@ function toNativeAuthUser(user: NativeFirebaseUser): AuthUser {
   }
 }
 
-// Solicita novo token Drive ao Google. Mostra seletor de conta só se o
-// escopo ainda não tiver sido concedido antes — quando já foi, o próprio
-// Google Identity Services retorna sem exibir nada (silencioso). Por isso
-// passou a ser chamada também automaticamente por GoogleDriveAppDataService
-// quando um request falha por token ausente/expirado, não só pelo botão
-// manual em Settings.
-let inFlightDriveTokenRefresh: Promise<void> | null = null
+export type DriveTokenRefreshOutcome =
+  | 'refreshed' // token novo em mãos
+  | 'no-token' // provedor respondeu sem accessToken; mantivemos o token antigo
+  | 'rate-limited' // bloqueado por cooldown ou teto de tentativas da sessão
+  | 'failed' // usuário cancelou ou o provedor falhou
 
-export async function refreshDriveToken(): Promise<void> {
+let inFlightDriveTokenRefresh: Promise<DriveTokenRefreshOutcome> | null = null
+let driveReauthAttemptsThisSession = 0
+
+// Solicita novo token Drive ao Google. ATENÇÃO: isto SEMPRE abre UI no
+// Android — folha de seleção de conta + tela de consentimento OAuth. Não
+// existe caminho silencioso: o plugin monta a autorização com
+// `requestOfflineAccess(clientId, /* forceCodeForRefreshToken */ true)`
+// hardcoded, e o Google documenta que, com esse flag, toda autorização
+// depois da primeira exige consentimento do usuário de novo.
+// Por isso esta função só deve ser chamada a partir de uma ação explícita do
+// usuário (`userInitiated: true`) — nunca de sync em background.
+export async function refreshDriveToken(
+  options: { userInitiated: boolean },
+): Promise<DriveTokenRefreshOutcome> {
   // Coalesce chamadas concorrentes (ex: bookmark, progresso e vocabulário
   // falhando quase ao mesmo tempo) numa única tentativa de renovação, em vez
   // de disparar 3 chamadas simultâneas ao Google.
   if (inFlightDriveTokenRefresh) return inFlightDriveTokenRefresh
 
+  if (!options.userInitiated) {
+    if (Date.now() < readDriveReauthCooldownUntil()) return 'rate-limited'
+    if (driveReauthAttemptsThisSession >= DRIVE_REAUTH_MAX_ATTEMPTS_PER_SESSION) {
+      return 'rate-limited'
+    }
+  }
+
   inFlightDriveTokenRefresh = (async () => {
+    driveReauthAttemptsThisSession += 1
     try {
       const result = await FirebaseAuthentication.signInWithGoogle({
         scopes: [GOOGLE_DRIVE_APPDATA_SCOPE],
+        // Credential Manager é inutilizável aqui: além de forçar
+        // re-consentimento, ele resolve com accessToken nulo quando o escopo
+        // já está concedido. O caminho legado pede o auth code sem
+        // forceCodeForRefreshToken e devolve accessToken de verdade.
+        useCredentialManager: false,
       })
-      rememberGoogleDriveAccessToken(result.credential?.accessToken)
-    } catch {
-      // Usuário cancelou ou falha silenciosa.
+      const accessToken = result.credential?.accessToken?.trim()
+      if (!accessToken) {
+        // Nunca apagar um token válido por causa de uma resposta sem token —
+        // apagar é o que transformava isso num loop de novas solicitações.
+        startDriveReauthCooldown()
+        logWarn('drive.token.refresh.no-token', { status: 'failure' })
+        return 'no-token'
+      }
+      rememberGoogleDriveAccessToken(accessToken)
+      driveReauthAttemptsThisSession = 0
+      clearDriveReauthCooldown()
+      return 'refreshed'
+    } catch (error) {
+      // Cancelamento do usuário cai aqui. Registrar em vez de engolir, e
+      // segurar tentativas automáticas por um tempo.
+      startDriveReauthCooldown()
+      logWarn('drive.token.refresh.failure', { status: 'failure', error })
+      return 'failed'
     } finally {
       inFlightDriveTokenRefresh = null
     }
@@ -243,8 +314,13 @@ export async function signInWithGoogleRedirect(): Promise<AuthUser | null> {
   if (isNativeRuntime()) {
     const result = await FirebaseAuthentication.signInWithGoogle({
       scopes: [GOOGLE_DRIVE_APPDATA_SCOPE],
+      // Mesmo motivo de refreshDriveToken: só o caminho legado devolve um
+      // accessToken utilizável para o Drive.
+      useCredentialManager: false,
     })
-    rememberGoogleDriveAccessToken(result.credential?.accessToken)
+    // Só grava se veio token — não apagar o que já estava salvo.
+    const accessToken = result.credential?.accessToken?.trim()
+    if (accessToken) rememberGoogleDriveAccessToken(accessToken)
     if (result.user) return toNativeAuthUser(result.user)
 
     const currentUser = await FirebaseAuthentication.getCurrentUser()

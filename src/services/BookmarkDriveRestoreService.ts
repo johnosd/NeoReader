@@ -16,6 +16,7 @@ import {
 } from './GoogleDriveAppDataService'
 import { createFlowId, getDiagnosticsNowMs, logEvent, logWarn } from './DiagnosticsLogger'
 import {
+  getCachedBookmarkDriveSyncStatus,
   hasBookmarkDriveSyncEntitlement,
   normalizeBookmarkDriveSyncError,
   setBookmarkDriveSyncStatus,
@@ -71,7 +72,13 @@ export async function restoreBookBookmarksFromDrive(
       return finishSkipped(flowId, startedAt, bookId, 'pro-required')
     }
 
-    setBookmarkDriveSyncStatus('pending-offline')
+    // Guard de permissão: sem ele, cada livro importado tentava ir ao Drive de
+    // novo. E NÃO resetamos o status para 'pending-offline' aqui — esse reset
+    // apagava justamente o 'permission-error' que segura os schedule*Sync.
+    if (getCachedBookmarkDriveSyncStatus().code === 'permission-error') {
+      return finishSkipped(flowId, startedAt, bookId, 'permission-error')
+    }
+
     const book = await db.books.get(bookId)
     if (!book) return finishSkipped(flowId, startedAt, bookId, 'book-not-found')
     if (!book.fileHash) return finishSkipped(flowId, startedAt, bookId, 'missing-file-hash')

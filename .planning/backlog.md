@@ -5,7 +5,6 @@ sistema sdd-*. Mantido automaticamente por update-feature-status.ps1 e
 update-bug-status.ps1.
 
 ## Ideias Futuras
-[bug] app pendindo muitas vezes para logar no google. se a autenticação se perde muito rapido deveriamos tentar limitar, pois solicitar para logar muitas vezes degrada a experiencia do usuario.
 _(nenhuma no momento)_
 
 ## Features
@@ -34,3 +33,4 @@ _(nenhuma no momento)_
 | reconectar-google-drive-nao-recupera-bookmarks | Reconectar Google Drive não recupera bookmarks sem tentativa prévia registrada | Test | verified | Concluído | 2026-09-02 |
 | vitestconfigts-usa-pooloptions-depreciado-no-vitest | `vitest.config.ts` usa `test.poolOptions`, removido no Vitest 4 | Test | verified | Concluído | 2026-09-03 |
 | bucket-optimization-0-alerta-play-console | Bucket "Optimization" (0%) do alerta de qualidade técnica do Play Console | Assess | valid, held (low) — impacto real no Play Console é marginal (ver assessment.md) | Nenhum — held por decisão do usuário (ganho pequeno). Reabrir Fix se prioridade mudar | 2026-09-04 |
+| app-pedindo-login-google-muita-frequencia | App pede consentimento do Google repetidamente (Drive) | Test | verified | Concluído | 2026-09-07 |

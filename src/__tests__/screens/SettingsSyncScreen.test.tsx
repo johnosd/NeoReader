@@ -78,7 +78,7 @@ describe('SettingsSyncScreen', () => {
     mocks.useEntitlements.mockReturnValue(freeEntitlements())
     mocks.bookmarksToArray.mockResolvedValue([])
     mocks.progressToArray.mockResolvedValue([])
-    mocks.refreshDriveToken.mockResolvedValue(undefined)
+    mocks.refreshDriveToken.mockResolvedValue('refreshed')
   })
 
   it('mostra sync de bookmarks como recurso Pro nas configuracoes', async () => {
@@ -125,5 +125,25 @@ describe('SettingsSyncScreen', () => {
       expect(mocks.scheduleBookmarkDriveSync).toHaveBeenCalledWith(42)
     })
     expect(mocks.scheduleBookmarkDriveSync).toHaveBeenCalledWith(7)
+    expect(mocks.refreshDriveToken).toHaveBeenCalledWith({ userInitiated: true })
+  })
+
+  it('reconectar cancelado nao reseta status nem re-agenda sync', async () => {
+    mocks.useEntitlements.mockReturnValue(proEntitlements())
+    // Usuário cancelou a tela do Google: reagendar tudo faria os syncs
+    // falharem de novo e piscarem "sincronizando" antes do erro.
+    mocks.refreshDriveToken.mockResolvedValue('failed')
+    mocks.bookmarksToArray.mockResolvedValue([{ id: 1, bookId: 42, syncError: null }])
+
+    render(<SettingsSyncScreen onBack={vi.fn()} />)
+
+    fireEvent.click(await screen.findByText('Conectar Google Drive'))
+
+    await waitFor(() => {
+      expect(mocks.refreshDriveToken).toHaveBeenCalled()
+    })
+    expect(mocks.scheduleBookmarkDriveSync).not.toHaveBeenCalled()
+    expect(mocks.scheduleProgressDriveSync).not.toHaveBeenCalled()
+    expect(mocks.scheduleVocabularyDriveSync).not.toHaveBeenCalled()
   })
 })

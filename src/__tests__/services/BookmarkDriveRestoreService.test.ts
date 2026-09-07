@@ -73,6 +73,7 @@ vi.mock('@/services/DiagnosticsLogger', () => ({
 import { restoreBookBookmarksFromDrive } from '@/services/BookmarkDriveRestoreService'
 import { createBookmarkSyncKey } from '@/services/BookmarkDriveSyncModel'
 import { GoogleDriveAppDataError } from '@/services/GoogleDriveAppDataService'
+import { setBookmarkDriveSyncStatus } from '@/services/BookmarkDriveSyncStatus'
 
 const BOOK_HASH = 'b'.repeat(64)
 const PRO_OPTIONS = { isPro: () => true }
@@ -163,6 +164,9 @@ describe('BookmarkDriveRestoreService', () => {
     mocks.state.book = makeBook()
     mocks.state.nextBookmarkId = 100
     setBookmarks([])
+    // Status é global ao módulo e sobrevive entre testes — um teste que falha
+    // com permission-denied deixaria 'permission-error' para o próximo.
+    setBookmarkDriveSyncStatus('pro-required')
   })
 
   it('ignora restauracao quando nao existe arquivo remoto', async () => {
@@ -297,6 +301,25 @@ describe('BookmarkDriveRestoreService', () => {
     })
     expect(mocks.bookmarksAdd).not.toHaveBeenCalled()
     expect(mocks.logWarn).toHaveBeenCalledWith('bookmark.restore.failure', expect.any(Object))
+  })
+
+  // Regressão do bug "app pede login do Google o tempo todo": importar uma
+  // pasta com N livros chamava a restauração N vezes, e cada uma ia ao Drive
+  // sem token — uma solicitação de login por livro.
+  it('pula restauracao quando o status ja e permission-error, sem chamar Drive', async () => {
+    setBookmarkDriveSyncStatus('permission-error')
+    const driveClient = makeDriveClient()
+
+    const result = await restoreBookBookmarksFromDrive(42, { driveClient, ...PRO_OPTIONS })
+
+    expect(result).toMatchObject({
+      restoredCount: 0,
+      skipped: true,
+      reason: 'permission-error',
+    })
+    expect(driveClient.list).not.toHaveBeenCalled()
+    expect(driveClient.getJson).not.toHaveBeenCalled()
+    expect(mocks.bookmarksAdd).not.toHaveBeenCalled()
   })
 
   it('bloqueia restauracao sem Pro sem chamar Drive ou alterar bookmarks locais', async () => {

@@ -1,6 +1,5 @@
 import {
   getGoogleDriveAccessToken,
-  refreshDriveToken,
   GOOGLE_DRIVE_APPDATA_SCOPE,
 } from './FirebaseAuthService'
 import { fetchWithTimeout, getDefaultFetch } from './http'
@@ -26,7 +25,6 @@ interface GoogleDriveListResponse {
 
 interface GoogleDriveAppDataServiceOptions {
   getAccessToken?: () => string | null | Promise<string | null>
-  refreshAccessToken?: () => Promise<void>
   fetchImpl?: typeof fetch
   timeoutMs?: number
 }
@@ -51,15 +49,19 @@ export class GoogleDriveAppDataError extends Error {
   }
 }
 
+// Este serviço NUNCA renova o token sozinho. Renovar abre tela de
+// consentimento do Google (ver refreshDriveToken), e todos os chamadores aqui
+// são sync de background — pedir login sem o usuário ter pedido nada era a
+// causa do bug "app pede login do Google o tempo todo". Sem token, falha com
+// 'missing-token'/'permission-denied', o status vira 'permission-error' e o
+// usuário reconecta pelo botão em Settings quando quiser.
 export class GoogleDriveAppDataService {
   private readonly getAccessToken: () => string | null | Promise<string | null>
-  private readonly refreshAccessToken: () => Promise<void>
   private readonly fetchImpl: typeof fetch
   private readonly timeoutMs: number
 
   constructor(options: GoogleDriveAppDataServiceOptions = {}) {
     this.getAccessToken = options.getAccessToken ?? getGoogleDriveAccessToken
-    this.refreshAccessToken = options.refreshAccessToken ?? refreshDriveToken
     this.fetchImpl = options.fetchImpl ?? getDefaultFetch()
     this.timeoutMs = options.timeoutMs ?? 10_000
   }
@@ -133,9 +135,8 @@ export class GoogleDriveAppDataService {
   private async request(
     path: string,
     options: GoogleDriveRequestOptions,
-    isRetry = false,
   ): Promise<Response> {
-    const token = await this.resolveAccessToken(isRetry)
+    const token = await this.resolveAccessToken()
     const url = this.buildUrl(path, options)
 
     try {
@@ -152,17 +153,9 @@ export class GoogleDriveAppDataService {
         },
       })
 
-      if (!response.ok) {
-        const error = this.errorFromResponse(response)
-        // Token pode ter expirado entre a leitura do cache e o request de
-        // verdade — tenta renovar em segundo plano (silencioso quando o
-        // escopo já foi concedido) e repete uma única vez antes de desistir.
-        if (!isRetry && error.code === 'permission-denied') {
-          await this.refreshAccessToken()
-          return this.request(path, options, true)
-        }
-        throw error
-      }
+      // Sem retry com renovação: renovar exigiria abrir tela de consentimento.
+      // 401/403 vira 'permission-denied' e o usuário reconecta por Settings.
+      if (!response.ok) throw this.errorFromResponse(response)
 
       return response
     } catch (error) {
@@ -174,15 +167,11 @@ export class GoogleDriveAppDataService {
     }
   }
 
-  private async resolveAccessToken(isRetry = false): Promise<string> {
+  private async resolveAccessToken(): Promise<string> {
     const token = await this.getAccessToken()
     const cleanToken = token?.trim()
 
     if (!cleanToken) {
-      if (!isRetry) {
-        await this.refreshAccessToken()
-        return this.resolveAccessToken(true)
-      }
       throw new GoogleDriveAppDataError(
         'missing-token',
         `Google Drive access token unavailable. Reconnect Google with ${GOOGLE_DRIVE_APPDATA_SCOPE}.`,

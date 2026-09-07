@@ -127,7 +127,18 @@ export function SettingsSyncScreen({ onBack }: SettingsSyncScreenProps) {
 
   async function handleReconnectDrive() {
     setDriveReconnecting(true)
-    await refreshDriveToken()
+    // Único ponto do app autorizado a abrir a tela de login/consentimento do
+    // Google para o Drive — por isso `userInitiated: true`.
+    const outcome = await refreshDriveToken({ userInitiated: true })
+
+    // Sem token novo (usuário cancelou, ou o provedor respondeu sem token),
+    // não adianta resetar os status e reagendar tudo: os syncs falhariam de
+    // novo e o usuário veria "sincronizando" seguido de erro.
+    if (outcome !== 'refreshed') {
+      setDriveReconnecting(false)
+      return
+    }
+
     // Reseta os 3 status stores para que os guards de permission-error não bloqueiem
     // as novas tentativas de sync após o token ser renovado.
     progressSyncStatusStore.set('pending-offline')

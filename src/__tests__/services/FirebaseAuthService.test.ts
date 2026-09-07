@@ -92,6 +92,9 @@ async function importService() {
 describe('FirebaseAuthService', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Token Drive e cooldown de reauth vivem no localStorage e sobrevivem ao
+    // vi.resetModules() — sem limpar, um teste contamina o seguinte.
+    localStorage.clear()
     mocks.isNativePlatform.mockReturnValue(false)
     mocks.getApps.mockReturnValue([])
     mocks.initializeApp.mockReturnValue(mocks.app)
@@ -147,6 +150,7 @@ describe('FirebaseAuthService', () => {
 
     expect(mocks.nativeSignInWithGoogle).toHaveBeenCalledWith({
       scopes: [GOOGLE_DRIVE_APPDATA_SCOPE],
+      useCredentialManager: false,
     })
     expect(mocks.signInWithPopup).not.toHaveBeenCalled()
     expect(mocks.signInWithRedirect).not.toHaveBeenCalled()
@@ -156,11 +160,59 @@ describe('FirebaseAuthService', () => {
   it('refreshDriveToken coalesce chamadas concorrentes numa unica renovacao', async () => {
     const { refreshDriveToken } = await importService()
 
-    const first = refreshDriveToken()
-    const second = refreshDriveToken()
+    const first = refreshDriveToken({ userInitiated: true })
+    const second = refreshDriveToken({ userInitiated: true })
 
-    await expect(first).resolves.toBeUndefined()
-    await expect(second).resolves.toBeUndefined()
+    await expect(first).resolves.toBe('refreshed')
+    await expect(second).resolves.toBe('refreshed')
     expect(mocks.nativeSignInWithGoogle).toHaveBeenCalledTimes(1)
+  })
+
+  // Regressão do bug "app pede login do Google o tempo todo": o Credential
+  // Manager força re-consentimento a cada autorização, então o caminho legado
+  // é obrigatório para o escopo do Drive.
+  it('refreshDriveToken evita o Credential Manager ao pedir o escopo do Drive', async () => {
+    const { GOOGLE_DRIVE_APPDATA_SCOPE, refreshDriveToken } = await importService()
+
+    await refreshDriveToken({ userInitiated: true })
+
+    expect(mocks.nativeSignInWithGoogle).toHaveBeenCalledWith({
+      scopes: [GOOGLE_DRIVE_APPDATA_SCOPE],
+      useCredentialManager: false,
+    })
+  })
+
+  it('refreshDriveToken mantem o token atual quando o provedor responde sem accessToken', async () => {
+    mocks.isNativePlatform.mockReturnValue(true)
+    const { getGoogleDriveAccessToken, refreshDriveToken, signInWithGoogleRedirect } = await importService()
+
+    await signInWithGoogleRedirect()
+    expect(getGoogleDriveAccessToken()).toBe('native-drive-token')
+
+    // Apagar o token aqui era o que fechava o loop: sem token, o próximo sync
+    // pedia login de novo, que devolvia null de novo, e assim por diante.
+    mocks.nativeSignInWithGoogle.mockResolvedValue({
+      user: mocks.nativeUser,
+      credential: { accessToken: null },
+    })
+
+    await expect(refreshDriveToken({ userInitiated: true })).resolves.toBe('no-token')
+    expect(getGoogleDriveAccessToken()).toBe('native-drive-token')
+  })
+
+  it('refreshDriveToken nao inicia por background enquanto o cooldown estiver ativo', async () => {
+    const { refreshDriveToken } = await importService()
+
+    mocks.nativeSignInWithGoogle.mockRejectedValue(new Error('canceled'))
+    await expect(refreshDriveToken({ userInitiated: true })).resolves.toBe('failed')
+    expect(mocks.nativeSignInWithGoogle).toHaveBeenCalledTimes(1)
+
+    // Falha liga o cooldown: chamada de background não pode abrir nova tela.
+    await expect(refreshDriveToken({ userInitiated: false })).resolves.toBe('rate-limited')
+    expect(mocks.nativeSignInWithGoogle).toHaveBeenCalledTimes(1)
+
+    // Ação explícita do usuário continua passando.
+    await expect(refreshDriveToken({ userInitiated: true })).resolves.toBe('failed')
+    expect(mocks.nativeSignInWithGoogle).toHaveBeenCalledTimes(2)
   })
 })
