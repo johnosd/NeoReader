@@ -5,7 +5,7 @@ sistema sdd-*. Mantido automaticamente por update-feature-status.ps1 e
 update-bug-status.ps1.
 
 ## Ideias Futuras
-
+[bug] app pendindo muitas vezes para logar no google. se a autenticação se perde muito rapido deveriamos tentar limitar, pois solicitar para logar muitas vezes degrada a experiencia do usuario.
 _(nenhuma no momento)_
 
 ## Features
