@@ -12,6 +12,11 @@ import { errorImportDiagnostic, logImportDiagnostic } from './ImportDiagnostics'
 // Case-sensitive. Mudar aqui se renomear o entitlement no dashboard.
 export const PRO_ENTITLEMENT_ID = 'NeoReader Pro'
 
+// Teto de espera por uma resposta de entitlement do RevenueCat antes de
+// desistir e tratar como não-Pro (default seguro: nunca liberar feature paga
+// sem confirmação). Ver waitForEntitlements.
+const ENTITLEMENTS_TIMEOUT_MS = 8_000
+
 export interface BillingStatus {
   // null quando ainda nao inicializou (cold start) ou plugin indisponivel (web sem config).
   isPro: boolean | null
@@ -225,8 +230,57 @@ export const BillingService = {
     return isBillingAvailable()
   },
 
-  /** Aguarda o init() terminar (util para evitar checar isPro antes da inicializacao). */
+  /**
+   * Aguarda o init() terminar. ATENÇÃO: isto cobre apenas o `configure()` do
+   * SDK — resolve em ~1ms e NÃO garante que `isPro` já tenha valor, porque o
+   * `refresh()` que popula o status roda solto em background (ver init()).
+   * Para ler `isPro`, use waitForEntitlements().
+   */
   async waitForInit(): Promise<void> {
     if (initSettled) await initSettled.catch(() => undefined)
+  },
+
+  /**
+   * Aguarda o entitlement ser CONHECIDO (`isPro !== null`), não só o SDK
+   * configurado. Quem usava waitForInit() como porta de entrada para ler
+   * `isPro` lia `null` na janela de ~500ms entre o configure() e a resposta do
+   * refresh() — e `null === true` é `false`, então usuário Pro era tratado
+   * como free, silenciosamente.
+   *
+   * Devolve o status assim que ele existir, ou o status corrente ao estourar
+   * o timeout (mantendo o default seguro de negar feature paga sem confirmar).
+   */
+  async waitForEntitlements(timeoutMs = ENTITLEMENTS_TIMEOUT_MS): Promise<BillingStatus> {
+    // Sem billing (web/dev, sem api key) não há o que esperar: init() já
+    // emitiu DISABLED_STATUS ou nunca vai emitir nada.
+    if (!isBillingAvailable()) return cachedStatus
+
+    await BillingService.waitForInit()
+    if (cachedStatus.isPro !== null) return cachedStatus
+
+    // Espera o primeiro emit com status resolvido. `subscribe` devolve o
+    // unsubscribe; guardamos numa variável externa para que tanto o timer
+    // quanto o listener possam cancelar o outro.
+    let unsubscribe: (() => void) | undefined
+    const resolved = await new Promise<BillingStatus | null>((resolve) => {
+      const timer = setTimeout(() => {
+        unsubscribe?.()
+        resolve(null)
+      }, timeoutMs)
+
+      unsubscribe = BillingService.subscribe((status) => {
+        if (status.isPro === null) return
+        clearTimeout(timer)
+        unsubscribe?.()
+        resolve(status)
+      })
+    })
+
+    if (!resolved) {
+      logImportDiagnostic('billing', 'billing-entitlements-timeout', { timeoutMs })
+      return cachedStatus
+    }
+
+    return resolved
   },
 }

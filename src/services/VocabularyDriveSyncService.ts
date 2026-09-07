@@ -48,10 +48,18 @@ export async function syncVocabulary(options: SyncOptions = {}): Promise<void> {
   logEvent('vocabulary.sync.start', { flowId, status: 'start' })
 
   try {
-    await BillingService.waitForInit()
+    await BillingService.waitForEntitlements()
 
     if (!hasDriveSyncEntitlement(options.isPro)) {
       vocabularySyncStatusStore.set('pro-required')
+      // Logar o skip: sem isto, o sync sumia sem deixar rastro nenhum — foi
+      // o que escondeu a corrida de entitlement no cold start.
+      logEvent('vocabulary.sync.skipped', {
+        flowId,
+        status: 'success',
+        durationMs: getDiagnosticsNowMs() - startedAt,
+        details: { reason: 'pro-required' },
+      })
       return
     }
 

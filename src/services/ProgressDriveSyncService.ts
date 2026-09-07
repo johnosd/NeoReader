@@ -48,10 +48,18 @@ export async function syncBookProgress(
   logEvent('progress.sync.start', { flowId, status: 'start', details: { bookId } })
 
   try {
-    await BillingService.waitForInit()
+    await BillingService.waitForEntitlements()
 
     if (!hasDriveSyncEntitlement(options.isPro)) {
       progressSyncStatusStore.set('pro-required')
+      // Ver comentário equivalente em VocabularyDriveSyncService: skip sem log
+      // é indistinguível de sync que nunca rodou.
+      logEvent('progress.sync.skipped', {
+        flowId,
+        status: 'success',
+        durationMs: getDiagnosticsNowMs() - startedAt,
+        details: { bookId, reason: 'pro-required' },
+      })
       return
     }
 
@@ -104,7 +112,7 @@ export async function restoreBookProgressFromDrive(
 ): Promise<{ restored: boolean }> {
   const driveClient = options.driveClient ?? new GoogleDriveAppDataService()
 
-  await BillingService.waitForInit()
+  await BillingService.waitForEntitlements()
   if (!hasDriveSyncEntitlement(options.isPro)) return { restored: false }
 
   const book = await db.books.get(bookId)

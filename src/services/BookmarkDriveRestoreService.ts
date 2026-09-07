@@ -64,8 +64,10 @@ export async function restoreBookBookmarksFromDrive(
   })
 
   try {
-    // Aguarda billing inicializar para evitar falso 'pro-required' logo apos login.
-    await BillingService.waitForInit()
+    // Aguarda o entitlement ser conhecido — não só o SDK configurado — para
+    // evitar falso 'pro-required' logo apos login. waitForInit() não bastava:
+    // resolve antes de isPro existir.
+    await BillingService.waitForEntitlements()
 
     if (!hasBookmarkDriveSyncEntitlement(options.isPro)) {
       setBookmarkDriveSyncStatus('pro-required')

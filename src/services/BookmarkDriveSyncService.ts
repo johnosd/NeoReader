@@ -71,7 +71,7 @@ export async function syncBookBookmarks(
   const snapshots = snapshotsFromBookmarks(bookmarks)
 
   try {
-    await BillingService.waitForInit()
+    await BillingService.waitForEntitlements()
 
     if (!hasBookmarkDriveSyncEntitlement(options.isPro)) {
       setBookmarkDriveSyncStatus('pro-required')
