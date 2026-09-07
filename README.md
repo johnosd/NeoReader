@@ -154,10 +154,14 @@ tags, pastas de origem e caches ficam no dispositivo.
 ### Detalhes do livro
 
 - Header com capa, autor, ano, rating quando disponivel, progresso e favorito.
-- Tabs: Capitulos, Marcacoes, Reviews, Autor, Configuracoes e Detalhes.
+- Tabs: Capitulos, Marcadores, Highlights, Reviews, Autor, Configuracoes e
+  Detalhes.
 - TOC extraido do EPUB e navegacao direta para capitulos.
 - Marcadores listados por CFI, com snippet e remocao por soft delete.
-- Contagem de vocabulario salvo por livro.
+- Highlights do livro listados na ordem em que aparecem no texto (trecho, cor,
+  estilo, posicao e data), com navegacao de volta ao trecho no leitor e
+  remocao direta pela lista.
+- Contagem de vocabulario e de highlights salvos por livro.
 - Atualizacao manual da ficha bibliografica.
 - Configuracoes por livro para:
   - idioma original;
@@ -225,6 +229,26 @@ ficha manualmente.
   biblioteca.
 - O build endurece o sandbox dos iframes do `foliate-js` removendo
   `allow-scripts` nos renderers suportados.
+
+### Highlights
+
+- Toque longo + arrasto seleciona texto do livro (selecao nativa do WebView);
+  ao soltar, abre um menu proprio do NeoReader ancorado na selecao, sem o menu
+  flutuante do sistema por cima (Android).
+- Menu com Copiar, Compartilhar e o botao "Destacar", que abre um submenu com
+  3 estilos visuais (fundo colorido, sublinhado, risco ondulado) e 8 cores —
+  tocar numa cor marca e fecha num unico toque.
+- Highlight persistente por intervalo exato do texto (nao por ocorrencia da
+  palavra, diferente do destaque de Word Lens/vocabulario); sobrevive a
+  rolagem, troca de capitulo, reflow e reabertura do livro.
+- Tocar num highlight existente abre um menu de gerenciamento (remover, trocar
+  cor, trocar estilo) em vez da traducao inline; toque curto no restante do
+  texto continua abrindo a traducao normalmente.
+- Compartilhar usa `Intent.ACTION_SEND` nativo no Android (a Web Share API nao
+  e confiavel no WebView embarcado), com fallback para `navigator.share` fora
+  do Android.
+- Local-first, sem sincronizacao na nuvem nesta rodada; highlights de um livro
+  sao removidos junto ao remover o livro da biblioteca.
 
 ### Aparencia de leitura
 

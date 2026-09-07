@@ -97,7 +97,7 @@ description: "Template de lista de tasks para implementação de feature"
 - [X] T023b [US1] **(ad-hoc, achados rodando o Passo 6 em Chromium real via Playwright MCP)** Três bugs que jsdom não pegava, todos em `src/components/reader/EpubViewer.tsx`: (a) **R-010** — o `click` que encerra o arrasto de seleção na web abria a tradução e fechava o menu; a guarda passou a ler também a seleção viva (`getEligibleSelectionRange`) e só fecha o menu num dismiss de verdade; (b) **R-011** — `ev.target instanceof Element` é sempre falso entre realms, então `target.closest('[data-nr-selection-color]')` nunca achava o swatch; criado `getSelectionColorButtonAtPoint` com fallback por coordenada, no mesmo formato de `getTranslationActionAtPoint`; (c) **R-012** — a pintura passava a chave da paleta pro `fill` do SVG; agora converte com `annotationColorHex`. Testes de regressão T024a/T024b/T024c em `EpubViewer.test.tsx`
 - [X] T023c [US1] Rodar o **Passo 6** (web) de `quickstart.md` em Chromium real via Playwright MCP, com EPUB importado pela UI e seleção por arrasto de mouse: menu abre e permanece; cor cria highlight com CFI de intervalo; pintura correta; persiste a reload; seleção entre dois parágrafos vira um highlight; toque fora dispensa sem criar; seleção dentro do bloco de tradução não abre o menu; 8/8 toques curtos abriram a tradução; zero erro de console. **Não substitui T024** — nada aqui exercita toque longo, alças, barra do sistema ou reflow por mudança de fonte
 - [X] T023d [US1] **(ad-hoc, achado na 2ª rodada de T024 em device)** Corrigir a repintura na reabertura do livro (**R-013**): `useEffect` em `[highlights]` em `src/components/reader/EpubViewer.tsx` repintando todas as seções carregadas, no mesmo formato do efeito do Word Lens; `repaintHighlightsForSection` passou a aceitar a lista explicitamente pra não depender da ordem dos efeitos do `useSyncRef`. Teste de regressão T024d (verificado que falha sem o efeito)
-- [ ] T024 [US1] Rodar o **Passo 1** de `quickstart.md` no device, incluindo as três checagens da restrição (1.8, 1.9, 1.10) e a checagem de R-001 (1.5). Registrar o resultado de R-001 em "Riscos e Decisões" no `plan.md`
+- [X] T024 [US1] Rodar o **Passo 1** de `quickstart.md` no device, incluindo as três checagens da restrição (1.8, 1.9, 1.10) e a checagem de R-001 (1.5). Registrar o resultado de R-001 em "Riscos e Decisões" no `plan.md`. **Concluído em 2026-09-07**: 1.8/1.9/1.10 confirmados em rodada anterior; 1.5 confirmado nesta rodada — highlight num parágrafo com palavra salva no vocabulário sobrevive a fechar e reabrir o app, no lugar certo. R-001 fechado sem desvio, fallback por texto não precisou ser implementado
 
 **Critério de Conclusão**: no device, toque longo + arrasto seleciona e abre o menu; tocar numa cor marca o trecho; o highlight sobrevive a rolagem, troca de capítulo e reabertura do app; o menu **não** abre nos quatro casos de FR-006 (seleção colapsada, só espaços, dentro do bloco de tradução, entre documentos); os 10 toques curtos abrem a tradução nas 10 vezes e as 10 rolagens não criam seleção; `npm run lint && npm test && npm run build` limpos.
 
@@ -105,11 +105,11 @@ description: "Template de lista de tasks para implementação de feature"
 
 **Registro da Fase**:
 
-- Status: Em execução — código e testes completos (T010-T023d); fluxo principal **confirmado pelo usuário no device** em 2026-09-06 ("agora deu certo") depois do fix de R-013; **falta o restante de T024**: as três checagens da restrição (1.8/1.9/1.10) e a checagem 1.5 em parágrafo com palavra do vocabulário (R-001)
+- Status: **Concluída** — código e testes completos (T010-T023d); fluxo principal confirmado pelo usuário no device em 2026-09-06 depois do fix de R-013; T024 completo em 2026-09-07 (1.8/1.9/1.10 e 1.5/R-001 todos confirmados)
 - Feito: T010 (premissa validada em device — ver Riscos e Decisões R-002); tipo `HighlightCreationPayload`; predicado de elegibilidade `getEligibleSelectionRange` (FR-006); `buildHighlightPayloadFromRange` (CFI de intervalo, sem `normalizeCfi`); menu de seleção como lista declarativa (`#nr-selection-menu`, `.nr-sel-color`); guarda de seleção no `click` (ramo `'text-selection'`, agora com as duas leituras — estado no início do gesto + seleção viva); `getSelectionColorButtonAtPoint` (fallback por coordenada, R-011); `paintHighlight`/`repaintHighlightsForSection` via `Overlayer.highlight` com cor CSS (R-012); wiring em `ReaderScreen.tsx` (`useLiveQuery` + `addHighlight`); **T023a** (corrida do Android, R-009) e **T023b** (R-010/R-011/R-012)
 - Testes executados: `npm run lint && npm test && npm run build` — suíte completa **824 passed / 2 skipped** (pré-existentes); 88 testes em `EpubViewer.test.tsx` (T014b + T024a/b/c)
 - Verificado em device (T024): criar highlight por toque longo + arrasto + cor, pintura, reabertura do livro com as marcações no lugar (usuário + CDP); **1.8 — 8/8 toques curtos abriram a tradução**; **1.9 — 0/10 rolagens criaram seleção ou menu**; **1.10 — o toque de dispensa foi ignorado (`text-selection`), sem abrir tradução, e o toque seguinte traduziu normalmente**
-- Pendências: **1.5 em parágrafo com palavra do vocabulário** (é o que fecha R-001) e o Passo 5 (reflow, rotação, tema claro, TTS). Scripts de device em `.tmp-e2e/` — exigem a tela desbloqueada, senão o WebView é suspenso e o CDP não responde
+- Pendências: nenhuma — 1.5 (R-001) e o Passo 5 confirmados em 2026-09-07 (ver Fase 7). Scripts de device em `.tmp-e2e/` — exigem a tela desbloqueada, senão o WebView é suspenso e o CDP não responde
 
 ---
 
@@ -269,10 +269,11 @@ nativas do WebView Android/Chromium.
   'colors'); reseta pra 'root' só numa abertura nova (menu estava
   escondido). `getSelectionColorButtonAtPoint`/`getSelectionRunButtonAtPoint`
   unificadas em `getSelectionMenuButtonAtPoint(selector)`. Testes T062-T064
-- [ ] T061c Revalidar no device com o build corrigido: Compartilhar abre o
+- [X] T061c Revalidar no device com o build corrigido: Compartilhar abre o
   sheet nativo do Android com o texto certo; o botão único "Destacar" abre o
   submenu de cores e volta; criar highlight a partir do submenu continua
-  funcionando
+  funcionando. **Concluído em 2026-09-07**: usuário confirmou Compartilhar
+  abrindo o sheet nativo com o texto certo, inclusive cancelando sem travar
 
 **Critério de Conclusão**: os dois botões aparecem no menu de seleção, ao lado
 das cores; Copiar e Compartilhar funcionam com o texto exato da seleção; nenhum
@@ -281,9 +282,9 @@ limpa.
 
 **Registro da Fase**:
 
-- Status: Código, testes e Chromium completos (T053-T061b); Copiar validado no
-  device; Compartilhar e o submenu de cores corrigidos após 1ª rodada de teste
-  do usuário — **falta T061c (revalidar no device)**, aparelho desconectou
+- Status: **Concluída** — código, testes, Chromium e device completos
+  (T053-T061c). Copiar validado no device; Compartilhar e o submenu de cores
+  corrigidos após 1ª rodada de teste do usuário; revalidados em 2026-09-07
 - Testes executados: T050/T051/T052/T062/T063/T064 em `EpubViewer.test.tsx`
   (103 no arquivo) + 5 testes de `shareText` em `NativeSystemUiService.test.ts`;
   suíte completa **849 passed / 2 skipped**; lint, build e `gradlew
@@ -297,8 +298,7 @@ limpa.
   `Intent.ACTION_SEND` nativo via `NeoReaderLibraryPlugin`
 - **Pedido do usuário testando em device (D-004)**: cores ocupavam fileira
   demais — viraram submenu atrás de um botão "Destacar"
-- Pendências: **T061c** — revalidar Compartilhar e o submenu no device com o
-  build corrigido
+- Pendências: nenhuma
 
 ---
 
@@ -388,12 +388,12 @@ suíte limpa.
 
 **Purpose**: Fechamento e verificações que atravessam as stories.
 
-- [ ] T045 Rodar o **Passo 5** de `quickstart.md` no device: reflow (fonte/tamanho/tema), rotação, tema claro e escuro, TTS ativo, e a checagem 5.5 de R-001
+- [X] T045 Rodar o **Passo 5** de `quickstart.md` no device: reflow (fonte/tamanho/tema), rotação, tema claro e escuro, TTS ativo, e a checagem 5.5 de R-001. **Concluído em 2026-09-07**: usuário confirmou reflow/rotação/tema/TTS validados ("validado") no device `RXCX103NMVZ`
 - [X] T045a Verificar SC-011 na prática — **superado por evidência real, não descartável**: Copiar e Compartilhar (Fase 6b) entraram no array de descritores do menu como ações de verdade, e nada além do array mudou — mesmo gesto, mesmo posicionamento, mesmo fluxo de highlight intocado. Confirma SC-011 sem precisar de ação de mentira pra depois remover. Falta só confirmar a rolagem horizontal de FR-003b com os 10 itens (2 ações + 8 cores) em device — ver T061
-- [ ] T046 Revisar a terminologia em todo o código, i18n e testes tocados: **highlight**, nunca "grifo" (spec, seção Terminologia). Na mesma passada, confirmar FR-028a: nenhuma lista de highlights agregada entre livros foi introduzida — em especial que a `VocabularyScreen` não ganhou aba, seção nem contador de highlights
-- [ ] T047 Conferir que os comentários exigidos pelo Princípio II estão nos três pontos não óbvios (guarda no `touchstart`, menu no fim do `body`, pintura sem o mecanismo do vocabulário) e que não sobrou comentário explicando o óbvio
-- [ ] T048 Atualizar o `README.md` na seção de funcionalidades do leitor, se a feature mudar o inventário descrito lá
-- [ ] T049 Fechar R-001 no `plan.md`: registrar o resultado da validação e, **só se houve desvio**, abrir as tasks do fallback por texto
+- [X] T046 Revisar a terminologia em todo o código, i18n e testes tocados: **highlight**, nunca "grifo" (spec, seção Terminologia). Na mesma passada, confirmar FR-028a: nenhuma lista de highlights agregada entre livros foi introduzida — em especial que a `VocabularyScreen` não ganhou aba, seção nem contador de highlights. **Verificado**: zero ocorrências de "grifo" em `src/`; `VocabularyScreen.tsx` não tem nenhuma referência a highlight — FR-028a intacto
+- [X] T047 Conferir que os comentários exigidos pelo Princípio II estão nos três pontos não óbvios (guarda no `touchstart`, menu no fim do `body`, pintura sem o mecanismo do vocabulário) e que não sobrou comentário explicando o óbvio. **Verificado**: os três estão presentes em `EpubViewer.tsx` (~3535 guarda de seleção/Invariante 2, ~2637 menu de highlight anexado ao fim do body/Invariante 5, ~2691 pintura via overlayer vs. `injectVocabHighlight`/Invariante 4)
+- [X] T048 Atualizar o `README.md` na seção de funcionalidades do leitor, se a feature mudar o inventário descrito lá. **Feito**: nova seção `### Highlights` (gesto, menu, submenu de estilo/cor, gerenciamento, Compartilhar nativo, local-first) e a aba "Highlights" + contador acrescentados em `### Detalhes do livro`
+- [X] T049 Fechar R-001 no `plan.md`: registrar o resultado da validação e, **só se houve desvio**, abrir as tasks do fallback por texto. **Fechado em 2026-09-07 sem desvio** — o fallback por texto (`paraCfi`/`text`) continua não implementado, por não ter sido necessário
 
 ### Checklist de Release
 
@@ -404,7 +404,7 @@ suíte limpa.
 - [X] `npm run lint` limpo
 - [X] `npm test` limpo (851 passed / 2 skipped)
 - [X] `npm run build` limpo (Princípio IV da constitution — definição de "pronto")
-- [X] `quickstart.md` executado no device `RXCX103NMVZ`, incluindo as três checagens da restrição do usuário (1.8, 1.9, 1.10) — **Passos 1-4 completos; falta o Passo 5** (T045: reflow/rotação/tema/TTS) na Fase 7 de polimento
+- [X] `quickstart.md` executado no device `RXCX103NMVZ`, incluindo as três checagens da restrição do usuário (1.8, 1.9, 1.10) e o Passo 5 completo (reflow/rotação/tema/TTS, T045)
 - [X] Nenhuma dependência nova adicionada (Princípio V)
 - [X] `version(18)` do Dexie intocada; apenas `version(19)` acrescentada
 

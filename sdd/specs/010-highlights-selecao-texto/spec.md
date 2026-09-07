@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-06
 
-**Status**: Em Execução
+**Status**: Convergida
 
 **Input**: "gostaria de implementar seleção de texto, quando o usuario clicar sobre
 o texto por um periodo de tempo selecionando o texto e depois arrastando. isso
