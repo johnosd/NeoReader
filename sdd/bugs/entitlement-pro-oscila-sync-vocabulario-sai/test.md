@@ -95,8 +95,13 @@ penduraria 8 segundos.
   `billing-entitlements-timeout` no log, que era o objetivo mínimo.
 - **~500ms a mais antes do primeiro sync.** É background, mas não foi medido
   se algo de UI depende indiretamente disso.
-- **Não validado em build de release/AAB.** Vale para os dois bugs desta
-  sequência.
+- **Build de release: minificação validada em 2026-09-08.** Variante release
+  (`minifyEnabled`/`shrinkResources`) assinada com a debug key, cold start
+  capturado em `logs/android-diagnostics-20260908-100545-full.log`. O sync de
+  vocabulário chegou até a chamada do Drive e falhou com **`missing-token`**
+  (token expirado), **não** com `pro-required` — ou seja, o gate de entitlement
+  resolveu a tempo também em release, com R8 ativo. Zero `sync.skipped` na
+  captura. Assinatura continua não validada (só internal track).
 - **Os dois `restore*`** (`restoreVocabularyFromDrive`,
   `restoreBookProgressFromDrive`) migraram para `waitForEntitlements()` mas não
   foram exercitados nesta validação — não há gatilho deles no cold start.

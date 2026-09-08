@@ -122,15 +122,57 @@ RevenueCat, não token do Drive.
   esperar o usuário reconectar por Settings. Isso é o comportamento
   *desejado* segundo o report, mas ainda não foi observado na prática, e é o
   ponto onde o usuário pode achar que "o sync quebrou".
-- **Não validado em build de release/AAB.** A mudança mexe no caminho de
-  sign-in, que é a área do bug conhecido de Google Sign-In no release (aberto
-  em 2026-05-14). Debug passar não garante release.
+- **Minificação: validada em 2026-09-08** — ver "Validação em build de release"
+  abaixo. **Assinatura: continua não validada** (segue sendo o único risco
+  aberto relevante; a área do bug conhecido de Google Sign-In no release,
+  aberto em 2026-05-14).
 - **`GoogleAuthUtil BAD_AUTHENTICATION` no log** às 15:24:05-15:24:06, no
   processo do GMS (pid 29623), **antes** do reconnect e sem vínculo com o
   nosso pacote nas mesmas linhas. Provavelmente ruído de outra conta do
   device. Não bloqueia, mas vale reobservar na próxima captura.
 - **Dívida do caminho legado.** `GoogleSignIn` está sendo descontinuado pelo
   Google; a correção depende dele.
+
+## Validação em build de release (2026-09-08)
+
+Variante **release** — `minifyEnabled true` + `shrinkResources true` — assinada
+com a **debug keystore** (SHA-1 `13:7D:50:...`, a mesma já registrada), para
+isolar minificação de assinatura. Propriedades passadas ao Gradle na linha de
+comando; nenhum arquivo do projeto foi alterado:
+
+```
+gradlew -p android assembleRelease -PNEOREADER_RELEASE_STORE_FILE=<debug.keystore> ...
+BUILD SUCCESSFUL in 4m 47s   ->  app-release.apk (16.3 MB)
+adb install -r  ->  pkgFlags=[ HAS_CODE ALLOW_CLEAR_USER_DATA ]   (DEBUGGABLE ausente)
+```
+
+Captura `logs/android-diagnostics-20260908-100545-full.log`:
+
+```
+10:05:45  app sobe (cold start, minificado)
+10:05:47  vocabulary.sync.failure — GoogleDriveAppDataError: missing-token
+          (token expirado desde ontem 16:04; TTL 55min)
+          NENHUMA tela do Google — o sync falhou e esperou o usuario
+10:08:00  usuario toca "Reconectar" -> SignInHubActivity (caminho legado) sob R8
+10:08:02  burst do handleReconnectDrive (so roda com outcome === 'refreshed')
+          34 progress.sync.success + 15 bookmark.sync.success + 1 vocabulary.sync.success
+```
+
+- Zero `FATAL EXCEPTION`, `ClassNotFoundException`, `NoSuchMethodError`,
+  `NoSuchFieldError` — **R8 não quebra o caminho legado de sign-in**, que era
+  o risco concreto (usa `GoogleSignIn`/`GoogleAuthUtil`/`SignInHubActivity`,
+  classes diferentes das do Credential Manager).
+- Zero `ApiException` / `DEVELOPER_ERROR`.
+- 374 eventos `NeoReaderEvent` no logcat: confirma de quebra que
+  `loggingBehavior: 'production'` entrega diagnósticos em release.
+- O `vocabulary.sync.failure` das 10:05:47 **é o comportamento novo correto**,
+  não uma regressão: token expirado passou a falhar visivelmente em vez de
+  abrir a tela de consentimento sozinho.
+
+**O que isto NÃO valida:** assinatura. O APK usa a debug key; publicado via
+Play, o Play App Signing re-assina com outra chave e o SHA-1 final é diferente.
+Só um internal testing track resolve — e é provavelmente o mesmo diagnóstico de
+que o bug de 2026-05-14 precisa.
 
 ## Recommendation
 
