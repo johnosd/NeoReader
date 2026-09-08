@@ -1587,6 +1587,22 @@ describe('EpubViewer — highlights de trecho selecionado', () => {
       expect(() => click(shareBtn)).not.toThrow()
       expect(menu.hidden).toBe(true)
     })
+
+    it('T053: tocar em Traduzir aciona onTranslate com o texto selecionado, ancorado no paragrafo, e fecha o menu sem criar highlight', () => {
+      const range = selectWholeText(fakeDoc, para)
+      setDocSelection(fakeDoc, range)
+      fireSelectionChange(fakeDoc)
+      const menu = fakeDoc.getElementById('nr-selection-menu') as HTMLElement
+      const translateBtn = menu.querySelector('[data-nr-selection-run="translate"]') as HTMLElement
+      expect(translateBtn).not.toBeNull()
+
+      click(translateBtn)
+
+      expect(onTranslate).toHaveBeenCalledWith('First sentence. Second sentence.')
+      expect(para.getAttribute('data-nr-active')).toBe('1')
+      expect(onCreateHighlight).not.toHaveBeenCalled()
+      expect(menu.hidden).toBe(true)
+    })
   })
 
   it('T015: ao carregar uma seção, os highlights daquela seção são repintados via addAnnotation', async () => {

@@ -84,6 +84,7 @@ const SELECTION_RUN_ICON = {
   copy: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>',
   share: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><path d="m8.59 13.51 6.83 3.98"></path><path d="m15.41 6.51-6.82 3.98"></path></svg>',
   highlighter: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 11-6 6v3h9l3-3"></path><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"></path></svg>',
+  translate: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 8 6 6"></path><path d="m4 14 6-6 2-3"></path><path d="M2 5h12"></path><path d="M7 2h1"></path><path d="m22 22-5-10-5 10"></path><path d="M14 18h6"></path></svg>',
   back: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>',
 } as const
 
@@ -2547,6 +2548,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             aria-label="${escapeHtml(t('reader.selectionMenu.copy'))}">${SELECTION_RUN_ICON.copy}</button>
           <button type="button" class="nr-sel-icon-btn" data-nr-selection-run="share"
             aria-label="${escapeHtml(t('reader.selectionMenu.share'))}">${SELECTION_RUN_ICON.share}</button>
+          <button type="button" class="nr-sel-icon-btn" data-nr-selection-run="translate"
+            aria-label="${escapeHtml(t('reader.selectionMenu.translate'))}">${SELECTION_RUN_ICON.translate}</button>
         </div>
         <div class="nr-sel-divider" aria-hidden="true"></div>
         <div class="nr-sel-action" data-nr-selection-action="highlight">
@@ -3655,7 +3658,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               ev.preventDefault()
               ev.stopPropagation()
               const run = selectionRunBtn.dataset.nrSelectionRun
-              const text = liveOrPendingRange()?.toString().replace(/\s+/g, ' ').trim()
+              const range = liveOrPendingRange()
+              const text = range?.toString().replace(/\s+/g, ' ').trim()
               if (text) {
                 if (run === 'copy') {
                   // Sem feedback textual de propósito — mesmo padrão de "um
@@ -3668,6 +3672,19 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
                   // confiável — achado real em device), com fallback pro
                   // navigator.share do browser fora do Android.
                   void shareText(text)
+                } else if (run === 'translate') {
+                  // Reusa o fluxo de tradução inline (toque em parágrafo):
+                  // ancora no parágrafo/bloco onde a seleção começa, então
+                  // segue o mesmo caminho de onTranslate + bloco injetado
+                  // logo abaixo. Se a seleção cruzar blocos, o próprio
+                  // highlightSentenceInParagraph cai pro fallback de
+                  // destacar o bloco inteiro.
+                  const startNode = range!.startContainer
+                  const startEl = startNode.nodeType === Node.ELEMENT_NODE
+                    ? startNode as Element
+                    : startNode.parentElement
+                  const startPara = startEl?.closest(BLOCK) ?? null
+                  if (startPara) selectTextForInlineTranslation(startPara, text, 'tap')
                 }
               }
               doc.getSelection?.()?.removeAllRanges()
