@@ -21,6 +21,7 @@ _(nenhuma no momento)_
 | 008-migracao-speechify-simba-3 | Migração Speechify simba-english/simba-multilingual → simba-3.2/simba-3.0 | Convergida | 20/20 tasks | 2026-09-03 |
 | 009-leitor-libera-recursos-book-destroy | Liberar recursos do leitor EPUB ao trocar de livro | Convergida | 14/14 tasks | 2026-09-04 |
 | 010-highlights-selecao-texto | Highlights de trecho selecionado no leitor | Convergida | 93/93 tasks | 2026-09-07 |
+| 011-book-details-settings-categorias | Reorganizar Aba Configurações do Livro em Categorias Navegáveis | Convergida | 29/29 tasks | 2026-09-09 |
 
 ## Bugs
 
@@ -35,3 +36,4 @@ _(nenhuma no momento)_
 | bucket-optimization-0-alerta-play-console | Bucket "Optimization" (0%) do alerta de qualidade técnica do Play Console | Assess | valid, held (low) — impacto real no Play Console é marginal (ver assessment.md) | Nenhum — held por decisão do usuário (ganho pequeno). Reabrir Fix se prioridade mudar | 2026-09-04 |
 | app-pedindo-login-google-muita-frequencia | App pede consentimento do Google repetidamente (Drive) | Test | verified | Concluído | 2026-09-07 |
 | entitlement-pro-oscila-sync-vocabulario-sai | Sync sai como `pro-required` para usuário Pro logo após o cold start | Test | verified | Concluído | 2026-09-07 |
+| bookmark-nao-sincroniza-ao-clicar-no | Bookmark não sincroniza ao clicar no ícone (fica vermelho) | Fix | applied | Rodar fase Test | 2026-09-08 |

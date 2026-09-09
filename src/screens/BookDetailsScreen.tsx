@@ -1,8 +1,9 @@
 ﻿import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useCallback } from 'react'
-import { ArrowLeft, Star, ChevronRight, Globe, Calendar, HardDrive, Sparkles, BookOpen, Bookmark, Highlighter, X, Check, Volume2, Mic2, Gauge, Search, Play, Loader2, Cloud, CloudOff } from 'lucide-react'
+import { ArrowLeft, Star, ChevronRight, Globe, Calendar, HardDrive, Sparkles, BookOpen, Bookmark, Highlighter, X, Check, Volume2, Mic2, Gauge, Search, Play, Loader2, Cloud, CloudOff, Palette, Info } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Badge, BottomSheet, Button, EmptyState, ListItem, Spinner } from '../components/ui'
+import { SettingsGroup } from '../components/settings/SettingsLayout'
 import { AuthorTab } from '../components/AuthorTab'
 import { IntegrationHelpBanner } from '../components/IntegrationHelpBanner'
 import { QuotaUsageHint } from '../components/QuotaUsageHint'
@@ -12,7 +13,8 @@ import { softDeleteBookmark } from '../db/bookmarks'
 import { deleteHighlight, getHighlightsByBookId } from '../db/highlights'
 import { annotationColorHex } from '../utils/annotationColors'
 import { scheduleBookmarkDriveSync } from '../services/BookmarkDriveSyncService'
-import { setBookmarkDriveSyncStatus } from '../services/BookmarkDriveSyncStatus'
+import { getCachedBookmarkDriveSyncStatus, setBookmarkDriveSyncStatus } from '../services/BookmarkDriveSyncStatus'
+import { refreshDriveToken } from '../services/FirebaseAuthService'
 import { getBookSettings, updateBookSettings } from '../db/bookSettings'
 import { getSettings } from '../db/settings'
 import { useEntitlements } from '../hooks/useEntitlements'
@@ -71,7 +73,7 @@ interface BookDetailsScreenProps {
   onOpenPaywall?: () => void
 }
 
-type Tab = 'chapters' | 'bookmarks' | 'highlights' | 'settings' | 'details' | 'reviews' | 'autor'
+type Tab = 'chapters' | 'bookmarks' | 'highlights' | 'settings' | 'reviews' | 'autor'
 
 const TABS: { id: Tab; labelKey: MessageKey }[] = [
   { id: 'chapters', labelKey: 'bookDetails.tab.chapters' },
@@ -80,8 +82,18 @@ const TABS: { id: Tab; labelKey: MessageKey }[] = [
   { id: 'reviews', labelKey: 'bookDetails.tab.reviews' },
   { id: 'autor', labelKey: 'bookDetails.tab.author' },
   { id: 'settings', labelKey: 'bookDetails.tab.settings' },
-  { id: 'details', labelKey: 'bookDetails.tab.details' },
 ]
+
+// "Detalhes" deixou de ser aba própria (011-book-details-settings-categorias)
+// e virou a 4a categoria dentro da aba Configurações.
+type BookSettingsCategory = 'appearance' | 'language' | 'narration' | 'details'
+
+const SETTINGS_CATEGORY_TITLE_KEY: Record<BookSettingsCategory, MessageKey> = {
+  appearance: 'bookDetails.settingsCategory.appearance.title',
+  language: 'bookDetails.settingsCategory.language.title',
+  narration: 'bookDetails.settingsCategory.narration.title',
+  details: 'bookDetails.settingsCategory.details.title',
+}
 
 const EXTRAS_LOAD_TIMEOUT_MS = 10_000
 const TTS_RATE_OPTIONS = [0.8, 0.9, 1, 1.1, 1.2]
@@ -101,6 +113,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
   const { locale, t } = useI18n()
   const { isPro } = useEntitlements()
   const [activeTab, setActiveTab] = useState<Tab>('chapters')
+  const [settingsCategory, setSettingsCategory] = useState<BookSettingsCategory | null>(null)
   const [syncingBookmarks, setSyncingBookmarks] = useState(false)
   const syncingBookmarksRef = useRef(false)
   const [descExpanded, setDescExpanded] = useState(false)
@@ -168,8 +181,18 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
     if (syncingBookmarksRef.current || book.id === undefined) return
     syncingBookmarksRef.current = true
     setSyncingBookmarks(true)
-    setBookmarkDriveSyncStatus('pending-offline')
     try {
+      // Token do Drive ausente/expirado (status 'permission-error') nunca se
+      // resolve só reagendando o sync — GoogleDriveAppDataService não renova
+      // sozinho desde o bugfix app-pedindo-login-google-muita-frequencia.
+      // O toque no ícone já é a ação explícita do usuário que
+      // refreshDriveToken({ userInitiated: true }) exige, então reconectamos
+      // aqui do mesmo jeito que handleReconnectDrive faz em SettingsSyncScreen.
+      if (getCachedBookmarkDriveSyncStatus().code === 'permission-error') {
+        const outcome = await refreshDriveToken({ userInitiated: true })
+        if (outcome !== 'refreshed') return
+      }
+      setBookmarkDriveSyncStatus('pending-offline')
       await scheduleBookmarkDriveSync(book.id)
     } finally {
       syncingBookmarksRef.current = false
@@ -252,7 +275,23 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
     }
   }, [liveBook, liveBook.fileBlob, liveBook.id, liveBook.storageMode, liveBook.uri, t])
 
-  useCapacitorBackButton(onBack)
+  useEffect(() => {
+    // Troca de aba sempre reseta a navegação interna da aba Configurações
+    // pro menu de categorias — nunca lembra em qual categoria o usuário
+    // estava antes de sair da aba (FR-007 da 011-book-details-settings-categorias).
+    setSettingsCategory(null)
+  }, [activeTab])
+
+  useCapacitorBackButton(() => {
+    // Dentro de uma categoria da aba Configurações, o botão físico/gesto de
+    // voltar do Android fecha só a categoria (volta pro menu) em vez de sair
+    // da tela de detalhes do livro (FR-005/FR-006).
+    if (activeTab === 'settings' && settingsCategory !== null) {
+      setSettingsCategory(null)
+      return
+    }
+    onBack()
+  })
 
   const coverUrl = useBookCoverUrl(liveBook.id)
   const { percentage: pct, readingStatus } = resolveReadingState(liveBook, progress)
@@ -790,6 +829,49 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
             )}
 
             {activeTab === 'settings' && (
+              settingsCategory === null ? (
+                <SettingsGroup>
+                  <ListItem
+                    leading={<Palette size={20} />}
+                    title={t('bookDetails.settingsCategory.appearance.title')}
+                    meta={t('bookDetails.settingsCategory.appearance.description')}
+                    trailing={<ChevronRight size={18} />}
+                    onClick={() => setSettingsCategory('appearance')}
+                  />
+                  <ListItem
+                    leading={<Globe size={20} />}
+                    title={t('bookDetails.settingsCategory.language.title')}
+                    meta={t('bookDetails.settingsCategory.language.description')}
+                    trailing={<ChevronRight size={18} />}
+                    onClick={() => setSettingsCategory('language')}
+                  />
+                  <ListItem
+                    leading={<Volume2 size={20} />}
+                    title={t('bookDetails.settingsCategory.narration.title')}
+                    meta={t('bookDetails.settingsCategory.narration.description')}
+                    trailing={<ChevronRight size={18} />}
+                    onClick={() => setSettingsCategory('narration')}
+                  />
+                  <ListItem
+                    leading={<Info size={20} />}
+                    title={t('bookDetails.settingsCategory.details.title')}
+                    meta={t('bookDetails.settingsCategory.details.description')}
+                    trailing={<ChevronRight size={18} />}
+                    onClick={() => setSettingsCategory('details')}
+                    divider={false}
+                  />
+                </SettingsGroup>
+              ) : (
+                <div className="flex flex-col gap-4">
+                  <button
+                    onClick={() => setSettingsCategory(null)}
+                    className="-ml-1 flex items-center gap-2 self-start text-sm font-semibold text-text-secondary active:opacity-70"
+                  >
+                    <ArrowLeft size={16} />
+                    {t(SETTINGS_CATEGORY_TITLE_KEY[settingsCategory])}
+                  </button>
+
+                  {settingsCategory === 'appearance' && (
               <div className="rounded-md p-4 bg-bg-surface border border-border flex flex-col gap-4">
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-3">
@@ -900,7 +982,11 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
                     surface="base"
                   />
                 </div>
+              </div>
+                  )}
 
+                  {settingsCategory === 'language' && (
+              <div className="rounded-md p-4 bg-bg-surface border border-border flex flex-col gap-4">
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-3">
                     {t('bookDetails.setting.bookLanguage')}
@@ -950,7 +1036,11 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
                     />
                   </div>
                 </div>
+              </div>
+                  )}
 
+                  {settingsCategory === 'narration' && (
+              <div className="rounded-md p-4 bg-bg-surface border border-border flex flex-col gap-4">
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-3">
                     TTS
@@ -1024,9 +1114,9 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
                   </div>
                 </div>
               </div>
-            )}
+                  )}
 
-            {activeTab === 'details' && (
+                  {settingsCategory === 'details' && (
               <div className="space-y-4">
                 <BookInfoDetails
                   info={bookInfo}
@@ -1065,6 +1155,9 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
                   />
                 </div>
               </div>
+                  )}
+                </div>
+              )
             )}
 
             {activeTab === 'reviews' && (
