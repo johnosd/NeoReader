@@ -1,4 +1,3 @@
-import { unzip } from 'fflate'
 import type {
   BookCategory,
   BookIdentifier,
@@ -9,6 +8,7 @@ import type {
   ResolvedBookInfo,
 } from '../../types/bookInfo'
 import { htmlToPlainText } from '../../utils/textSanitizer'
+import { EpubService } from '../EpubService'
 
 interface ManifestItem {
   id: string | null
@@ -35,8 +35,20 @@ const EMPTY_LOOKUP_HINTS = {
   identifiers: [],
 }
 
+interface EpubBookInfoProviderOptions {
+  // Quando informado, reusa o zip já descompactado por EpubService (cache em
+  // memória por bookId) em vez de descompactar o EPUB de novo — evita 2
+  // unzips do mesmo arquivo quando esta tela também dispara EpubService.parseExtras.
+  bookId?: number
+}
+
 export class EpubBookInfoProvider implements BookInfoProvider {
   readonly source = 'epub-metadata' as const
+  private readonly bookId?: number
+
+  constructor(options: EpubBookInfoProviderOptions = {}) {
+    this.bookId = options.bookId
+  }
 
   async collect(fileBlob: Blob | null): Promise<Partial<ResolvedBookInfo>> {
     if (!fileBlob) {
@@ -75,13 +87,7 @@ export class EpubBookInfoProvider implements BookInfoProvider {
   }
 
   private async openPackage(fileBlob: Blob): Promise<EpubPackage | null> {
-    const buffer = await fileBlob.arrayBuffer()
-    const files = await new Promise<Record<string, Uint8Array>>((resolve, reject) => {
-      unzip(new Uint8Array(buffer), (error, data) => {
-        if (error) reject(error)
-        else resolve(data)
-      })
-    })
+    const { files } = await EpubService.getEpubPackage(fileBlob, this.bookId)
 
     const containerXml = this.readFileAsText(files, 'META-INF/container.xml')
     if (!containerXml) return null

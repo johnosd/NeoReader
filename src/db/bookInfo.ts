@@ -73,6 +73,14 @@ export async function deleteStoredBookInfo(bookId: number): Promise<void> {
   await db.bookInfo.delete(bookId)
 }
 
+// Grava so o timestamp de "youtube ja verificado", sem tocar no resto do
+// registro — saveBookInfo/patchBookInfo reescrevem o documento inteiro via
+// normalizeResolvedBookInfo, entao chamar esse update() depois preserva o
+// timestamp que eles nao conhecem.
+export async function markYoutubeReviewsChecked(bookId: number, checkedAt = new Date()): Promise<void> {
+  await db.bookInfo.update(bookId, { youtubeReviewsCheckedAt: checkedAt })
+}
+
 function normalizeResolvedBookInfo(info: ResolvedBookInfo): ResolvedBookInfo {
   return {
     metadataSchemaVersion: info.metadataSchemaVersion ?? BOOK_INFO_SCHEMA_VERSION,

@@ -750,6 +750,25 @@ describe('EpubService.parseExtras - cache de sessão', () => {
     expect(arrayBuffer).toHaveBeenCalledTimes(1)
   })
 
+  it('getEpubPackage compartilha o unzip com parseExtras do mesmo bookId', async () => {
+    const bookId = 9008
+    EpubService.invalidateExtrasCache(bookId)
+
+    const arrayBuffer = vi.fn().mockResolvedValue(new ArrayBuffer(0))
+    const blob = { arrayBuffer } as unknown as Blob
+
+    // Simula parseExtras (efeito de "Sobre o livro") e EpubBookInfoProvider
+    // (efeito de metadados enriquecidos, que usa getEpubPackage por baixo)
+    // disparando quase juntos na mesma abertura da tela de detalhes — só
+    // deve descompactar o ZIP uma vez.
+    await Promise.all([
+      EpubService.parseExtras(blob, bookId),
+      EpubService.getEpubPackage(blob, bookId),
+    ])
+
+    expect(arrayBuffer).toHaveBeenCalledTimes(1)
+  })
+
   it('nao cacheia nem persiste falha de parse e permite retry na mesma sessao', async () => {
     const bookId = 9007
     EpubService.invalidateExtrasCache(bookId)
