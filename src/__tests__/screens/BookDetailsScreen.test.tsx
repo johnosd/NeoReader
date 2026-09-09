@@ -630,6 +630,40 @@ describe('BookDetailsScreen chapters', () => {
     })
   })
 
+  it('mostra so os 3 primeiros diagnosticos de estilo e um badge "+N mais" quando ha mais', async () => {
+    mocks.parseExtras.mockResolvedValue({
+      description: null,
+      language: 'pt-BR',
+      toc: [],
+      previewText: 'Trecho real do livro para preview.',
+      styleDiagnostics: [
+        { issue: 'small-font-size', label: 'Fonte pequena no EPUB' },
+        { issue: 'tight-line-height', label: 'Espacamento apertado' },
+        { issue: 'hardcoded-text-color', label: 'Cor de texto fixa' },
+        { issue: 'hardcoded-background-color', label: 'Cor de fundo fixa' },
+      ],
+    })
+
+    render(
+      <BookDetailsScreen
+        book={book}
+        onBack={vi.fn()}
+        onRead={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Aparencia do Leitor'))
+    await screen.findByText('Estilos fortes detectados')
+
+    expect(screen.getByText('Fonte pequena no EPUB')).toBeTruthy()
+    expect(screen.getByText('Espacamento apertado')).toBeTruthy()
+    expect(screen.getByText('Cor de texto fixa')).toBeTruthy()
+    expect(screen.queryByText('Cor de fundo fixa')).toBeNull()
+    expect(screen.getByText('+1 mais')).toBeTruthy()
+  })
+
   it('aguarda salvar o tema do livro antes de abrir a leitura', async () => {
     const onRead = vi.fn()
     let resolveSave!: () => void

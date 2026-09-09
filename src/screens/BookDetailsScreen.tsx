@@ -904,6 +904,13 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
                               {diagnostic.label}
                             </PrimeVideoBadge>
                           ))}
+                          {styleDiagnostics.length > visibleStyleDiagnostics.length && (
+                            <PrimeVideoBadge tone="neutral">
+                              {t('bookDetails.setting.strongStylesMore', {
+                                count: styleDiagnostics.length - visibleStyleDiagnostics.length,
+                              })}
+                            </PrimeVideoBadge>
+                          )}
                         </div>
                         <button
                           type="button"
@@ -1043,7 +1050,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
               <div className="rounded-md p-4 bg-bg-surface border border-border flex flex-col gap-4">
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-3">
-                    TTS
+                    {t('bookDetails.setting.ttsSectionTitle')}
                   </p>
                   {providerInFallback && (
                     <div className="mb-3">
@@ -1344,6 +1351,8 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
                         src={voice.avatarUrl}
                         alt=""
                         className="h-9 w-9 rounded-full object-cover"
+                        loading="lazy"
+                        decoding="async"
                       />
                     ) : (
                       <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/6 text-text-secondary">
@@ -1599,6 +1608,8 @@ function VideoReviewsCarousel({ reviews }: { reviews: BookReview[] }) {
                     src={thumbnailUrl}
                     alt={review.title}
                     className="h-full w-full object-cover"
+                    loading="lazy"
+                    decoding="async"
                   />
                 ) : (
                   <div className="flex h-full w-full items-center justify-center text-text-muted">
@@ -2040,6 +2051,8 @@ function TtsControlRow({
           src={avatarUrl}
           alt=""
           className="h-10 w-10 rounded-full object-cover"
+          loading="lazy"
+          decoding="async"
         />
       ) : (
         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/6 text-text-secondary">

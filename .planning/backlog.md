@@ -37,3 +37,12 @@ _(nenhuma no momento)_
 | app-pedindo-login-google-muita-frequencia | App pede consentimento do Google repetidamente (Drive) | Test | verified | Concluído | 2026-09-07 |
 | entitlement-pro-oscila-sync-vocabulario-sai | Sync sai como `pro-required` para usuário Pro logo após o cold start | Test | verified | Concluído | 2026-09-07 |
 | bookmark-nao-sincroniza-ao-clicar-no | Bookmark não sincroniza ao clicar no ícone (fica vermelho) | Fix | applied | Rodar fase Test | 2026-09-08 |
+
+## Melhorias Ad-hoc
+
+Pequenos ajustes de performance/UX feitos direto (sem passar pelo fluxo
+sdd-specify/plan — baixo risco, sem arquivo em `sdd/specs/` ou `sdd/bugs/`).
+
+| Data | Área | Resumo |
+| --- | --- | --- |
+| 2026-09-09 | BookDetailsScreen (tela de detalhes do livro) | Investigação de performance + UX/UI a pedido do usuário. Feito: `loading="lazy"`/`decoding="async"` em 3 `<img>` que faltavam (avatar de voz na lista, avatar da voz selecionada, thumbnail de review); badge "+N mais" quando há mais de 3 diagnósticos de estilo forte do EPUB (antes truncava silenciosamente); string "TTS" migrada pra `t()` (chave `bookDetails.setting.ttsSectionTitle`). Descartados após investigação (documentado ao usuário): Web Worker pro parse do EPUB — a lib `fflate` já roda o unzip num Worker internamente, nada a ganhar; cache de `getSettings()` — leitura já é 1 registro único do IndexedDB (poucos ms), e cachear quebraria o isolamento dos testes de `src/__tests__/db/settings.test.ts` pra um ganho imperceptível. Validado: `npm run lint`, `npx tsc --noEmit`, `npm run build` e `npm test` (869 passed, 2 skipped pré-existentes) limpos. |
