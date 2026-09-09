@@ -27,6 +27,11 @@ const mocks = vi.hoisted(() => ({
   useEntitlements: vi.fn(),
   scheduleBookmarkDriveSync: vi.fn(),
   setBookmarkDriveSyncStatus: vi.fn(),
+  getCachedBookmarkDriveSyncStatus: vi.fn(() => ({ code: 'pending-offline' as const })),
+  refreshDriveToken: vi.fn(),
+  capacitorListeners: {
+    backButton: null as ((event?: unknown) => void) | null,
+  },
 }))
 
 vi.mock('dexie-react-hooks', () => ({
@@ -43,7 +48,14 @@ vi.mock('dexie-react-hooks', () => ({
 
 vi.mock('@capacitor/app', () => ({
   App: {
-    addListener: vi.fn(async () => ({ remove: vi.fn() })),
+    // Captura o handler do backButton (em vez de só descartar) pra permitir
+    // simular o botão físico do Android disparando `mocks.capacitorListeners.backButton?.()`.
+    addListener: vi.fn(async (eventName: 'backButton', handler: (payload?: unknown) => void) => {
+      if (eventName === 'backButton') {
+        mocks.capacitorListeners.backButton = handler
+      }
+      return { remove: vi.fn() }
+    }),
   },
 }))
 
@@ -110,6 +122,11 @@ vi.mock('@/services/BookmarkDriveSyncService', () => ({
 
 vi.mock('@/services/BookmarkDriveSyncStatus', () => ({
   setBookmarkDriveSyncStatus: mocks.setBookmarkDriveSyncStatus,
+  getCachedBookmarkDriveSyncStatus: mocks.getCachedBookmarkDriveSyncStatus,
+}))
+
+vi.mock('@/services/FirebaseAuthService', () => ({
+  refreshDriveToken: mocks.refreshDriveToken,
 }))
 
 vi.mock('@/services/EpubService', () => ({
@@ -238,6 +255,7 @@ async function openVoiceSheet() {
   )
 
   fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+  fireEvent.click(await screen.findByText('Narracao'))
   await screen.findByText('Ativo')
   fireEvent.click(screen.getByRole('button', { name: /Voz/ }))
   await screen.findByText('Luna')
@@ -279,6 +297,10 @@ describe('BookDetailsScreen chapters', () => {
     mocks.scheduleBookmarkDriveSync.mockReset()
     mocks.scheduleBookmarkDriveSync.mockResolvedValue(undefined)
     mocks.setBookmarkDriveSyncStatus.mockReset()
+    mocks.getCachedBookmarkDriveSyncStatus.mockReset()
+    mocks.getCachedBookmarkDriveSyncStatus.mockReturnValue({ code: 'pending-offline' })
+    mocks.refreshDriveToken.mockReset()
+    mocks.capacitorListeners.backButton = null
     FeatureQuotaService.reset()
     mocks.getStoredBookInfo.mockResolvedValue(emptyBookInfo())
     mocks.collectBookInfo.mockResolvedValue(emptyBookInfo())
@@ -306,7 +328,9 @@ describe('BookDetailsScreen chapters', () => {
   })
 
   it('renderiza as abas na ordem definida para detalhes do livro', () => {
-    const expectedTabs = ['Capitulo', 'Marcacoes', 'Destaques', 'Reviews', 'Autor', 'Configuracoes', 'Detalhes']
+    // 'Detalhes' deixou de ser aba propria (011-book-details-settings-categorias)
+    // e virou categoria dentro de Configuracoes — ver T009/T021.
+    const expectedTabs = ['Capitulo', 'Marcacoes', 'Destaques', 'Reviews', 'Autor', 'Configuracoes']
 
     render(
       <BookDetailsScreen
@@ -323,6 +347,99 @@ describe('BookDetailsScreen chapters', () => {
     const tabsStart = tabLabels.indexOf('Capitulo')
 
     expect(tabLabels.slice(tabsStart, tabsStart + expectedTabs.length)).toEqual(expectedTabs)
+  })
+
+  it('aba Configuracoes mostra o menu de 4 categorias, nao os controles direto', async () => {
+    render(
+      <BookDetailsScreen book={book} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+
+    // Controles ficam atras de 1 clique de categoria (FR-001) — nao aparecem direto no menu.
+    expect(screen.queryByText('Tema do leitor')).toBeNull()
+    // Nome acessivel exato (title + description) de cada linha — prova que
+    // nenhum badge/estado dinamico foi anexado a nenhuma delas (FR-009).
+    expect(await screen.findByRole('button', {
+      name: 'Aparencia do Leitor Tema, fonte, tamanho e modo de leitura para este livro.',
+    })).toBeTruthy()
+    expect(screen.getByRole('button', {
+      name: 'Idioma Idioma original do livro e idioma de traducao para este livro.',
+    })).toBeTruthy()
+    expect(screen.getByRole('button', {
+      name: 'Narracao Provedor de voz, voz selecionada e velocidade de fala para este livro.',
+    })).toBeTruthy()
+    expect(screen.getByRole('button', {
+      name: 'Detalhes Sinopse, informacoes editoriais, diagnosticos e dados do arquivo.',
+    })).toBeTruthy()
+  })
+
+  it('dentro de uma categoria, tocar em voltar (UI) retorna ao menu sem chamar onBack', async () => {
+    const onBack = vi.fn()
+    render(
+      <BookDetailsScreen book={book} onBack={onBack} onRead={vi.fn()} onOpenSettings={vi.fn()} />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Narracao'))
+    await screen.findByText('TTS')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Narracao' }))
+
+    expect(await screen.findByText('Aparencia do Leitor')).toBeTruthy()
+    expect(screen.queryByText('TTS')).toBeNull()
+    expect(onBack).not.toHaveBeenCalled()
+  })
+
+  it('botao fisico de voltar do Android, dentro de uma categoria, volta ao menu sem chamar onBack', async () => {
+    const onBack = vi.fn()
+    render(
+      <BookDetailsScreen book={book} onBack={onBack} onRead={vi.fn()} onOpenSettings={vi.fn()} />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Narracao'))
+    await screen.findByText('TTS')
+
+    await act(async () => {
+      mocks.capacitorListeners.backButton?.()
+    })
+
+    expect(await screen.findByText('Aparencia do Leitor')).toBeTruthy()
+    expect(screen.queryByText('TTS')).toBeNull()
+    expect(onBack).not.toHaveBeenCalled()
+  })
+
+  it('botao fisico de voltar do Android, no menu de categorias, chama onBack', async () => {
+    const onBack = vi.fn()
+    render(
+      <BookDetailsScreen book={book} onBack={onBack} onRead={vi.fn()} onOpenSettings={vi.fn()} />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    await screen.findByText('Aparencia do Leitor')
+
+    await act(async () => {
+      mocks.capacitorListeners.backButton?.()
+    })
+
+    expect(onBack).toHaveBeenCalledTimes(1)
+  })
+
+  it('trocar de aba estando dentro de uma categoria e voltar pra Configuracoes mostra o menu de novo', async () => {
+    render(
+      <BookDetailsScreen book={book} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Narracao'))
+    await screen.findByText('TTS')
+
+    fireEvent.click(screen.getByRole('button', { name: /^Capitulo/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+
+    expect(await screen.findByText('Aparencia do Leitor')).toBeTruthy()
+    expect(screen.queryByText('TTS')).toBeNull()
   })
 
   // ── US4: aba de highlights ───────────────────────────────────────────────
@@ -464,6 +581,7 @@ describe('BookDetailsScreen chapters', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Aparencia do Leitor'))
     await screen.findByText('Fonte do livro')
     fireEvent.click(screen.getByText('Original do livro'))
 
@@ -496,6 +614,7 @@ describe('BookDetailsScreen chapters', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Aparencia do Leitor'))
     await screen.findByText('Estilos fortes detectados')
 
     expect(screen.getAllByText('Trecho real do livro para preview.').length).toBeGreaterThan(0)
@@ -509,6 +628,40 @@ describe('BookDetailsScreen chapters', () => {
         overrideBookColors: true,
       })
     })
+  })
+
+  it('mostra so os 3 primeiros diagnosticos de estilo e um badge "+N mais" quando ha mais', async () => {
+    mocks.parseExtras.mockResolvedValue({
+      description: null,
+      language: 'pt-BR',
+      toc: [],
+      previewText: 'Trecho real do livro para preview.',
+      styleDiagnostics: [
+        { issue: 'small-font-size', label: 'Fonte pequena no EPUB' },
+        { issue: 'tight-line-height', label: 'Espacamento apertado' },
+        { issue: 'hardcoded-text-color', label: 'Cor de texto fixa' },
+        { issue: 'hardcoded-background-color', label: 'Cor de fundo fixa' },
+      ],
+    })
+
+    render(
+      <BookDetailsScreen
+        book={book}
+        onBack={vi.fn()}
+        onRead={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Aparencia do Leitor'))
+    await screen.findByText('Estilos fortes detectados')
+
+    expect(screen.getByText('Fonte pequena no EPUB')).toBeTruthy()
+    expect(screen.getByText('Espacamento apertado')).toBeTruthy()
+    expect(screen.getByText('Cor de texto fixa')).toBeTruthy()
+    expect(screen.queryByText('Cor de fundo fixa')).toBeNull()
+    expect(screen.getByText('+1 mais')).toBeTruthy()
   })
 
   it('aguarda salvar o tema do livro antes de abrir a leitura', async () => {
@@ -528,6 +681,7 @@ describe('BookDetailsScreen chapters', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Aparencia do Leitor'))
     await screen.findByText('Tema do leitor')
     fireEvent.click(screen.getByText('Papel'))
 
@@ -642,7 +796,8 @@ describe('BookDetailsScreen chapters', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Detalhes' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Detalhes'))
 
     expect(await screen.findByText('2008')).toBeTruthy()
     expect(screen.getByText('Nota 4.4/5 (18)')).toBeTruthy()
@@ -700,7 +855,8 @@ describe('BookDetailsScreen chapters', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Detalhes' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Detalhes'))
 
     expect(await screen.findByText('4.8/5')).toBeTruthy()
     expect(mocks.collectBookInfo).toHaveBeenCalledWith(book.fileBlob, {
@@ -796,7 +952,8 @@ describe('BookDetailsScreen chapters', () => {
       expect(onRead).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), 'epubcfi(/6/8!/4/2/10/2,/1:0,/1:20)')
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Detalhes' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Detalhes'))
     expect(await screen.findByText('4.7/5')).toBeTruthy()
     expect(mocks.collectBookInfo).not.toHaveBeenCalled()
   })
@@ -880,6 +1037,61 @@ describe('BookDetailsScreen chapters', () => {
       expect(mocks.scheduleBookmarkDriveSync).toHaveBeenCalledWith(1)
     })
     expect(mocks.setBookmarkDriveSyncStatus).toHaveBeenCalledWith('pending-offline')
+    // Status cacheado default (beforeEach) e 'pending-offline', nao
+    // 'permission-error' — nao deve tentar reconectar o Drive.
+    expect(mocks.refreshDriveToken).not.toHaveBeenCalled()
+  })
+
+  it('toque com status permission-error reconecta o Drive antes de agendar a sincronizacao', async () => {
+    mocks.useEntitlements.mockReturnValue({
+      isPro: true,
+      isLoading: false,
+      expiresAt: undefined,
+      activeProductId: 'pro-lifetime',
+      refresh: vi.fn(),
+    })
+    mocks.bookmarks = [pendingBookmarkFixture({ syncError: 'missing-token' })]
+    mocks.getCachedBookmarkDriveSyncStatus.mockReturnValue({ code: 'permission-error' })
+    mocks.refreshDriveToken.mockResolvedValue('refreshed')
+
+    render(
+      <BookDetailsScreen book={book} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} onOpenPaywall={vi.fn()} />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Marcacoes/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Sincronizar marcacoes' }))
+
+    await waitFor(() => {
+      expect(mocks.scheduleBookmarkDriveSync).toHaveBeenCalledWith(1)
+    })
+    expect(mocks.refreshDriveToken).toHaveBeenCalledWith({ userInitiated: true })
+    expect(mocks.setBookmarkDriveSyncStatus).toHaveBeenCalledWith('pending-offline')
+  })
+
+  it('toque com status permission-error nao agenda sincronizacao se a reconexao nao renovar o token', async () => {
+    mocks.useEntitlements.mockReturnValue({
+      isPro: true,
+      isLoading: false,
+      expiresAt: undefined,
+      activeProductId: 'pro-lifetime',
+      refresh: vi.fn(),
+    })
+    mocks.bookmarks = [pendingBookmarkFixture({ syncError: 'missing-token' })]
+    mocks.getCachedBookmarkDriveSyncStatus.mockReturnValue({ code: 'permission-error' })
+    mocks.refreshDriveToken.mockResolvedValue('failed')
+
+    render(
+      <BookDetailsScreen book={book} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} onOpenPaywall={vi.fn()} />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Marcacoes/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Sincronizar marcacoes' }))
+
+    await waitFor(() => {
+      expect(mocks.refreshDriveToken).toHaveBeenCalledWith({ userInitiated: true })
+    })
+    expect(mocks.scheduleBookmarkDriveSync).not.toHaveBeenCalled()
+    expect(mocks.setBookmarkDriveSyncStatus).not.toHaveBeenCalled()
   })
 
   it('mostra estado de sincronizando enquanto a promise esta pendente', async () => {
@@ -990,7 +1202,8 @@ describe('BookDetailsScreen chapters', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Detalhes' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Detalhes'))
 
     expect(await screen.findByText('320')).toBeTruthy()
     expect(mocks.collectBookInfo).toHaveBeenCalledWith(book.fileBlob, {
@@ -1033,7 +1246,8 @@ describe('BookDetailsScreen chapters', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Detalhes' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Detalhes'))
 
     expect(await screen.findByText('Editora nova')).toBeTruthy()
     expect(mocks.collectBookInfo).toHaveBeenCalledWith(book.fileBlob, {
@@ -1059,7 +1273,8 @@ describe('BookDetailsScreen chapters', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Detalhes' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Detalhes'))
 
     expect(await screen.findByText('Nenhuma informacao editorial encontrada')).toBeTruthy()
     expect(screen.getByText('Diagnostico')).toBeTruthy()
@@ -1092,6 +1307,7 @@ describe('BookDetailsScreen chapters', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Narracao'))
 
     expect(await screen.findByText('Voz premium aguardando API key')).toBeTruthy()
     expect(screen.getByText(/continua lendo com TTS nativo/)).toBeTruthy()
@@ -1110,6 +1326,7 @@ describe('BookDetailsScreen chapters', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Narracao'))
 
     expect(await screen.findByText('Ativo')).toBeTruthy()
     expect(screen.queryByText('Voz premium aguardando API key')).toBeNull()
@@ -1139,6 +1356,7 @@ describe('BookDetailsScreen voice settings', () => {
       previewText: null,
       styleDiagnostics: [],
     })
+    mocks.capacitorListeners.backButton = null
     mocks.listSpeechifyVoices.mockResolvedValue([
       {
         id: 'luna',

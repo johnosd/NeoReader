@@ -73,6 +73,16 @@ const EMPTY_EPUB_EXTRAS: EpubExtras = {
 
 export const EPUB_EXTRAS_PARSER_VERSION = 2
 
+// Resultado cru do unzip, compartilhado entre parseExtras (capítulos/descrição)
+// e EpubBookInfoProvider (metadados enriquecidos) pra não descomprimir o
+// mesmo EPUB duas vezes na mesma abertura da tela de detalhes. Cada
+// consumidor resolve container.xml → OPF com sua própria lógica a partir daqui
+// (não unificamos isso: EpubBookInfoProvider usa um parser de container.xml
+// mais robusto que o regex simples usado aqui em parseExtras).
+export interface EpubZipPackage {
+  files: Record<string, Uint8Array>
+}
+
 // EPUB é um ZIP. Esse serviço abre o ZIP e extrai os metadados do OPF.
 // Fluxo: container.xml → caminho do .opf → title/author/cover
 export class EpubService {
@@ -80,9 +90,43 @@ export class EpubService {
   // Map<bookId, Promise> — a Promise garante que chamadas simultâneas não disparem 2 unzips.
   private static extrasCache = new Map<number, Promise<EpubExtras>>()
 
+  // Cache do zip já descompactado + OPF resolvido, por bookId. A Promise
+  // compartilhada garante que 2 chamadas concorrentes (parseExtras e
+  // EpubBookInfoProvider, que rodam em efeitos React separados na mesma
+  // abertura da tela de detalhes) façam 1 unzip só, não 2.
+  private static packageCache = new Map<number, Promise<EpubZipPackage>>()
+
   static invalidateExtrasCache(bookId: number): void {
     EpubService.extrasCache.delete(bookId)
+    EpubService.packageCache.delete(bookId)
     void deleteStoredEpubExtras(bookId).catch(() => {})
+  }
+
+  // Descompacta o EPUB e resolve o OPF. Sem bookId, sempre descompacta de
+  // novo (uso em import, onde o livro ainda nao tem id). Com bookId, reusa o
+  // resultado em memoria enquanto a tela de detalhes estiver aberta.
+  static async getEpubPackage(fileBlob: Blob, bookId?: number): Promise<EpubZipPackage> {
+    if (bookId === undefined) return EpubService.unzipPackage(fileBlob)
+
+    let cached = EpubService.packageCache.get(bookId)
+    if (!cached) {
+      cached = EpubService.unzipPackage(fileBlob).catch((error) => {
+        EpubService.packageCache.delete(bookId)
+        throw error
+      })
+      EpubService.packageCache.set(bookId, cached)
+    }
+    return cached
+  }
+
+  private static async unzipPackage(fileBlob: Blob): Promise<EpubZipPackage> {
+    const buffer = await fileBlob.arrayBuffer()
+    const uint8 = new Uint8Array(buffer)
+    const files = await new Promise<Record<string, Uint8Array>>((resolve, reject) => {
+      unzip(uint8, (err, data) => (err ? reject(err) : resolve(data)))
+    })
+
+    return { files }
   }
 
   static async parseMetadata(file: File): Promise<EpubMetadata> {
@@ -145,7 +189,7 @@ export class EpubService {
     const stored = await getStoredEpubExtras(bookId).catch(() => undefined)
     if (stored?.parserVersion === EPUB_EXTRAS_PARSER_VERSION) return EpubService.toEpubExtras(stored)
 
-    const extras = await EpubService._parseExtrasInternal(fileBlob)
+    const extras = await EpubService._parseExtrasInternal(fileBlob, bookId)
     await saveEpubExtras(bookId, {
       ...extras,
       parserVersion: EPUB_EXTRAS_PARSER_VERSION,
@@ -163,12 +207,8 @@ export class EpubService {
     }
   }
 
-  private static async _parseExtrasInternal(fileBlob: Blob): Promise<EpubExtras> {
-    const buffer = await fileBlob.arrayBuffer()
-    const uint8 = new Uint8Array(buffer)
-    const files = await new Promise<Record<string, Uint8Array>>((resolve, reject) => {
-      unzip(uint8, (err, data) => err ? reject(err) : resolve(data))
-    })
+  private static async _parseExtrasInternal(fileBlob: Blob, bookId?: number): Promise<EpubExtras> {
+    const { files } = await EpubService.getEpubPackage(fileBlob, bookId)
 
     const containerXml = this.readFileAsText(files, 'META-INF/container.xml')
     if (!containerXml) return EMPTY_EPUB_EXTRAS

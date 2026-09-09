@@ -130,9 +130,9 @@ describe('YouTubeReviewsProvider', () => {
     const fetchImpl = makeFetch([
       {
         items: [
-          { id: { videoId: 'video-1' }, snippet: { title: 'First' } },
-          { id: { videoId: 'video-1' }, snippet: { title: 'Duplicate' } },
-          { id: { videoId: 'video-2' }, snippet: { title: 'Second' } },
+          { id: { videoId: 'video-1' }, snippet: { title: 'Clean Code - First Look' } },
+          { id: { videoId: 'video-1' }, snippet: { title: 'Clean Code - Duplicate' } },
+          { id: { videoId: 'video-2' }, snippet: { title: 'Clean Code - Second Review' } },
         ],
       },
     ])
@@ -172,6 +172,30 @@ describe('YouTubeReviewsProvider', () => {
 
     await expect(withoutTitle.collect(new Blob(['epub']), makeContext())).resolves.toEqual({})
     expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('stops querying after a 403 (quota exceeded) instead of retrying the remaining queries', async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: false,
+      status: 403,
+      json: async () => ({}),
+    })) as unknown as typeof fetch
+    const provider = new YouTubeReviewsProvider({
+      apiKey: 'yt-key',
+      fetchImpl,
+      maxResults: 5,
+    })
+
+    const info = await provider.collect(new Blob(['epub']), makeContext({
+      lookupHints: {
+        title: 'Clean Code',
+        author: 'Robert C. Martin',
+        identifiers: [],
+      },
+    }))
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(info).toEqual({})
   })
 
   it('binds the browser fetch implementation when no fetch mock is passed', async () => {
@@ -238,6 +262,45 @@ describe('BookInfoService with YouTube reviews', () => {
       ],
       source: 'epub-metadata',
       confidence: 'medium',
+    })
+  })
+
+  it('roda um provider runsIndependently em paralelo com a cadeia sequencial, sem esperar sua vez', async () => {
+    const callOrder: string[] = []
+    const epubProvider = {
+      source: 'epub-metadata' as const,
+      collect: async (): Promise<Partial<ResolvedBookInfo>> => {
+        callOrder.push('epub-start')
+        await new Promise((resolve) => setTimeout(resolve, 10))
+        callOrder.push('epub-end')
+        // Se o provider independente esperasse essa cadeia, ele veria este
+        // title/author em vez do lookupHints inicial.
+        return {
+          lookupHints: { title: 'Titulo do Epub', author: 'Autor do Epub', identifiers: [] },
+        }
+      },
+    }
+    let independentContextSeen: ResolvedBookInfo | undefined
+    const independentProvider = {
+      source: 'youtube' as const,
+      runsIndependently: true,
+      collect: async (_fileBlob: Blob | null, context?: ResolvedBookInfo): Promise<Partial<ResolvedBookInfo>> => {
+        callOrder.push('independent-start')
+        independentContextSeen = context
+        return {}
+      },
+    }
+    const service = new BookInfoService([epubProvider, independentProvider])
+
+    await service.collect(new Blob(['epub']), {
+      lookupHints: { title: 'Titulo Original', author: 'Autor Original', identifiers: [] },
+    })
+
+    expect(callOrder.indexOf('independent-start')).toBeLessThan(callOrder.indexOf('epub-end'))
+    expect(independentContextSeen?.lookupHints).toEqual({
+      title: 'Titulo Original',
+      author: 'Autor Original',
+      identifiers: [],
     })
   })
 })

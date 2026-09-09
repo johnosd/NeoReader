@@ -156,8 +156,7 @@ tags, pastas de origem e caches ficam no dispositivo.
 ### Detalhes do livro
 
 - Header com capa, autor, ano, rating quando disponivel, progresso e favorito.
-- Tabs: Capitulos, Marcadores, Highlights, Reviews, Autor, Configuracoes e
-  Detalhes.
+- Tabs: Capitulos, Marcadores, Highlights, Reviews, Autor e Configuracoes.
 - TOC extraido do EPUB e navegacao direta para capitulos.
 - Marcadores listados por CFI, com snippet e remocao por soft delete.
 - Highlights do livro listados na ordem em que aparecem no texto (trecho, cor,
@@ -165,11 +164,16 @@ tags, pastas de origem e caches ficam no dispositivo.
   remocao direta pela lista.
 - Contagem de vocabulario e de highlights salvos por livro.
 - Atualizacao manual da ficha bibliografica.
-- Configuracoes por livro para:
-  - idioma original;
-  - idioma alvo da traducao;
-  - tema, fonte, tamanho, line height e modo de leitura;
-  - provedor TTS, voz e velocidade.
+- Aba Configuracoes organizada em menu de categorias (Aparencia do Leitor,
+  Idioma, Narracao, Detalhes), cada uma abrindo sua propria subvisao:
+  - Aparencia do Leitor: tema, fonte, tamanho, line height e modo de leitura
+    deste livro;
+  - Idioma: idioma original do livro e idioma alvo da traducao;
+  - Narracao: provedor TTS, voz e velocidade;
+  - Detalhes: sinopse/ficha bibliografica, diagnosticos de metadados, idioma
+    detectado, data de adicao, ultimo acesso e tamanho do arquivo (conteudo
+    que antes vivia numa aba propria "Detalhes", agora migrado pra dentro de
+    Configuracoes).
 - Selecao e preview de vozes compativeis por idioma.
 - Avisos quando o provedor TTS escolhido nao tem API key configurada.
 
@@ -476,8 +480,8 @@ Dados atuais do projeto Android:
 | Campo | Valor |
 |---|---|
 | `appId` / package | `com.johnny.neoreader` |
-| `versionName` | `1.0.17` |
-| `versionCode` | `21` |
+| `versionName` | `1.0.18` |
+| `versionCode` | `22` |
 | `minSdk` | `24` |
 | `compileSdk` / `targetSdk` | `36` |
 | Backup Android | desativado (`allowBackup=false`) |

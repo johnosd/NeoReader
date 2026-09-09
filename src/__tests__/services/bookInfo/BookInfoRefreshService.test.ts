@@ -6,12 +6,14 @@ const mocks = vi.hoisted(() => ({
   collect: vi.fn(),
   getSettings: vi.fn(),
   saveBookInfo: vi.fn(),
+  markYoutubeReviewsChecked: vi.fn(),
   bookInfoService: vi.fn(),
   youtubeProvider: vi.fn(),
 }))
 
 vi.mock('@/db/bookInfo', () => ({
   saveBookInfo: mocks.saveBookInfo,
+  markYoutubeReviewsChecked: mocks.markYoutubeReviewsChecked,
 }))
 
 vi.mock('@/db/settings', () => ({

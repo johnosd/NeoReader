@@ -3,6 +3,7 @@ import type { AuthorData, AuthorBook, AuthorVideo } from '../types/author'
 import { logWarn } from './DiagnosticsLogger'
 import { FeatureQuotaService, type FeatureQuotaSnapshot } from './FeatureQuotaService'
 import { fetchWithTimeout } from './http'
+import { hasRelevantOverlap } from '../utils/textMatch'
 
 const AUTHOR_VIDEOS_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -134,9 +135,13 @@ export async function getAuthorData(
     }
   }
 
-  // Foto via Open Library (URL pública, sem quota)
+  // Foto via Open Library (URL pública, sem quota). ?default=false é
+  // essencial: sem isso, a Open Library devolve HTTP 200 com uma imagem
+  // placeholder de 1x1 quando o autor não tem foto, em vez de 404 — o que
+  // faz o <img onError> do AuthorTab nunca disparar e mostrar um espaço em
+  // branco em vez do ícone padrão.
   const photoUrl = olid
-    ? `https://covers.openlibrary.org/a/olid/${olid}-M.jpg`
+    ? `https://covers.openlibrary.org/a/olid/${olid}-M.jpg?default=false`
     : undefined
 
   const videos: AuthorVideo[] = youtubeApiKey
@@ -196,7 +201,11 @@ export async function fetchYoutubeVideos(
   apiKey: string,
 ): Promise<AuthorVideo[]> {
   try {
-    const query = encodeURIComponent(`${authorName} interview OR talk OR TED lecture`)
+    // A API do YouTube não tem operador de frase/booleano de verdade no `q`
+    // — "OR" ali era só mais uma palavra solta na busca, não um filtro.
+    // As aspas ajudam a priorizar o nome, mas o filtro de relevância abaixo
+    // é o que realmente garante que o vídeo é sobre essa pessoa.
+    const query = encodeURIComponent(`"${authorName}" entrevista interview`)
     const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${query}&type=video&maxResults=8&key=${apiKey}`
     const res = await fetchWithTimeout(url)
     if (!res.ok) return []
@@ -206,22 +215,36 @@ export async function fetchYoutubeVideos(
         snippet: {
           title: string
           channelTitle: string
+          description?: string
           thumbnails: { medium?: { url: string }; default?: { url: string } }
         }
       }>
     }
-    return (data.items ?? []).map((item) => ({
-      id: item.id.videoId,
-      title: item.snippet.title,
-      channelName: item.snippet.channelTitle,
-      thumbnailUrl:
-        item.snippet.thumbnails.medium?.url ??
-        item.snippet.thumbnails.default?.url ??
-        `https://img.youtube.com/vi/${item.id.videoId}/mqdefault.jpg`,
-    }))
+    return (data.items ?? [])
+      .filter((item) => isVideoAboutAuthor(item.snippet, authorName))
+      .map((item) => ({
+        id: item.id.videoId,
+        title: item.snippet.title,
+        channelName: item.snippet.channelTitle,
+        thumbnailUrl:
+          item.snippet.thumbnails.medium?.url ??
+          item.snippet.thumbnails.default?.url ??
+          `https://img.youtube.com/vi/${item.id.videoId}/mqdefault.jpg`,
+      }))
   } catch {
     return []
   }
+}
+
+// Busca por palavra solta traz muito ruído pra nomes curtos/comuns — exige
+// todas as palavras significativas do nome no título+canal+descrição do
+// vídeo (não só uma), pra não misturar vídeo de gente com nome parecido.
+function isVideoAboutAuthor(
+  snippet: { title: string; channelTitle: string; description?: string },
+  authorName: string,
+): boolean {
+  const haystack = `${snippet.title} ${snippet.channelTitle} ${snippet.description ?? ''}`
+  return hasRelevantOverlap(haystack, authorName, 1)
 }
 
 function shouldRefreshVideos(videosFetchedAt?: Date | null): boolean {

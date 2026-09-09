@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { getStoredBookInfo, patchBookInfo, saveBookInfo } from '../db/bookInfo'
+import { getStoredBookInfo, markYoutubeReviewsChecked, patchBookInfo, saveBookInfo } from '../db/bookInfo'
 import {
   BookInfoService,
   EpubBookInfoProvider,
@@ -85,10 +85,18 @@ export function useBookInfo({
         let quota: FeatureQuotaSnapshot | null = null
         const isOutdated = (stored?.metadataSchemaVersion ?? 1) < CURRENT_BOOK_INFO_SCHEMA_VERSION
         const needsBaseCollection = !stored || isOutdated || !hasDisplayableBookInfo(stored) || refreshToken > 0
-        const needsYoutubeReviews = Boolean(youtubeApiKey)
-          && !stored?.reviews?.value.some((review) => review.provider === 'youtube')
+        // youtubeReviewsCheckedAt (nao "ja tem review de youtube salva"): uma
+        // busca que rodou e nao achou nada tambem conta como "verificado" —
+        // senao repete a busca em toda abertura da tela pra livros sem
+        // cobertura no YouTube, gastando cota a toa.
+        const needsYoutubeReviews = Boolean(youtubeApiKey) && !stored?.youtubeReviewsCheckedAt
         const needsCollection = needsBaseCollection || needsYoutubeReviews
-        const file = needsCollection ? await BookFileResolver.resolveFile(book) : null
+        // So resolve o arquivo do EPUB quando a colheita base precisa dele —
+        // o YoutubeReviewsProvider (unico provider do branch needsYoutubeReviews
+        // isolado) nunca le o fileBlob. Resolver o arquivo à toa aqui já
+        // travou a tela inteira: se o arquivo tiver sumido, resolveFile
+        // lança, e o catch abaixo descartava o `stored` que já estava bom.
+        const file = needsBaseCollection ? await BookFileResolver.resolveFile(book) : null
 
         if (needsCollection) {
           quota = FeatureQuotaService.consume('book-intelligence', {
@@ -116,11 +124,11 @@ export function useBookInfo({
 
         if (needsBaseCollection) {
           const collected = await new BookInfoService([
-            new EpubBookInfoProvider(),
+            new EpubBookInfoProvider({ bookId: book.id }),
             new GoogleBooksProvider(),
             new OpenLibraryProvider(),
             new YouTubeReviewsProvider({ apiKey: youtubeApiKey }),
-          ], { onProviderAttempt: recordDiagnostic, flowId, screen: 'book-details' }).collect(file!, {
+          ], { onProviderAttempt: recordDiagnostic, flowId, screen: 'book-details' }).collect(file, {
             lookupHints: {
               title: book.title,
               author: book.author,
@@ -131,13 +139,20 @@ export function useBookInfo({
         } else if (needsYoutubeReviews) {
           const collected = await new BookInfoService([
             new YouTubeReviewsProvider({ apiKey: youtubeApiKey }),
-          ], { onProviderAttempt: recordDiagnostic, flowId, screen: 'book-details' }).collect(file!, stored)
+          ], { onProviderAttempt: recordDiagnostic, flowId, screen: 'book-details' }).collect(file, stored)
 
           if (collected.reviews) {
             nextInfo = await patchBookInfo(book.id!, {
               reviews: collected.reviews,
               lookupHints: collected.lookupHints,
             })
+          }
+        }
+
+        if (needsYoutubeReviews) {
+          const youtubeAttempt = providerAttempts.find((attempt) => attempt.source === 'youtube')
+          if (youtubeAttempt && youtubeAttempt.status !== 'failed') {
+            await markYoutubeReviewsChecked(book.id!)
           }
         }
 

@@ -92,9 +92,18 @@ describe('AuthorService', () => {
         {
           id: { videoId: 'abc123' },
           snippet: {
-            title: 'Entrevista',
+            title: 'Entrevista com Autor',
             channelTitle: 'Canal',
             thumbnails: { default: { url: 'https://cdn.example/thumb.jpg' } },
+          },
+        },
+        {
+          // Sem o nome do autor em lugar nenhum — filtro de relevância deve descartar.
+          id: { videoId: 'irrelevante' },
+          snippet: {
+            title: 'Um video qualquer sem relacao',
+            channelTitle: 'Outro canal',
+            thumbnails: { default: { url: 'https://cdn.example/outro.jpg' } },
           },
         },
       ],
@@ -106,7 +115,7 @@ describe('AuthorService', () => {
     expect(data?.videos).toEqual([
       {
         id: 'abc123',
-        title: 'Entrevista',
+        title: 'Entrevista com Autor',
         channelName: 'Canal',
         thumbnailUrl: 'https://cdn.example/thumb.jpg',
       },

@@ -74,6 +74,11 @@ export interface StoredBookInfo extends ResolvedBookInfo {
   bookId: number
   createdAt: Date
   updatedAt: Date
+  // Quando o YouTube ja foi consultado (com sucesso ou sem resultados) para este
+  // livro. Evita refazer a busca em toda abertura da tela quando o resultado
+  // anterior foi "nao encontrado" (reviews continua null nesse caso, entao so
+  // checar reviews nao bastava pra saber que ja tentamos).
+  youtubeReviewsCheckedAt?: Date | null
 }
 
 export type BookInfoProviderAttemptStatus = 'success' | 'empty' | 'failed'
@@ -88,6 +93,12 @@ export interface BookInfoProviderAttemptDiagnostic {
 
 export interface BookInfoProvider {
   readonly source: BookInfoSource
+  // true quando o provider so depende do lookupHints inicial (title/author, ja
+  // resolvidos a partir de book.title/book.author antes de qualquer provider
+  // rodar) e nao precisa esperar a cadeia sequencial (ex: identifiers que o
+  // Google Books/Open Library podem descobrir). Providers assim rodam em
+  // paralelo com a cadeia sequencial em vez de esperar sua vez na fila.
+  readonly runsIndependently?: boolean
   collect(fileBlob: Blob | null, context?: ResolvedBookInfo): Promise<Partial<ResolvedBookInfo>>
   getDiagnostics?(): string[]
 }

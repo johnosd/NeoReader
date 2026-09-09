@@ -71,37 +71,27 @@ export class BookInfoService {
       result = this.merge(result, initialContext)
     }
 
-    for (const provider of this.providers) {
-      try {
-        const partial = await provider.collect(fileBlob, result)
-        result = this.merge(result, partial)
-        const fields = this.extractReturnedFields(partial)
-        this.options.onProviderAttempt?.({
-          source: provider.source,
-          status: fields.length > 0 ? 'success' : 'empty',
-          fields,
-          details: provider.getDiagnostics?.(),
-        })
-      } catch (error) {
-        console.warn(`Book info provider failed: ${provider.source}`, error)
-        logError('bookinfo.collect.failure', error, {
-          flowId,
-          screen: this.options.screen,
-          provider: provider.source,
-          status: 'failure',
-          durationMs: getDiagnosticsNowMs() - startedAt,
-          details: {
-            returnedFields: this.extractReturnedFields(result),
-          },
-        })
-        this.options.onProviderAttempt?.({
-          source: provider.source,
-          status: 'failed',
-          fields: [],
-          message: error instanceof Error ? error.message : 'Erro desconhecido',
-          details: provider.getDiagnostics?.(),
-        })
-      }
+    // Providers "independentes" (ex: YouTube) só usam o lookupHints inicial
+    // (title/author de book.title/book.author, já resolvidos acima) — não
+    // precisam esperar a cadeia sequencial (Epub → Google Books → Open
+    // Library, que existe porque Open Library depende de ISBN que o Google
+    // Books pode descobrir). Disparamos eles em paralelo com a cadeia em vez
+    // de deixá-los na fila somando latência de rede à toa.
+    const independentContext = result
+    const independentProviders = this.providers.filter((provider) => provider.runsIndependently)
+    const sequentialProviders = this.providers.filter((provider) => !provider.runsIndependently)
+
+    const independentTasks = independentProviders.map((provider) => (
+      this.runProvider(provider, fileBlob, independentContext, flowId, startedAt)
+    ))
+
+    for (const provider of sequentialProviders) {
+      const partial = await this.runProvider(provider, fileBlob, result, flowId, startedAt)
+      result = this.merge(result, partial)
+    }
+
+    for (const partial of await Promise.all(independentTasks)) {
+      result = this.merge(result, partial)
     }
 
     logEvent('bookinfo.collect.success', {
@@ -115,6 +105,48 @@ export class BookInfoService {
     })
 
     return result
+  }
+
+  // Roda 1 provider, registra o diagnóstico do resultado (ou da falha) e
+  // nunca rejeita — falha de um provider não pode derrubar os outros.
+  private async runProvider(
+    provider: BookInfoProvider,
+    fileBlob: Blob | null,
+    context: ResolvedBookInfo,
+    flowId: string,
+    startedAt: number,
+  ): Promise<Partial<ResolvedBookInfo>> {
+    try {
+      const partial = await provider.collect(fileBlob, context)
+      const fields = this.extractReturnedFields(partial)
+      this.options.onProviderAttempt?.({
+        source: provider.source,
+        status: fields.length > 0 ? 'success' : 'empty',
+        fields,
+        details: provider.getDiagnostics?.(),
+      })
+      return partial
+    } catch (error) {
+      console.warn(`Book info provider failed: ${provider.source}`, error)
+      logError('bookinfo.collect.failure', error, {
+        flowId,
+        screen: this.options.screen,
+        provider: provider.source,
+        status: 'failure',
+        durationMs: getDiagnosticsNowMs() - startedAt,
+        details: {
+          returnedFields: this.extractReturnedFields(context),
+        },
+      })
+      this.options.onProviderAttempt?.({
+        source: provider.source,
+        status: 'failed',
+        fields: [],
+        message: error instanceof Error ? error.message : 'Erro desconhecido',
+        details: provider.getDiagnostics?.(),
+      })
+      return {}
+    }
   }
 
   private merge(
