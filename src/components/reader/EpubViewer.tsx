@@ -32,6 +32,12 @@ const BOTTOM_CHROME_TAP_ZONE_PX = 156
 const CHROME_TAP_ZONE_MAX_VIEWPORT_RATIO = 0.28
 const RIGHT_CHROME_TAP_ZONE_MIN_PX = 48
 const RIGHT_CHROME_TAP_ZONE_MAX_PX = 72
+// Zona de atalho pro índice (TOC) na borda esquerda — mesma largura da
+// zona de chrome direita, mas limitada verticalmente à faixa central pra
+// nunca sobrepor os cantos, que já pertencem às zonas de chrome de
+// topo/rodapé (essas cobrem a LARGURA INTEIRA da tela).
+const LEFT_TOC_TAP_ZONE_MIN_PX = 48
+const LEFT_TOC_TAP_ZONE_MAX_PX = 72
 const INITIAL_INTERACTIVE_TIMEOUT_MS = 8_000
 
 type FoliateTransformLoadDetail = {
@@ -113,6 +119,7 @@ type ReaderTapIgnoredReason =
   | 'bookmark-icon'
   | 'chrome-zone'
   | 'highlight-menu'
+  | 'left-toc-zone'
   | 'no-readable-paragraph'
   | 'scroll-gesture'
   | 'text-selection'
@@ -383,6 +390,31 @@ function isRightChromeTapZone(ev: MouseEvent, doc: Document): boolean {
   )
 
   return ev.clientX >= viewportWidth - zoneWidth
+}
+
+// Zona de atalho pro índice (TOC) na borda esquerda. Fica limitada à
+// faixa vertical CENTRAL (entre as zonas de chrome de topo e rodapé) pra
+// nunca colidir nos cantos superior/inferior-esquerdos, que já pertencem
+// às zonas de chrome (essas cobrem a largura inteira da tela).
+function isLeftTocTapZone(ev: MouseEvent, doc: Document, physical?: PhysicalTapPosition | null): boolean {
+  const viewportWidth = getDocumentViewportWidth(doc)
+  if (viewportWidth <= 0) return false
+
+  const zoneWidth = Math.max(
+    LEFT_TOC_TAP_ZONE_MIN_PX,
+    Math.min(LEFT_TOC_TAP_ZONE_MAX_PX, Math.round(viewportWidth * 0.14)),
+  )
+  if (ev.clientX > zoneWidth) return false
+
+  const viewportY = physical ? physical.viewportY : ev.clientY
+  const containerTop = physical ? physical.containerTop : 0
+  const viewportHeight = physical ? physical.viewportHeight : getDocumentViewportHeight(doc)
+  if (viewportHeight <= 0) return false
+
+  const topZone = getVisibleChromeTapZoneSize(viewportHeight, TOP_CHROME_TAP_ZONE_PX)
+  const bottomZone = getVisibleChromeTapZoneSize(viewportHeight, BOTTOM_CHROME_TAP_ZONE_PX)
+
+  return viewportY > containerTop + topZone && viewportY < containerTop + viewportHeight - bottomZone
 }
 
 type RendererNavigationTarget = {
@@ -1434,6 +1466,8 @@ interface EpubViewerProps {
   onSaveVocab: (sourceText: string, translatedText: string) => void
   // Chamado quando o tap cai nas zonas de menu ou fora da area de texto.
   onCenterTap: () => void
+  // Chamado quando o tap cai na zona de atalho pro índice, na borda esquerda.
+  onOpenToc: () => void
   chromeVisible: boolean
   // Tradução: emite o texto da frase tocada para o ReaderScreen traduzir e exibir
   // num painel React fora do iframe (evita problema de paginação no mobile)
@@ -1476,7 +1510,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     {
       book, bookmarks, fontSize, lineHeight, readerTheme, fontFamily, overrideBookFont, overrideBookColors, focusLineEnabled, wordLensEnabled, wordLensLevel, wordLensData, savedCfi, initialTarget,
       onRelocate, onTocReady, onLoad, onSectionReady, onError,
-      onSaveVocab, onCenterTap, onTranslate, onWordLensDefinition,
+      onSaveVocab, onCenterTap, onOpenToc, onTranslate, onWordLensDefinition,
       onSpeakOne, onParagraphTapForTts, onTtsUserScrollAway, ttsGlobalActive,
       chromeVisible,
       onBookmarkTap, onBookmarkParagraph,
@@ -1525,6 +1559,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const vocabWordsRef = useSyncRef(vocabWords ?? [])
     const onSaveVocabRef = useSyncRef(onSaveVocab)
     const onCenterTapRef = useSyncRef(onCenterTap)
+    const onOpenTocRef = useSyncRef(onOpenToc)
     const onTranslateRef = useSyncRef(onTranslate)
     const onWordLensDefinitionRef = useSyncRef(onWordLensDefinition)
     const onSpeakOneRef = useSyncRef(onSpeakOne)
@@ -3921,6 +3956,17 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
                 tapHitsReadableText,
               })
               onCenterTapRef.current()
+              return
+            }
+
+            // Zona de atalho pro índice (TOC) na borda esquerda. Checada
+            // antes do branch de TTS ativo pra funcionar igual às zonas de
+            // chrome, mesmo com narração tocando; e só quando o toque não
+            // caiu em texto legível, pra nunca roubar o toque de tradução
+            // inline.
+            if (!tapHitsReadableText && isLeftTocTapZone(ev, ownerDocument, physicalTapPosition)) {
+              logReaderTapIgnored('left-toc-zone', para, { tapHitsReadableText })
+              onOpenTocRef.current()
               return
             }
 

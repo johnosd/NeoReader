@@ -22,6 +22,7 @@ _(nenhuma no momento)_
 | 009-leitor-libera-recursos-book-destroy | Liberar recursos do leitor EPUB ao trocar de livro | Convergida | 14/14 tasks | 2026-09-04 |
 | 010-highlights-selecao-texto | Highlights de trecho selecionado no leitor | Convergida | 93/93 tasks | 2026-09-07 |
 | 011-book-details-settings-categorias | Reorganizar Aba Configurações do Livro em Categorias Navegáveis | Convergida | 29/29 tasks | 2026-09-09 |
+| 012-toque-tela-leitura | Controle de toque na tela de leitura | Convergida | 18/18 tasks | 2026-09-10 |
 
 ## Bugs
 
@@ -39,6 +40,7 @@ _(nenhuma no momento)_
 | bookmark-nao-sincroniza-ao-clicar-no | Bookmark não sincroniza ao clicar no ícone (fica vermelho) | Fix | applied | Rodar fase Test | 2026-09-08 |
 | clique-no-paragrafo-nao-abre-menu | Clique no parágrafo não abre o menu contextual perto do início/fim do capítulo | Test | verified | Concluído | 2026-09-09 |
 | menu-chrome-leitor-some-sozinho-apos | Menu de chrome do leitor some sozinho após ~2.5s | Test | verified | Concluído | 2026-09-10 |
+| sincronizar-bookmarks-automaticamente-ao-fechar-livro | Sincronizar bookmarks automaticamente ao fechar o livro | Test | verified | Concluído | 2026-09-10 |
 
 ## Melhorias Ad-hoc
 

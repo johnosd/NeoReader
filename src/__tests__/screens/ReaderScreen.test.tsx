@@ -60,6 +60,12 @@ const mocks = vi.hoisted(() => {
       reset: vi.fn(),
     },
     ttsOptions: null as MockTtsOptions | null,
+    // Mock posicional do useLiveQuery (ver vi.mock('dexie-react-hooks') abaixo):
+    // só `bookmarks` (1ª chamada em ReaderScreen.tsx) é controlável por teste;
+    // vocabWords/highlights (2ª/3ª) ficam sempre [].
+    bookmarks: [] as Array<{ id: number; syncedAt: Date | null }>,
+    liveQueryIndex: 0,
+    scheduleBookmarkDriveSync: vi.fn(),
     setReaderImmersiveMode: vi.fn().mockResolvedValue(undefined),
   setSelectionMenuSuppressed: vi.fn().mockResolvedValue(undefined),
     loadWordLensData: vi.fn().mockResolvedValue(null),
@@ -100,7 +106,14 @@ const mocks = vi.hoisted(() => {
 })
 
 vi.mock('dexie-react-hooks', () => ({
-  useLiveQuery: vi.fn(() => []),
+  // Mock posicional: a ordem espelha os useLiveQuery em ReaderScreen.tsx
+  // (bookmarks, vocabWords, highlights). Mexeu na ordem lá, mexe aqui.
+  useLiveQuery: vi.fn(() => {
+    const values = [mocks.bookmarks, [], []]
+    const value = values[mocks.liveQueryIndex % values.length]
+    mocks.liveQueryIndex += 1
+    return value
+  }),
 }))
 
 vi.mock('@capacitor/app', () => ({
@@ -195,6 +208,10 @@ vi.mock('@/services/TranslationService', () => ({
   translate: vi.fn(async () => 'Texto traduzido'),
 }))
 
+vi.mock('@/services/BookmarkDriveSyncService', () => ({
+  scheduleBookmarkDriveSync: mocks.scheduleBookmarkDriveSync,
+}))
+
 vi.mock('@/services/NativeSystemUiService', () => ({
   setReaderImmersiveMode: mocks.setReaderImmersiveMode,
   setSelectionMenuSuppressed: mocks.setSelectionMenuSuppressed,
@@ -238,10 +255,15 @@ vi.mock('@/components/reader/EpubViewer', async () => {
 })
 
 vi.mock('@/components/reader/ReaderChrome', () => ({
-  ReaderChrome: ({ onTtsToggle }: { onTtsToggle: () => void }) => (
-    <button type="button" onClick={onTtsToggle}>
-      toggle-tts
-    </button>
+  ReaderChrome: ({ onTtsToggle, onBack }: { onTtsToggle: () => void; onBack: () => void }) => (
+    <>
+      <button type="button" onClick={onTtsToggle}>
+        toggle-tts
+      </button>
+      <button type="button" onClick={onBack}>
+        go-back
+      </button>
+    </>
   ),
 }))
 
@@ -354,6 +376,9 @@ describe('ReaderScreen', () => {
   beforeEach(() => {
     mocks.epubViewerProps = null
     mocks.tocDrawerProps = null
+    mocks.bookmarks = []
+    mocks.liveQueryIndex = 0
+    mocks.scheduleBookmarkDriveSync.mockClear()
     mocks.capacitorListeners.backButton = null
     mocks.capacitorListeners.appStateChange = null
     mocks.capacitorListeners.playbackControl = null
@@ -437,6 +462,69 @@ describe('ReaderScreen', () => {
     })
 
     expect(deleteBook).toHaveBeenCalledWith(1)
+    expect(onBack).toHaveBeenCalledOnce()
+  })
+
+  it('ao fechar o livro, sincroniza bookmarks pendentes automaticamente', async () => {
+    mocks.bookmarks = [{ id: 1, syncedAt: null }]
+    const onBack = vi.fn()
+
+    render(
+      <ReaderScreen
+        book={book}
+        onBack={onBack}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+    await flushAsyncWork()
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('go-back'))
+    })
+
+    expect(mocks.scheduleBookmarkDriveSync).toHaveBeenCalledWith(1)
+    expect(onBack).toHaveBeenCalledOnce()
+  })
+
+  it('ao fechar o livro, nao sincroniza se todos os bookmarks ja estao sincronizados', async () => {
+    mocks.bookmarks = [{ id: 1, syncedAt: new Date() }]
+    const onBack = vi.fn()
+
+    render(
+      <ReaderScreen
+        book={book}
+        onBack={onBack}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+    await flushAsyncWork()
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('go-back'))
+    })
+
+    expect(mocks.scheduleBookmarkDriveSync).not.toHaveBeenCalled()
+    expect(onBack).toHaveBeenCalledOnce()
+  })
+
+  it('ao fechar o livro sem nenhum bookmark, nao tenta sincronizar', async () => {
+    mocks.bookmarks = []
+    const onBack = vi.fn()
+
+    render(
+      <ReaderScreen
+        book={book}
+        onBack={onBack}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+    await flushAsyncWork()
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('go-back'))
+    })
+
+    expect(mocks.scheduleBookmarkDriveSync).not.toHaveBeenCalled()
     expect(onBack).toHaveBeenCalledOnce()
   })
 

@@ -96,4 +96,27 @@ describe('SettingsAppearanceScreen', () => {
       overrideBookColors: true,
     })
   })
+
+  it('mostra o mapa de zonas de toque com a legenda das 3 acoes', async () => {
+    render(<SettingsAppearanceScreen onBack={vi.fn()} />)
+
+    await screen.findByText('Mapa de toques do leitor')
+
+    expect(screen.getByText('Topo, rodape e direita')).not.toBeNull()
+    expect(screen.getByText('Mostra ou esconde o menu')).not.toBeNull()
+    expect(screen.getByText('Centro (texto)')).not.toBeNull()
+    expect(screen.getByText('Abre a traducao do trecho tocado')).not.toBeNull()
+    expect(screen.getByText('Borda esquerda')).not.toBeNull()
+    expect(screen.getByText('Abre o indice do livro')).not.toBeNull()
+  })
+
+  it('tocar no diagrama do mapa de zonas nao dispara nenhuma gravacao de preferencia', async () => {
+    render(<SettingsAppearanceScreen onBack={vi.fn()} />)
+
+    const title = await screen.findByText('Mapa de toques do leitor')
+    fireEvent.click(title)
+
+    expect(mocks.updateReaderDefaults).not.toHaveBeenCalled()
+    expect(mocks.updateAppSettings).not.toHaveBeenCalled()
+  })
 })

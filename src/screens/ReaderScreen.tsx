@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Volume2 } from 'lucide-react'
 import {
@@ -46,6 +46,7 @@ import {
 } from '../components/reader/ReaderAppearanceControls'
 import { Switch } from '../components/ui'
 import { translate } from '../services/TranslationService'
+import { scheduleBookmarkDriveSync } from '../services/BookmarkDriveSyncService'
 import { createFlowId, getDiagnosticsNowMs, logError, logEvent } from '../services/DiagnosticsLogger'
 import { setReaderImmersiveMode, setSelectionMenuSuppressed } from '../services/NativeSystemUiService'
 import { TtsPlaybackSessionService, type TtsPlaybackControlEvent, type TtsAudioFocusEvent } from '../services/TtsPlaybackSessionService'
@@ -381,11 +382,15 @@ export function ReaderScreen({
     footerTocLabelRef.current = footerTocLabel
   }, [footerTocLabel])
 
-  // Marcadores do livro atual — useLiveQuery: reativo, atualiza automaticamente
-  const bookmarks = useLiveQuery(
+  // Marcadores do livro atual — useLiveQuery: reativo, atualiza automaticamente.
+  // O fallback `?? []` fica num useMemo próprio pra não criar um array novo a
+  // cada render (isso quebraria a estabilidade de deps de handleBack, que usa
+  // `bookmarks` pra decidir se sincroniza pendências ao fechar o livro).
+  const bookmarksResult = useLiveQuery(
     () => db.bookmarks.where('bookId').equals(book.id!).sortBy('createdAt'),
     [book.id],
-  ) ?? []
+  )
+  const bookmarks = useMemo(() => bookmarksResult ?? [], [bookmarksResult])
   const activeBookmarks = bookmarks.filter((bookmark) => !bookmark.deletedAt)
 
   // Vocabulário salvo: frases originais para highlight passivo no texto
@@ -831,6 +836,10 @@ export function ReaderScreen({
       })
   }
 
+  // Reaproveitado pelo botão de TOC do chrome e pela zona de atalho na
+  // borda esquerda do leitor — mesmo destino, dois pontos de entrada.
+  const handleOpenToc = useCallback(() => setTocOpen(true), [])
+
   const handleOpenImage = useCallback((payload: ReaderImageOpenPayload) => {
     setReaderImagePreview(payload)
   }, [])
@@ -908,8 +917,16 @@ export function ReaderScreen({
   // se o usuário voltar antes do debounce disparar
   const handleBack = useCallback(() => {
     void flushCurrentProgress()
+    // Bookmarks já sincronizam ao serem criados/editados (db/bookmarks.ts),
+    // mas é fire-and-forget contra a API do Drive — se o usuário fecha o
+    // livro logo depois de marcar, o sync pode não ter terminado ainda.
+    // Dá mais uma chance aqui; scheduleBookmarkDriveSync já é seguro de
+    // chamar de novo (dedupe interno, no-op se não houver nada pendente).
+    if (bookmarks.some((bookmark) => !bookmark.syncedAt)) {
+      void scheduleBookmarkDriveSync(book.id!)
+    }
     onBack()
-  }, [flushCurrentProgress, onBack])
+  }, [flushCurrentProgress, bookmarks, book.id, onBack])
 
   // Intercepta o botão Back físico do Android (via plugin Capacitor)
   useCapacitorBackButton(() => {
@@ -1118,6 +1135,7 @@ export function ReaderScreen({
           onSaveVocab={handleSaveVocab}
           chromeVisible={chromeVisible}
           onCenterTap={handleCenterTap}
+          onOpenToc={handleOpenToc}
           onTranslate={handleTranslate}
           onWordLensDefinition={handleWordLensDefinition}
           onSpeakOne={(text) => void tts.speakOne(text)}
@@ -1155,7 +1173,7 @@ export function ReaderScreen({
         onBack={handleBack}
         onAppearanceOpen={() => setAppearanceSheetOpen(true)}
         onBookmarkList={() => setBookmarkSheetOpen(true)}
-        onTocOpen={() => setTocOpen(true)}
+        onTocOpen={handleOpenToc}
         onOpenVocabulary={() => onOpenVocabulary()}
         ttsIsPlaying={tts.isPlaying}
         ttsEngine={ttsEngine}
