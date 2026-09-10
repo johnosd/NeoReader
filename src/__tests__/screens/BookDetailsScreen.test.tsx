@@ -1016,6 +1016,63 @@ describe('BookDetailsScreen chapters', () => {
     expect(screen.queryByRole('button', { name: 'Sincronizar marcacoes' })).toBeNull()
   })
 
+  it('mostra no maximo 5 marcadores e um botao para ver os demais', async () => {
+    mocks.bookmarks = Array.from({ length: 7 }, (_, index) => pendingBookmarkFixture({
+      id: index + 1,
+      label: `Marcador ${index + 1}`,
+    }))
+
+    render(
+      <BookDetailsScreen book={book} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} onOpenPaywall={vi.fn()} />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Marcacoes/ }))
+    await screen.findByText('Marcador 1')
+
+    for (let index = 1; index <= 5; index += 1) {
+      expect(screen.getByText(`Marcador ${index}`)).toBeTruthy()
+    }
+    expect(screen.queryByText('Marcador 6')).toBeNull()
+    expect(screen.queryByText('Marcador 7')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Mostrar mais marcadores (2)' })).toBeTruthy()
+  })
+
+  it('ao clicar em mostrar mais, revela todos os marcadores restantes', async () => {
+    mocks.bookmarks = Array.from({ length: 7 }, (_, index) => pendingBookmarkFixture({
+      id: index + 1,
+      label: `Marcador ${index + 1}`,
+    }))
+
+    render(
+      <BookDetailsScreen book={book} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} onOpenPaywall={vi.fn()} />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Marcacoes/ }))
+    await screen.findByText('Marcador 1')
+    fireEvent.click(screen.getByRole('button', { name: 'Mostrar mais marcadores (2)' }))
+
+    for (let index = 1; index <= 7; index += 1) {
+      expect(screen.getByText(`Marcador ${index}`)).toBeTruthy()
+    }
+    expect(screen.queryByRole('button', { name: /Mostrar mais marcadores/ })).toBeNull()
+  })
+
+  it('sem mais de 5 marcadores, nao mostra o botao de ver mais', async () => {
+    mocks.bookmarks = Array.from({ length: 5 }, (_, index) => pendingBookmarkFixture({
+      id: index + 1,
+      label: `Marcador ${index + 1}`,
+    }))
+
+    render(
+      <BookDetailsScreen book={book} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} onOpenPaywall={vi.fn()} />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Marcacoes/ }))
+    await screen.findByText('Marcador 1')
+
+    expect(screen.queryByRole('button', { name: /Mostrar mais marcadores/ })).toBeNull()
+  })
+
   it('tocar no icone reseta o status e agenda a sincronizacao do livro', async () => {
     mocks.useEntitlements.mockReturnValue({
       isPro: true,

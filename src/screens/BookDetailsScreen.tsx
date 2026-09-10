@@ -97,6 +97,7 @@ const SETTINGS_CATEGORY_TITLE_KEY: Record<BookSettingsCategory, MessageKey> = {
 
 const EXTRAS_LOAD_TIMEOUT_MS = 10_000
 const TTS_RATE_OPTIONS = [0.8, 0.9, 1, 1.1, 1.2]
+const BOOKMARKS_INITIAL_COUNT = 5
 
 function resolveEffectiveTtsProvider(provider: TtsProvider, settings: AppSettings): TtsProvider {
   return resolveTtsProviderFromAvailability(provider, getTtsProviderAvailability(settings))
@@ -116,6 +117,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
   const [settingsCategory, setSettingsCategory] = useState<BookSettingsCategory | null>(null)
   const [syncingBookmarks, setSyncingBookmarks] = useState(false)
   const syncingBookmarksRef = useRef(false)
+  const [bookmarksExpanded, setBookmarksExpanded] = useState(false)
   const [descExpanded, setDescExpanded] = useState(false)
   const [extras, setExtras] = useState<EpubExtras | null>(null)
   const [extrasLoading, setExtrasLoading] = useState(true)
@@ -154,10 +156,15 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
 
   const liveBook = useLiveQuery(() => db.books.get(book.id!), [book.id]) ?? book
   const progress = useLiveQuery(() => db.progress.where('bookId').equals(book.id!).first(), [book.id])
+  // Mais recente primeiro: sortBy do Dexie só ordena ascendente, então
+  // invertemos depois de buscar (lista já é pequena, custo desprezível).
   const bookmarks = useLiveQuery(
-    () => db.bookmarks.where('bookId').equals(book.id!).and((bookmark) => !bookmark.deletedAt).sortBy('createdAt'),
+    () => db.bookmarks.where('bookId').equals(book.id!).and((bookmark) => !bookmark.deletedAt)
+      .sortBy('createdAt').then((items) => items.reverse()),
     [book.id],
   ) ?? []
+  const visibleBookmarks = bookmarksExpanded ? bookmarks : bookmarks.slice(0, BOOKMARKS_INITIAL_COUNT)
+  const hiddenBookmarksCount = bookmarks.length - visibleBookmarks.length
   const vocabCount = useLiveQuery(() => db.vocabulary.where('bookId').equals(book.id!).count(), [book.id]) ?? 0
   // Highlights do livro (US4). getHighlightsByBookId já ordena pela posição no
   // texto (percentage), que é a ordem que a lista precisa exibir (FR-024).
@@ -727,14 +734,14 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
             {activeTab === 'bookmarks' && (
               bookmarks.length > 0 ? (
                 <div className="rounded-md bg-bg-surface border border-border overflow-hidden">
-                  {bookmarks.map((bookmark, index) => (
+                  {visibleBookmarks.map((bookmark, index) => (
                     <ListItem
                       key={bookmark.id}
                       leading={<Bookmark size={16} className="text-purple-light" />}
                       title={bookmark.label}
                       meta={`${bookmark.percentage}%`}
                       onClick={() => openReader(bookmark.cfi)}
-                      divider={index < bookmarks.length - 1}
+                      divider={index < visibleBookmarks.length - 1 || hiddenBookmarksCount > 0}
                       trailing={(
                         // gap-4 (não gap-1) e mesmo padding de toque (p-2 -m-2) do
                         // botão de excluir ao lado — ícone de sync virou tocável
@@ -775,6 +782,14 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
                       )}
                     />
                   ))}
+                  {hiddenBookmarksCount > 0 && (
+                    <button
+                      onClick={() => setBookmarksExpanded(true)}
+                      className="w-full border-t border-white/5 px-4 py-3 text-sm font-semibold text-purple-light transition-colors duration-150 active:bg-white/5"
+                    >
+                      {t('bookDetails.showMoreBookmarks', { count: hiddenBookmarksCount })}
+                    </button>
+                  )}
                 </div>
               ) : (
                 <EmptyState
