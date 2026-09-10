@@ -14,6 +14,7 @@ import {
 import { ReaderChrome } from '../components/reader/ReaderChrome'
 import { TocDrawer } from '../components/reader/TocDrawer'
 import { BookmarkSheet } from '../components/reader/BookmarkSheet'
+import { HighlightNoteSheet } from '../components/reader/HighlightNoteSheet'
 import { ImageZoomModal } from '../components/reader/ImageZoomModal'
 import { BottomSheet } from '../components/ui'
 import { IntegrationHelpBanner } from '../components/IntegrationHelpBanner'
@@ -28,7 +29,7 @@ import { deleteBook, updateLastOpened } from '../db/books'
 import { getBookCover } from '../db/bookCovers'
 import { addBookmark, restoreBookmark, softDeleteBookmark, updateBookmarkColor } from '../db/bookmarks'
 import { addVocabItem, getVocabSourceTextsByBookId } from '../db/vocabulary'
-import { addHighlight, deleteHighlight, getHighlightsByBookId, updateHighlightAppearance } from '../db/highlights'
+import { addHighlight, deleteHighlight, getHighlightsByBookId, updateHighlightAppearance, updateHighlightNote } from '../db/highlights'
 import { db } from '../db/database'
 import { useTTS } from '../hooks/useTTS'
 import { TtsMiniPlayer } from '../components/reader/TtsMiniPlayer'
@@ -174,6 +175,8 @@ export function ReaderScreen({
   const [showBackToTtsLocation, setShowBackToTtsLocation] = useState(false)
   const [tocOpen, setTocOpen] = useState(false)
   const [bookmarkSheetOpen, setBookmarkSheetOpen] = useState(false)
+  // Highlight sendo anotado/editado no momento — null = sheet fechado (feature 013).
+  const [highlightNoteTarget, setHighlightNoteTarget] = useState<Highlight | null>(null)
   const [appearanceSheetOpen, setAppearanceSheetOpen] = useState(false)
   const [readerImagePreview, setReaderImagePreview] = useState<ReaderImageOpenPayload | null>(null)
   const [focusLineEnabled, setFocusLineEnabled] = useState(() => localStorage.getItem('neoreader:focus-line') === '1')
@@ -1060,6 +1063,17 @@ export function ReaderScreen({
     void updateHighlightAppearance(highlight.id, patch)
   }
 
+  // Anotação de texto (feature 013): abre o sheet fora do iframe; salvar de
+  // fato só acontece em handleSaveHighlightNote, nunca aqui.
+  function handleAnnotateHighlight(highlight: Highlight) {
+    setHighlightNoteTarget(highlight)
+  }
+
+  function handleSaveHighlightNote(note: string) {
+    if (highlightNoteTarget?.id !== undefined) void updateHighlightNote(highlightNoteTarget.id, note)
+    setHighlightNoteTarget(null)
+  }
+
   async function handleRemoveMissingBook() {
     if (book.id === undefined) return
     setRemovingMissingBook(true)
@@ -1154,6 +1168,7 @@ export function ReaderScreen({
           onCreateHighlight={handleCreateHighlight}
           onDeleteHighlight={handleDeleteHighlight}
           onChangeHighlightAppearance={handleChangeHighlightAppearance}
+          onAnnotateHighlight={handleAnnotateHighlight}
           />
         )}
       </div>
@@ -1272,6 +1287,14 @@ export function ReaderScreen({
         onDelete={(id) => void softDeleteBookmark(id)}
         onColorChange={(id, color) => { void updateBookmarkColor(id, color) }}
         onClose={() => setBookmarkSheetOpen(false)}
+      />
+
+      <HighlightNoteSheet
+        key={highlightNoteTarget?.id ?? 'closed'}
+        open={highlightNoteTarget !== null}
+        highlight={highlightNoteTarget}
+        onSave={handleSaveHighlightNote}
+        onClose={() => setHighlightNoteTarget(null)}
       />
 
       <BottomSheet

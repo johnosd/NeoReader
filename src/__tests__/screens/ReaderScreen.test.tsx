@@ -1,7 +1,8 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, beforeEach, vi } from 'vitest'
 import { ReaderScreen } from '@/screens/ReaderScreen'
 import type { Book } from '@/types/book'
+import type { Highlight } from '@/types/highlight'
 import type { TtsChunk } from '@/components/reader/EpubViewer'
 import type { TtsProvider } from '@/types/tts'
 import { getBookSettings, updateBookSettings } from '@/db/bookSettings'
@@ -66,6 +67,7 @@ const mocks = vi.hoisted(() => {
     bookmarks: [] as Array<{ id: number; syncedAt: Date | null }>,
     liveQueryIndex: 0,
     scheduleBookmarkDriveSync: vi.fn(),
+    updateHighlightNote: vi.fn(),
     setReaderImmersiveMode: vi.fn().mockResolvedValue(undefined),
   setSelectionMenuSuppressed: vi.fn().mockResolvedValue(undefined),
     loadWordLensData: vi.fn().mockResolvedValue(null),
@@ -157,6 +159,14 @@ vi.mock('@/db/bookmarks', () => ({
   restoreBookmark: vi.fn(),
   softDeleteBookmark: vi.fn(),
   updateBookmarkColor: vi.fn(),
+}))
+
+vi.mock('@/db/highlights', () => ({
+  addHighlight: vi.fn(),
+  deleteHighlight: vi.fn(),
+  getHighlightsByBookId: vi.fn(async () => []),
+  updateHighlightAppearance: vi.fn(),
+  updateHighlightNote: mocks.updateHighlightNote,
 }))
 
 vi.mock('@/db/vocabulary', () => ({
@@ -379,6 +389,7 @@ describe('ReaderScreen', () => {
     mocks.bookmarks = []
     mocks.liveQueryIndex = 0
     mocks.scheduleBookmarkDriveSync.mockClear()
+    mocks.updateHighlightNote.mockClear()
     mocks.capacitorListeners.backButton = null
     mocks.capacitorListeners.appStateChange = null
     mocks.capacitorListeners.playbackControl = null
@@ -526,6 +537,75 @@ describe('ReaderScreen', () => {
 
     expect(mocks.scheduleBookmarkDriveSync).not.toHaveBeenCalled()
     expect(onBack).toHaveBeenCalledOnce()
+  })
+
+  function makeTestHighlight(overrides: Partial<Highlight> = {}): Highlight {
+    return {
+      id: 9,
+      bookId: 1,
+      cfi: 'epubcfi(/6/8!/4/2/10/2,/1:0,/1:20)',
+      paraCfi: 'epubcfi(/6/8!/4/2/10/2:0)',
+      text: 'texto selecionado',
+      color: 'indigo',
+      sectionIndex: 0,
+      percentage: 10,
+      createdAt: new Date('2026-09-06T00:00:00Z'),
+      ...overrides,
+    }
+  }
+
+  it('onAnnotateHighlight sem nota abre o sheet de anotacao vazio', async () => {
+    render(<ReaderScreen book={book} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />)
+    await flushAsyncWork()
+
+    await act(async () => {
+      (mocks.epubViewerProps?.onAnnotateHighlight as (h: Highlight) => void)(makeTestHighlight())
+    })
+
+    expect((screen.getByPlaceholderText('Escreva sua anotacao...') as HTMLTextAreaElement).value).toBe('')
+  })
+
+  it('onAnnotateHighlight com nota existente abre o sheet preenchido', async () => {
+    render(<ReaderScreen book={book} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />)
+    await flushAsyncWork()
+
+    await act(async () => {
+      (mocks.epubViewerProps?.onAnnotateHighlight as (h: Highlight) => void)(makeTestHighlight({ note: 'Reflexao existente' }))
+    })
+
+    expect((screen.getByPlaceholderText('Escreva sua anotacao...') as HTMLTextAreaElement).value).toBe('Reflexao existente')
+  })
+
+  it('salvar a anotacao chama updateHighlightNote com o id do highlight e o texto digitado', async () => {
+    render(<ReaderScreen book={book} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />)
+    await flushAsyncWork()
+
+    await act(async () => {
+      (mocks.epubViewerProps?.onAnnotateHighlight as (h: Highlight) => void)(makeTestHighlight({ id: 9 }))
+    })
+
+    const textarea = screen.getByPlaceholderText('Escreva sua anotacao...')
+    const dialog = textarea.closest('[role="dialog"]') as HTMLElement
+    fireEvent.change(textarea, { target: { value: 'Nova reflexao' } })
+    fireEvent.click(within(dialog).getByText('Salvar'))
+
+    expect(mocks.updateHighlightNote).toHaveBeenCalledWith(9, 'Nova reflexao')
+  })
+
+  it('cancelar a edicao nao chama updateHighlightNote', async () => {
+    render(<ReaderScreen book={book} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />)
+    await flushAsyncWork()
+
+    await act(async () => {
+      (mocks.epubViewerProps?.onAnnotateHighlight as (h: Highlight) => void)(makeTestHighlight())
+    })
+
+    const textarea = screen.getByPlaceholderText('Escreva sua anotacao...')
+    const dialog = textarea.closest('[role="dialog"]') as HTMLElement
+    fireEvent.change(textarea, { target: { value: 'Rascunho descartado' } })
+    fireEvent.click(within(dialog).getByText('Cancelar'))
+
+    expect(mocks.updateHighlightNote).not.toHaveBeenCalled()
   })
 
   it('carrega Word Lens somente depois que o viewer fica interativo', async () => {

@@ -1590,6 +1590,54 @@ describe('EpubViewer — highlights de trecho selecionado', () => {
     expect(menu.querySelector('[data-nr-highlight-style="squiggly"]')?.getAttribute('aria-pressed')).toBe('true')
   })
 
+  // ── Anotação de texto associada ao highlight (feature 013) ──────────────
+  it('T033: menu do highlight sem nota mostra "Anotar"', async () => {
+    const { doc, para, highlight, overlayer } = await renderComHighlightPintado()
+    overlayer.hitTest.mockReturnValue([highlight.cfi, doc.createRange(), { left: 40, top: 120, right: 300, bottom: 140 }])
+
+    clickAt(para, 120, 130)
+    const menu = doc.getElementById('nr-highlight-menu') as HTMLElement
+    expect(menu.querySelector('[data-nr-highlight-annotate]')?.textContent).toBe('Anotar')
+  })
+
+  it('T034: menu do highlight com nota mostra "Editar anotacao"', async () => {
+    const highlight = {
+      id: 7, bookId: 1, cfi: 'epubcfi(/6/4!/4/2/1:0,/1:10)', paraCfi: 'epubcfi(/6/4!/4/2/1:0)',
+      text: 'First sen', color: 'indigo', note: 'Minha reflexao', sectionIndex: 0, percentage: 10, createdAt: new Date(),
+    }
+    const setup = await renderViewer({ highlights: [highlight] })
+    const doc = makeFakeDoc(['First sentence. Second sentence.'])
+    loadSection(setup.foliateEl, doc, 0)
+    const { overlayer } = setup.foliateEl.renderer.getContents()[0]
+    const para = doc.querySelector('p') as HTMLElement
+    overlayer.hitTest.mockReturnValue([highlight.cfi, doc.createRange(), { left: 40, top: 120, right: 300, bottom: 140 }])
+
+    clickAt(para, 120, 130)
+    const menu = doc.getElementById('nr-highlight-menu') as HTMLElement
+    expect(menu.querySelector('[data-nr-highlight-annotate]')?.textContent).toBe('Editar anotacao')
+  })
+
+  it('T035: tocar em Anotar chama onAnnotateHighlight e fecha o menu, sem chamar remover/trocar', async () => {
+    const onAnnotateHighlight = vi.fn()
+    const onDeleteHighlight = vi.fn()
+    const onChangeHighlightAppearance = vi.fn()
+    const { doc, para, highlight, overlayer } = await renderComHighlightPintado({
+      onAnnotateHighlight,
+      onDeleteHighlight,
+      onChangeHighlightAppearance,
+    })
+    overlayer.hitTest.mockReturnValue([highlight.cfi, doc.createRange(), { left: 40, top: 120, right: 300, bottom: 140 }])
+
+    clickAt(para, 120, 130)
+    const menu = doc.getElementById('nr-highlight-menu') as HTMLElement
+    click(menu.querySelector('[data-nr-highlight-annotate]') as HTMLElement)
+
+    expect(onAnnotateHighlight).toHaveBeenCalledWith(expect.objectContaining({ id: 7 }))
+    expect(menu.hidden).toBe(true)
+    expect(onDeleteHighlight).not.toHaveBeenCalled()
+    expect(onChangeHighlightAppearance).not.toHaveBeenCalled()
+  })
+
   // ── FR-003c: Copiar e Compartilhar no menu de seleção ────────────────────
   describe('Copiar e Compartilhar', () => {
     let writeText: ReturnType<typeof vi.fn>

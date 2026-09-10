@@ -524,6 +524,43 @@ describe('BookDetailsScreen chapters', () => {
     expect(mocks.deleteHighlight).toHaveBeenCalledWith(9)
   })
 
+  // ── Anotação de texto associada ao highlight (feature 013) ──────────────
+  it('highlight com anotacao mostra o texto da nota na aba Destaques', async () => {
+    mocks.highlights = [highlightFixture({ id: 1, note: 'Reflexao sobre o trecho' })]
+
+    render(
+      <BookDetailsScreen book={book} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /^Destaques/ }))
+
+    expect(await screen.findByText('Reflexao sobre o trecho')).toBeTruthy()
+  })
+
+  it('highlight sem anotacao nao mostra nenhum elemento extra de nota', async () => {
+    mocks.highlights = [highlightFixture({ id: 1 })]
+
+    render(
+      <BookDetailsScreen book={book} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /^Destaques/ }))
+    await screen.findByText('Trecho marcado pelo leitor')
+
+    expect(document.querySelector('p.line-clamp-2')).toBeNull()
+  })
+
+  it('anotacao longa aparece truncada (classe line-clamp)', async () => {
+    const longNote = 'Reflexao bem longa. '.repeat(20).trim()
+    mocks.highlights = [highlightFixture({ id: 1, note: longNote })]
+
+    render(
+      <BookDetailsScreen book={book} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /^Destaques/ }))
+
+    const noteEl = await screen.findByText(longNote)
+    expect(noteEl.className).toContain('line-clamp-2')
+  })
+
   it('starts chapter groups collapsed and opens groups at the first navigable child', async () => {
     const onRead = vi.fn()
 

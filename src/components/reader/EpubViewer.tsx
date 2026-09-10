@@ -1501,6 +1501,9 @@ interface EpubViewerProps {
   // menu (cor OU estilo) já aplica e persiste na hora — FR-022.
   onDeleteHighlight?: (highlight: Highlight) => void
   onChangeHighlightAppearance?: (highlight: Highlight, patch: { color?: string; style?: HighlightStyle }) => void
+  // Anotação de texto associada ao highlight (feature 013) — abre a UI de
+  // escrita/edição fora do iframe; nunca grava nada direto daqui.
+  onAnnotateHighlight?: (highlight: Highlight) => void
 }
 
 // forwardRef: padrão React para expor métodos imperativos ao componente pai.
@@ -1516,7 +1519,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       onBookmarkTap, onBookmarkParagraph,
       onOpenImage,
       vocabWords,
-      highlights, onCreateHighlight, onDeleteHighlight, onChangeHighlightAppearance,
+      highlights, onCreateHighlight, onDeleteHighlight, onChangeHighlightAppearance, onAnnotateHighlight,
     },
     ref,
   ) => {
@@ -1599,6 +1602,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const onCreateHighlightRef = useSyncRef(onCreateHighlight)
     const onDeleteHighlightRef = useSyncRef(onDeleteHighlight)
     const onChangeHighlightAppearanceRef = useSyncRef(onChangeHighlightAppearance)
+    const onAnnotateHighlightRef = useSyncRef(onAnnotateHighlight)
     // Import dinâmico de foliate-js/overlayer.js (mesmo padrão do view.js) — só
     // precisa da classe pra chamar Overlayer.highlight como draw function.
     // Carregado sem bloquear a abertura do leitor (ver setup()); paintHighlight
@@ -2496,7 +2500,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       clientX: number,
       clientY: number,
     ): HTMLElement | null {
-      const SELECTOR = '[data-nr-highlight-color], [data-nr-highlight-style], [data-nr-highlight-remove]'
+      const SELECTOR = '[data-nr-highlight-color], [data-nr-highlight-style], [data-nr-highlight-remove], [data-nr-highlight-annotate]'
       const directButton = target.closest?.(SELECTOR) as HTMLElement | null
       if (directButton) return directButton
 
@@ -2659,13 +2663,18 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     // paleta. Diferente do menu de CRIAÇÃO: aqui não há "confirmar" — o
     // highlight já existe, então cada toque (estilo OU cor) já aplica e
     // persiste na hora (FR-022), por isso não precisa de um estado "armado".
-    function renderHighlightMenuActionsHtml(activeStyle: HighlightStyle): string {
+    function renderHighlightMenuActionsHtml(activeStyle: HighlightStyle, hasNote: boolean): string {
       const colorSwatches = ANNOTATION_COLORS.map((c) => `
         <button type="button" class="nr-sel-color" data-nr-highlight-color="${c.key}"
           style="background-color:${c.hex}"
           aria-label="${escapeHtml(t('bookmark.color', { label: t(c.labelKey) }))}"></button>
       `).join('')
+      const annotateLabel = hasNote ? t('reader.highlightMenu.editAnnotation') : t('reader.highlightMenu.annotate')
       return `
+        <div class="nr-sel-action" data-nr-highlight-action="annotate">
+          <button type="button" class="nr-sel-text-btn" data-nr-highlight-annotate="1">${escapeHtml(annotateLabel)}</button>
+        </div>
+        <div class="nr-sel-divider" aria-hidden="true"></div>
         <div class="nr-sel-action" data-nr-highlight-action="remove">
           <button type="button" class="nr-sel-text-btn" data-nr-highlight-remove="1">${escapeHtml(t('reader.highlightMenu.remove'))}</button>
         </div>
@@ -2685,22 +2694,24 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       el.hidden = true
       // Mesmo motivo do menu de seleção: anexado ao fim do <body>, nunca
       // inserido perto do trecho marcado (deslocaria índices de CFI).
-      el.innerHTML = `<div class="nr-sel-menu-inner">${renderHighlightMenuActionsHtml('background')}</div>`
+      el.innerHTML = `<div class="nr-sel-menu-inner">${renderHighlightMenuActionsHtml('background', false)}</div>`
       doc.body.appendChild(el)
       return el
     }
 
     // Chamado ao abrir o menu num highlight específico, pra marcar o estilo
-    // ATUAL dele (não sempre 'background') — mesmo raciocínio do
-    // setSelectionMenuMode: o conteúdo muda de tamanho, reposiciona.
+    // ATUAL dele (não sempre 'background') e se já tem nota (rótulo
+    // Anotar/Editar anotação) — mesmo raciocínio do setSelectionMenuMode: o
+    // conteúdo muda de tamanho, reposiciona.
     function setHighlightMenuAppearance(
       doc: Document,
       menuEl: HTMLElement,
       activeStyle: HighlightStyle,
+      hasNote: boolean,
       rect: { left: number; top: number },
     ): void {
       const inner = menuEl.querySelector('.nr-sel-menu-inner')
-      if (inner) inner.innerHTML = renderHighlightMenuActionsHtml(activeStyle)
+      if (inner) inner.innerHTML = renderHighlightMenuActionsHtml(activeStyle, hasNote)
       positionMenuAtRect(doc, menuEl, rect)
     }
 
@@ -3803,11 +3814,16 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
                 void paintHighlight(alvo.cfi, alvo.color, novoEstilo)
                 activeHighlight = { ...alvo, style: novoEstilo }
                 if (activeHighlightMenuRect) {
-                  setHighlightMenuAppearance(doc, ensureHighlightMenuEl(doc), novoEstilo, activeHighlightMenuRect)
+                  setHighlightMenuAppearance(doc, ensureHighlightMenuEl(doc), novoEstilo, Boolean(alvo.note), activeHighlightMenuRect)
                 }
               } else if (alvo && highlightMenuBtn.dataset.nrHighlightRemove === '1') {
                 onDeleteHighlightRef.current?.(alvo)
                 void viewRef.current?.deleteAnnotation({ value: alvo.cfi })
+                activeHighlight = null
+                activeHighlightMenuRect = null
+                closeHighlightMenu(doc)
+              } else if (alvo && highlightMenuBtn.dataset.nrHighlightAnnotate === '1') {
+                onAnnotateHighlightRef.current?.(alvo)
                 activeHighlight = null
                 activeHighlightMenuRect = null
                 closeHighlightMenu(doc)
@@ -3911,6 +3927,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
                 doc,
                 ensureHighlightMenuEl(doc),
                 highlightUnderTap.style ?? 'background',
+                Boolean(highlightUnderTap.note),
                 activeHighlightMenuRect,
               )
               logReaderTapIgnored('highlight-menu')

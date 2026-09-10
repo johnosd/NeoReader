@@ -161,7 +161,8 @@ tags, pastas de origem e caches ficam no dispositivo.
 - Marcadores listados por CFI, com snippet e remocao por soft delete.
 - Highlights do livro listados na ordem em que aparecem no texto (trecho, cor,
   estilo, posicao e data), com navegacao de volta ao trecho no leitor e
-  remocao direta pela lista.
+  remocao direta pela lista. Anotacao de texto associada (quando existir)
+  aparece logo abaixo, truncada se longa.
 - Contagem de vocabulario e de highlights salvos por livro.
 - Atualizacao manual da ficha bibliografica.
 - Aba Configuracoes organizada em menu de categorias (Aparencia do Leitor,
@@ -254,8 +255,12 @@ ficha manualmente.
   palavra, diferente do destaque de Word Lens/vocabulario); sobrevive a
   rolagem, troca de capitulo, reflow e reabertura do livro.
 - Tocar num highlight existente abre um menu de gerenciamento (remover, trocar
-  cor, trocar estilo) em vez da traducao inline; toque curto no restante do
-  texto continua abrindo a traducao normalmente.
+  cor, trocar estilo, anotar) em vez da traducao inline; toque curto no
+  restante do texto continua abrindo a traducao normalmente.
+- Anotacao de texto livre (ate 2000 caracteres) associada ao highlight, via
+  "Anotar"/"Editar anotacao" no mesmo menu — local-first como o highlight,
+  removida automaticamente junto com ele, visivel tambem na aba Highlights
+  da tela de detalhes do livro.
 - Compartilhar usa `Intent.ACTION_SEND` nativo no Android (a Web Share API nao
   e confiavel no WebView embarcado), com fallback para `navigator.share` fora
   do Android.

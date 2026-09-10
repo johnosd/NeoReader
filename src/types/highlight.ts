@@ -22,4 +22,12 @@ export interface Highlight {
   sectionIndex: number    // seção do EPUB — evita resolver o CFI só para agrupar/repintar
   percentage: number       // posição relativa no livro, para ordenar/exibir na lista
   createdAt: Date
+  // Nota de texto do usuário associada ao highlight (feature 013). Mesmo
+  // precedente de `style?`: opcional, não indexado, não exige nova version()
+  // do Dexie — highlights sem nota simplesmente não têm o campo. Removida
+  // automaticamente junto com o highlight (mesma linha, sem cascata dedicada).
+  // Chama-se `note`, NUNCA `annotation`: foliate-js já usa esse nome pro
+  // overlay de pintura do highlight (view.addAnnotation/deleteAnnotation em
+  // EpubViewer.tsx) — conceito completamente diferente.
+  note?: string
 }
