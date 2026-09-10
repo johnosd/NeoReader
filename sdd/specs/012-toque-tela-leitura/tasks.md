@@ -134,41 +134,47 @@ nova borda esquerda).
 
 ### Implementation
 
-- [ ] T006 [P] [US2] Criar `src/components/settings/TouchZonesDiagram.tsx`
-      — componente somente-leitura, sem `onClick`/handlers de ação, com
-      um diagrama simples (blocos CSS ou SVG inline) representando a
-      tela de leitura com as 4 zonas marcadas (topo/rodapé/direita =
-      menu, centro/texto = tradução, borda esquerda = abrir índice) e
-      uma legenda ao lado, recebendo os textos via props
-      (sem chamar `useI18n` internamente, pra manter "um arquivo = uma
-      responsabilidade" e facilitar teste isolado).
-- [ ] T007 [US2] Adicionar as novas chaves de i18n
-      (`settings.appearance.touchZones.*` — título da seção, descrição,
-      e um rótulo por zona) nos 3 locales de `src/i18n/messages.ts`
-      (pt-BR, en, es), seguindo o padrão alfabético já usado nas outras
-      chaves `settings.appearance.*`.
-- [ ] T008 [US2] Integrar `TouchZonesDiagram` em
-      `src/screens/SettingsAppearanceScreen.tsx`, dentro de um novo
-      `SettingBlock`/`SettingsGroup` (mesmo padrão dos outros blocos da
+- [X] T006 [P] [US2] Criado `src/components/settings/TouchZonesDiagram.tsx`
+      — componente somente-leitura, sem `onClick`/handlers de ação,
+      diagrama em blocos CSS (posicionamento absoluto com Tailwind,
+      sem SVG) representando a tela de leitura com as 4 zonas marcadas
+      (topo/rodapé/direita = menu, centro/texto = tradução, borda
+      esquerda = abrir índice) + legenda numerada ao lado, recebendo os
+      textos via props (`chromeLabel`/`chromeAction`/`translateLabel`/
+      `translateAction`/`tocLabel`/`tocAction` — sem `useI18n` interno).
+- [X] T007 [US2] Adicionadas as chaves `settings.appearance.touchZones.*`
+      (title, description, chrome.label/action, translate.label/action,
+      toc.label/action) nos 3 locales de `src/i18n/messages.ts`
+      (pt-BR, en, es), logo após `theme.label` (ordem alfabética já
+      usada no bloco). Valores em pt-BR/es sem diacríticos, seguindo a
+      convenção já existente nesse bloco específico do arquivo.
+- [X] T008 [US2] Integrado `TouchZonesDiagram` em
+      `src/screens/SettingsAppearanceScreen.tsx`, num novo
+      `SettingsGroup`/`SettingBlock` (mesmo padrão dos outros blocos da
       tela), passando os textos traduzidos via `t(...)`.
 
 ### Testes da Fase
 
-- [ ] T009 [P] [US2] Teste em `src/__tests__/screens/SettingsAppearanceScreen.test.tsx`:
-      - A seção do mapa de zonas renderiza a legenda das 4 zonas (`getByText` nos rótulos esperados).
-      - Clicar em qualquer parte do diagrama não chama `updateReaderDefaults`/`updateAppSettings` nem dispara nenhuma navegação.
-      - (Opcional, se o padrão de teste de i18n do projeto permitir facilmente) legenda muda conforme o locale mockado.
+- [X] T009 [P] [US2] Testes em `src/__tests__/screens/SettingsAppearanceScreen.test.tsx`:
+      - A seção do mapa de zonas renderiza a legenda das 3 ações (`getByText` nos 6 textos esperados).
+      - Clicar no diagrama não chama `updateReaderDefaults`/`updateAppSettings`.
+      - (Locale por idioma não testado automatizado — coberto manualmente via Playwright, ver Local Verification abaixo; a suite de i18n do projeto não tem um padrão de troca de locale em teste de screen pronto pra reaproveitar aqui sem introduzir um novo.)
 
 **Critério de Conclusão**: Usuário abre Settings > Aparência e vê um
 diagrama read-only descrevendo corretamente as 4 zonas de toque ativas,
 traduzido nos 3 idiomas suportados, sem nenhuma ação executável a partir
-dele.
+dele. **Verificado visualmente via Playwright** (desktop e mobile 390px)
+— diagrama renderiza correto, empilha responsivamente, usa os tokens de
+cor do design system (indigo-primary/purple-primary/purple-light).
 
-**Checkpoint**: User Story 2 funcional e testável isoladamente.
+**Checkpoint**: User Story 2 funcional e testável isoladamente. **Concluído.**
 
 **Registro da Fase**:
 
-- Status: (vazio — preenchido pelo sdd-execute ao fechar o checkpoint)
+- Status: Concluída
+- Feito: T006 (`TouchZonesDiagram.tsx`), T007 (chaves i18n nos 3 locales), T008 (integração em `SettingsAppearanceScreen.tsx`), T009 (2 testes automatizados + verificação visual manual via Playwright)
+- Testes executados: `npx tsc --noEmit` (limpo), `npx vitest run src/__tests__/screens/SettingsAppearanceScreen.test.tsx` (5 passando), `npm test` completo (881 passando, 2 skipped pré-existentes), `npm run lint` (limpo), `npm run build` (limpo), verificação visual via Playwright (`npm run dev` + screenshots desktop/390px, removidas após conferência)
+- Pendências: nenhuma para esta story — falta só a Fase Polish (T010-T012: validação em device real via `quickstart.md`, checklist de release)
 - Feito:
 - Testes executados:
 - Pendências:

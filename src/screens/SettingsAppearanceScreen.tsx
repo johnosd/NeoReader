@@ -1,6 +1,7 @@
 import { ArrowLeft } from 'lucide-react'
 import { Spinner } from '../components/ui'
 import { SettingsGroup, SettingBlock } from '../components/settings/SettingsLayout'
+import { TouchZonesDiagram } from '../components/settings/TouchZonesDiagram'
 import {
   ReaderFontControl,
   ReaderFontSizeControl,
@@ -127,6 +128,23 @@ export function SettingsAppearanceScreen({ onBack }: SettingsAppearanceScreenPro
               value={readerStyleMode}
               onChange={handleReaderStyleModeChange}
               surface="base"
+            />
+          </SettingBlock>
+        </SettingsGroup>
+
+        <SettingsGroup>
+          <SettingBlock
+            label={t('settings.appearance.touchZones.title')}
+            description={t('settings.appearance.touchZones.description')}
+            divider={false}
+          >
+            <TouchZonesDiagram
+              chromeLabel={t('settings.appearance.touchZones.chrome.label')}
+              chromeAction={t('settings.appearance.touchZones.chrome.action')}
+              translateLabel={t('settings.appearance.touchZones.translate.label')}
+              translateAction={t('settings.appearance.touchZones.translate.action')}
+              tocLabel={t('settings.appearance.touchZones.toc.label')}
+              tocAction={t('settings.appearance.touchZones.toc.action')}
             />
           </SettingBlock>
         </SettingsGroup>

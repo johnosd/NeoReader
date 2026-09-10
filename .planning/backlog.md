@@ -22,7 +22,7 @@ _(nenhuma no momento)_
 | 009-leitor-libera-recursos-book-destroy | Liberar recursos do leitor EPUB ao trocar de livro | Convergida | 14/14 tasks | 2026-09-04 |
 | 010-highlights-selecao-texto | Highlights de trecho selecionado no leitor | Convergida | 93/93 tasks | 2026-09-07 |
 | 011-book-details-settings-categorias | Reorganizar Aba Configurações do Livro em Categorias Navegáveis | Convergida | 29/29 tasks | 2026-09-09 |
-| 012-toque-tela-leitura | Controle de toque na tela de leitura | Em Execução | 5/18 tasks | 2026-09-10 |
+| 012-toque-tela-leitura | Controle de toque na tela de leitura | Em Execução | 9/18 tasks | 2026-09-10 |
 
 ## Bugs
 

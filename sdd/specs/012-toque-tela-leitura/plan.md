@@ -161,7 +161,7 @@ npx vitest run src/__tests__/screens/SettingsAppearanceScreen.test.tsx
 | Área | Estado |
 | --- | --- |
 | User Story 1 (zona esquerda → abrir índice) | Concluída e validada no device real |
-| User Story 2 (diagrama do mapa de zonas) | Não iniciada |
+| User Story 2 (diagrama do mapa de zonas) | Concluída, validada visualmente via Playwright (desktop + mobile) |
 | Polish (lint/test/build completos, README) | Não iniciada |
 
 ## Riscos e Decisões
@@ -184,16 +184,18 @@ npx vitest run src/__tests__/screens/SettingsAppearanceScreen.test.tsx
 | Data | Fase/Story | Resumo | Pendência Principal |
 | --- | --- | --- | --- |
 | 2026-09-10 | Fase 3 / User Story 1 | T001 (spike) rodado no device real com a ação original (navegar seção); usuário rejeitou, pivotou pra "abrir índice" (R-001). Código do spike revertido, reimplementado com `onOpenToc`. T002-T005 concluídas, 142 testes passando, build limpo, validado no device real pelo usuário. | Nenhuma para US1 — falta rodar `npm run lint` completo (fica no Polish). |
+| 2026-09-10 | Fase 4 / User Story 2 | `TouchZonesDiagram.tsx` criado (diagrama CSS, sem SVG/lib nova), chaves i18n nos 3 locales, integrado em `SettingsAppearanceScreen.tsx`. 2 testes automatizados + verificação visual via Playwright (desktop e 390px) confirmando layout responsivo e tokens de cor corretos. Suite completa (881 testes), lint e build limpos. | Nenhuma — falta só a Fase Polish. |
 
-**PRÓXIMO**: Fase 4 — User Story 2 (diagrama do mapa de zonas em Settings > Aparência), T006-T009.
+**PRÓXIMO**: Fase 5 — Polish (T010-T012: `npm run lint && npm test && npm run build` já rodados nesta sessão mas vale re-rodar no fechamento formal da fase, validação em device real via `quickstart.md`, checar menção no README).
 
 ## Arquivos Principais
 
 <!-- Sobrescrita a cada checkpoint — foco da etapa atual, não a árvore inteira. -->
 
-- `src/components/reader/EpubViewer.tsx` — zona `isLeftTocTapZone` + prop `onOpenToc` (nova zona de toque)
-- `src/screens/ReaderScreen.tsx` — `handleOpenToc` compartilhado entre o botão de TOC do chrome e a nova zona
-- `src/__tests__/components/EpubViewer.test.tsx` — describe `EpubViewer — zona de atalho pro índice` (6 testes novos)
+- `src/components/settings/TouchZonesDiagram.tsx` — novo, diagrama read-only do mapa de zonas
+- `src/screens/SettingsAppearanceScreen.tsx` — nova seção integrando o diagrama
+- `src/i18n/messages.ts` — chaves `settings.appearance.touchZones.*` (pt-BR, en, es)
+- `src/__tests__/screens/SettingsAppearanceScreen.test.tsx` — 2 testes novos do diagrama
 
 ## Cuidados para Retomada
 
