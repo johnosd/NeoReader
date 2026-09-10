@@ -12,9 +12,9 @@ O sintoma reportado (chrome fechando sozinho ~2.5s depois de reaberto por
 toque) foi causado por `useChromeAutoHide` reagendar o timer em toda
 reabertura — o teste de regressão adicionado no fix reproduz exatamente
 esse cenário (reabre, avança 10s no relógio simulado, chrome continua
-visível) e passa. Nenhuma regressão encontrada na suite completa. Único
-ponto não coberto é confirmação manual em device real (ver Residual
-Risks).
+visível) e passa. Nenhuma regressão encontrada na suite completa.
+Confirmado também manualmente em device real pelo usuário (2026-09-10):
+"testado com sucesso".
 
 ## Checks Performed
 
@@ -26,7 +26,7 @@ Risks).
 | Suite completa | `npm test` (rodada na fase Fix, mesmo estado de código) | pass | 873 passando, 2 skipped pré-existentes. |
 | Lint / type-check | `npm run lint` + `npx tsc --noEmit` (fase Fix, mesmo estado de código) | pass | Sem erros. |
 | Build de produção | `npm run build` (fase Fix, mesmo estado de código) | pass | Build completo sem erros. |
-| Reprodução manual em device real | — | not-run | Não executado nesta rodada — ver Residual Risks. |
+| Reprodução manual em device real | App instalado via `gradlew.bat installDebug` no SM-S911B (RXCX103NMVZ) e testado pelo usuário | pass | Usuário confirmou em 2026-09-10: "testado com sucesso". |
 
 ## Output Excerpts
 
@@ -40,10 +40,6 @@ verificação da fase Fix.)
 
 ## Residual Risks
 
-- Confirmação manual em device real (RXCX103NMVZ) não foi feita —
-  recomendado antes de considerar 100% fechado, especialmente pra sentir
-  o novo delay de 10s na prática e confirmar que não incomoda na abertura
-  de um livro. Listado como Follow-up em `fix.md`.
 - Mudança de comportamento é perceptível em qualquer fluxo que hoje conta
   com o chrome sumindo sozinho (ex: usuário que gostava do auto-hide
   depois de abrir TOC/Marcadores) — não há teste de opinião de UX, só de
@@ -52,7 +48,5 @@ verificação da fase Fix.)
 ## Recommendation
 
 Fechar — verificado por teste automatizado que reproduz o sintoma exato
-relatado, sem regressão na suite completa, lint, type-check ou build.
-Recomendo uma checagem manual rápida no device real na próxima sessão de
-uso do leitor pra confirmar a sensação do delay de 10s, mas isso não
-bloqueia considerar o bug corrigido.
+relatado, sem regressão na suite completa, lint, type-check ou build, e
+confirmado em uso real no device pelo usuário.

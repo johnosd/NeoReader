@@ -57,11 +57,8 @@ usuário. Resolvida em conversa antes de editar código:
 
 ## Follow-ups
 
-- Validar em device real (RXCX103NMVZ) que: (1) o chrome aparece ~10s ao
-  abrir um livro e some sozinho uma vez; (2) tocar numa zona de chrome
-  depois disso abre e fica aberto até novo toque; (3) abrir/fechar
-  Aparência/TOC/Marcadores/Vocabulário/TTS não faz o chrome sumir
-  sozinho em seguida.
+- ~~Validar em device real (RXCX103NMVZ)~~ — feito: usuário confirmou
+  "testado com sucesso" em 2026-09-10 (ver `test.md`).
 - Este fix é independente da feature de navegação por zona de borda
   esquerda (assessment `controle-customizavel-toque-na-tela-leitura`,
   veredito go) — não há sobreposição de código, mas vale reler as duas
