@@ -1500,7 +1500,7 @@ describe('EpubViewer — highlights de trecho selecionado', () => {
     return { ...setup, doc, para: doc.querySelector('p') as HTMLElement, highlight, overlayer }
   }
 
-  it('T030: toque sobre um highlight abre o menu do highlight e nao chama onTranslate', async () => {
+  it('T030: toque sobre um highlight abre o menu do highlight (colapsado) e nao chama onTranslate', async () => {
     const onTranslateSpy = vi.fn()
     const { doc, para, highlight, overlayer } = await renderComHighlightPintado({ onTranslate: onTranslateSpy })
     // hitTest do overlayer responde que o ponto caiu sobre este highlight
@@ -1511,9 +1511,34 @@ describe('EpubViewer — highlights de trecho selecionado', () => {
     const menu = doc.getElementById('nr-highlight-menu')
     expect(menu?.hidden).toBe(false)
     expect(menu?.querySelector('[data-nr-highlight-remove]')).not.toBeNull()
-    expect(menu?.querySelectorAll('[data-nr-highlight-color]').length).toBe(8)
+    // Colapsado: cor/estilo ficam atras de 1 botao, nao aparecem direto.
+    expect(menu?.querySelector('[data-nr-highlight-open-colors]')).not.toBeNull()
+    expect(menu?.querySelectorAll('[data-nr-highlight-color]').length).toBe(0)
     expect(onTranslateSpy).not.toHaveBeenCalled()
     expectTapIgnored('highlight-menu')
+  })
+
+  it('T030b: tocar no botao de aparencia expande estilo+cor; voltar recolapsa', async () => {
+    const { doc, para, highlight, overlayer } = await renderComHighlightPintado()
+    overlayer.hitTest.mockReturnValue([highlight.cfi, doc.createRange(), { left: 40, top: 120, right: 300, bottom: 140 }])
+
+    clickAt(para, 120, 130)
+    const menu = doc.getElementById('nr-highlight-menu') as HTMLElement
+    click(menu.querySelector('[data-nr-highlight-open-colors]') as HTMLElement)
+
+    expect(menu.querySelectorAll('[data-nr-highlight-color]').length).toBe(8)
+    expect(menu.querySelector('[data-nr-highlight-style]')).not.toBeNull()
+    expect(menu.querySelector('[data-nr-highlight-back]')).not.toBeNull()
+    // Anotar/Remover somem enquanto o submenu de cor/estilo esta aberto.
+    expect(menu.querySelector('[data-nr-highlight-annotate]')).toBeNull()
+    expect(menu.querySelector('[data-nr-highlight-remove]')).toBeNull()
+    expect(menu.hidden).toBe(false)
+
+    click(menu.querySelector('[data-nr-highlight-back]') as HTMLElement)
+
+    expect(menu.querySelectorAll('[data-nr-highlight-color]').length).toBe(0)
+    expect(menu.querySelector('[data-nr-highlight-remove]')).not.toBeNull()
+    expect(menu.hidden).toBe(false)
   })
 
   it('T031: toque numa parte SEM highlight do mesmo paragrafo continua traduzindo', async () => {
@@ -1537,9 +1562,10 @@ describe('EpubViewer — highlights de trecho selecionado', () => {
     })
     overlayer.hitTest.mockReturnValue([highlight.cfi, doc.createRange(), { left: 40, top: 120, right: 300, bottom: 140 }])
 
-    // abre o menu tocando no highlight
+    // abre o menu tocando no highlight, depois expande cor/estilo
     clickAt(para, 120, 130)
     const menu = doc.getElementById('nr-highlight-menu') as HTMLElement
+    click(menu.querySelector('[data-nr-highlight-open-colors]') as HTMLElement)
 
     // troca a cor
     click(menu.querySelector('[data-nr-highlight-color="rose"]') as HTMLElement)
@@ -1575,6 +1601,7 @@ describe('EpubViewer — highlights de trecho selecionado', () => {
     clickAt(para, 120, 130)
     const menu = doc.getElementById('nr-highlight-menu') as HTMLElement
     expect(menu?.hidden).toBe(false)
+    click(menu.querySelector('[data-nr-highlight-open-colors]') as HTMLElement)
     expect(menu.querySelector('[data-nr-highlight-style="underline"]')?.getAttribute('aria-pressed')).toBe('true')
     expect(menu.querySelector('[data-nr-highlight-style="background"]')?.getAttribute('aria-pressed')).toBe('false')
 
