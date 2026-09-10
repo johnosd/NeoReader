@@ -40,6 +40,7 @@ _(nenhuma no momento)_
 | bookmark-nao-sincroniza-ao-clicar-no | Bookmark não sincroniza ao clicar no ícone (fica vermelho) | Fix | applied | Rodar fase Test | 2026-09-08 |
 | clique-no-paragrafo-nao-abre-menu | Clique no parágrafo não abre o menu contextual perto do início/fim do capítulo | Test | verified | Concluído | 2026-09-09 |
 | menu-chrome-leitor-some-sozinho-apos | Menu de chrome do leitor some sozinho após ~2.5s | Test | verified | Concluído | 2026-09-10 |
+| sincronizar-bookmarks-automaticamente-ao-fechar-livro | Sincronizar bookmarks automaticamente ao fechar o livro | Test | verified | Concluído | 2026-09-10 |
 
 ## Melhorias Ad-hoc
 
