@@ -164,7 +164,7 @@ export function ReaderScreen({
   const lastNotifiedChapterLabelRef = useRef<string | undefined>(undefined)
 
   // ── Estado local ────────────────────────────────────────────────────────────
-  const { chromeVisible, setChromeVisible, resetAutoHide, handleCenterTap } = useChromeAutoHide()
+  const { chromeVisible, setChromeVisible, scheduleInitialAutoHide, handleCenterTap } = useChromeAutoHide()
   const [ttsFinished, setTtsFinished] = useState(false)
   const [ttsFallbackNotice, setTtsFallbackNotice] = useState<{ provider: TtsProvider; reason: string } | null>(null)
   const [ttsProviderFallback, setTtsProviderFallback] = useState<{ provider: TtsProvider } | null>(null)
@@ -339,13 +339,15 @@ export function ReaderScreen({
     }, START_NAVIGATION_FALLBACK_MS)
   }, [clearStartNavigationFallbackTimer, setCurrentLoading])
 
-  // Inicia o auto-hide assim que o leitor monta.
+  // Agenda o auto-hide inicial assim que o leitor monta (some sozinho uma
+  // única vez, só pra sinalizar que existe um chrome ali — reaberturas
+  // manuais depois disso não reagendam hide nenhum).
   // A supressão do menu de seleção do sistema (FR-010) vive NESTE mesmo efeito
   // de propósito: o flag é global à Activity, e ligá-lo/desligá-lo junto do
   // modo imersivo é o que impede o estado de divergir e vazar para telas onde
   // o menu do sistema é legítimo, como a busca da biblioteca (R-003).
   useEffect(() => {
-    resetAutoHide()
+    scheduleInitialAutoHide()
     void setReaderImmersiveMode(true)
     void setSelectionMenuSuppressed(true)
     return () => {
@@ -355,7 +357,7 @@ export function ReaderScreen({
       clearStartNavigationFallbackTimer()
       // auto-hide e sleep timer cleanup são responsabilidade dos hooks respectivos
     }
-  }, [clearStartNavigationFallbackTimer, resetAutoHide])
+  }, [clearStartNavigationFallbackTimer, scheduleInitialAutoHide])
 
 
   // Estado global compartilhado (Zustand)
@@ -830,9 +832,8 @@ export function ReaderScreen({
   }
 
   const handleOpenImage = useCallback((payload: ReaderImageOpenPayload) => {
-    resetAutoHide()
     setReaderImagePreview(payload)
-  }, [resetAutoHide])
+  }, [])
 
   const handleRelocate = useCallback(
     (location: ReaderRelocatePayload) => {
@@ -1152,16 +1153,13 @@ export function ReaderScreen({
         fontSize={fontSize}
         bookmarkCount={activeBookmarks.length}
         onBack={handleBack}
-        onAppearanceOpen={() => {
-          resetAutoHide()
-          setAppearanceSheetOpen(true)
-        }}
-        onBookmarkList={() => { resetAutoHide(); setBookmarkSheetOpen(true) }}
-        onTocOpen={() => { resetAutoHide(); setTocOpen(true) }}
-        onOpenVocabulary={() => { resetAutoHide(); onOpenVocabulary() }}
+        onAppearanceOpen={() => setAppearanceSheetOpen(true)}
+        onBookmarkList={() => setBookmarkSheetOpen(true)}
+        onTocOpen={() => setTocOpen(true)}
+        onOpenVocabulary={() => onOpenVocabulary()}
         ttsIsPlaying={tts.isPlaying}
         ttsEngine={ttsEngine}
-        onTtsToggle={() => { resetAutoHide(); handleTtsToggle() }}
+        onTtsToggle={() => handleTtsToggle()}
         onDismiss={() => setChromeVisible(false)}
       />
 
