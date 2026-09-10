@@ -352,14 +352,25 @@ function getVisibleChromeTapZoneSize(viewportHeight: number, preferredSize: numb
   )
 }
 
-function isVisibleChromeTapZone(ev: MouseEvent, doc: Document): boolean {
-  const viewportHeight = getDocumentViewportHeight(doc)
+// Em flow=scrolled cada seção é um iframe do tamanho do PRÓPRIO conteúdo — não
+// escuta scroll internamente, é a página externa (container do renderer) que rola.
+// Por isso ev.clientY de um clique dentro do iframe é relativo ao documento INTEIRO
+// da seção (pode ser milhares de px), não à tela física. Pra saber se um toque caiu
+// mesmo na margem física de topo/fundo, convertemos pra coordenada absoluta da
+// viewport (via a posição atual do próprio <iframe> na página) e comparamos contra o
+// container real do renderer — nunca contra a altura do documento da seção.
+type PhysicalTapPosition = { viewportY: number; containerTop: number; viewportHeight: number }
+
+function isVisibleChromeTapZone(ev: MouseEvent, doc: Document, physical?: PhysicalTapPosition | null): boolean {
+  const viewportY = physical ? physical.viewportY : ev.clientY
+  const containerTop = physical ? physical.containerTop : 0
+  const viewportHeight = physical ? physical.viewportHeight : getDocumentViewportHeight(doc)
   const topZone = getVisibleChromeTapZoneSize(viewportHeight, TOP_CHROME_TAP_ZONE_PX)
   const bottomZone = getVisibleChromeTapZoneSize(viewportHeight, BOTTOM_CHROME_TAP_ZONE_PX)
 
-  if (viewportHeight <= 0) return ev.clientY <= topZone
+  if (viewportHeight <= 0) return viewportY <= containerTop + topZone
 
-  return ev.clientY <= topZone || ev.clientY >= viewportHeight - bottomZone
+  return viewportY <= containerTop + topZone || viewportY >= containerTop + viewportHeight - bottomZone
 }
 
 function isRightChromeTapZone(ev: MouseEvent, doc: Document): boolean {
@@ -2810,6 +2821,25 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       return viewRef.current.renderer.shadowRoot?.getElementById('container') as HTMLElement | null
     }
 
+    // Traduz o clique (relativo ao documento inteiro da seção, ver comentário
+    // acima de isVisibleChromeTapZone) pra coordenada absoluta da viewport,
+    // usando a posição atual do próprio <iframe> na página — só possível
+    // quando o container real do renderer e o <iframe> (same-origin) estão
+    // disponíveis; do contrário, quem chama cai no cálculo antigo.
+    function getPhysicalTapPosition(ev: MouseEvent, doc: Document): PhysicalTapPosition | null {
+      const frameEl = doc.defaultView?.frameElement as HTMLElement | null
+      const scrollContainer = getRendererScrollContainer()
+      if (!frameEl || !scrollContainer) return null
+
+      const frameRect = frameEl.getBoundingClientRect()
+      const containerRect = scrollContainer.getBoundingClientRect()
+      return {
+        viewportY: frameRect.top + ev.clientY,
+        containerTop: containerRect.top,
+        viewportHeight: containerRect.height,
+      }
+    }
+
     function getWindowScrollMetrics(doc: Document) {
       const win = doc.defaultView
       return {
@@ -3883,7 +3913,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             const tapHitsReadableText = para ? isPointInsideElement(para, ev.clientX, ev.clientY) : false
 
             const rightChromeTapZone = isRightChromeTapZone(ev, ownerDocument)
-            const visibleChromeTapZone = !tapHitsReadableText && isVisibleChromeTapZone(ev, ownerDocument)
+            const physicalTapPosition = getPhysicalTapPosition(ev, ownerDocument)
+            const visibleChromeTapZone = !tapHitsReadableText && isVisibleChromeTapZone(ev, ownerDocument, physicalTapPosition)
             if (rightChromeTapZone || visibleChromeTapZone) {
               logReaderTapIgnored('chrome-zone', para, {
                 zone: rightChromeTapZone ? 'right' : 'visible',

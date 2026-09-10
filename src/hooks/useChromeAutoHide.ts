@@ -3,30 +3,46 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 export interface UseChromeAutoHideResult {
   chromeVisible: boolean
   setChromeVisible: React.Dispatch<React.SetStateAction<boolean>>
-  resetAutoHide: () => void
+  scheduleInitialAutoHide: () => void
   handleCenterTap: () => void
 }
 
-// delayMs: tempo em ms antes de esconder o chrome automaticamente após a última interação
-export function useChromeAutoHide(delayMs = 2500): UseChromeAutoHideResult {
+// initialHideDelayMs: tempo em ms até o chrome sumir sozinho, mas SÓ a partir
+// do momento em que scheduleInitialAutoHide() é chamado (uma vez, no mount do
+// leitor — dá uma orientação inicial de que existe um chrome ali). Depois
+// disso o chrome é toggle puro: reabrir por toque não reagenda hide nenhum,
+// só fecha quando o usuário toca de novo ou dispensa explicitamente.
+export function useChromeAutoHide(initialHideDelayMs = 10000): UseChromeAutoHideResult {
   // Começa visível para dar orientação inicial ao usuário
-  const [chromeVisible, setChromeVisible] = useState(true)
+  const [chromeVisible, setChromeVisibleState] = useState(true)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // useCallback com [] → função estável, segura para usar em deps de useEffect externo
-  const resetAutoHide = useCallback(() => {
-    if (timerRef.current) clearTimeout(timerRef.current)
-    timerRef.current = setTimeout(() => setChromeVisible(false), delayMs)
-  }, [delayMs])
+  const clearPendingTimer = useCallback(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+  }, [])
+
+  // Qualquer mudança explícita de visibilidade cancela o hide inicial pendente
+  // — sem isso, fechar/reabrir manualmente antes dos initialHideDelayMs
+  // deixaria o timer do mount vivo, escondendo o chrome de surpresa depois.
+  const setChromeVisible = useCallback<React.Dispatch<React.SetStateAction<boolean>>>((value) => {
+    clearPendingTimer()
+    setChromeVisibleState(value)
+  }, [clearPendingTimer])
+
+  const scheduleInitialAutoHide = useCallback(() => {
+    clearPendingTimer()
+    timerRef.current = setTimeout(() => setChromeVisibleState(false), initialHideDelayMs)
+  }, [clearPendingTimer, initialHideDelayMs])
 
   const handleCenterTap = useCallback(() => {
-    setChromeVisible((v) => {
-      if (!v) resetAutoHide()  // ao abrir: inicia timer para fechar automaticamente
-      return !v
-    })
-  }, [resetAutoHide])
+    clearPendingTimer()
+    setChromeVisibleState((v) => !v)
+  }, [clearPendingTimer])
 
-  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
+  useEffect(() => () => clearPendingTimer(), [clearPendingTimer])
 
-  return { chromeVisible, setChromeVisible, resetAutoHide, handleCenterTap }
+  return { chromeVisible, setChromeVisible, scheduleInitialAutoHide, handleCenterTap }
 }

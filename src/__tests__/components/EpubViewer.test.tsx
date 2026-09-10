@@ -913,6 +913,61 @@ describe('EpubViewer — seleção de texto', () => {
     })
   })
 
+  it('tap perto do fim de uma seção bem mais alta que a tela abre a tradução, não trava na zona de chrome', async () => {
+    // Reproduz o bug real: em flow=scrolled, cada seção é um iframe do tamanho
+    // do PRÓPRIO conteúdo (aqui, 6000px — bem mais alto que uma tela). O
+    // último parágrafo real fica perto do fim DESSE documento (5900px), o
+    // que fazia o código antigo (que usava a altura do documento da seção
+    // como "altura da tela") classificar o toque como "zona de chrome" —
+    // mesmo a posição física real, já convertida pra viewport absoluta,
+    // caindo bem no meio da tela (ver getPhysicalTapPosition).
+    const onTranslate = vi.fn()
+    const onCenterTap = vi.fn()
+    const { foliateEl } = await renderViewer({ onTranslate, onCenterTap })
+    const fakeDoc = makeFakeDoc(['Last paragraph of a long chapter.'])
+    const para = fakeDoc.querySelector('p') as HTMLElement
+    setViewportWidth(fakeDoc, 360)
+    // injectFakeWindow dá o defaultView completo (scrollY/addEventListener/etc,
+    // usados por setupScrollTracking) — innerHeight/scrollHeight aqui simulam a
+    // seção gigante (6000px).
+    const fakeWin = injectFakeWindow(fakeDoc, 0, 6000, 6000)
+    // Parágrafo termina em 5900 — o clique (abaixo) cai uns pixels DEPOIS do
+    // seu rect exato (a "margem" logo após a última linha, achado real em
+    // device), então tapHitsReadableText fica false e a checagem de zona de
+    // chrome entra em jogo de verdade — sem isso o teste passaria mesmo sem
+    // o fix, só por acertar o parágrafo em cheio.
+    setElementRect(para, { left: 24, top: 5860, right: 336, bottom: 5900, width: 312, height: 40 })
+    loadSection(foliateEl, fakeDoc, 0)
+
+    // <iframe> visto de fora: seu topo está 5500px acima do topo da viewport
+    // física atual (rolagem funda dentro da seção gigante).
+    ;(fakeWin as unknown as { frameElement: unknown }).frameElement = {
+      getBoundingClientRect: () => ({ top: -5500, bottom: 500, left: 0, right: 360, width: 360, height: 6000, x: 0, y: -5500, toJSON: () => ({}) }),
+    }
+
+    // Container real do renderer — a viewport física de verdade (720px).
+    const rendererEl = document.createElement('div')
+    Object.defineProperties(rendererEl, Object.getOwnPropertyDescriptors(foliateEl.renderer))
+    const shadow = rendererEl.attachShadow({ mode: 'open' })
+    const containerEl = document.createElement('div')
+    containerEl.id = 'container'
+    Object.defineProperty(containerEl, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ top: 0, bottom: 720, left: 0, right: 360, width: 360, height: 720, x: 0, y: 0, toJSON: () => ({}) }),
+    })
+    shadow.appendChild(containerEl)
+    Object.defineProperty(foliateEl, 'renderer', { configurable: true, value: rendererEl })
+
+    // Clique a 5910px de profundidade no documento — 10px depois do fim do
+    // parágrafo (5900), na margem logo abaixo da última linha — que
+    // corresponde a Y=410 na tela física real (-5500 + 5910), bem no meio da
+    // tela, longe das margens de 140/156px.
+    clickAt(fakeDoc.body, 180, 5910)
+
+    expect(onCenterTap).not.toHaveBeenCalled()
+    expect(onTranslate).toHaveBeenCalledWith('Last paragraph of a long chapter.')
+  })
+
   it('tap fora de paragrafo legivel registra motivo e alterna o chrome', async () => {
     const onTranslate = vi.fn()
     const onCenterTap = vi.fn()
