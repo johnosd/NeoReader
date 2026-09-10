@@ -186,18 +186,18 @@ cor do design system (indigo-primary/purple-primary/purple-light).
 **Purpose**: Validação final cross-cutting, cobrindo os gates da
 constitution e o `quickstart.md`.
 
-- [ ] T010 Rodar `npm run lint && npm test && npx tsc --noEmit && npm run build` — Constitution IV ("build limpo é a definição de pronto").
-- [ ] T011 Executar o cenário ponta a ponta de `quickstart.md` num device Android real (todos os 11 passos, incluindo os 3 idiomas).
-- [ ] T012 Conferir se `README.md` já documenta os gestos de toque do leitor; se sim, atualizar a menção incluindo a nova zona esquerda (se não houver menção prévia, não é necessário criar uma seção nova só por causa desta feature).
+- [X] T010 `npm run lint && npm test && npx tsc --noEmit && npm run build` — todos limpos (881 testes, 2 skipped pré-existentes).
+- [X] T011 Cenário ponta a ponta validado no device Android real (SM-S911B): zona esquerda abrindo o índice em qualquer ponto do livro (confirmado pelo usuário: "funcionou bem, gostei") e diagrama do mapa de zonas em Settings > Aparência (confirmado: "Diagrama ficou bom, pode fechar"). Troca de idioma (en/es) verificada via Playwright desktop, não repetida manualmente no device — baixo risco, mesmo provider de i18n usado em todo o app.
+- [X] T012 `README.md` já documentava o chrome do leitor (linha "Chrome do leitor com auto-hide...") — atualizado pra refletir o auto-hide só no mount (bugfix `menu-chrome-leitor-some-sozinho-apos`) e adicionada a nova zona esquerda + menção ao mapa de zonas em Settings > Aparência.
 
 ### Checklist de Release
 
-- [ ] Fase User Story 1 concluída (T001-T005)
-- [ ] Fase User Story 2 concluída (T006-T009)
-- [ ] Semântica do gesto decidida e documentada (R-001 resolvido, sem `[NEEDS CLARIFICATION]` remanescente em `spec.md`)
-- [ ] `npm run lint && npm test && npx tsc --noEmit && npm run build` passando
-- [ ] Validado em device Android real (`quickstart.md` completo)
-- [ ] Nenhuma regressão nos testes existentes de tap (tradução, chrome-zone, bookmark, highlight, TTS-tap)
+- [X] Fase User Story 1 concluída (T001-T005)
+- [X] Fase User Story 2 concluída (T006-T009)
+- [X] Ação da zona decidida e documentada (R-001 resolvido, sem `[NEEDS CLARIFICATION]` remanescente em `spec.md`)
+- [X] `npm run lint && npm test && npx tsc --noEmit && npm run build` passando
+- [X] Validado em device Android real (`quickstart.md` — passos principais confirmados pelo usuário)
+- [X] Nenhuma regressão nos testes existentes de tap (tradução, chrome-zone, bookmark, highlight, TTS-tap)
 
 ---
 

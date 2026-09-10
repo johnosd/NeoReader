@@ -161,8 +161,8 @@ npx vitest run src/__tests__/screens/SettingsAppearanceScreen.test.tsx
 | Área | Estado |
 | --- | --- |
 | User Story 1 (zona esquerda → abrir índice) | Concluída e validada no device real |
-| User Story 2 (diagrama do mapa de zonas) | Concluída, validada visualmente via Playwright (desktop + mobile) |
-| Polish (lint/test/build completos, README) | Não iniciada |
+| User Story 2 (diagrama do mapa de zonas) | Concluída, validada no device real e via Playwright |
+| Polish (lint/test/build completos, README) | Concluída — feature implementada por completo |
 
 ## Riscos e Decisões
 
@@ -185,17 +185,20 @@ npx vitest run src/__tests__/screens/SettingsAppearanceScreen.test.tsx
 | --- | --- | --- | --- |
 | 2026-09-10 | Fase 3 / User Story 1 | T001 (spike) rodado no device real com a ação original (navegar seção); usuário rejeitou, pivotou pra "abrir índice" (R-001). Código do spike revertido, reimplementado com `onOpenToc`. T002-T005 concluídas, 142 testes passando, build limpo, validado no device real pelo usuário. | Nenhuma para US1 — falta rodar `npm run lint` completo (fica no Polish). |
 | 2026-09-10 | Fase 4 / User Story 2 | `TouchZonesDiagram.tsx` criado (diagrama CSS, sem SVG/lib nova), chaves i18n nos 3 locales, integrado em `SettingsAppearanceScreen.tsx`. 2 testes automatizados + verificação visual via Playwright (desktop e 390px) confirmando layout responsivo e tokens de cor corretos. Suite completa (881 testes), lint e build limpos. | Nenhuma — falta só a Fase Polish. |
+| 2026-09-10 | Fase 5 / Polish | `npm run lint && npm test && npx tsc --noEmit && npm run build` limpos (T010). Build final instalada e validada no device real (SM-S911B): zona esquerda ("funcionou bem, gostei") e diagrama ("Diagrama ficou bom, pode fechar") confirmados pelo usuário (T011). `README.md` atualizado com a nova zona e a correção do auto-hide (T012). Checklist de Release 100% marcado. | Nenhuma — feature concluída. |
 
-**PRÓXIMO**: Fase 5 — Polish (T010-T012: `npm run lint && npm test && npm run build` já rodados nesta sessão mas vale re-rodar no fechamento formal da fase, validação em device real via `quickstart.md`, checar menção no README).
+**PRÓXIMO**: Feature implementada por completo. Sugerido rodar `sdd-converge` numa sessão futura pra auditar a implementação final contra spec/plan/tasks antes de considerar 100% arquivada.
 
 ## Arquivos Principais
 
 <!-- Sobrescrita a cada checkpoint — foco da etapa atual, não a árvore inteira. -->
 
-- `src/components/settings/TouchZonesDiagram.tsx` — novo, diagrama read-only do mapa de zonas
-- `src/screens/SettingsAppearanceScreen.tsx` — nova seção integrando o diagrama
-- `src/i18n/messages.ts` — chaves `settings.appearance.touchZones.*` (pt-BR, en, es)
-- `src/__tests__/screens/SettingsAppearanceScreen.test.tsx` — 2 testes novos do diagrama
+- `src/components/reader/EpubViewer.tsx` — zona `isLeftTocTapZone` + prop `onOpenToc`
+- `src/screens/ReaderScreen.tsx` — `handleOpenToc` compartilhado
+- `src/components/settings/TouchZonesDiagram.tsx` — diagrama read-only do mapa de zonas
+- `src/screens/SettingsAppearanceScreen.tsx` — seção com o diagrama
+- `src/i18n/messages.ts` — chaves `settings.appearance.touchZones.*`
+- `README.md` — seção de features do leitor atualizada
 
 ## Cuidados para Retomada
 

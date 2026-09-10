@@ -228,7 +228,13 @@ ficha manualmente.
 - TOC navegavel dentro do leitor.
 - Marcadores por CFI, com snippet, cor, lista navegavel, restauracao de
   soft-delete e remocao.
-- Chrome do leitor com auto-hide e tap central para mostrar/esconder controles.
+- Chrome do leitor com tap nas zonas de topo/rodape/direita para
+  mostrar/esconder controles (auto-hide breve so na abertura do livro,
+  nao mais a cada reabertura manual).
+- Zona de toque na borda esquerda (faixa central, entre as zonas de
+  chrome de topo/rodape) abre o indice (TOC) direto, sem passar pelo
+  menu primeiro. Mapa read-only de todas as zonas de toque disponivel
+  em Settings > Aparencia.
 - Flush de progresso ao voltar, ao ocultar a pagina, em `pagehide` e em mudancas
   de estado do app.
 - Tela especifica para arquivo ausente, com opcao de remover o livro da
