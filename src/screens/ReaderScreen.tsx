@@ -831,6 +831,10 @@ export function ReaderScreen({
       })
   }
 
+  // Reaproveitado pelo botão de TOC do chrome e pela zona de atalho na
+  // borda esquerda do leitor — mesmo destino, dois pontos de entrada.
+  const handleOpenToc = useCallback(() => setTocOpen(true), [])
+
   const handleOpenImage = useCallback((payload: ReaderImageOpenPayload) => {
     setReaderImagePreview(payload)
   }, [])
@@ -1118,6 +1122,7 @@ export function ReaderScreen({
           onSaveVocab={handleSaveVocab}
           chromeVisible={chromeVisible}
           onCenterTap={handleCenterTap}
+          onOpenToc={handleOpenToc}
           onTranslate={handleTranslate}
           onWordLensDefinition={handleWordLensDefinition}
           onSpeakOne={(text) => void tts.speakOne(text)}
@@ -1155,7 +1160,7 @@ export function ReaderScreen({
         onBack={handleBack}
         onAppearanceOpen={() => setAppearanceSheetOpen(true)}
         onBookmarkList={() => setBookmarkSheetOpen(true)}
-        onTocOpen={() => setTocOpen(true)}
+        onTocOpen={handleOpenToc}
         onOpenVocabulary={() => onOpenVocabulary()}
         ttsIsPlaying={tts.isPlaying}
         ttsEngine={ttsEngine}

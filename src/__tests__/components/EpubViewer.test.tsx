@@ -87,6 +87,7 @@ function defaultProps(overrides: Record<string, unknown> = {}) {
     onError: vi.fn(),
     onSaveVocab: vi.fn(),
     onCenterTap: vi.fn(),
+    onOpenToc: vi.fn(),
     onTranslate: vi.fn(),
     onSpeakOne: vi.fn(),
     onBookmarkParagraph: vi.fn(),
@@ -2497,6 +2498,108 @@ describe('EpubViewer — chapter auto-advance', () => {
     }))
     const prevToEndTarget = foliateEl.renderer.goTo.mock.calls.at(-1)?.[0] as { anchor?: (doc: Document) => number }
     expect(prevToEndTarget.anchor?.(firstDoc)).toBe(1)
+  })
+})
+
+describe('EpubViewer — zona de atalho pro índice (toque na borda esquerda)', () => {
+  it('tap na faixa esquerda abre o índice, sem outro efeito colateral', async () => {
+    const onOpenToc = vi.fn()
+    const onTranslate = vi.fn()
+    const onCenterTap = vi.fn()
+    const { foliateEl } = await renderViewer({ onOpenToc, onTranslate, onCenterTap })
+    const doc = makeFakeDoc(['Chapter paragraph.'])
+    setViewportWidth(doc, 360)
+    setViewportHeight(doc, 720)
+
+    loadSection(foliateEl, doc, 0)
+
+    clickAt(doc.body, 20, 360)
+
+    expect(onOpenToc).toHaveBeenCalledOnce()
+    expect(onTranslate).not.toHaveBeenCalled()
+    expect(onCenterTap).not.toHaveBeenCalled()
+    expect(foliateEl.renderer.goTo).not.toHaveBeenCalled()
+  })
+
+  it('tap na faixa esquerda abre o índice independente da seção atual', async () => {
+    const onOpenToc = vi.fn()
+    const { foliateEl } = await renderViewer({ onOpenToc })
+    const doc = makeFakeDoc(['Last chapter paragraph.'])
+    setViewportWidth(doc, 360)
+    setViewportHeight(doc, 720)
+
+    loadSection(foliateEl, doc, 2)
+    act(() => {
+      foliateEl.fireFoliate('relocate', { index: 2, section: { current: 2, total: 3 } })
+    })
+
+    clickAt(doc.body, 20, 360)
+
+    expect(onOpenToc).toHaveBeenCalledOnce()
+  })
+
+  it('tap na faixa esquerda abre o índice mesmo com TTS ativo', async () => {
+    const onOpenToc = vi.fn()
+    const { foliateEl } = await renderViewer({ onOpenToc, ttsGlobalActive: true })
+    const doc = makeFakeDoc(['Chapter paragraph.'])
+    setViewportWidth(doc, 360)
+    setViewportHeight(doc, 720)
+
+    loadSection(foliateEl, doc, 0)
+
+    clickAt(doc.body, 20, 360)
+
+    expect(onOpenToc).toHaveBeenCalledOnce()
+  })
+
+  it('tap no canto superior-esquerdo continua abrindo/fechando o chrome, não abre o índice', async () => {
+    const onOpenToc = vi.fn()
+    const onCenterTap = vi.fn()
+    const { foliateEl } = await renderViewer({ onOpenToc, onCenterTap })
+    const doc = makeFakeDoc(['Chapter paragraph.'])
+    setViewportWidth(doc, 360)
+    setViewportHeight(doc, 720)
+
+    loadSection(foliateEl, doc, 0)
+
+    clickAt(doc.body, 20, 40)
+
+    expect(onCenterTap).toHaveBeenCalledOnce()
+    expect(onOpenToc).not.toHaveBeenCalled()
+  })
+
+  it('tap no canto inferior-esquerdo continua abrindo/fechando o chrome, não abre o índice', async () => {
+    const onOpenToc = vi.fn()
+    const onCenterTap = vi.fn()
+    const { foliateEl } = await renderViewer({ onOpenToc, onCenterTap })
+    const doc = makeFakeDoc(['Chapter paragraph.'])
+    setViewportWidth(doc, 360)
+    setViewportHeight(doc, 720)
+
+    loadSection(foliateEl, doc, 0)
+
+    clickAt(doc.body, 20, 690)
+
+    expect(onCenterTap).toHaveBeenCalledOnce()
+    expect(onOpenToc).not.toHaveBeenCalled()
+  })
+
+  it('tap em parágrafo perto da borda esquerda abre tradução, nunca abre o índice', async () => {
+    const onOpenToc = vi.fn()
+    const onTranslate = vi.fn()
+    const { foliateEl } = await renderViewer({ onOpenToc, onTranslate })
+    const doc = makeFakeDoc(['First paragraph near the edge.'])
+    const para = doc.querySelector('p') as HTMLElement
+    setViewportWidth(doc, 360)
+    setViewportHeight(doc, 720)
+    setElementRect(para, { left: 8, top: 320, right: 336, bottom: 400, width: 328, height: 80 })
+
+    loadSection(foliateEl, doc, 0)
+
+    clickAt(para, 20, 360)
+
+    expect(onTranslate).toHaveBeenCalledOnce()
+    expect(onOpenToc).not.toHaveBeenCalled()
   })
 })
 
