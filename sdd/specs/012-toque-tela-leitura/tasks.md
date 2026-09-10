@@ -175,9 +175,6 @@ cor do design system (indigo-primary/purple-primary/purple-light).
 - Feito: T006 (`TouchZonesDiagram.tsx`), T007 (chaves i18n nos 3 locales), T008 (integração em `SettingsAppearanceScreen.tsx`), T009 (2 testes automatizados + verificação visual manual via Playwright)
 - Testes executados: `npx tsc --noEmit` (limpo), `npx vitest run src/__tests__/screens/SettingsAppearanceScreen.test.tsx` (5 passando), `npm test` completo (881 passando, 2 skipped pré-existentes), `npm run lint` (limpo), `npm run build` (limpo), verificação visual via Playwright (`npm run dev` + screenshots desktop/390px, removidas após conferência)
 - Pendências: nenhuma para esta story — falta só a Fase Polish (T010-T012: validação em device real via `quickstart.md`, checklist de release)
-- Feito:
-- Testes executados:
-- Pendências:
 
 ---
 

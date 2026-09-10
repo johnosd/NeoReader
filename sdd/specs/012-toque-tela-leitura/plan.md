@@ -207,3 +207,40 @@ npx vitest run src/__tests__/screens/SettingsAppearanceScreen.test.tsx
 - `prevToEnd()` (`EpubViewer.tsx`) foi cogitada e chegou a ser usada num spike descartado (R-001) — **não é mais parte desta feature**. Continua existindo, testada, sem chamador em produção, exatamente como estava antes desta feature começar; não reintroduza essa dependência sem motivo novo.
 - As zonas de chrome de topo/rodapé cobrem a LARGURA INTEIRA da tela, não só a direita — a nova zona esquerda precisa ficar limitada à faixa vertical central pra não colidir nos cantos (ver Decisões Invariantes).
 - O estado do painel de índice (`tocOpen`) vive em `ReaderScreen.tsx`, não em `EpubViewer.tsx` — por isso essa feature precisou de uma prop nova (`onOpenToc`), diferente do padrão "tudo interno ao EpubViewer" que as zonas de chrome usam.
+
+## Resultado Final
+
+<!-- Anexado pelo sdd-converge ao fechar a feature sem achados pendentes. -->
+
+Convergido em 2026-09-10 sem achados (`missing`/`partial`/`contradicts`/
+`unrequested`) — auditoria via `git diff ee51094 HEAD` (diff isolado desta
+feature, excluindo o bugfix de auto-hide anterior e o histórico herdado da
+base da branch): 16 arquivos, ~1344 inserções, zero linhas de
+funcionalidade existente removidas ou alteradas fora do escopo desta
+feature.
+
+**O que foi construído**: User Story 1 — zona de toque na borda esquerda
+de `EpubViewer.tsx` (`isLeftTocTapZone`, faixa vertical central entre as
+zonas de chrome de topo/rodapé) que abre o índice via nova prop
+`onOpenToc`, reaproveitando `handleOpenToc` (mesmo handler do botão de
+TOC do chrome) em `ReaderScreen.tsx`. User Story 2 —
+`TouchZonesDiagram.tsx` (componente novo, somente leitura, sem
+dependência nova) integrado em `SettingsAppearanceScreen.tsx`, legenda
+traduzida nos 3 locales via `messages.ts`.
+
+**Desvio principal do plano original**: a spec/plano iniciais previam a
+zona esquerda navegando pra seção/capítulo anterior (reaproveitando
+`prevToEnd()`/`goToAdjacentSection`) — implementado, testado (102 testes
+verdes) e descartado após validação no device real (usuário não viu
+valor na ação; objetivo real era mapear zonas pra ações úteis, não
+navegação). Ação trocada pra "abrir o índice" antes de qualquer commit;
+a extração de `prevToEnd()` foi revertida ao estado original — confirmado
+sem resíduo do spike no diff final (ver R-001).
+
+**Verificação de fidelidade**: FR-001 a FR-008 e SC-001 a SC-004
+confirmados com evidência direta em código (grep + diff isolado). Zonas
+de chrome pré-existentes (`isVisibleChromeTapZone`/`isRightChromeTapZone`/
+`getPhysicalTapPosition`) byte-idênticas ao estado anterior à feature —
+FR-008 (não alterar comportamento existente) satisfeito. Nenhuma
+dependência nova (`package.json` inalterado), nenhum schema Dexie tocado
+(`database.ts` inalterado).
