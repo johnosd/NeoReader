@@ -6,7 +6,7 @@ import type { View } from 'foliate-js/view.js'
 import type { Overlayer } from 'foliate-js/overlayer.js'
 import type { FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from '../../types/settings'
 import { getReaderFontFamilyValue, getReaderLineHeightValue, getReaderThemePalette } from '../../utils/readerPreferences'
-import { ANNOTATION_COLORS, annotationColorHex } from '../../utils/annotationColors'
+import { annotationColorHex } from '../../utils/annotationColors'
 import { getSentenceAt, escapeHtml } from '../../utils/readerUtils'
 import { areCfisEquivalent, normalizeCfi } from '../../utils/cfi'
 import { registerUnmanifestedEpubStylesheets } from '../../utils/epubResources'
@@ -1366,27 +1366,6 @@ function buildReaderCSS(
       gap: 8px !important;
       flex-shrink: 0 !important;
     }
-    .nr-sel-color {
-      appearance: none !important;
-      width: 24px !important;
-      height: 24px !important;
-      min-width: 24px !important;
-      border-radius: 50% !important;
-      border: 2px solid rgba(255, 255, 255, 0.35) !important;
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25) !important;
-      cursor: pointer !important;
-      -webkit-tap-highlight-color: transparent !important;
-      transition: transform 120ms ease !important;
-      flex-shrink: 0 !important;
-    }
-    .nr-sel-color:active { transform: scale(0.88) !important; }
-    /* Cor ativa no menu de gerenciar highlight (ad-hoc) — mesmo anel
-       roxo do botão de estilo ([aria-pressed="true"] abaixo), adaptado
-       pro círculo (borda mais clara + anel via box-shadow em camadas). */
-    .nr-sel-color[aria-pressed="true"] {
-      border-color: rgba(255, 255, 255, 0.9) !important;
-      box-shadow: 0 0 0 2px #7b2cbf, 0 2px 6px rgba(0, 0, 0, 0.25) !important;
-    }
     /* Copiar/Compartilhar (FR-003c) — mesmo grupo do menu de seleção, ícone
        só, sem cor de fundo (não são highlight). */
     .nr-sel-icon-btn {
@@ -1409,14 +1388,6 @@ function buildReaderCSS(
     }
     .nr-sel-icon-btn svg { width: 17px !important; height: 17px !important; }
     .nr-sel-icon-btn:active { transform: scale(0.88) !important; }
-    /* Estilo de marcação ativo (fundo/sublinhado/ondulado) — anel ao redor do
-       ícone, mesma ideia do círculo na referência visual do usuário. */
-    .nr-sel-style-btn[aria-pressed="true"] {
-      background: ${palette.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(15,23,42,0.16)'} !important;
-      /* --color-purple-primary do design system (src/index.css) — fixo aqui
-         porque o menu roda fora do contexto Tailwind do app, dentro do iframe. */
-      box-shadow: 0 0 0 2px #7b2cbf !important;
-    }
     .nr-sel-divider {
       width: 1px !important;
       height: 22px !important;
@@ -1504,6 +1475,12 @@ export interface HighlightCreationPayload {
   style: HighlightStyle
 }
 
+// Mesmo payload, mas ANTES de cor/estilo serem escolhidos (feature 016):
+// tocar "Destacar" só entrega isso — a caixa unificada (HighlightComposerSheet,
+// fora do iframe) é quem decide cor/estilo/nota antes de virar um
+// HighlightCreationPayload de verdade em ReaderScreen.
+export type HighlightDraftPayload = Omit<HighlightCreationPayload, 'color' | 'style'>
+
 export interface VisibleReadingLocation {
   cfi: string | null
   tocLabel?: string
@@ -1585,18 +1562,16 @@ interface EpubViewerProps {
   // Vocabulário: frases originais já salvas pelo usuário para highlight passivo
   vocabWords?: string[]
   // Highlights (feature 010): highlights do livro atual, pintados por seção
-  // conforme carregam. Toque longo + arrasto seleciona; escolher uma cor no
-  // menu chama onCreateHighlight.
+  // conforme carregam. Toque longo + arrasto seleciona; tocar "Destacar"
+  // dispara onRequestCreateHighlight (feature 016) — a caixa unificada fora
+  // do iframe é quem decide cor/estilo/nota e grava de fato.
   highlights?: Highlight[]
-  onCreateHighlight?: (payload: HighlightCreationPayload) => void
-  // Gerenciar um highlight existente (US3): tocar sobre ele abre o menu de
-  // remover/trocar cor ou estilo em vez da tradução inline. Cada toque no
-  // menu (cor OU estilo) já aplica e persiste na hora — FR-022.
+  onRequestCreateHighlight?: (draft: HighlightDraftPayload) => void
+  // Gerenciar um highlight existente: tocar sobre ele abre o menu com
+  // Remover (imediato) ou Editar (cor/estilo/nota juntos, na caixa
+  // unificada fora do iframe — feature 016).
   onDeleteHighlight?: (highlight: Highlight) => void
-  onChangeHighlightAppearance?: (highlight: Highlight, patch: { color?: string; style?: HighlightStyle }) => void
-  // Anotação de texto associada ao highlight (feature 013) — abre a UI de
-  // escrita/edição fora do iframe; nunca grava nada direto daqui.
-  onAnnotateHighlight?: (highlight: Highlight) => void
+  onEditHighlight?: (highlight: Highlight) => void
 }
 
 // forwardRef: padrão React para expor métodos imperativos ao componente pai.
@@ -1612,7 +1587,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       onBookmarkTap, onBookmarkParagraph,
       onOpenImage,
       vocabWords,
-      highlights, onCreateHighlight, onDeleteHighlight, onChangeHighlightAppearance, onAnnotateHighlight,
+      highlights, onRequestCreateHighlight, onDeleteHighlight, onEditHighlight,
     },
     ref,
   ) => {
@@ -1692,10 +1667,9 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const onBookmarkParagraphRef = useSyncRef(onBookmarkParagraph)
     // Highlights (feature 010): ver getEligibleSelectionRange/paintHighlight mais abaixo.
     const highlightsRef = useSyncRef(highlights ?? [])
-    const onCreateHighlightRef = useSyncRef(onCreateHighlight)
+    const onRequestCreateHighlightRef = useSyncRef(onRequestCreateHighlight)
     const onDeleteHighlightRef = useSyncRef(onDeleteHighlight)
-    const onChangeHighlightAppearanceRef = useSyncRef(onChangeHighlightAppearance)
-    const onAnnotateHighlightRef = useSyncRef(onAnnotateHighlight)
+    const onEditHighlightRef = useSyncRef(onEditHighlight)
     // Import dinâmico de foliate-js/overlayer.js (mesmo padrão do view.js) — só
     // precisa da classe pra chamar Overlayer.highlight como draw function.
     // Carregado sem bloquear a abertura do leitor (ver setup()); paintHighlight
@@ -2596,14 +2570,15 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     }
 
     // Mesma história do swatch de seleção (alvo cross-realm), agora para os
-    // botões do menu do highlight: remover e as cores.
+    // botões do menu do highlight: remover e editar (cor/estilo/nota juntos,
+    // feature 016 — a caixa unificada substitui o antigo submenu de cores).
     function getHighlightMenuButtonAtPoint(
       target: Element,
       doc: Document,
       clientX: number,
       clientY: number,
     ): HTMLElement | null {
-      const SELECTOR = '[data-nr-highlight-color], [data-nr-highlight-style], [data-nr-highlight-remove], [data-nr-highlight-annotate], [data-nr-highlight-open-colors], [data-nr-highlight-back]'
+      const SELECTOR = '[data-nr-highlight-remove], [data-nr-highlight-edit]'
       const directButton = target.closest?.(SELECTOR) as HTMLElement | null
       if (directButton) return directButton
 
@@ -2640,7 +2615,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     function buildHighlightPayloadFromRange(
       range: Range,
       sectionIndex: number,
-    ): Omit<HighlightCreationPayload, 'color' | 'style'> | null {
+    ): HighlightDraftPayload | null {
       const view = viewRef.current
       if (!view) return null
 
@@ -2679,43 +2654,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       return { cfi, paraCfi, text, sectionIndex, percentage }
     }
 
-    // Menu de seleção: lista de ações (Invariante 6/FR-003a), em dois modos —
-    // 'root' (Copiar, Compartilhar, Destacar) e 'colors' (voltar + as 8 cores),
-    // pra não ocupar a fileira inteira com cores antes do usuário pedir
-    // (achado do usuário testando em device). Acrescentar uma ação futura ao
-    // nível raiz (traduzir, anotar, ouvir) continua sendo declarar mais um
-    // item aqui, sem tocar no gesto nem no posicionamento.
-    type SelectionMenuMode = 'root' | 'colors'
-
-    // Compartilhado com o menu de gerenciar highlight (US3) — mesma fileira de
-    // estilo em ambos: o item `data-nr-selection-style`/`data-nr-highlight-style`
-    // ativo ganha `aria-pressed` e a borda de "selecionado" via CSS.
-    function renderStyleButtonsHtml(activeStyle: HighlightStyle, attr: string): string {
-      return (['background', 'underline', 'squiggly'] as const).map((style) => `
-        <button type="button" class="nr-sel-icon-btn nr-sel-style-btn" ${attr}="${style}"
-          aria-pressed="${style === activeStyle}"
-          aria-label="${escapeHtml(t(`reader.selectionMenu.style.${style}`))}">${HIGHLIGHT_STYLE_ICON[style]}</button>
-      `).join('')
-    }
-
-    function renderSelectionMenuActionsHtml(mode: SelectionMenuMode, activeStyle: HighlightStyle = 'background'): string {
-      if (mode === 'colors') {
-        const colorSwatches = ANNOTATION_COLORS.map((c) => `
-          <button type="button" class="nr-sel-color" data-nr-selection-color="${c.key}"
-            style="background-color:${c.hex}"
-            aria-label="${escapeHtml(t('bookmark.color', { label: t(c.labelKey) }))}"></button>
-        `).join('')
-        return `
-          <div class="nr-sel-action" data-nr-selection-action="colors">
-            <button type="button" class="nr-sel-icon-btn" data-nr-selection-back="1"
-              aria-label="${escapeHtml(t('reader.selectionMenu.back'))}">${SELECTION_RUN_ICON.back}</button>
-            <div class="nr-sel-divider" aria-hidden="true"></div>
-            ${renderStyleButtonsHtml(activeStyle, 'data-nr-selection-style')}
-            <div class="nr-sel-divider" aria-hidden="true"></div>
-            ${colorSwatches}
-          </div>
-        `
-      }
+    function renderSelectionMenuActionsHtml(): string {
       return `
         <div class="nr-sel-action" data-nr-selection-action="tools">
           <button type="button" class="nr-sel-icon-btn" data-nr-selection-run="copy"
@@ -2744,24 +2683,9 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       // tradução faz com o parágrafo: um range de seleção arbitrário começa no
       // meio de um nó de texto, e inserir um elemento ali deslocaria os índices
       // de nó que os CFIs seguintes dependem.
-      el.innerHTML = `<div class="nr-sel-menu-inner">${renderSelectionMenuActionsHtml('root')}</div>`
+      el.innerHTML = `<div class="nr-sel-menu-inner">${renderSelectionMenuActionsHtml()}</div>`
       doc.body.appendChild(el)
       return el
-    }
-
-    // Troca de conteúdo do menu (root <-> colors) muda o tamanho da caixa —
-    // reposiciona sempre, usando o range atual como referência, senão o menu
-    // fica desalinhado ou cortado depois de crescer/encolher.
-    function setSelectionMenuMode(
-      doc: Document,
-      menuEl: HTMLElement,
-      mode: SelectionMenuMode,
-      range: Range | null,
-      activeStyle: HighlightStyle = 'background',
-    ): void {
-      const inner = menuEl.querySelector('.nr-sel-menu-inner')
-      if (inner) inner.innerHTML = renderSelectionMenuActionsHtml(mode, activeStyle)
-      if (range) positionSelectionMenu(doc, menuEl, range)
     }
 
     function positionSelectionMenu(doc: Document, menuEl: HTMLElement, range: Range): void {
@@ -2782,56 +2706,22 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       if (el) el.hidden = true
     }
 
-    // Menu do highlight existente (US3) — mesma estrutura declarativa de ações
-    // do menu de seleção (Invariante 6). Dois modos, mesmo padrão do menu de
-    // CRIAÇÃO (renderSelectionMenuActionsHtml): 'root' mostra Anotar/Editar
-    // anotação + Remover + 1 botão de aparência (cor atual + ícone do estilo
-    // atual); 'colors' expande esse botão pro submenu combinado de estilo+cor
-    // (achado do usuário: estilo+cor sempre visíveis ocupavam espaço demais
-    // pra uma ação que a maioria dos toques não usa). Diferente do menu de
-    // CRIAÇÃO: aqui não há "confirmar" — o highlight já existe, então cada
-    // toque (estilo OU cor) já aplica e persiste na hora (FR-022).
-    function renderHighlightMenuActionsHtml(
-      mode: SelectionMenuMode,
-      activeStyle: HighlightStyle,
-      activeColor: string,
-      hasNote: boolean,
-    ): string {
-      if (mode === 'colors') {
-        // Cor ativa marcada com aria-pressed (ad-hoc, achado do usuário):
-        // mesmo padrão já usado pelo botão de estilo logo abaixo — sem
-        // isso, só o estilo mostrava qual opção estava selecionada.
-        const colorSwatches = ANNOTATION_COLORS.map((c) => `
-          <button type="button" class="nr-sel-color" data-nr-highlight-color="${c.key}"
-            style="background-color:${c.hex}" aria-pressed="${c.key === activeColor}"
-            aria-label="${escapeHtml(t('bookmark.color', { label: t(c.labelKey) }))}"></button>
-        `).join('')
-        return `
-          <div class="nr-sel-action" data-nr-highlight-action="colors">
-            <button type="button" class="nr-sel-icon-btn" data-nr-highlight-back="1"
-              aria-label="${escapeHtml(t('reader.selectionMenu.back'))}">${SELECTION_RUN_ICON.back}</button>
-            <div class="nr-sel-divider" aria-hidden="true"></div>
-            ${renderStyleButtonsHtml(activeStyle, 'data-nr-highlight-style')}
-            <div class="nr-sel-divider" aria-hidden="true"></div>
-            ${colorSwatches}
-          </div>
-        `
-      }
-
-      const annotateLabel = hasNote ? t('reader.highlightMenu.editAnnotation') : t('reader.highlightMenu.annotate')
+    // Menu do highlight existente — mesma estrutura declarativa de ações do
+    // menu de seleção (Invariante 6). Feature 016: "Anotar"/"Editar anotação"
+    // e "Cor e estilo" (antigo submenu imediato) colapsaram num ÚNICO botão,
+    // que abre a caixa unificada (HighlightComposerSheet, fora do iframe) —
+    // cor/estilo/nota mudam juntos, só ao confirmar. "Remover" continua
+    // imediato e separado (FR-008).
+    function renderHighlightMenuActionsHtml(activeStyle: HighlightStyle, activeColor: string): string {
       return `
-        <div class="nr-sel-action" data-nr-highlight-action="annotate">
-          <button type="button" class="nr-sel-text-btn" data-nr-highlight-annotate="1">${escapeHtml(annotateLabel)}</button>
+        <div class="nr-sel-action" data-nr-highlight-action="edit">
+          <button type="button" class="nr-sel-icon-btn" data-nr-highlight-edit="1"
+            style="background-color:${annotationColorHex(activeColor)}"
+            aria-label="${escapeHtml(t('reader.highlightMenu.edit'))}">${HIGHLIGHT_STYLE_ICON[activeStyle]}</button>
         </div>
         <div class="nr-sel-divider" aria-hidden="true"></div>
         <div class="nr-sel-action" data-nr-highlight-action="remove">
           <button type="button" class="nr-sel-text-btn" data-nr-highlight-remove="1">${escapeHtml(t('reader.highlightMenu.remove'))}</button>
-        </div>
-        <div class="nr-sel-divider" aria-hidden="true"></div>
-        <div class="nr-sel-action" data-nr-highlight-action="appearance">
-          <button type="button" class="nr-sel-icon-btn" data-nr-highlight-open-colors="1"
-            style="background-color:${annotationColorHex(activeColor)}"
-            aria-label="${escapeHtml(t('reader.highlightMenu.changeAppearance'))}">${HIGHLIGHT_STYLE_ICON[activeStyle]}</button>
         </div>
       `
     }
@@ -2845,26 +2735,22 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       el.hidden = true
       // Mesmo motivo do menu de seleção: anexado ao fim do <body>, nunca
       // inserido perto do trecho marcado (deslocaria índices de CFI).
-      el.innerHTML = `<div class="nr-sel-menu-inner">${renderHighlightMenuActionsHtml('root', 'background', 'indigo', false)}</div>`
+      el.innerHTML = `<div class="nr-sel-menu-inner">${renderHighlightMenuActionsHtml('background', 'indigo')}</div>`
       doc.body.appendChild(el)
       return el
     }
 
-    // Chamado ao abrir/atualizar o menu num highlight específico, pra marcar
-    // o modo (root/colors), estilo e cor ATUAIS dele e se já tem nota (rótulo
-    // Anotar/Editar anotação) — mesmo raciocínio do setSelectionMenuMode: o
-    // conteúdo muda de tamanho, reposiciona.
+    // Chamado ao abrir o menu num highlight específico, pra marcar a cor/
+    // estilo ATUAIS dele no botão único de editar e reposicionar.
     function setHighlightMenuAppearance(
       doc: Document,
       menuEl: HTMLElement,
-      mode: SelectionMenuMode,
       activeStyle: HighlightStyle,
       activeColor: string,
-      hasNote: boolean,
       rect: { left: number; top: number },
     ): void {
       const inner = menuEl.querySelector('.nr-sel-menu-inner')
-      if (inner) inner.innerHTML = renderHighlightMenuActionsHtml(mode, activeStyle, activeColor, hasNote)
+      if (inner) inner.innerHTML = renderHighlightMenuActionsHtml(activeStyle, activeColor)
       positionMenuAtRect(doc, menuEl, rect)
     }
 
@@ -4003,11 +3889,6 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           // Range pendente enquanto o menu de seleção está aberto — consumido
           // pelo próprio click ao tocar numa cor (ver mais abaixo).
           let pendingHighlightRange: Range | null = null
-          // Estilo "armado" pro PRÓXIMO highlight a criar — trocado ao tocar
-          // num ícone de estilo (não fecha o menu), consumido ao tocar numa
-          // cor (que cria e fecha). Reseta pra 'background' em toda abertura
-          // nova do menu (não persiste de uma seleção pra outra).
-          let pendingHighlightStyle: HighlightStyle = 'background'
           // Highlight cujo menu de gerenciamento está aberto (US3), e o rect
           // de onde ele foi tocado — reusado ao trocar de estilo, que
           // reposiciona sem fechar o menu (ver ramo do estilo no listener de
@@ -4050,14 +3931,6 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             if (range) {
               pendingHighlightRange = range
               const menuEl = ensureSelectionMenuEl(doc)
-              // Reseta pra 'root'/estilo padrão só numa abertura de verdade
-              // (menu estava escondido) — se o usuário está ajustando as
-              // alças com o submenu de cores já aberto, modo e estilo
-              // armado continuam os mesmos.
-              if (menuEl.hidden) {
-                pendingHighlightStyle = 'background'
-                setSelectionMenuMode(doc, menuEl, 'root', null)
-              }
               positionSelectionMenu(doc, menuEl, range)
             } else {
               // NÃO zera pendingHighlightRange aqui (achado em device): no
@@ -4081,40 +3954,30 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               return
             }
 
-            // Botões do menu de seleção (Copiar/Compartilhar/Destacar, voltar,
-            // cores) têm prioridade sobre a guarda de seleção logo abaixo —
-            // senão a guarda engoliria o próprio toque nesses botões
-            // (Invariante 3). Sempre a MESMA leitura de range/menu: prefere a
-            // seleção viva, cai pro último range elegível se o WebView já
-            // colapsou por causa deste mesmo toque (Android, achado em device).
+            // Botões do menu de seleção (Copiar/Compartilhar/Destacar) têm
+            // prioridade sobre a guarda de seleção logo abaixo — senão a
+            // guarda engoliria o próprio toque nesses botões (Invariante 3).
+            // Sempre a MESMA leitura de range/menu: prefere a seleção viva,
+            // cai pro último range elegível se o WebView já colapsou por
+            // causa deste mesmo toque (Android, achado em device).
             const liveOrPendingRange = () => getEligibleSelectionRange(doc) ?? pendingHighlightRange
 
+            // "Destacar" (feature 016): não abre mais um submenu de cores
+            // dentro do iframe — monta o draft (sem cor/estilo, ainda não
+            // decididos) e entrega pro ReaderScreen abrir a caixa unificada
+            // fora do iframe. Nenhum highlight é criado aqui.
             const openColorsBtn = getSelectionMenuButtonAtPoint(target, ownerDocument, ev.clientX, ev.clientY, '[data-nr-selection-open-colors]')
             if (openColorsBtn) {
               ev.preventDefault()
               ev.stopPropagation()
-              setSelectionMenuMode(doc, ensureSelectionMenuEl(doc), 'colors', liveOrPendingRange(), pendingHighlightStyle)
-              return
-            }
-
-            const backBtn = getSelectionMenuButtonAtPoint(target, ownerDocument, ev.clientX, ev.clientY, '[data-nr-selection-back]')
-            if (backBtn) {
-              ev.preventDefault()
-              ev.stopPropagation()
-              setSelectionMenuMode(doc, ensureSelectionMenuEl(doc), 'root', liveOrPendingRange())
-              return
-            }
-
-            // Ícone de estilo (dentro do submenu de cores): só troca o estilo
-            // "armado" e remarca visualmente — não fecha o menu nem cria nada
-            // ainda. A cor, tocada em seguida, é quem confirma e fecha.
-            const selectionStyleBtn = getSelectionMenuButtonAtPoint(target, ownerDocument, ev.clientX, ev.clientY, '[data-nr-selection-style]')
-            if (selectionStyleBtn) {
-              ev.preventDefault()
-              ev.stopPropagation()
-              const style = selectionStyleBtn.dataset.nrSelectionStyle as HighlightStyle | undefined
-              if (style) pendingHighlightStyle = style
-              setSelectionMenuMode(doc, ensureSelectionMenuEl(doc), 'colors', liveOrPendingRange(), pendingHighlightStyle)
+              const range = liveOrPendingRange()
+              if (range) {
+                const draft = buildHighlightPayloadFromRange(range, index)
+                if (draft) onRequestCreateHighlightRef.current?.(draft)
+              }
+              doc.getSelection?.()?.removeAllRanges()
+              pendingHighlightRange = null
+              closeSelectionMenu(doc)
               return
             }
 
@@ -4158,27 +4021,6 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               return
             }
 
-            const selectionColorBtn = getSelectionMenuButtonAtPoint(target, ownerDocument, ev.clientX, ev.clientY, '[data-nr-selection-color]')
-            if (selectionColorBtn) {
-              ev.preventDefault()
-              ev.stopPropagation()
-              const color = selectionColorBtn.dataset.nrSelectionColor
-              const range = liveOrPendingRange()
-              if (color && range) {
-                const basePayload = buildHighlightPayloadFromRange(range, index)
-                if (basePayload) {
-                  const payload: HighlightCreationPayload = { ...basePayload, color, style: pendingHighlightStyle }
-                  onCreateHighlightRef.current?.(payload)
-                  void paintHighlight(payload.cfi, color, pendingHighlightStyle)
-                }
-              }
-              doc.getSelection?.()?.removeAllRanges()
-              pendingHighlightRange = null
-              pendingHighlightStyle = 'background'
-              closeSelectionMenu(doc)
-              return
-            }
-
             // Botões do menu do highlight (US3), pela mesma razão do ramo
             // acima: se a guarda de seleção ou o roteamento normal viesse
             // antes, o menu engoliria os próprios toques.
@@ -4187,47 +4029,20 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               ev.preventDefault()
               ev.stopPropagation()
               const alvo = activeHighlight
-              const novaCor = highlightMenuBtn.dataset.nrHighlightColor
-              const novoEstilo = highlightMenuBtn.dataset.nrHighlightStyle as HighlightStyle | undefined
-              if (alvo && novaCor) {
-                onChangeHighlightAppearanceRef.current?.(alvo, { color: novaCor })
-                void paintHighlight(alvo.cfi, novaCor, alvo.style ?? 'background')
-                activeHighlight = null
-                activeHighlightMenuRect = null
-                closeHighlightMenu(doc)
-              } else if (alvo && novoEstilo) {
-                // Estilo aplica e persiste na hora, mas NÃO fecha o menu (nem
-                // sai do modo 'colors') — o usuário pode continuar ajustando
-                // (trocar estilo de novo, ou escolher a cor em seguida). Só a
-                // cor fecha, como já era.
-                onChangeHighlightAppearanceRef.current?.(alvo, { style: novoEstilo })
-                void paintHighlight(alvo.cfi, alvo.color, novoEstilo)
-                activeHighlight = { ...alvo, style: novoEstilo }
-                if (activeHighlightMenuRect) {
-                  setHighlightMenuAppearance(doc, ensureHighlightMenuEl(doc), 'colors', novoEstilo, alvo.color, Boolean(alvo.note), activeHighlightMenuRect)
-                }
-              } else if (alvo && highlightMenuBtn.dataset.nrHighlightRemove === '1') {
+              if (alvo && highlightMenuBtn.dataset.nrHighlightRemove === '1') {
                 onDeleteHighlightRef.current?.(alvo)
                 void viewRef.current?.deleteAnnotation({ value: alvo.cfi })
                 activeHighlight = null
                 activeHighlightMenuRect = null
                 closeHighlightMenu(doc)
-              } else if (alvo && highlightMenuBtn.dataset.nrHighlightAnnotate === '1') {
-                onAnnotateHighlightRef.current?.(alvo)
+              } else if (alvo && highlightMenuBtn.dataset.nrHighlightEdit === '1') {
+                // Feature 016: abre a caixa unificada fora do iframe — cor,
+                // estilo e nota mudam juntos, só ao confirmar (nunca mais
+                // aplica na hora, diferente do antigo submenu de cores).
+                onEditHighlightRef.current?.(alvo)
                 activeHighlight = null
                 activeHighlightMenuRect = null
                 closeHighlightMenu(doc)
-              } else if (alvo && highlightMenuBtn.dataset.nrHighlightOpenColors === '1') {
-                // Expande o botão único de aparência pro submenu de estilo+cor
-                // — mesmo padrão do "Destacar" no menu de criação, só que aqui
-                // o highlight já existe, então não fecha nem confirma nada.
-                if (activeHighlightMenuRect) {
-                  setHighlightMenuAppearance(doc, ensureHighlightMenuEl(doc), 'colors', alvo.style ?? 'background', alvo.color, Boolean(alvo.note), activeHighlightMenuRect)
-                }
-              } else if (alvo && highlightMenuBtn.dataset.nrHighlightBack === '1') {
-                if (activeHighlightMenuRect) {
-                  setHighlightMenuAppearance(doc, ensureHighlightMenuEl(doc), 'root', alvo.style ?? 'background', alvo.color, Boolean(alvo.note), activeHighlightMenuRect)
-                }
               }
               return
             }
@@ -4368,10 +4183,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               setHighlightMenuAppearance(
                 doc,
                 ensureHighlightMenuEl(doc),
-                'root',
                 highlightUnderTap.style ?? 'background',
                 highlightUnderTap.color,
-                Boolean(highlightUnderTap.note),
                 activeHighlightMenuRect,
               )
               logReaderTapIgnored('highlight-menu')

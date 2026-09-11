@@ -1,5 +1,6 @@
 import { DEFAULT_APP_LOCALE_PREFERENCE, normalizeAppLocalePreference, type AppLocalePreference } from '../i18n/locales'
 import type { CefrLevel } from './wordLens'
+import type { HighlightStyle } from './highlight'
 
 export type FontSize = 'sm' | 'md' | 'lg' | 'xl'
 export type ReaderLineHeight = 'compact' | 'comfortable' | 'relaxed'
@@ -24,6 +25,10 @@ export interface ReaderDefaults {
   overrideBookColors: boolean
   wordLensEnabled: boolean
   wordLensLevel: CefrLevel
+  // Cor/estilo do último highlight criado pelo usuário (qualquer livro) —
+  // pré-seleciona a caixa unificada de criação (feature 016, FR-002).
+  lastHighlightColor: string
+  lastHighlightStyle: HighlightStyle
 }
 
 export interface UserSettings {
@@ -60,6 +65,8 @@ export const DEFAULT_READER_DEFAULTS: ReaderDefaults = {
   overrideBookColors: true,
   wordLensEnabled: false,
   wordLensLevel: 'B1',
+  lastHighlightColor: 'indigo',
+  lastHighlightStyle: 'background',
 }
 
 export const DEFAULT_SETTINGS: Omit<UserSettings, 'id'> = {
@@ -103,6 +110,8 @@ export function normalizeUserSettings(record?: SettingsRecord | null): UserSetti
       wordLensLevel: wordLensLevel && ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'].includes(wordLensLevel)
         ? wordLensLevel
         : DEFAULT_READER_DEFAULTS.wordLensLevel,
+      lastHighlightColor: record?.readerDefaults?.lastHighlightColor ?? DEFAULT_READER_DEFAULTS.lastHighlightColor,
+      lastHighlightStyle: record?.readerDefaults?.lastHighlightStyle ?? DEFAULT_READER_DEFAULTS.lastHighlightStyle,
     },
     updatedAt: record?.updatedAt ? new Date(record.updatedAt) : new Date(),
   }

@@ -25,6 +25,8 @@ update-bug-status.ps1.
 | 012-toque-tela-leitura | Controle de toque na tela de leitura | Convergida | 18/18 tasks | 2026-09-10 |
 | 013-anotacoes-highlights | Anotações associadas a highlights | Implementada | 20/20 tasks | 2026-09-10 |
 | 014-indicador-anotacao-highlight | Indicador visual de anotação em highlights com preview flutuante | Implementada | 26/26 tasks | 2026-09-11 |
+| 015-atalho-anotar-highlight-criacao | Atalho pra anotar highlight logo após criar | Implementada | 22/22 tasks | 2026-09-11 |
+| 016-caixa-unificada-highlight-nota | Caixa unificada de cor, estilo e nota ao criar ou editar highlight | Implementada | 34/34 tasks | 2026-09-11 |
 
 ## Bugs
 

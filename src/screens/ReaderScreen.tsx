@@ -4,7 +4,7 @@ import { Volume2 } from 'lucide-react'
 import {
   EpubViewer,
   type EpubViewerHandle,
-  type HighlightCreationPayload,
+  type HighlightDraftPayload,
   type ParagraphBookmarkPayload,
   type ReaderImageOpenPayload,
   type ReaderRelocatePayload,
@@ -14,9 +14,9 @@ import {
 import { ReaderChrome } from '../components/reader/ReaderChrome'
 import { TocDrawer } from '../components/reader/TocDrawer'
 import { BookmarkSheet } from '../components/reader/BookmarkSheet'
-import { HighlightNoteSheet } from '../components/reader/HighlightNoteSheet'
+import { HighlightComposerSheet } from '../components/reader/HighlightComposerSheet'
 import { ImageZoomModal } from '../components/reader/ImageZoomModal'
-import { BottomSheet } from '../components/ui'
+import { BottomSheet, Toast } from '../components/ui'
 import { IntegrationHelpBanner } from '../components/IntegrationHelpBanner'
 import { useReaderProgress } from '../hooks/useReaderProgress'
 import { useReaderStore } from '../store/readerStore'
@@ -30,6 +30,7 @@ import { getBookCover } from '../db/bookCovers'
 import { addBookmark, restoreBookmark, softDeleteBookmark, updateBookmarkColor } from '../db/bookmarks'
 import { addVocabItem, getVocabSourceTextsByBookId } from '../db/vocabulary'
 import { addHighlight, deleteHighlight, getHighlightsByBookId, updateHighlightAppearance, updateHighlightNote } from '../db/highlights'
+import { getSettings, updateReaderDefaults } from '../db/settings'
 import { db } from '../db/database'
 import { useTTS } from '../hooks/useTTS'
 import { TtsMiniPlayer } from '../components/reader/TtsMiniPlayer'
@@ -175,8 +176,23 @@ export function ReaderScreen({
   const [showBackToTtsLocation, setShowBackToTtsLocation] = useState(false)
   const [tocOpen, setTocOpen] = useState(false)
   const [bookmarkSheetOpen, setBookmarkSheetOpen] = useState(false)
-  // Highlight sendo anotado/editado no momento — null = sheet fechado (feature 013).
-  const [highlightNoteTarget, setHighlightNoteTarget] = useState<Highlight | null>(null)
+  // Caixa unificada de cor/estilo/nota (feature 016) — null = fechada.
+  // 'create': ainda sem highlight, só o draft da seleção (cor/estilo vêm do
+  // último usado). 'edit': highlight já existe, pré-preenche com os valores
+  // atuais. Substitui highlightNoteTarget (013)/onChangeHighlightAppearance (010).
+  const [highlightComposer, setHighlightComposer] = useState<
+    { type: 'create'; draft: HighlightDraftPayload } | { type: 'edit'; highlight: Highlight } | null
+  >(null)
+  // Último highlight criado (qualquer livro) — pré-seleciona a caixa unificada
+  // na próxima criação (FR-002). Carregado uma vez ao montar (efeito abaixo).
+  const [lastHighlightColor, setLastHighlightColor] = useState('indigo')
+  const [lastHighlightStyle, setLastHighlightStyle] = useState<HighlightStyle>('background')
+  // Highlight recem-criado aguardando o toque no toast de atalho (feature 015) —
+  // null = nenhum toast visivel. Sempre SUBSTITUIDO por uma nova criacao (nunca
+  // dois toasts ao mesmo tempo, FR-005); só aparece se a caixa unificada foi
+  // confirmada SEM nota (feature 016, FR-006) e limpo ao abrir a caixa por
+  // qualquer via.
+  const [highlightAnnotateToast, setHighlightAnnotateToast] = useState<Highlight | null>(null)
   const [appearanceSheetOpen, setAppearanceSheetOpen] = useState(false)
   const [readerImagePreview, setReaderImagePreview] = useState<ReaderImageOpenPayload | null>(null)
   const [focusLineEnabled, setFocusLineEnabled] = useState(() => localStorage.getItem('neoreader:focus-line') === '1')
@@ -411,6 +427,18 @@ export function ReaderScreen({
 
   // Limpa o store ao desmontar para não vazar estado entre livros
   useEffect(() => { return () => reset() }, [reset])
+
+  // Último highlight usado (feature 016, FR-002) — carregado uma vez, global
+  // entre livros (não é preferência por-livro, ao contrário de fontSize/tema).
+  useEffect(() => {
+    let cancelled = false
+    void getSettings().then((s) => {
+      if (cancelled) return
+      setLastHighlightColor(s.readerDefaults.lastHighlightColor)
+      setLastHighlightStyle(s.readerDefaults.lastHighlightStyle)
+    })
+    return () => { cancelled = true }
+  }, [])
 
   useEffect(() => {
     activeSectionIndexRef.current = null
@@ -1035,21 +1063,6 @@ export function ReaderScreen({
 
   // Highlights (feature 010): grava direto, sem agendar sync no Drive
   // (Invariante 7/FR-018) — useLiveQuery acima já reage à escrita sozinho.
-  function handleCreateHighlight(payload: HighlightCreationPayload) {
-    if (book.id === undefined) return
-    void addHighlight({
-      bookId: book.id,
-      cfi: payload.cfi,
-      paraCfi: payload.paraCfi,
-      text: payload.text,
-      color: payload.color,
-      style: payload.style,
-      sectionIndex: payload.sectionIndex,
-      percentage: payload.percentage,
-      createdAt: new Date(),
-    })
-  }
-
   // US3: a pintura/despintura no texto é feita pelo próprio EpubViewer no
   // mesmo toque; aqui só persiste. O useLiveQuery devolve a lista nova e o
   // efeito de repintura do viewer cuida do resto.
@@ -1058,20 +1071,72 @@ export function ReaderScreen({
     void deleteHighlight(highlight.id)
   }
 
-  function handleChangeHighlightAppearance(highlight: Highlight, patch: { color?: string; style?: HighlightStyle }) {
-    if (highlight.id === undefined) return
-    void updateHighlightAppearance(highlight.id, patch)
+  // "Destacar" no menu de seleção (feature 016): NÃO cria nada ainda — só
+  // abre a caixa unificada com o draft (sem cor/estilo). Ver
+  // handleSaveHighlightComposer pra onde a criação de fato acontece.
+  function handleRequestCreateHighlight(draft: HighlightDraftPayload) {
+    setHighlightComposer({ type: 'create', draft })
   }
 
-  // Anotação de texto (feature 013): abre o sheet fora do iframe; salvar de
-  // fato só acontece em handleSaveHighlightNote, nunca aqui.
-  function handleAnnotateHighlight(highlight: Highlight) {
-    setHighlightNoteTarget(highlight)
+  // Tocar num highlight existente (feature 016): abre a MESMA caixa
+  // unificada, agora em modo edição (pré-preenchida com os valores atuais).
+  function handleEditHighlight(highlight: Highlight) {
+    setHighlightComposer({ type: 'edit', highlight })
+    // Abrir a caixa por QUALQUER via (toast ou menu) nao deve deixar um
+    // toast antigo pairando por cima (feature 015).
+    setHighlightAnnotateToast(null)
   }
 
-  function handleSaveHighlightNote(note: string) {
-    if (highlightNoteTarget?.id !== undefined) void updateHighlightNote(highlightNoteTarget.id, note)
-    setHighlightNoteTarget(null)
+  // Toque no toast de atalho (feature 015): abre a caixa unificada em modo
+  // edição pro highlight recém-criado (mesmo caminho de handleEditHighlight).
+  function handleTapAnnotateToast() {
+    if (!highlightAnnotateToast) return
+    setHighlightComposer({ type: 'edit', highlight: highlightAnnotateToast })
+    setHighlightAnnotateToast(null)
+  }
+
+  // Único lugar que decide o que gravar da caixa unificada (feature 016) —
+  // ramifica por modo. Nunca chamado a partir de onClose/Cancelar (FR-003/FR-007).
+  async function handleSaveHighlightComposer(result: { color: string; style: HighlightStyle; note: string }) {
+    if (!highlightComposer) return
+    const note = result.note.trim()
+
+    if (highlightComposer.type === 'create') {
+      if (book.id === undefined) {
+        setHighlightComposer(null)
+        return
+      }
+      const { draft } = highlightComposer
+      const newHighlight = {
+        bookId: book.id,
+        cfi: draft.cfi,
+        paraCfi: draft.paraCfi,
+        text: draft.text,
+        color: result.color,
+        style: result.style,
+        sectionIndex: draft.sectionIndex,
+        percentage: draft.percentage,
+        createdAt: new Date(),
+        ...(note ? { note } : {}),
+      }
+      const id = await addHighlight(newHighlight)
+      setLastHighlightColor(result.color)
+      setLastHighlightStyle(result.style)
+      void updateReaderDefaults({ lastHighlightColor: result.color, lastHighlightStyle: result.style })
+      // Toast só se a nota ficou vazia (FR-006) — já anotado na própria caixa
+      // não precisa de um segundo convite.
+      if (!note) setHighlightAnnotateToast({ ...newHighlight, id })
+    } else {
+      const { highlight } = highlightComposer
+      if (highlight.id !== undefined) {
+        await Promise.all([
+          updateHighlightAppearance(highlight.id, { color: result.color, style: result.style }),
+          updateHighlightNote(highlight.id, result.note),
+        ])
+      }
+    }
+
+    setHighlightComposer(null)
   }
 
   async function handleRemoveMissingBook() {
@@ -1165,10 +1230,9 @@ export function ReaderScreen({
           onOpenImage={handleOpenImage}
           vocabWords={vocabWords}
           highlights={highlights}
-          onCreateHighlight={handleCreateHighlight}
+          onRequestCreateHighlight={handleRequestCreateHighlight}
           onDeleteHighlight={handleDeleteHighlight}
-          onChangeHighlightAppearance={handleChangeHighlightAppearance}
-          onAnnotateHighlight={handleAnnotateHighlight}
+          onEditHighlight={handleEditHighlight}
           />
         )}
       </div>
@@ -1265,6 +1329,18 @@ export function ReaderScreen({
         <TtsFinishedToast onDismiss={() => setTtsFinished(false)} />
       )}
 
+      {/* Atalho pra anotar logo após criar um highlight (feature 015) */}
+      {highlightAnnotateToast && (
+        <Toast
+          tone="info"
+          durationMs={5500}
+          onAction={handleTapAnnotateToast}
+          onDismiss={() => setHighlightAnnotateToast(null)}
+        >
+          {t('highlightAnnotateToast.message')}
+        </Toast>
+      )}
+
       <TocDrawer
         open={tocOpen}
         toc={toc}
@@ -1289,12 +1365,14 @@ export function ReaderScreen({
         onClose={() => setBookmarkSheetOpen(false)}
       />
 
-      <HighlightNoteSheet
-        key={highlightNoteTarget?.id ?? 'closed'}
-        open={highlightNoteTarget !== null}
-        highlight={highlightNoteTarget}
-        onSave={handleSaveHighlightNote}
-        onClose={() => setHighlightNoteTarget(null)}
+      <HighlightComposerSheet
+        key={highlightComposer?.type === 'edit' ? highlightComposer.highlight.id : (highlightComposer?.type === 'create' ? highlightComposer.draft.cfi : 'closed')}
+        open={highlightComposer !== null}
+        highlight={highlightComposer?.type === 'edit' ? highlightComposer.highlight : null}
+        defaultColor={lastHighlightColor}
+        defaultStyle={lastHighlightStyle}
+        onSave={handleSaveHighlightComposer}
+        onClose={() => setHighlightComposer(null)}
       />
 
       <BottomSheet

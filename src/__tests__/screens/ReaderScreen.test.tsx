@@ -3,14 +3,15 @@ import { describe, expect, it, beforeEach, vi } from 'vitest'
 import { ReaderScreen } from '@/screens/ReaderScreen'
 import type { Book } from '@/types/book'
 import type { Highlight } from '@/types/highlight'
-import type { TtsChunk } from '@/components/reader/EpubViewer'
+import type { TtsChunk, HighlightDraftPayload } from '@/components/reader/EpubViewer'
 import type { TtsProvider } from '@/types/tts'
 import { getBookSettings, updateBookSettings } from '@/db/bookSettings'
-import { getSettings } from '@/db/settings'
+import { getSettings, updateReaderDefaults } from '@/db/settings'
 import { translate } from '@/services/TranslationService'
 import { addVocabItem } from '@/db/vocabulary'
 import { deleteBook } from '@/db/books'
 import { setReaderImmersiveMode, setSelectionMenuSuppressed } from '@/services/NativeSystemUiService'
+import { addHighlight, updateHighlightAppearance } from '@/db/highlights'
 
 type MockTtsOptions = {
   onFinished?: () => void
@@ -190,9 +191,12 @@ vi.mock('@/db/settings', () => ({
       overrideBookColors: true,
       wordLensEnabled: true,
       wordLensLevel: 'B1',
+      lastHighlightColor: 'indigo',
+      lastHighlightStyle: 'background',
     },
     updatedAt: new Date(),
   })),
+  updateReaderDefaults: vi.fn(),
 }))
 
 vi.mock('@/db/bookSettings', () => ({
@@ -390,6 +394,7 @@ describe('ReaderScreen', () => {
     mocks.liveQueryIndex = 0
     mocks.scheduleBookmarkDriveSync.mockClear()
     mocks.updateHighlightNote.mockClear()
+    vi.mocked(addHighlight).mockReset()
     mocks.capacitorListeners.backButton = null
     mocks.capacitorListeners.appStateChange = null
     mocks.capacitorListeners.playbackControl = null
@@ -554,58 +559,252 @@ describe('ReaderScreen', () => {
     }
   }
 
-  it('onAnnotateHighlight sem nota abre o sheet de anotacao vazio', async () => {
+  it('T016: onEditHighlight abre a caixa unificada pre-preenchida com cor/estilo/nota atuais, sem nota', async () => {
     render(<ReaderScreen book={book} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />)
     await flushAsyncWork()
 
     await act(async () => {
-      (mocks.epubViewerProps?.onAnnotateHighlight as (h: Highlight) => void)(makeTestHighlight())
+      (mocks.epubViewerProps?.onEditHighlight as (h: Highlight) => void)(makeTestHighlight({ color: 'rose', style: 'underline' }))
     })
 
+    expect(screen.getByLabelText('Cor Rosa').getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByLabelText('Sublinhado').getAttribute('aria-pressed')).toBe('true')
     expect((screen.getByPlaceholderText('Escreva sua anotacao...') as HTMLTextAreaElement).value).toBe('')
   })
 
-  it('onAnnotateHighlight com nota existente abre o sheet preenchido', async () => {
+  it('T016b: onEditHighlight com nota existente pre-preenche o campo de texto', async () => {
     render(<ReaderScreen book={book} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />)
     await flushAsyncWork()
 
     await act(async () => {
-      (mocks.epubViewerProps?.onAnnotateHighlight as (h: Highlight) => void)(makeTestHighlight({ note: 'Reflexao existente' }))
+      (mocks.epubViewerProps?.onEditHighlight as (h: Highlight) => void)(makeTestHighlight({ note: 'Reflexao existente' }))
     })
 
     expect((screen.getByPlaceholderText('Escreva sua anotacao...') as HTMLTextAreaElement).value).toBe('Reflexao existente')
   })
 
-  it('salvar a anotacao chama updateHighlightNote com o id do highlight e o texto digitado', async () => {
+  it('T017: confirmar a edicao chama updateHighlightAppearance E updateHighlightNote com o id do highlight certo', async () => {
     render(<ReaderScreen book={book} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />)
     await flushAsyncWork()
 
     await act(async () => {
-      (mocks.epubViewerProps?.onAnnotateHighlight as (h: Highlight) => void)(makeTestHighlight({ id: 9 }))
+      (mocks.epubViewerProps?.onEditHighlight as (h: Highlight) => void)(makeTestHighlight({ id: 9, color: 'indigo', style: 'background' }))
     })
 
-    const textarea = screen.getByPlaceholderText('Escreva sua anotacao...')
-    const dialog = textarea.closest('[role="dialog"]') as HTMLElement
-    fireEvent.change(textarea, { target: { value: 'Nova reflexao' } })
-    fireEvent.click(within(dialog).getByText('Salvar'))
+    fireEvent.click(screen.getByLabelText('Cor Rosa'))
+    fireEvent.click(screen.getByLabelText('Sublinhado'))
+    await confirmComposer('Nova reflexao')
 
     expect(mocks.updateHighlightNote).toHaveBeenCalledWith(9, 'Nova reflexao')
+    expect(updateHighlightAppearance).toHaveBeenCalledWith(9, { color: 'rose', style: 'underline' })
   })
 
-  it('cancelar a edicao nao chama updateHighlightNote', async () => {
+  it('T018: cancelar a edicao nao chama updateHighlightNote nem updateHighlightAppearance', async () => {
     render(<ReaderScreen book={book} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />)
     await flushAsyncWork()
 
     await act(async () => {
-      (mocks.epubViewerProps?.onAnnotateHighlight as (h: Highlight) => void)(makeTestHighlight())
+      (mocks.epubViewerProps?.onEditHighlight as (h: Highlight) => void)(makeTestHighlight())
     })
 
+    fireEvent.click(screen.getByLabelText('Cor Rosa'))
     const textarea = screen.getByPlaceholderText('Escreva sua anotacao...')
     const dialog = textarea.closest('[role="dialog"]') as HTMLElement
     fireEvent.change(textarea, { target: { value: 'Rascunho descartado' } })
     fireEvent.click(within(dialog).getByText('Cancelar'))
 
     expect(mocks.updateHighlightNote).not.toHaveBeenCalled()
+    expect(updateHighlightAppearance).not.toHaveBeenCalled()
+  })
+
+  function makeDraftPayload(overrides: Partial<HighlightDraftPayload> = {}): HighlightDraftPayload {
+    return {
+      cfi: 'epubcfi(/6/8!/4/2/10/2,/1:0,/1:20)',
+      paraCfi: 'epubcfi(/6/8!/4/2/10/2:0)',
+      text: 'texto selecionado',
+      sectionIndex: 0,
+      percentage: 10,
+      ...overrides,
+    }
+  }
+
+  // "Destacar" (feature 016) so abre a caixa unificada — nao cria nada
+  // sozinho. Precisa confirmar (Salvar) pra virar um highlight de verdade.
+  async function openComposerForCreation(overrides: Partial<HighlightDraftPayload> = {}) {
+    await act(async () => {
+      (mocks.epubViewerProps?.onRequestCreateHighlight as (d: HighlightDraftPayload) => void)(makeDraftPayload(overrides))
+    })
+  }
+
+  // handleSaveHighlightComposer e assincrono (await addHighlight/updateHighlightAppearance) —
+  // precisa dar tempo do microtask rodar antes de checar os mocks.
+  async function confirmComposer(note?: string) {
+    if (note !== undefined) {
+      fireEvent.change(screen.getByPlaceholderText('Escreva sua anotacao...'), { target: { value: note } })
+    }
+    const textarea = screen.getByPlaceholderText('Escreva sua anotacao...')
+    const dialog = textarea.closest('[role="dialog"]') as HTMLElement
+    fireEvent.click(within(dialog).getByText('Salvar'))
+    await flushAsyncWork()
+  }
+
+  it('T006: onRequestCreateHighlight abre a caixa unificada com a cor/estilo default vindos de getSettings', async () => {
+    // ReaderScreen faz 2 chamadas a getSettings() no mount (useReaderAppearance
+    // + o efeito novo de lastHighlightColor/Style) — mockResolvedValueOnce
+    // encadeado 2x cobre as duas, sem vazar pros testes seguintes (diferente
+    // de mockResolvedValue, que persistiria).
+    const customSettings = {
+      appSettings: { speechifyApiKey: '', elevenLabsApiKey: '', fishAudioApiKey: '', translationTargetLang: 'pt-BR' } as never,
+      readerDefaults: {
+        defaultFontSize: 'md', lineHeight: 'comfortable', readerTheme: 'dark', fontFamily: 'classic',
+        overrideBookFont: true, overrideBookColors: true, wordLensEnabled: true, wordLensLevel: 'B1',
+        lastHighlightColor: 'rose', lastHighlightStyle: 'underline',
+      } as never,
+      updatedAt: new Date(),
+    }
+    vi.mocked(getSettings).mockResolvedValueOnce(customSettings).mockResolvedValueOnce(customSettings)
+    render(<ReaderScreen book={book} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />)
+    await flushAsyncWork()
+
+    await openComposerForCreation()
+
+    expect(screen.getByLabelText('Cor Rosa').getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByLabelText('Sublinhado').getAttribute('aria-pressed')).toBe('true')
+    expect((screen.getByPlaceholderText('Escreva sua anotacao...') as HTMLTextAreaElement).value).toBe('')
+  })
+
+  it('T008: cancelar a caixa em modo criacao nao chama addHighlight', async () => {
+    render(<ReaderScreen book={book} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />)
+    await flushAsyncWork()
+
+    await openComposerForCreation()
+    const textarea = screen.getByPlaceholderText('Escreva sua anotacao...')
+    const dialog = textarea.closest('[role="dialog"]') as HTMLElement
+    fireEvent.click(within(dialog).getByText('Cancelar'))
+
+    expect(addHighlight).not.toHaveBeenCalled()
+  })
+
+  it('T007: confirmar a caixa em modo criacao chama addHighlight e updateReaderDefaults com a cor/estilo escolhidos', async () => {
+    vi.mocked(addHighlight).mockResolvedValueOnce(101)
+    render(<ReaderScreen book={book} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />)
+    await flushAsyncWork()
+
+    await openComposerForCreation()
+    fireEvent.click(screen.getByLabelText('Cor Rosa'))
+    fireEvent.click(screen.getByLabelText('Sublinhado'))
+    await confirmComposer()
+
+    expect(addHighlight).toHaveBeenCalledWith(expect.objectContaining({
+      cfi: 'epubcfi(/6/8!/4/2/10/2,/1:0,/1:20)',
+      color: 'rose',
+      style: 'underline',
+    }))
+    expect(updateReaderDefaults).toHaveBeenCalledWith({ lastHighlightColor: 'rose', lastHighlightStyle: 'underline' })
+  })
+
+  it('criar um highlight sem nota mostra o toast de atalho pra anotar (feature 015, FR-006)', async () => {
+    vi.mocked(addHighlight).mockResolvedValueOnce(101)
+    render(<ReaderScreen book={book} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />)
+    await flushAsyncWork()
+
+    await openComposerForCreation()
+    await confirmComposer()
+
+    expect(screen.getByText('Highlight criado. Toque para anotar.')).toBeTruthy()
+  })
+
+  it('criar um highlight JA com nota na caixa NAO mostra o toast (FR-006)', async () => {
+    vi.mocked(addHighlight).mockResolvedValueOnce(101)
+    render(<ReaderScreen book={book} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />)
+    await flushAsyncWork()
+
+    await openComposerForCreation()
+    await confirmComposer('Ja anotado na hora')
+
+    expect(addHighlight).toHaveBeenCalledWith(expect.objectContaining({ note: 'Ja anotado na hora' }))
+    expect(screen.queryByText('Highlight criado. Toque para anotar.')).toBeNull()
+  })
+
+  it('tocar no toast abre a caixa em modo edicao, vazia, associada ao highlight recem-criado', async () => {
+    vi.mocked(addHighlight).mockResolvedValueOnce(101)
+    render(<ReaderScreen book={book} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />)
+    await flushAsyncWork()
+
+    await openComposerForCreation()
+    await confirmComposer()
+
+    fireEvent.click(screen.getByText('Highlight criado. Toque para anotar.'))
+
+    expect((screen.getByPlaceholderText('Escreva sua anotacao...') as HTMLTextAreaElement).value).toBe('')
+    // Toast some ao abrir a caixa
+    expect(screen.queryByText('Highlight criado. Toque para anotar.')).toBeNull()
+  })
+
+  it('salvar a partir do toast chama updateHighlightNote com o id do highlight recem-criado', async () => {
+    vi.mocked(addHighlight).mockResolvedValueOnce(202)
+    render(<ReaderScreen book={book} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />)
+    await flushAsyncWork()
+
+    await openComposerForCreation()
+    await confirmComposer()
+
+    fireEvent.click(screen.getByText('Highlight criado. Toque para anotar.'))
+    await confirmComposer('Anotado pelo atalho')
+
+    expect(mocks.updateHighlightNote).toHaveBeenCalledWith(202, 'Anotado pelo atalho')
+  })
+
+  it('cancelar a partir do toast nao chama updateHighlightNote (identico ao fluxo de menu, FR-007)', async () => {
+    vi.mocked(addHighlight).mockResolvedValueOnce(101)
+    render(<ReaderScreen book={book} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />)
+    await flushAsyncWork()
+
+    await openComposerForCreation()
+    await confirmComposer()
+
+    fireEvent.click(screen.getByText('Highlight criado. Toque para anotar.'))
+    const textarea = screen.getByPlaceholderText('Escreva sua anotacao...')
+    const dialog = textarea.closest('[role="dialog"]') as HTMLElement
+    fireEvent.change(textarea, { target: { value: 'Rascunho descartado' } })
+    fireEvent.click(within(dialog).getByText('Cancelar'))
+
+    expect(mocks.updateHighlightNote).not.toHaveBeenCalled()
+  })
+
+  it('criar um segundo highlight substitui o toast do primeiro (FR-005, nunca dois ao mesmo tempo)', async () => {
+    vi.mocked(addHighlight).mockResolvedValueOnce(101).mockResolvedValueOnce(202)
+    render(<ReaderScreen book={book} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />)
+    await flushAsyncWork()
+
+    await openComposerForCreation({ text: 'primeiro trecho' })
+    await confirmComposer()
+    await openComposerForCreation({ text: 'segundo trecho' })
+    await confirmComposer()
+
+    expect(screen.getAllByText('Highlight criado. Toque para anotar.')).toHaveLength(1)
+
+    fireEvent.click(screen.getByText('Highlight criado. Toque para anotar.'))
+    await confirmComposer('nota do mais recente')
+
+    expect(mocks.updateHighlightNote).toHaveBeenCalledWith(202, 'nota do mais recente')
+  })
+
+  it('abrir a caixa pelo menu de gerenciamento (fluxo ja existente) some com o toast pendente', async () => {
+    vi.mocked(addHighlight).mockResolvedValueOnce(101)
+    render(<ReaderScreen book={book} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />)
+    await flushAsyncWork()
+
+    await openComposerForCreation()
+    await confirmComposer()
+    expect(screen.getByText('Highlight criado. Toque para anotar.')).toBeTruthy()
+
+    await act(async () => {
+      (mocks.epubViewerProps?.onEditHighlight as (h: Highlight) => void)(makeTestHighlight({ id: 9 }))
+    })
+
+    expect(screen.queryByText('Highlight criado. Toque para anotar.')).toBeNull()
+    expect((screen.getByPlaceholderText('Escreva sua anotacao...') as HTMLTextAreaElement).value).toBe('')
   })
 
   it('carrega Word Lens somente depois que o viewer fica interativo', async () => {

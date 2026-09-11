@@ -67,6 +67,8 @@ describe('settings db helpers', () => {
         overrideBookColors: true,
         wordLensEnabled: false,
         wordLensLevel: 'B1',
+        lastHighlightColor: 'indigo',
+        lastHighlightStyle: 'background',
       },
       updatedAt: new Date('2026-04-20T10:00:00.000Z'),
     })
@@ -102,6 +104,8 @@ describe('settings db helpers', () => {
         overrideBookColors: true,
         wordLensEnabled: false,
         wordLensLevel: 'B1',
+        lastHighlightColor: 'indigo',
+        lastHighlightStyle: 'background',
       },
     }))
   })
@@ -148,6 +152,8 @@ describe('settings db helpers', () => {
         overrideBookColors: true,
         wordLensEnabled: true,
         wordLensLevel: 'B1',
+        lastHighlightColor: 'indigo',
+        lastHighlightStyle: 'background',
       },
     }))
   })
@@ -182,6 +188,8 @@ describe('settings db helpers', () => {
       overrideBookColors: true,
       wordLensEnabled: false,
       wordLensLevel: 'B1',
+      lastHighlightColor: 'indigo',
+      lastHighlightStyle: 'background',
     })
   })
 
