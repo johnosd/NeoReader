@@ -68,6 +68,7 @@ const mocks = vi.hoisted(() => {
     bookmarks: [] as Array<{ id: number; syncedAt: Date | null }>,
     liveQueryIndex: 0,
     scheduleBookmarkDriveSync: vi.fn(),
+    getCachedBookmarkDriveSyncStatus: vi.fn(() => ({ code: 'connected' as string })),
     updateHighlightNote: vi.fn(),
     setReaderImmersiveMode: vi.fn().mockResolvedValue(undefined),
   setSelectionMenuSuppressed: vi.fn().mockResolvedValue(undefined),
@@ -224,6 +225,10 @@ vi.mock('@/services/TranslationService', () => ({
 
 vi.mock('@/services/BookmarkDriveSyncService', () => ({
   scheduleBookmarkDriveSync: mocks.scheduleBookmarkDriveSync,
+}))
+
+vi.mock('@/services/BookmarkDriveSyncStatus', () => ({
+  getCachedBookmarkDriveSyncStatus: mocks.getCachedBookmarkDriveSyncStatus,
 }))
 
 vi.mock('@/services/NativeSystemUiService', () => ({
@@ -393,6 +398,8 @@ describe('ReaderScreen', () => {
     mocks.bookmarks = []
     mocks.liveQueryIndex = 0
     mocks.scheduleBookmarkDriveSync.mockClear()
+    mocks.getCachedBookmarkDriveSyncStatus.mockClear()
+    mocks.getCachedBookmarkDriveSyncStatus.mockReturnValue({ code: 'connected' })
     mocks.updateHighlightNote.mockClear()
     vi.mocked(addHighlight).mockReset()
     mocks.capacitorListeners.backButton = null
@@ -499,6 +506,31 @@ describe('ReaderScreen', () => {
     })
 
     expect(mocks.scheduleBookmarkDriveSync).toHaveBeenCalledWith(1)
+    expect(onBack).toHaveBeenCalledOnce()
+  })
+
+  it('ao fechar o livro com bookmark pendente e status permission-error, avisa em vez de tentar sincronizar', async () => {
+    mocks.bookmarks = [{ id: 1, syncedAt: null }]
+    mocks.getCachedBookmarkDriveSyncStatus.mockReturnValue({ code: 'permission-error' })
+    const onBack = vi.fn()
+    const onBookmarkSyncBlocked = vi.fn()
+
+    render(
+      <ReaderScreen
+        book={book}
+        onBack={onBack}
+        onOpenVocabulary={vi.fn()}
+        onBookmarkSyncBlocked={onBookmarkSyncBlocked}
+      />,
+    )
+    await flushAsyncWork()
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('go-back'))
+    })
+
+    expect(mocks.scheduleBookmarkDriveSync).not.toHaveBeenCalled()
+    expect(onBookmarkSyncBlocked).toHaveBeenCalledWith(expect.any(String))
     expect(onBack).toHaveBeenCalledOnce()
   })
 

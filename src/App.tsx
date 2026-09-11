@@ -87,6 +87,7 @@ function App() {
   const [stack, setStack] = useState<Route[]>([{ name: 'home' }])
   const [externalImporting, setExternalImporting] = useState(false)
   const [externalImportError, setExternalImportError] = useState<string | null>(null)
+  const [bookmarkSyncNotice, setBookmarkSyncNotice] = useState<string | null>(null)
   const [externalIntentSignal, setExternalIntentSignal] = useState(0)
   const current = stack[stack.length - 1]
 
@@ -274,6 +275,11 @@ function App() {
             {externalImportError}
           </Toast>
         )}
+        {bookmarkSyncNotice && (
+          <Toast tone="warning" durationMs={6000} onDismiss={() => setBookmarkSyncNotice(null)}>
+            {bookmarkSyncNotice}
+          </Toast>
+        )}
       </>
     )
   }
@@ -332,6 +338,7 @@ function App() {
             onBack={pop}
             onOpenVocabulary={() => push({ name: 'vocabulary', bookId: current.book.id })}
             onOpenSettings={() => push({ name: 'settings' })}
+            onBookmarkSyncBlocked={setBookmarkSyncNotice}
           />
         </ErrorBoundary>
       )
