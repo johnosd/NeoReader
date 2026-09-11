@@ -69,6 +69,7 @@ const mocks = vi.hoisted(() => {
     liveQueryIndex: 0,
     scheduleBookmarkDriveSync: vi.fn(),
     getCachedBookmarkDriveSyncStatus: vi.fn(() => ({ code: 'connected' as string })),
+    isNativePlatform: vi.fn(() => false),
     updateHighlightNote: vi.fn(),
     setReaderImmersiveMode: vi.fn().mockResolvedValue(undefined),
   setSelectionMenuSuppressed: vi.fn().mockResolvedValue(undefined),
@@ -134,6 +135,12 @@ vi.mock('@capacitor/app', () => ({
       }
     }),
   },
+}))
+
+vi.mock('@capacitor/core', () => ({
+  Capacitor: { isNativePlatform: mocks.isNativePlatform },
+  registerPlugin: vi.fn(() => ({})),
+  WebPlugin: class {},
 }))
 
 vi.mock('@/hooks/useReaderProgress', () => ({
@@ -220,7 +227,7 @@ vi.mock('@/services/SpeechifyService', () => ({
 }))
 
 vi.mock('@/services/TranslationService', () => ({
-  translate: vi.fn(async () => 'Texto traduzido'),
+  translate: vi.fn(async () => ({ translatedText: 'Texto traduzido', provider: 'mymemory' })),
 }))
 
 vi.mock('@/services/BookmarkDriveSyncService', () => ({
@@ -400,6 +407,8 @@ describe('ReaderScreen', () => {
     mocks.scheduleBookmarkDriveSync.mockClear()
     mocks.getCachedBookmarkDriveSyncStatus.mockClear()
     mocks.getCachedBookmarkDriveSyncStatus.mockReturnValue({ code: 'connected' })
+    mocks.isNativePlatform.mockReset()
+    mocks.isNativePlatform.mockReturnValue(false)
     mocks.updateHighlightNote.mockClear()
     vi.mocked(addHighlight).mockReset()
     mocks.capacitorListeners.backButton = null
@@ -1893,7 +1902,7 @@ describe('ReaderScreen', () => {
       await (mocks.epubViewerProps?.onTranslate as (text: string) => Promise<void>)('Bonjour')
     })
 
-    expect(translate).toHaveBeenCalledWith('Bonjour', 'fr', 'pt-BR')
+    expect(translate).toHaveBeenCalledWith('Bonjour', 'fr', 'pt-BR', expect.objectContaining({ provider: 'mymemory' }))
 
     await act(async () => {
       ;(mocks.epubViewerProps?.onSaveVocab as (source: string, translated: string) => void)('Bonjour', 'Ola')
@@ -1939,7 +1948,7 @@ describe('ReaderScreen', () => {
       await (mocks.epubViewerProps?.onTranslate as (text: string) => Promise<void>)('Bonjour')
     })
 
-    expect(translate).toHaveBeenCalledWith('Bonjour', 'fr', 'pt-BR')
+    expect(translate).toHaveBeenCalledWith('Bonjour', 'fr', 'pt-BR', expect.objectContaining({ provider: 'mymemory' }))
   })
 
   it('usa o idioma de tradução configurado no livro quando houver override', async () => {
@@ -1962,7 +1971,7 @@ describe('ReaderScreen', () => {
       await (mocks.epubViewerProps?.onTranslate as (text: string) => Promise<void>)('Bonjour')
     })
 
-    expect(translate).toHaveBeenCalledWith('Bonjour', 'fr', 'es')
+    expect(translate).toHaveBeenCalledWith('Bonjour', 'fr', 'es', expect.objectContaining({ provider: 'mymemory' }))
 
     await act(async () => {
       ;(mocks.epubViewerProps?.onSaveVocab as (source: string, translated: string) => void)('Bonjour', 'Hola')
@@ -1972,5 +1981,96 @@ describe('ReaderScreen', () => {
       sourceLang: 'fr',
       targetLang: 'es',
     }))
+  })
+
+  it('usa o provedor de tradução premium selecionado para o livro (DeepL, no Android)', async () => {
+    // DeepL bloqueia CORS fora do Android (R-006) — sem isso, cai pro
+    // MyMemory mesmo com a chave configurada.
+    mocks.isNativePlatform.mockReturnValue(true)
+    vi.mocked(getBookSettings).mockResolvedValue({ bookId: 1, translationProvider: 'deepl' })
+    vi.mocked(getSettings).mockResolvedValue(makeSettings({
+      appSettings: {
+        speechifyApiKey: '',
+        elevenLabsApiKey: '',
+        fishAudioApiKey: '',
+        translationTargetLang: 'pt-BR',
+        deeplApiKey: 'deepl-real-key',
+      },
+    }))
+    vi.mocked(translate).mockResolvedValueOnce({ translatedText: 'Texto traduzido', provider: 'deepl' })
+
+    render(
+      <ReaderScreen
+        book={book}
+        onBack={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+
+    await flushAsyncWork()
+
+    await act(async () => {
+      await (mocks.epubViewerProps?.onTranslate as (text: string) => Promise<void>)('Bonjour')
+    })
+
+    expect(translate).toHaveBeenCalledWith('Bonjour', 'fr', 'pt-BR', expect.objectContaining({ provider: 'deepl' }))
+    // FR-008: o selo "via {provedor}" depende do provider efetivo devolvido
+    // por translate() ser propagado pro EpubViewer.
+    expect(mocks.viewerHandle.injectTranslation).toHaveBeenCalledWith('Texto traduzido', undefined, 'deepl')
+  })
+
+  it('fora do Android, cai pro MyMemory mesmo com DeepL selecionado e chave configurada (R-006/CORS)', async () => {
+    mocks.isNativePlatform.mockReturnValue(false)
+    vi.mocked(getBookSettings).mockResolvedValue({ bookId: 1, translationProvider: 'deepl' })
+    vi.mocked(getSettings).mockResolvedValue(makeSettings({
+      appSettings: {
+        speechifyApiKey: '',
+        elevenLabsApiKey: '',
+        fishAudioApiKey: '',
+        translationTargetLang: 'pt-BR',
+        deeplApiKey: 'deepl-real-key',
+      },
+    }))
+
+    render(
+      <ReaderScreen
+        book={book}
+        onBack={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+
+    await flushAsyncWork()
+
+    await act(async () => {
+      await (mocks.epubViewerProps?.onTranslate as (text: string) => Promise<void>)('Bonjour')
+    })
+
+    expect(translate).toHaveBeenCalledWith('Bonjour', 'fr', 'pt-BR', expect.objectContaining({ provider: 'mymemory' }))
+  })
+
+  it('cancela a tradução anterior ao trocar de trecho antes da resposta voltar (FR-007)', async () => {
+    render(
+      <ReaderScreen
+        book={book}
+        onBack={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+
+    await flushAsyncWork()
+
+    let firstSignal: AbortSignal | undefined
+    await act(async () => {
+      const onTranslate = mocks.epubViewerProps?.onTranslate as (text: string) => Promise<void>
+      // Não espera a 1ª terminar antes de disparar a 2ª — mesmo padrão de
+      // "trocar de trecho antes da resposta voltar".
+      const firstCall = onTranslate('Bonjour')
+      firstSignal = (translate as ReturnType<typeof vi.fn>).mock.calls[0][3].signal as AbortSignal
+      await onTranslate('Au revoir')
+      await firstCall
+    })
+
+    expect(firstSignal?.aborted).toBe(true)
   })
 })

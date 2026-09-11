@@ -36,6 +36,14 @@ import {
   synthesizePremiumTts,
 } from '../services/TtsProviderRegistry'
 import {
+  TRANSLATION_PROVIDER_ORDER,
+  getTranslationProviderAvailability,
+  getTranslationProviderLabel,
+  isTranslationProviderConfigured,
+  isTranslationProviderPlatformRestricted,
+  resolveTranslationProviderFromAvailability,
+} from '../services/TranslationProviderRegistry'
+import {
   ReaderFontControl,
   ReaderFontSizeControl,
   ReaderLineHeightControl,
@@ -55,6 +63,7 @@ import type {
 } from '../types/bookInfo'
 import type { AppSettings, FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from '../types/settings'
 import type { TtsProvider, TtsVoiceOption } from '../types/tts'
+import type { TranslationProvider } from '../types/translation'
 import { clampTtsRate, normalizeLanguageTag } from '../utils/language'
 import { BOOK_LANGUAGE_OPTIONS, getLanguageLabel, TRANSLATION_LANGUAGE_OPTIONS } from '../utils/languageOptions'
 import { resolveReadingState } from '../utils/readingState'
@@ -136,11 +145,15 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
     fishAudioApiKey: '',
     translationTargetLang: 'pt-BR',
     youtubeApiKey: '',
+    deeplApiKey: '',
+    openaiTranslationApiKey: '',
+    googleTranslateApiKey: '',
   })
   const [settingsLoaded, setSettingsLoaded] = useState(false)
   const [bookLanguageSheetOpen, setBookLanguageSheetOpen] = useState(false)
   const [translationTargetLangSheetOpen, setTranslationTargetLangSheetOpen] = useState(false)
   const [ttsProviderSheetOpen, setTtsProviderSheetOpen] = useState(false)
+  const [translationProviderSheetOpen, setTranslationProviderSheetOpen] = useState(false)
   const [ttsVoiceSheetOpen, setTtsVoiceSheetOpen] = useState(false)
   const [ttsSpeedSheetOpen, setTtsSpeedSheetOpen] = useState(false)
   const [ttsVoicePreviewingId, setTtsVoicePreviewingId] = useState<string | null>(null)
@@ -152,6 +165,10 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
   const ttsProviders: Array<{ value: TtsProvider; label: string }> = TTS_PROVIDER_ORDER.map((provider) => ({
     value: provider,
     label: provider === 'native' ? t('bookDetails.tts.native') : getTtsProviderLabel(provider),
+  }))
+  const translationProviders: Array<{ value: TranslationProvider; label: string }> = TRANSLATION_PROVIDER_ORDER.map((provider) => ({
+    value: provider,
+    label: provider === 'mymemory' ? t('bookDetails.translation.mymemory') : getTranslationProviderLabel(provider),
   }))
 
   const liveBook = useLiveQuery(() => db.books.get(book.id!), [book.id]) ?? book
@@ -312,6 +329,14 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
   const selectedProviderLabel = ttsProviders.find((option) => option.value === selectedTtsProvider)?.label ?? selectedTtsProvider
   const effectiveProviderLabel = ttsProviders.find((option) => option.value === effectiveTtsProvider)?.label ?? effectiveTtsProvider
   const providerInFallback = effectiveTtsProvider !== selectedTtsProvider
+  const selectedTranslationProvider: TranslationProvider = bookSettingsRow?.translationProvider ?? 'mymemory'
+  const effectiveTranslationProvider = resolveTranslationProviderFromAvailability(
+    selectedTranslationProvider,
+    getTranslationProviderAvailability(appSettings),
+  )
+  const selectedTranslationProviderLabel = translationProviders.find((option) => option.value === selectedTranslationProvider)?.label ?? selectedTranslationProvider
+  const effectiveTranslationProviderLabel = translationProviders.find((option) => option.value === effectiveTranslationProvider)?.label ?? effectiveTranslationProvider
+  const translationProviderInFallback = effectiveTranslationProvider !== selectedTranslationProvider
   const selectedVoice = getBookTtsVoiceSelection(bookSettingsRow, effectiveTtsProvider)
   const selectedVoiceLabel = !providerConfigured
     ? t('bookDetails.tts.providerUnavailable', { provider: selectedProviderLabel })
@@ -540,6 +565,17 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
 
     applyBookSettingsPatch({ ttsProvider: provider })
     setTtsProviderSheetOpen(false)
+  }
+
+  function updateTranslationProvider(provider: TranslationProvider) {
+    if (!isTranslationProviderConfigured(provider, appSettings)) {
+      setTranslationProviderSheetOpen(false)
+      onOpenSettings()
+      return
+    }
+
+    applyBookSettingsPatch({ translationProvider: provider })
+    setTranslationProviderSheetOpen(false)
   }
 
   function updateVoice(option: TtsVoiceOption | null) {
@@ -1048,7 +1084,53 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
                   <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-3">
                     {t('bookDetails.setting.translation')}
                   </p>
+                  {translationProviderInFallback && (
+                    <div className="mb-3">
+                      {isTranslationProviderPlatformRestricted(selectedTranslationProvider) ? (
+                        <IntegrationHelpBanner
+                          title={t('bookDetails.translation.androidOnly.title')}
+                          description={t('bookDetails.translation.androidOnly.description', { provider: selectedTranslationProviderLabel })}
+                          dismissId={`book-details-translation-platform-${selectedTranslationProvider}`}
+                          icon={<Globe size={18} />}
+                          tone="warning"
+                        />
+                      ) : (
+                        <IntegrationHelpBanner
+                          title={t('bookDetails.translation.missingKey.title')}
+                          description={t('bookDetails.translation.missingKey.description', { provider: selectedTranslationProviderLabel })}
+                          actionLabel={t('bookDetails.translation.missingKey.action')}
+                          dismissId={`book-details-translation-${selectedTranslationProvider}`}
+                          icon={<Globe size={18} />}
+                          tone="warning"
+                          onAction={onOpenSettings}
+                        />
+                      )}
+                    </div>
+                  )}
                   <div className="-mx-4">
+                    <ListItem
+                      leading={<Globe size={18} />}
+                      title={t('bookDetails.setting.provider')}
+                      meta={(
+                        <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                          <PrimeVideoBadge tone="exclusive">
+                            {t('bookDetails.provider.saved', { provider: selectedTranslationProviderLabel })}
+                          </PrimeVideoBadge>
+                          {translationProviderInFallback ? (
+                            <PrimeVideoBadge tone="neutral">
+                              {t('bookDetails.provider.inUse', { provider: effectiveTranslationProviderLabel })}
+                            </PrimeVideoBadge>
+                          ) : (
+                            <PrimeVideoBadge tone="prime">
+                              {t('bookDetails.provider.active')}
+                            </PrimeVideoBadge>
+                          )}
+                        </div>
+                      )}
+                      trailing={<ChevronRight size={18} />}
+                      onClick={() => setTranslationProviderSheetOpen(true)}
+                      divider
+                    />
                     <ListItem
                       leading={<Globe size={18} />}
                       title={t('bookDetails.setting.translationTarget')}
@@ -1293,6 +1375,33 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
                 trailing={active ? <Check size={18} className="text-purple-light" /> : undefined}
                 onClick={() => updateProvider(option.value)}
                 divider={option.value !== ttsProviders[ttsProviders.length - 1].value}
+              />
+            )
+          })}
+        </div>
+      </BottomSheet>
+
+      <BottomSheet
+        open={translationProviderSheetOpen}
+        onClose={() => setTranslationProviderSheetOpen(false)}
+        title={t('bookDetails.setting.translationProviderSheet')}
+      >
+        <div className="-mx-4">
+          {translationProviders.map((option) => {
+            const active = selectedTranslationProvider === option.value
+            const meta = option.value === 'mymemory'
+              ? t('bookDetails.provider.alwaysAvailable')
+              : isTranslationProviderPlatformRestricted(option.value)
+                ? t('bookDetails.provider.androidOnly')
+                : (isTranslationProviderConfigured(option.value, appSettings) ? t('bookDetails.configured') : t('bookDetails.apiKeyPending'))
+            return (
+              <ListItem
+                key={option.value}
+                title={option.label}
+                meta={meta}
+                trailing={active ? <Check size={18} className="text-purple-light" /> : undefined}
+                onClick={() => updateTranslationProvider(option.value)}
+                divider={option.value !== translationProviders[translationProviders.length - 1].value}
               />
             )
           })}

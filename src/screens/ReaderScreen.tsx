@@ -157,6 +157,11 @@ export function ReaderScreen({
   const { t } = useI18n()
   const viewerRef = useRef<EpubViewerHandle>(null)
   const pendingBookmarkKeysRef = useRef(new Set<string>())
+  // Cancela a tradução anterior quando uma nova é disparada antes da
+  // resposta voltar (troca de trecho) — FR-007, sem equivalente direto em
+  // Python: AbortController é a forma nativa do browser de "matar" um
+  // fetch em andamento.
+  const translationAbortControllerRef = useRef<AbortController | null>(null)
   const activeSectionIndexRef = useRef<number | null>(null)
   const sectionChangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingStartHrefRef = useRef<string | null>(startHref ?? null)
@@ -222,6 +227,7 @@ export function ReaderScreen({
     ttsConfig,
     ttsEngine,
     ttsProviderAvailability,
+    translationProvider,
     applyAppearancePatch,
     applyTtsConfigPatch,
     switchToNativeTts,
@@ -835,10 +841,19 @@ export function ReaderScreen({
 
   // Recebe o texto da frase tocada do EpubViewer, injeta bloco inline e dispara a tradução
   function handleTranslate(sourceText: string) {
+    translationAbortControllerRef.current?.abort()
+    const controller = new AbortController()
+    translationAbortControllerRef.current = controller
+
     const selectionId = viewerRef.current?.showTranslationLoading()
-    translate(sourceText, bookLanguage, translationTargetLang)
-      .then((result) => viewerRef.current?.injectTranslation(result, selectionId))
-      .catch(() => viewerRef.current?.injectTranslation(t('reader.translation.error'), selectionId))
+    translate(sourceText, bookLanguage, translationTargetLang, { provider: translationProvider, signal: controller.signal })
+      .then((result) => viewerRef.current?.injectTranslation(result.translatedText, selectionId, result.provider))
+      .catch(() => {
+        // Cancelamento explícito (nova tradução disparada antes desta
+        // terminar) não mostra erro — não é uma falha real (FR-007/FR-008).
+        if (controller.signal.aborted) return
+        viewerRef.current?.injectTranslation(t('reader.translation.error'), selectionId)
+      })
   }
 
   function handleWordLensDefinition(target: WordLensDefinitionTarget) {

@@ -13,6 +13,16 @@ const config: CapacitorConfig = {
     FirebaseAuthentication: {
       providers: ['google.com'],
     },
+    // Provedores de tradução premium (DeepL, OpenAI) bloqueiam CORS de
+    // propósito e não podem ser chamados do WebView normal — CapacitorHttp
+    // troca fetch/XMLHttpRequest por rede nativa (Java/Kotlin) só no app
+    // Android empacotado, sem esse bloqueio. Não afeta o build Web (lá
+    // continua sendo o fetch do browser, então esses provedores ficam
+    // indisponíveis ali — ver requiresNativePlatform em
+    // TranslationProviderRegistry.ts).
+    CapacitorHttp: {
+      enabled: true,
+    },
   },
 };
 

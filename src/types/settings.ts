@@ -14,6 +14,9 @@ export interface AppSettings {
   fishAudioApiKey: string
   translationTargetLang: string
   youtubeApiKey: string
+  deeplApiKey: string
+  openaiTranslationApiKey: string
+  googleTranslateApiKey: string
 }
 
 export interface ReaderDefaults {
@@ -54,6 +57,9 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   fishAudioApiKey: '',
   translationTargetLang: 'pt-BR',
   youtubeApiKey: '',
+  deeplApiKey: '',
+  openaiTranslationApiKey: '',
+  googleTranslateApiKey: '',
 }
 
 export const DEFAULT_READER_DEFAULTS: ReaderDefaults = {
@@ -95,6 +101,9 @@ export function normalizeUserSettings(record?: SettingsRecord | null): UserSetti
       fishAudioApiKey: record?.appSettings?.fishAudioApiKey ?? DEFAULT_APP_SETTINGS.fishAudioApiKey,
       translationTargetLang: record?.appSettings?.translationTargetLang ?? record?.translationTargetLang ?? DEFAULT_APP_SETTINGS.translationTargetLang,
       youtubeApiKey: record?.appSettings?.youtubeApiKey ?? DEFAULT_APP_SETTINGS.youtubeApiKey,
+      deeplApiKey: record?.appSettings?.deeplApiKey ?? DEFAULT_APP_SETTINGS.deeplApiKey,
+      openaiTranslationApiKey: record?.appSettings?.openaiTranslationApiKey ?? DEFAULT_APP_SETTINGS.openaiTranslationApiKey,
+      googleTranslateApiKey: record?.appSettings?.googleTranslateApiKey ?? DEFAULT_APP_SETTINGS.googleTranslateApiKey,
     },
     readerDefaults: {
       ...DEFAULT_READER_DEFAULTS,

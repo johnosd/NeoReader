@@ -1,3 +1,5 @@
+import type { TranslationProvider } from './translation'
+
 // Palavra ou frase salva pelo usuário a partir de uma tradução no leitor
 export interface VocabItem {
   id?: number
@@ -13,10 +15,11 @@ export interface VocabItem {
 // Cache de traduções no IndexedDB para evitar chamadas repetidas à API
 export interface TranslationCache {
   id?: number
-  textHash: number       // djb2 hash de (langpair + sourceText) — chave de lookup
+  textHash: number       // djb2 hash de (provider + langpair + sourceText) — chave de lookup
   sourceText: string
   translatedText: string
   sourceLang: string
   targetLang: string
+  provider: TranslationProvider  // dimensão nova — isola cache entre provedores (FR-010)
   createdAt: Date
 }

@@ -12,6 +12,7 @@ import { SettingsLanguageScreen } from './screens/SettingsLanguageScreen'
 import { SettingsAppearanceScreen } from './screens/SettingsAppearanceScreen'
 import { SettingsWordLensScreen } from './screens/SettingsWordLensScreen'
 import { SettingsNarrationScreen } from './screens/SettingsNarrationScreen'
+import { SettingsTranslationScreen } from './screens/SettingsTranslationScreen'
 import { SettingsIntegrationsScreen } from './screens/SettingsIntegrationsScreen'
 import { SettingsSyncScreen } from './screens/SettingsSyncScreen'
 import { OpdsCatalogSettingsScreen } from './screens/OpdsCatalogSettingsScreen'
@@ -54,6 +55,7 @@ type Route =
   | { name: 'settings-appearance' }
   | { name: 'settings-word-lens' }
   | { name: 'settings-narration' }
+  | { name: 'settings-translation' }
   | { name: 'settings-integrations' }
   | { name: 'settings-sync' }
   | { name: 'opds-catalog-settings' }
@@ -392,6 +394,7 @@ function App() {
             onOpenAppearance={() => push({ name: 'settings-appearance' })}
             onOpenWordLens={() => push({ name: 'settings-word-lens' })}
             onOpenNarration={() => push({ name: 'settings-narration' })}
+            onOpenTranslation={() => push({ name: 'settings-translation' })}
             onOpenIntegrations={() => push({ name: 'settings-integrations' })}
             onOpenOpdsCatalogs={() => push({ name: 'opds-catalog-settings' })}
             onOpenSync={() => push({ name: 'settings-sync' })}
@@ -431,6 +434,13 @@ function App() {
       return (
         <ErrorBoundary key="settings-narration" screen="settings-narration">
           <SettingsNarrationScreen onBack={pop} />
+        </ErrorBoundary>
+      )
+
+    case 'settings-translation':
+      return (
+        <ErrorBoundary key="settings-translation" screen="settings-translation">
+          <SettingsTranslationScreen onBack={pop} />
         </ErrorBoundary>
       )
 
