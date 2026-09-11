@@ -1380,6 +1380,13 @@ function buildReaderCSS(
       flex-shrink: 0 !important;
     }
     .nr-sel-color:active { transform: scale(0.88) !important; }
+    /* Cor ativa no menu de gerenciar highlight (ad-hoc) — mesmo anel
+       roxo do botão de estilo ([aria-pressed="true"] abaixo), adaptado
+       pro círculo (borda mais clara + anel via box-shadow em camadas). */
+    .nr-sel-color[aria-pressed="true"] {
+      border-color: rgba(255, 255, 255, 0.9) !important;
+      box-shadow: 0 0 0 2px #7b2cbf, 0 2px 6px rgba(0, 0, 0, 0.25) !important;
+    }
     /* Copiar/Compartilhar (FR-003c) — mesmo grupo do menu de seleção, ícone
        só, sem cor de fundo (não são highlight). */
     .nr-sel-icon-btn {
@@ -2791,9 +2798,12 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       hasNote: boolean,
     ): string {
       if (mode === 'colors') {
+        // Cor ativa marcada com aria-pressed (ad-hoc, achado do usuário):
+        // mesmo padrão já usado pelo botão de estilo logo abaixo — sem
+        // isso, só o estilo mostrava qual opção estava selecionada.
         const colorSwatches = ANNOTATION_COLORS.map((c) => `
           <button type="button" class="nr-sel-color" data-nr-highlight-color="${c.key}"
-            style="background-color:${c.hex}"
+            style="background-color:${c.hex}" aria-pressed="${c.key === activeColor}"
             aria-label="${escapeHtml(t('bookmark.color', { label: t(c.labelKey) }))}"></button>
         `).join('')
         return `

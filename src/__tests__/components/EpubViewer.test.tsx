@@ -1655,6 +1655,43 @@ describe('EpubViewer — highlights de trecho selecionado', () => {
     expect(menu.querySelector('[data-nr-highlight-style="squiggly"]')?.getAttribute('aria-pressed')).toBe('true')
   })
 
+  // ── Ad-hoc: indicador de cor ativa no menu de gerenciar highlight ────────
+  it('T032c: menu do highlight abre com a cor atual marcada; trocar de cor atualiza qual fica marcada', async () => {
+    const onChangeHighlightAppearance = vi.fn()
+    const highlight = {
+      id: 7, bookId: 1, cfi: 'epubcfi(/6/4!/4/2/1:0,/1:10)', paraCfi: 'epubcfi(/6/4!/4/2/1:0)',
+      text: 'First sen', color: 'indigo', sectionIndex: 0, percentage: 10, createdAt: new Date(),
+    }
+    const { foliateEl, props, rerender } = await renderViewer({ highlights: [highlight], onChangeHighlightAppearance })
+    const doc = makeFakeDoc(['First sentence. Second sentence.'])
+    loadSection(foliateEl, doc, 0)
+    const { overlayer } = foliateEl.renderer.getContents()[0]
+    const para = doc.querySelector('p') as HTMLElement
+    overlayer.hitTest.mockReturnValue([highlight.cfi, doc.createRange(), { left: 40, top: 120, right: 300, bottom: 140 }])
+
+    clickAt(para, 120, 130)
+    const menu = doc.getElementById('nr-highlight-menu') as HTMLElement
+    click(menu.querySelector('[data-nr-highlight-open-colors]') as HTMLElement)
+    expect(menu.querySelector('[data-nr-highlight-color="indigo"]')?.getAttribute('aria-pressed')).toBe('true')
+    expect(menu.querySelector('[data-nr-highlight-color="rose"]')?.getAttribute('aria-pressed')).toBe('false')
+
+    click(menu.querySelector('[data-nr-highlight-color="rose"]') as HTMLElement)
+    expect(onChangeHighlightAppearance).toHaveBeenCalledWith(expect.objectContaining({ id: 7 }), { color: 'rose' })
+
+    // simula o round-trip do Dexie (useLiveQuery emitindo a lista com a
+    // cor já atualizada) e reabre o menu — confirma que a marca acompanha
+    const highlightComNovaCor = { ...highlight, color: 'rose' }
+    await act(async () => {
+      rerender(
+        <EpubViewer {...({ ...props, highlights: [highlightComNovaCor] } as Parameters<typeof EpubViewer>[0])} />,
+      )
+    })
+    clickAt(para, 120, 130)
+    click(menu.querySelector('[data-nr-highlight-open-colors]') as HTMLElement)
+    expect(menu.querySelector('[data-nr-highlight-color="rose"]')?.getAttribute('aria-pressed')).toBe('true')
+    expect(menu.querySelector('[data-nr-highlight-color="indigo"]')?.getAttribute('aria-pressed')).toBe('false')
+  })
+
   // ── Anotação de texto associada ao highlight (feature 013) ──────────────
   it('T033: menu do highlight sem nota mostra "Anotar"', async () => {
     const { doc, para, highlight, overlayer } = await renderComHighlightPintado()
