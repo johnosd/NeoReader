@@ -5,7 +5,7 @@ sistema sdd-*. Mantido automaticamente por update-feature-status.ps1 e
 update-bug-status.ps1.
 
 ## Ideias Futuras
-_(nenhuma no momento)_
+
 
 ## Features
 
@@ -23,6 +23,10 @@ _(nenhuma no momento)_
 | 010-highlights-selecao-texto | Highlights de trecho selecionado no leitor | Convergida | 93/93 tasks | 2026-09-07 |
 | 011-book-details-settings-categorias | Reorganizar Aba Configurações do Livro em Categorias Navegáveis | Convergida | 29/29 tasks | 2026-09-09 |
 | 012-toque-tela-leitura | Controle de toque na tela de leitura | Convergida | 18/18 tasks | 2026-09-10 |
+| 013-anotacoes-highlights | Anotações associadas a highlights | Implementada | 20/20 tasks | 2026-09-10 |
+| 014-indicador-anotacao-highlight | Indicador visual de anotação em highlights com preview flutuante | Implementada | 26/26 tasks | 2026-09-11 |
+| 015-atalho-anotar-highlight-criacao | Atalho pra anotar highlight logo após criar | Convergida | 23/23 tasks | 2026-09-11 |
+| 016-caixa-unificada-highlight-nota | Caixa unificada de cor, estilo e nota ao criar ou editar highlight | Convergida | 34/34 tasks | 2026-09-11 |
 
 ## Bugs
 
@@ -41,6 +45,7 @@ _(nenhuma no momento)_
 | clique-no-paragrafo-nao-abre-menu | Clique no parágrafo não abre o menu contextual perto do início/fim do capítulo | Test | verified | Concluído | 2026-09-09 |
 | menu-chrome-leitor-some-sozinho-apos | Menu de chrome do leitor some sozinho após ~2.5s | Test | verified | Concluído | 2026-09-10 |
 | sincronizar-bookmarks-automaticamente-ao-fechar-livro | Sincronizar bookmarks automaticamente ao fechar o livro | Test | verified | Concluído | 2026-09-10 |
+| highlight-some-ao-tocar-no-mesmo | Highlight some ao tocar no mesmo parágrafo pra abrir tradução | Test | verified | Concluído | 2026-09-11 |
 
 ## Melhorias Ad-hoc
 
@@ -50,3 +55,5 @@ sdd-specify/plan — baixo risco, sem arquivo em `sdd/specs/` ou `sdd/bugs/`).
 | Data | Área | Resumo |
 | --- | --- | --- |
 | 2026-09-09 | BookDetailsScreen (tela de detalhes do livro) | Investigação de performance + UX/UI a pedido do usuário. Feito: `loading="lazy"`/`decoding="async"` em 3 `<img>` que faltavam (avatar de voz na lista, avatar da voz selecionada, thumbnail de review); badge "+N mais" quando há mais de 3 diagnósticos de estilo forte do EPUB (antes truncava silenciosamente); string "TTS" migrada pra `t()` (chave `bookDetails.setting.ttsSectionTitle`). Descartados após investigação (documentado ao usuário): Web Worker pro parse do EPUB — a lib `fflate` já roda o unzip num Worker internamente, nada a ganhar; cache de `getSettings()` — leitura já é 1 registro único do IndexedDB (poucos ms), e cachear quebraria o isolamento dos testes de `src/__tests__/db/settings.test.ts` pra um ganho imperceptível. Validado: `npm run lint`, `npx tsc --noEmit`, `npm run build` e `npm test` (869 passed, 2 skipped pré-existentes) limpos. |
+| 2026-09-10 | EpubViewer (menu de highlight existente) | A pedido do usuário: colapsado o menu que abre ao tocar num highlight já existente — antes mostrava remover + 3 estilos + 8 cores todos de uma vez; agora mostra Anotar/Editar anotação + Remover + 1 botão único de aparência (cor atual + ícone do estilo atual), que expande pro submenu combinado de estilo+cor ao tocar (com botão de voltar). Mesmo padrão já usado no menu de criação de highlight (`renderSelectionMenuActionsHtml`), só replicado pro menu de gerenciamento (`renderHighlightMenuActionsHtml`). 3 testes existentes atualizados pro novo fluxo (abrir cor/estilo antes de tocar num estilo/cor) + 1 teste novo (expandir/voltar). Validado: `npm run lint`, `npx tsc --noEmit`, `npm run build` e `npm test` (901 passed, 2 skipped pré-existentes) limpos, e no device real (usuário confirmou "funcionou"). |
+| 2026-09-11 | EpubViewer (menu de gerenciar highlight, submenu de cor/estilo) | A pedido do usuário (achado revisando a UI depois da feature 014): os 8 círculos de cor não mostravam qual era a cor atual do highlight — só o ícone de estilo tinha esse indicador (`aria-pressed` + anel roxo via CSS). Adicionado `aria-pressed="${c.key === activeColor}"` nos círculos de `renderHighlightMenuActionsHtml` (modo `colors`) e a regra CSS `.nr-sel-color[aria-pressed="true"]` espelhando o anel já usado em `.nr-sel-style-btn[aria-pressed="true"]` (mesmo roxo do design system, `#7b2cbf`). Escopo confinado ao leitor (menu de gerenciamento) — não tocou no menu de criação (não faz sentido lá, o highlight ainda não existe) nem na lista de Destaques em `BookDetailsScreen`. 1 teste novo (`T032c`: cor atual marcada ao abrir, e a marca acompanha depois de trocar de cor). Validado: `npm run lint`, `npx tsc --noEmit`, `npm run build` e `npm test` (912 passed, 2 skipped pré-existentes) limpos, e no device real (usuário confirmou "funcionou"). |

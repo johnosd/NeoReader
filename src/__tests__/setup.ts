@@ -6,6 +6,16 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
+// JSDOM não implementa layout de verdade, então Range.prototype.getClientRects
+// nem existe (diferente de getBoundingClientRect, que o jsdom stub com um
+// retângulo zerado) — paintHighlight passou a chamá-lo pra posicionar o
+// indicador de anotação (feature 014). Default seguro (array vazio, sem
+// jogar exceção); testes que precisam de um rect específico sobrescrevem
+// via vi.spyOn(Range.prototype, 'getClientRects') e restauram no fim.
+if (typeof Range.prototype.getClientRects !== 'function') {
+  Range.prototype.getClientRects = () => [] as unknown as DOMRectList
+}
+
 // Global flag: when set, the next open() call rejects with this error.
 let nextOpenError: Error | null = null
 

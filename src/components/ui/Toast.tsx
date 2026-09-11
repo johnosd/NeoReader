@@ -10,6 +10,9 @@ interface ToastProps {
   onDismiss?: () => void
   durationMs?: number
   className?: string
+  // Opcional: torna o conteudo tocavel (ex: toast de atalho que abre uma
+  // acao). Sem isso, o toast e so informativo (comportamento de hoje).
+  onAction?: () => void
 }
 
 const TONE_META: Record<ToastTone, { color: string; Icon: typeof Check }> = {
@@ -19,7 +22,7 @@ const TONE_META: Record<ToastTone, { color: string; Icon: typeof Check }> = {
   info: { color: 'text-indigo-primary', Icon: Info },
 }
 
-export function Toast({ tone = 'info', children, onDismiss, durationMs = 3000, className }: ToastProps) {
+export function Toast({ tone = 'info', children, onDismiss, durationMs = 3000, className, onAction }: ToastProps) {
   useEffect(() => {
     if (!onDismiss || !durationMs) return
     const id = setTimeout(onDismiss, durationMs)
@@ -39,7 +42,17 @@ export function Toast({ tone = 'info', children, onDismiss, durationMs = 3000, c
       )}
     >
       <Icon size={20} className={cn('shrink-0', color)} />
-      <span className="text-sm font-medium text-text-primary flex-1">{children}</span>
+      {onAction ? (
+        <button
+          type="button"
+          onClick={onAction}
+          className="text-sm font-medium text-text-primary flex-1 text-left"
+        >
+          {children}
+        </button>
+      ) : (
+        <span className="text-sm font-medium text-text-primary flex-1">{children}</span>
+      )}
     </div>
   )
 }

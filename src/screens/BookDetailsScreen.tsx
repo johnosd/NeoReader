@@ -816,7 +816,17 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
                       )}
                       // O ListItem já trunca o título; o texto gravado continua inteiro.
                       title={highlight.text}
-                      meta={`${highlight.percentage}% · ${formatDate(highlight.createdAt, locale)}`}
+                      meta={(
+                        <>
+                          <span>{`${highlight.percentage}% · ${formatDate(highlight.createdAt, locale)}`}</span>
+                          {highlight.note && (
+                            // Anotação (feature 013): mesmo padrão de truncamento
+                            // (line-clamp-2) já usado pro snippet de bookmark em
+                            // BookmarkSheet.tsx — sem botão de expandir nesta rodada (FR-009).
+                            <p className="mt-1 line-clamp-2 text-text-secondary">{highlight.note}</p>
+                          )}
+                        </>
+                      )}
                       onClick={() => openReader(highlight.cfi)}
                       divider={index < highlights.length - 1}
                       trailing={(

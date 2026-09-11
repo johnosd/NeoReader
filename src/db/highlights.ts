@@ -27,3 +27,10 @@ export async function updateHighlightAppearance(
 export async function deleteHighlight(id: number): Promise<void> {
   await db.highlights.delete(id)
 }
+
+// Texto vazio/só espaço em branco remove a nota (undefined) em vez de gravar
+// string vazia — evita uma "nota fantasma" sem conteúdo (feature 013, FR-006).
+export async function updateHighlightNote(id: number, note: string | null): Promise<void> {
+  const trimmed = note?.trim()
+  await db.highlights.update(id, { note: trimmed || undefined })
+}

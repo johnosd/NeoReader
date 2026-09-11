@@ -6,7 +6,7 @@ import type { View } from 'foliate-js/view.js'
 import type { Overlayer } from 'foliate-js/overlayer.js'
 import type { FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from '../../types/settings'
 import { getReaderFontFamilyValue, getReaderLineHeightValue, getReaderThemePalette } from '../../utils/readerPreferences'
-import { ANNOTATION_COLORS, annotationColorHex } from '../../utils/annotationColors'
+import { annotationColorHex } from '../../utils/annotationColors'
 import { getSentenceAt, escapeHtml } from '../../utils/readerUtils'
 import { areCfisEquivalent, normalizeCfi } from '../../utils/cfi'
 import { registerUnmanifestedEpubStylesheets } from '../../utils/epubResources'
@@ -105,6 +105,25 @@ const HIGHLIGHT_STYLE_ICON: Record<HighlightStyle, string> = {
   squiggly: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><text x="12" y="15" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor">A</text><path d="M4 18q2-4 4 0t4 0t4 0t4 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path></svg>',
 }
 
+// Indicador de anotação (US1/feature 014): a aba cobre aproximadamente a
+// 1ª palavra do trecho — sem medir o texto de verdade (custaria acesso à
+// fonte computada por elemento), só uma estimativa de largura por
+// caractere, com piso e teto pra não ficar minúscula numa palavra de 2
+// letras nem gigante numa palavra rara muito longa.
+const NOTE_TAB_CHAR_WIDTH_PX = 8.5
+const NOTE_TAB_MIN_WIDTH_PX = 28
+const NOTE_TAB_MAX_WIDTH_PX = 140
+// Mesma cor em todo lugar que o indicador aparece (aba visual + fallback
+// de aria-label) — nunca lida da paleta do highlight (ANNOTATION_COLORS),
+// que muda por highlight; o indicador precisa ser sempre reconhecível
+// como "amarelo de anotação", mesmo sobre um highlight já amarelo/âmbar.
+const NOTE_INDICATOR_COLOR_HEX = '#facc15'
+// "Cantinho dobrado" de post-it (achado do usuário, imagem de
+// referência): triângulo de amarelo mais escuro no canto superior
+// esquerdo da aba, imitando a dobra de uma nota de papel real.
+const NOTE_INDICATOR_FOLD_COLOR_HEX = '#eab308'
+const NOTE_INDICATOR_FOLD_SIZE_PX = 7
+
 const TRANSLATION_ICON = {
   bot: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="7" width="16" height="11" rx="4"></rect><path d="M12 3v4"></path><path d="M9 13h.01"></path><path d="M15 13h.01"></path><path d="M9 18v2"></path><path d="M15 18v2"></path></svg>',
   next: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path><path d="M5 18l6-6-6-6"></path></svg>',
@@ -119,6 +138,7 @@ type ReaderTapIgnoredReason =
   | 'bookmark-icon'
   | 'chrome-zone'
   | 'highlight-menu'
+  | 'highlight-note-preview'
   | 'left-toc-zone'
   | 'no-readable-paragraph'
   | 'scroll-gesture'
@@ -182,13 +202,23 @@ function splitParagraphIntoChunks(text: string, minLen = 40, locale?: string): A
 // Envolve apenas a frase `sentence` num <span class="nr-hl-sentence"> dentro do parágrafo.
 // Usa Range + surroundContents: funciona quando a frase está dentro de um único nó de texto.
 // Se a frase cruzar tags internas (ex: <em>), usa o fallback de colorir o parágrafo inteiro.
-function highlightSentenceInParagraph(para: Element, sentence: string): void {
+// `avoidDomMutation` força o fallback mesmo quando surroundContents daria certo —
+// bugfix highlight-some-ao-tocar-no-mesmo: confirmado lendo foliate-js/view.js que
+// addAnnotation resolve `anchor(doc)` (CFI.toRange contra o DOM AO VIVO) toda vez
+// que um highlight é repintado; surroundContents divide nós de texto e insere um
+// elemento novo, o que pode invalidar o caminho de nós que o CFI de outro
+// highlight da MESMA seção espera encontrar — a-lang resolve como `null`, sem
+// erro, e addAnnotation simplesmente não emite 'draw-annotation' (view.js:415-427,
+// `if (range) { ...emit... }` — sem o `if`, nada acontece). Evitar QUALQUER
+// mutação de DOM aqui quando a seção já tem highlights é mais simples e robusto
+// do que tentar "curar" depois com uma repintura.
+function highlightSentenceInParagraph(para: Element, sentence: string, avoidDomMutation: boolean): void {
   const doc = para.ownerDocument!
   const fullText = para.textContent ?? ''
   const sentenceStart = fullText.indexOf(sentence)
 
-  if (sentenceStart < 0) {
-    para.classList.add('nr-hl')  // fallback: parágrafo inteiro
+  if (sentenceStart < 0 || avoidDomMutation) {
+    para.classList.add('nr-hl')  // fallback: parágrafo inteiro, sem mutar a árvore
     return
   }
 
@@ -1254,6 +1284,62 @@ function buildReaderCSS(
       box-shadow: 0 0 20px ${palette.translationGlow} !important, 0 12px 28px rgba(0, 0, 0, 0.20) !important;
     }
     #nr-highlight-menu[hidden] { display: none !important; }
+    /* Indicador de anotação (US1/feature 014): a COR visível é pintada
+       pelo overlay do próprio highlight (drawHighlightWithNoteIndicator,
+       dentro de paintHighlight) — este elemento é só o ALVO DE TOQUE
+       (invisível), ancorado na mesma posição/tamanho da cor desenhada,
+       pra reaproveitar o roteamento de clique já existente
+       (getNoteTabAtPoint, mesmo padrão de 3 níveis dos outros menus).
+       Histórico (achado do usuário testando em device, 3 rodadas — ver
+       plan.md R-004): 1ª versão cobria as letras (aba opaca por cima do
+       texto); 2ª tentativa (z-index negativo) ficou invisível atrás do
+       overlay SVG do próprio highlight; 3ª tentativa (aba translúcida
+       por cima) resolvia as duas, mas DUAS camadas translúcidas
+       empilhadas (esta aba + o overlay do highlight) misturavam a cor
+       visualmente. Versão final: a cor sai só do overlay (uma única
+       camada, sem mistura); este elemento não pinta mais nada. */
+    .nr-highlight-note-tab {
+      appearance: none !important;
+      position: absolute !important;
+      z-index: 9997 !important;
+      padding: 0 !important;
+      margin: 0 !important;
+      border: none !important;
+      background: transparent !important;
+      cursor: pointer !important;
+      -webkit-tap-highlight-color: transparent !important;
+    }
+    /* Caixa de preview da anotação (US2/feature 014): mesma receita visual
+       de #nr-highlight-menu/#nr-selection-menu (cartão escuro com glow,
+       tokens de palette) — nunca um cartão amarelo pastel isolado (achado
+       do usuário em device: cor própria fixa (a) fugia do design system
+       do resto do leitor e (b) o texto escuro sobre amarelo claro ficava
+       ilegível no tema escuro, onde o resto da UI já é clara-sobre-escura).
+       Um acento amarelo fino na borda esquerda basta pra ligar
+       visualmente com o indicador, sem reinventar a caixa inteira. */
+    #nr-highlight-note-preview {
+      position: absolute !important;
+      z-index: 9998 !important;
+      max-width: min(92vw, 320px) !important;
+      padding: 12px 14px !important;
+      border: 1px solid ${palette.translationBorder} !important;
+      border-left: 3px solid ${NOTE_INDICATOR_COLOR_HEX} !important;
+      border-radius: 14px !important;
+      background: ${palette.translationSurface} !important;
+      color: ${palette.text} !important;
+      box-shadow: 0 0 20px ${palette.translationGlow} !important, 0 12px 28px rgba(0, 0, 0, 0.20) !important;
+    }
+    #nr-highlight-note-preview[hidden] { display: none !important; }
+    .nr-note-preview-text {
+      margin: 0 !important;
+      max-height: 240px !important;
+      overflow-y: auto !important;
+      font-size: 0.92em !important;
+      line-height: 1.45 !important;
+      white-space: pre-wrap !important;
+      word-break: break-word !important;
+      color: ${palette.text} !important;
+    }
     .nr-sel-text-btn {
       appearance: none !important;
       border: 1px solid ${palette.translationBorder} !important;
@@ -1280,20 +1366,6 @@ function buildReaderCSS(
       gap: 8px !important;
       flex-shrink: 0 !important;
     }
-    .nr-sel-color {
-      appearance: none !important;
-      width: 24px !important;
-      height: 24px !important;
-      min-width: 24px !important;
-      border-radius: 50% !important;
-      border: 2px solid rgba(255, 255, 255, 0.35) !important;
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25) !important;
-      cursor: pointer !important;
-      -webkit-tap-highlight-color: transparent !important;
-      transition: transform 120ms ease !important;
-      flex-shrink: 0 !important;
-    }
-    .nr-sel-color:active { transform: scale(0.88) !important; }
     /* Copiar/Compartilhar (FR-003c) — mesmo grupo do menu de seleção, ícone
        só, sem cor de fundo (não são highlight). */
     .nr-sel-icon-btn {
@@ -1316,14 +1388,6 @@ function buildReaderCSS(
     }
     .nr-sel-icon-btn svg { width: 17px !important; height: 17px !important; }
     .nr-sel-icon-btn:active { transform: scale(0.88) !important; }
-    /* Estilo de marcação ativo (fundo/sublinhado/ondulado) — anel ao redor do
-       ícone, mesma ideia do círculo na referência visual do usuário. */
-    .nr-sel-style-btn[aria-pressed="true"] {
-      background: ${palette.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(15,23,42,0.16)'} !important;
-      /* --color-purple-primary do design system (src/index.css) — fixo aqui
-         porque o menu roda fora do contexto Tailwind do app, dentro do iframe. */
-      box-shadow: 0 0 0 2px #7b2cbf !important;
-    }
     .nr-sel-divider {
       width: 1px !important;
       height: 22px !important;
@@ -1411,6 +1475,12 @@ export interface HighlightCreationPayload {
   style: HighlightStyle
 }
 
+// Mesmo payload, mas ANTES de cor/estilo serem escolhidos (feature 016):
+// tocar "Destacar" só entrega isso — a caixa unificada (HighlightComposerSheet,
+// fora do iframe) é quem decide cor/estilo/nota antes de virar um
+// HighlightCreationPayload de verdade em ReaderScreen.
+export type HighlightDraftPayload = Omit<HighlightCreationPayload, 'color' | 'style'>
+
 export interface VisibleReadingLocation {
   cfi: string | null
   tocLabel?: string
@@ -1492,15 +1562,16 @@ interface EpubViewerProps {
   // Vocabulário: frases originais já salvas pelo usuário para highlight passivo
   vocabWords?: string[]
   // Highlights (feature 010): highlights do livro atual, pintados por seção
-  // conforme carregam. Toque longo + arrasto seleciona; escolher uma cor no
-  // menu chama onCreateHighlight.
+  // conforme carregam. Toque longo + arrasto seleciona; tocar "Destacar"
+  // dispara onRequestCreateHighlight (feature 016) — a caixa unificada fora
+  // do iframe é quem decide cor/estilo/nota e grava de fato.
   highlights?: Highlight[]
-  onCreateHighlight?: (payload: HighlightCreationPayload) => void
-  // Gerenciar um highlight existente (US3): tocar sobre ele abre o menu de
-  // remover/trocar cor ou estilo em vez da tradução inline. Cada toque no
-  // menu (cor OU estilo) já aplica e persiste na hora — FR-022.
+  onRequestCreateHighlight?: (draft: HighlightDraftPayload) => void
+  // Gerenciar um highlight existente: tocar sobre ele abre o menu com
+  // Remover (imediato) ou Editar (cor/estilo/nota juntos, na caixa
+  // unificada fora do iframe — feature 016).
   onDeleteHighlight?: (highlight: Highlight) => void
-  onChangeHighlightAppearance?: (highlight: Highlight, patch: { color?: string; style?: HighlightStyle }) => void
+  onEditHighlight?: (highlight: Highlight) => void
 }
 
 // forwardRef: padrão React para expor métodos imperativos ao componente pai.
@@ -1516,7 +1587,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       onBookmarkTap, onBookmarkParagraph,
       onOpenImage,
       vocabWords,
-      highlights, onCreateHighlight, onDeleteHighlight, onChangeHighlightAppearance,
+      highlights, onRequestCreateHighlight, onDeleteHighlight, onEditHighlight,
     },
     ref,
   ) => {
@@ -1596,9 +1667,9 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     const onBookmarkParagraphRef = useSyncRef(onBookmarkParagraph)
     // Highlights (feature 010): ver getEligibleSelectionRange/paintHighlight mais abaixo.
     const highlightsRef = useSyncRef(highlights ?? [])
-    const onCreateHighlightRef = useSyncRef(onCreateHighlight)
+    const onRequestCreateHighlightRef = useSyncRef(onRequestCreateHighlight)
     const onDeleteHighlightRef = useSyncRef(onDeleteHighlight)
-    const onChangeHighlightAppearanceRef = useSyncRef(onChangeHighlightAppearance)
+    const onEditHighlightRef = useSyncRef(onEditHighlight)
     // Import dinâmico de foliate-js/overlayer.js (mesmo padrão do view.js) — só
     // precisa da classe pra chamar Overlayer.highlight como draw function.
     // Carregado sem bloquear a abertura do leitor (ver setup()); paintHighlight
@@ -2132,7 +2203,17 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         ...(wordLensTarget ? { wordLensLevel: wordLensTarget.level } : {}),
       }
       para.setAttribute('data-nr-active', '1')
-      highlightSentenceInParagraph(para, sourceText)
+      // Bugfix highlight-some-ao-tocar-no-mesmo (causa raiz confirmada em
+      // foliate-js/view.js): surroundContents divide nós de texto e pode
+      // invalidar o caminho que o CFI de OUTRO highlight da mesma seção
+      // espera encontrar no DOM — anchor(doc) resolve `null` nesse caso,
+      // sem erro, e addAnnotation nunca emite 'draw-annotation' (o
+      // highlight simplesmente some, silenciosamente). Evitar qualquer
+      // mutação de DOM aqui quando a seção JÁ TEM highlights, caindo pro
+      // fallback seguro (classe CSS no parágrafo, sem mexer na árvore).
+      const sectionIdx = getSectionIndexForDocument(para.ownerDocument) ?? currentSectionIdxRef.current
+      const sectionHasHighlights = highlightsRef.current.some((h) => h.sectionIndex === sectionIdx)
+      highlightSentenceInParagraph(para, sourceText, sectionHasHighlights)
       activeTranslationParaRef.current = para
       activeSourceTextRef.current = sourceText
       activeTranslatedTextRef.current = ''
@@ -2489,14 +2570,15 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     }
 
     // Mesma história do swatch de seleção (alvo cross-realm), agora para os
-    // botões do menu do highlight: remover e as cores.
+    // botões do menu do highlight: remover e editar (cor/estilo/nota juntos,
+    // feature 016 — a caixa unificada substitui o antigo submenu de cores).
     function getHighlightMenuButtonAtPoint(
       target: Element,
       doc: Document,
       clientX: number,
       clientY: number,
     ): HTMLElement | null {
-      const SELECTOR = '[data-nr-highlight-color], [data-nr-highlight-style], [data-nr-highlight-remove]'
+      const SELECTOR = '[data-nr-highlight-remove], [data-nr-highlight-edit]'
       const directButton = target.closest?.(SELECTOR) as HTMLElement | null
       if (directButton) return directButton
 
@@ -2507,12 +2589,33 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         .find((button) => isPointInsideElement(button, clientX, clientY)) ?? null
     }
 
+    // Mesmo hit-test de 3 níveis, agora pra aba de "tem anotação" (US2/
+    // feature 014). Diferente do menu (singleton), pode haver VÁRIAS abas
+    // simultâneas na seção — o fallback de coordenada varre todas dentro
+    // do container (#nr-highlight-note-tabs), não um único elemento.
+    function getNoteTabAtPoint(
+      target: Element,
+      doc: Document,
+      clientX: number,
+      clientY: number,
+    ): HTMLElement | null {
+      const SELECTOR = '[data-nr-highlight-note-tab]'
+      const directButton = target.closest?.(SELECTOR) as HTMLElement | null
+      if (directButton) return directButton
+
+      const hitButton = getElementFromPoint(doc, clientX, clientY)?.closest(SELECTOR) as HTMLElement | null
+      if (hitButton) return hitButton
+
+      return Array.from(doc.querySelectorAll<HTMLElement>(`#nr-highlight-note-tabs ${SELECTOR}`))
+        .find((button) => isPointInsideElement(button, clientX, clientY)) ?? null
+    }
+
     // CFI de INTERVALO (não colapsado) — a diferença central em relação a
     // getParagraphBookmarkPayload, que colapsa o range no início do parágrafo.
     function buildHighlightPayloadFromRange(
       range: Range,
       sectionIndex: number,
-    ): Omit<HighlightCreationPayload, 'color' | 'style'> | null {
+    ): HighlightDraftPayload | null {
       const view = viewRef.current
       if (!view) return null
 
@@ -2551,43 +2654,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       return { cfi, paraCfi, text, sectionIndex, percentage }
     }
 
-    // Menu de seleção: lista de ações (Invariante 6/FR-003a), em dois modos —
-    // 'root' (Copiar, Compartilhar, Destacar) e 'colors' (voltar + as 8 cores),
-    // pra não ocupar a fileira inteira com cores antes do usuário pedir
-    // (achado do usuário testando em device). Acrescentar uma ação futura ao
-    // nível raiz (traduzir, anotar, ouvir) continua sendo declarar mais um
-    // item aqui, sem tocar no gesto nem no posicionamento.
-    type SelectionMenuMode = 'root' | 'colors'
-
-    // Compartilhado com o menu de gerenciar highlight (US3) — mesma fileira de
-    // estilo em ambos: o item `data-nr-selection-style`/`data-nr-highlight-style`
-    // ativo ganha `aria-pressed` e a borda de "selecionado" via CSS.
-    function renderStyleButtonsHtml(activeStyle: HighlightStyle, attr: string): string {
-      return (['background', 'underline', 'squiggly'] as const).map((style) => `
-        <button type="button" class="nr-sel-icon-btn nr-sel-style-btn" ${attr}="${style}"
-          aria-pressed="${style === activeStyle}"
-          aria-label="${escapeHtml(t(`reader.selectionMenu.style.${style}`))}">${HIGHLIGHT_STYLE_ICON[style]}</button>
-      `).join('')
-    }
-
-    function renderSelectionMenuActionsHtml(mode: SelectionMenuMode, activeStyle: HighlightStyle = 'background'): string {
-      if (mode === 'colors') {
-        const colorSwatches = ANNOTATION_COLORS.map((c) => `
-          <button type="button" class="nr-sel-color" data-nr-selection-color="${c.key}"
-            style="background-color:${c.hex}"
-            aria-label="${escapeHtml(t('bookmark.color', { label: t(c.labelKey) }))}"></button>
-        `).join('')
-        return `
-          <div class="nr-sel-action" data-nr-selection-action="colors">
-            <button type="button" class="nr-sel-icon-btn" data-nr-selection-back="1"
-              aria-label="${escapeHtml(t('reader.selectionMenu.back'))}">${SELECTION_RUN_ICON.back}</button>
-            <div class="nr-sel-divider" aria-hidden="true"></div>
-            ${renderStyleButtonsHtml(activeStyle, 'data-nr-selection-style')}
-            <div class="nr-sel-divider" aria-hidden="true"></div>
-            ${colorSwatches}
-          </div>
-        `
-      }
+    function renderSelectionMenuActionsHtml(): string {
       return `
         <div class="nr-sel-action" data-nr-selection-action="tools">
           <button type="button" class="nr-sel-icon-btn" data-nr-selection-run="copy"
@@ -2616,24 +2683,9 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       // tradução faz com o parágrafo: um range de seleção arbitrário começa no
       // meio de um nó de texto, e inserir um elemento ali deslocaria os índices
       // de nó que os CFIs seguintes dependem.
-      el.innerHTML = `<div class="nr-sel-menu-inner">${renderSelectionMenuActionsHtml('root')}</div>`
+      el.innerHTML = `<div class="nr-sel-menu-inner">${renderSelectionMenuActionsHtml()}</div>`
       doc.body.appendChild(el)
       return el
-    }
-
-    // Troca de conteúdo do menu (root <-> colors) muda o tamanho da caixa —
-    // reposiciona sempre, usando o range atual como referência, senão o menu
-    // fica desalinhado ou cortado depois de crescer/encolher.
-    function setSelectionMenuMode(
-      doc: Document,
-      menuEl: HTMLElement,
-      mode: SelectionMenuMode,
-      range: Range | null,
-      activeStyle: HighlightStyle = 'background',
-    ): void {
-      const inner = menuEl.querySelector('.nr-sel-menu-inner')
-      if (inner) inner.innerHTML = renderSelectionMenuActionsHtml(mode, activeStyle)
-      if (range) positionSelectionMenu(doc, menuEl, range)
     }
 
     function positionSelectionMenu(doc: Document, menuEl: HTMLElement, range: Range): void {
@@ -2654,25 +2706,23 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       if (el) el.hidden = true
     }
 
-    // Menu do highlight existente (US3) — mesma estrutura declarativa de ações
-    // do menu de seleção (Invariante 6), com remover + estilo + a mesma
-    // paleta. Diferente do menu de CRIAÇÃO: aqui não há "confirmar" — o
-    // highlight já existe, então cada toque (estilo OU cor) já aplica e
-    // persiste na hora (FR-022), por isso não precisa de um estado "armado".
-    function renderHighlightMenuActionsHtml(activeStyle: HighlightStyle): string {
-      const colorSwatches = ANNOTATION_COLORS.map((c) => `
-        <button type="button" class="nr-sel-color" data-nr-highlight-color="${c.key}"
-          style="background-color:${c.hex}"
-          aria-label="${escapeHtml(t('bookmark.color', { label: t(c.labelKey) }))}"></button>
-      `).join('')
+    // Menu do highlight existente — mesma estrutura declarativa de ações do
+    // menu de seleção (Invariante 6). Feature 016: "Anotar"/"Editar anotação"
+    // e "Cor e estilo" (antigo submenu imediato) colapsaram num ÚNICO botão,
+    // que abre a caixa unificada (HighlightComposerSheet, fora do iframe) —
+    // cor/estilo/nota mudam juntos, só ao confirmar. "Remover" continua
+    // imediato e separado (FR-008).
+    function renderHighlightMenuActionsHtml(activeStyle: HighlightStyle, activeColor: string): string {
       return `
+        <div class="nr-sel-action" data-nr-highlight-action="edit">
+          <button type="button" class="nr-sel-icon-btn" data-nr-highlight-edit="1"
+            style="background-color:${annotationColorHex(activeColor)}"
+            aria-label="${escapeHtml(t('reader.highlightMenu.edit'))}">${HIGHLIGHT_STYLE_ICON[activeStyle]}</button>
+        </div>
+        <div class="nr-sel-divider" aria-hidden="true"></div>
         <div class="nr-sel-action" data-nr-highlight-action="remove">
           <button type="button" class="nr-sel-text-btn" data-nr-highlight-remove="1">${escapeHtml(t('reader.highlightMenu.remove'))}</button>
         </div>
-        <div class="nr-sel-divider" aria-hidden="true"></div>
-        <div class="nr-sel-action" data-nr-highlight-action="style">${renderStyleButtonsHtml(activeStyle, 'data-nr-highlight-style')}</div>
-        <div class="nr-sel-divider" aria-hidden="true"></div>
-        <div class="nr-sel-action" data-nr-highlight-action="color">${colorSwatches}</div>
       `
     }
 
@@ -2685,22 +2735,22 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       el.hidden = true
       // Mesmo motivo do menu de seleção: anexado ao fim do <body>, nunca
       // inserido perto do trecho marcado (deslocaria índices de CFI).
-      el.innerHTML = `<div class="nr-sel-menu-inner">${renderHighlightMenuActionsHtml('background')}</div>`
+      el.innerHTML = `<div class="nr-sel-menu-inner">${renderHighlightMenuActionsHtml('background', 'indigo')}</div>`
       doc.body.appendChild(el)
       return el
     }
 
-    // Chamado ao abrir o menu num highlight específico, pra marcar o estilo
-    // ATUAL dele (não sempre 'background') — mesmo raciocínio do
-    // setSelectionMenuMode: o conteúdo muda de tamanho, reposiciona.
+    // Chamado ao abrir o menu num highlight específico, pra marcar a cor/
+    // estilo ATUAIS dele no botão único de editar e reposicionar.
     function setHighlightMenuAppearance(
       doc: Document,
       menuEl: HTMLElement,
       activeStyle: HighlightStyle,
+      activeColor: string,
       rect: { left: number; top: number },
     ): void {
       const inner = menuEl.querySelector('.nr-sel-menu-inner')
-      if (inner) inner.innerHTML = renderHighlightMenuActionsHtml(activeStyle)
+      if (inner) inner.innerHTML = renderHighlightMenuActionsHtml(activeStyle, activeColor)
       positionMenuAtRect(doc, menuEl, rect)
     }
 
@@ -2722,6 +2772,133 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       menuEl.style.position = 'absolute'
       menuEl.style.top = `${Math.max(scrollY + 4, scrollY + rect.top - menuEl.offsetHeight - GAP)}px`
       menuEl.style.left = `${Math.max(4, scrollX + rect.left)}px`
+    }
+
+    // Indicador de anotação (US1/feature 014) — container com MÚLTIPLAS
+    // abas simultâneas (uma por highlight-com-nota da seção), diferente
+    // do padrão singleton de ensureHighlightMenuEl/ensureSelectionMenuEl.
+    // Mesmo motivo de anexar ao fim do <body>: nunca perto do trecho
+    // marcado, pra não deslocar índices de CFI.
+    function ensureNoteTabsContainer(doc: Document): HTMLElement {
+      const existing = doc.getElementById('nr-highlight-note-tabs')
+      if (existing) return existing as HTMLElement
+
+      const el = doc.createElement('div')
+      el.id = 'nr-highlight-note-tabs'
+      doc.body.appendChild(el)
+      return el
+    }
+
+    // Busca por dataset em vez de seletor de atributo por valor — um CFI
+    // pode conter caracteres (parênteses, vírgulas) que não são seguros
+    // de interpolar direto num seletor CSS.
+    function findNoteTab(doc: Document, cfi: string): HTMLElement | null {
+      const container = doc.getElementById('nr-highlight-note-tabs')
+      if (!container) return null
+      return (Array.from(container.children) as HTMLElement[]).find((el) => el.dataset.nrHighlightNoteTab === cfi) ?? null
+    }
+
+    // Estimativa de largura da aba pra cobrir ~a 1ª palavra do trecho —
+    // sem medir o texto de verdade (custaria acesso à fonte computada do
+    // elemento). Largura por caractere aproximada, com piso/teto (ver
+    // NOTE_TAB_* acima).
+    function computeNoteTabWidth(text: string): number {
+      const firstWord = text.trim().split(/\s+/)[0] ?? ''
+      const estimated = firstWord.length * NOTE_TAB_CHAR_WIDTH_PX
+      return Math.min(NOTE_TAB_MAX_WIDTH_PX, Math.max(NOTE_TAB_MIN_WIDTH_PX, estimated))
+    }
+
+    // Cria ou atualiza a aba de um highlight específico, posicionada pelo
+    // `rect` já resolvido (ver plan.md D-002: vem de
+    // range.getClientRects()[0], lido dentro de paintHighlight a partir
+    // de e.detail.range — nunca recalculado aqui). Altura acompanha a
+    // altura real da linha (rect.height); largura vem de
+    // computeNoteTabWidth. Posicionada NO início do trecho (não acima da
+    // linha) — a legibilidade do texto por cima vem da opacidade do
+    // background (.nr-highlight-note-tab), não de deslocar a aba pra fora
+    // da área do texto (ver plan.md R-004, correção final).
+    function upsertNoteTab(
+      doc: Document,
+      cfi: string,
+      rect: { left: number; top: number; height: number },
+      width: number,
+    ): void {
+      const container = ensureNoteTabsContainer(doc)
+      const win = doc.defaultView
+      const scrollX = win?.scrollX ?? 0
+      const scrollY = win?.scrollY ?? 0
+
+      let tab = findNoteTab(doc, cfi)
+      if (!tab) {
+        tab = doc.createElement('button')
+        tab.setAttribute('type', 'button')
+        tab.className = 'nr-highlight-note-tab'
+        tab.dataset.nrHighlightNoteTab = cfi
+        tab.setAttribute('aria-label', t('reader.highlightMenu.noteIndicatorLabel'))
+        container.appendChild(tab)
+      }
+      tab.style.top = `${scrollY + rect.top}px`
+      tab.style.left = `${scrollX + rect.left}px`
+      tab.style.width = `${width}px`
+      tab.style.height = `${rect.height}px`
+    }
+
+    function removeNoteTab(doc: Document, cfi: string): void {
+      findNoteTab(doc, cfi)?.remove()
+    }
+
+    // Caixa de preview da anotação (US2/feature 014) — singleton, mesmo
+    // padrão de ensureHighlightMenuEl, populada com o texto da nota em vez
+    // de ações declarativas.
+    function ensureNotePreviewEl(doc: Document): HTMLElement {
+      const existing = doc.getElementById('nr-highlight-note-preview')
+      if (existing) return existing as HTMLElement
+
+      const el = doc.createElement('div')
+      el.id = 'nr-highlight-note-preview'
+      el.hidden = true
+      const text = doc.createElement('p')
+      text.className = 'nr-note-preview-text'
+      el.appendChild(text)
+      doc.body.appendChild(el)
+      return el
+    }
+
+    function setNotePreviewContent(el: HTMLElement, text: string): void {
+      const textEl = el.querySelector<HTMLElement>('.nr-note-preview-text')
+      if (textEl) textEl.textContent = text
+    }
+
+    function closeNotePreview(doc: Document): void {
+      const el = doc.getElementById('nr-highlight-note-preview')
+      if (el) el.hidden = true
+    }
+
+    // Mesma matemática de scrollX/scrollY de positionMenuAtRect, mas com
+    // fallback de virar pra ABAIXO do trecho quando não há espaço acima
+    // (FR-007) — positionMenuAtRect/positionSelectionMenu só fazem clamp
+    // pro topo da viewport, presumindo que sempre há espaço embaixo
+    // (verdade pros menus de seleção, não necessariamente pra um trecho
+    // perto do início do capítulo). Ver plan.md D-003.
+    function positionNotePreview(
+      doc: Document,
+      el: HTMLElement,
+      rect: { left: number; top: number; bottom: number },
+    ): void {
+      el.hidden = false
+      const win = doc.defaultView
+      const scrollX = win?.scrollX ?? 0
+      const scrollY = win?.scrollY ?? 0
+      const GAP = 10
+      el.style.position = 'absolute'
+      el.style.left = `${Math.max(4, scrollX + rect.left)}px`
+
+      const fitsAbove = rect.top - el.offsetHeight - GAP >= 0
+      if (fitsAbove) {
+        el.style.top = `${scrollY + rect.top - el.offsetHeight - GAP}px`
+      } else {
+        el.style.top = `${scrollY + rect.bottom + GAP}px`
+      }
     }
 
     // Toque sobre um highlight já existente. Usamos o hitTest do overlayer da
@@ -2751,6 +2928,63 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       return OverlayerCtor.highlight
     }
 
+    // Indicador de anotação (US1/feature 014) — pintado como parte do
+    // MESMO overlay do destaque, não uma camada translúcida separada por
+    // cima (achado do usuário em device: duas camadas translúcidas
+    // empilhadas na mesma região misturavam a cor — ver plan.md R-004,
+    // correção final). Os primeiros `noteWidthPx` do 1º rect saem na cor
+    // do indicador (sempre OverlayerCtor.highlight, independente do
+    // style escolhido pelo usuário — a aba precisa ficar reconhecível
+    // mesmo num highlight sublinhado/ondulado); o resto (resto do 1º
+    // rect + linhas seguintes, se o trecho cruzar linha) sai no draw
+    // function normal do highlight. Union-type local — não é o
+    // OverlayerRect do vendor (não exportado em foliate.d.ts).
+    type NoteIndicatorRect = { left: number; top: number; right: number; bottom: number; width: number; height: number }
+
+    // Triângulo de "cantinho dobrado" no topo-esquerdo do indicador —
+    // puramente decorativo (não afeta hit-test, que usa upsertNoteTab/
+    // getNoteTabAtPoint, não o SVG). Herda a opacidade do <g> pai
+    // (mesma técnica de Overlayer.highlight), então não introduz uma
+    // 2ª camada translúcida independente — continua sendo parte do
+    // MESMO grupo/opacidade do indicador (ver plan.md R-004).
+    function appendPostItFold(g: SVGElement, rect: NoteIndicatorRect): void {
+      const size = Math.min(NOTE_INDICATOR_FOLD_SIZE_PX, rect.width, rect.height)
+      if (size <= 0) return
+      const fold = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+      fold.setAttribute('d', `M ${rect.left} ${rect.top} L ${rect.left + size} ${rect.top} L ${rect.left} ${rect.top + size} Z`)
+      fold.setAttribute('fill', NOTE_INDICATOR_FOLD_COLOR_HEX)
+      g.appendChild(fold)
+    }
+
+    function drawHighlightWithNoteIndicator(
+      OverlayerCtor: typeof Overlayer,
+      style: HighlightStyle,
+      noteWidthPx: number,
+    ) {
+      return (rects: NoteIndicatorRect[], options: { color?: string } = {}): SVGElement => {
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+        const [first, ...rest] = rects
+        if (!first) return g
+
+        const width = Math.min(noteWidthPx, first.width)
+        const noteRect: NoteIndicatorRect = { ...first, width, right: first.left + width }
+        const noteGroup = OverlayerCtor.highlight([noteRect], { color: NOTE_INDICATOR_COLOR_HEX })
+        appendPostItFold(noteGroup, noteRect)
+        g.appendChild(noteGroup)
+
+        const remainderWidth = first.width - width
+        const remainderRects: NoteIndicatorRect[] = []
+        if (remainderWidth > 0) {
+          remainderRects.push({ ...first, left: first.left + width, width: remainderWidth })
+        }
+        remainderRects.push(...rest)
+        if (remainderRects.length) {
+          g.appendChild(getOverlayerDrawFn(OverlayerCtor, style)(remainderRects, options))
+        }
+        return g
+      }
+    }
+
     async function paintHighlight(
       cfi: string,
       color: string,
@@ -2777,6 +3011,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       const handler = (e: CustomEvent<{
         draw: (func: unknown, opts?: { color?: string }) => void
         annotation: { value: string }
+        doc: Document
+        range: Range
       }>) => {
         if (e.detail.annotation.value !== cfi) return
         handled = true
@@ -2784,7 +3020,30 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         // O overlayer joga esse valor direto no atributo `fill`/`stroke` do
         // SVG, então precisa ser cor CSS, não a chave da paleta ('amber',
         // 'rose'... não são cores nomeadas em CSS e pintariam preto).
-        e.detail.draw(getOverlayerDrawFn(OverlayerCtor, style), { color: annotationColorHex(color) })
+        // Indicador de anotação (US1/feature 014): decide ANTES de
+        // desenhar — com nota, o próprio draw function pinta a aba como
+        // parte do MESMO overlay (nunca duas camadas translúcidas
+        // empilhadas, que misturavam cor — ver plan.md R-004).
+        const paintedHighlight = highlightsRef.current.find((h) => h.cfi === cfi)
+        const noteWidthPx = paintedHighlight?.note ? computeNoteTabWidth(paintedHighlight.text) : 0
+        const drawFn = paintedHighlight?.note
+          ? drawHighlightWithNoteIndicator(OverlayerCtor, style, noteWidthPx)
+          : getOverlayerDrawFn(OverlayerCtor, style)
+        e.detail.draw(drawFn, { color: annotationColorHex(color) })
+
+        // Alvo de toque (US2) — invisível (só a cor desenhada acima é
+        // visível), reaproveita o MESMO range que o overlayer acabou de
+        // resolver pro destaque, em vez de re-resolver o CFI por conta
+        // própria (plan.md D-002). e.detail.doc é o documento da SEÇÃO
+        // sendo pintada agora — nem sempre a seção ativa
+        // (repaintHighlightsForSection chama isto pra qualquer seção
+        // carregada).
+        if (paintedHighlight?.note) {
+          const tabRect = e.detail.range.getClientRects()[0]
+          if (tabRect) upsertNoteTab(e.detail.doc, cfi, tabRect, noteWidthPx)
+        } else {
+          removeNoteTab(e.detail.doc, cfi)
+        }
       }
       view.addEventListener('draw-annotation', handler)
       try {
@@ -2815,6 +3074,27 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     function repaintHighlightsForSection(sectionIndex: number, list = highlightsRef.current): void {
       for (const highlight of list) {
         if (highlight.sectionIndex === sectionIndex) void paintHighlight(highlight.cfi, highlight.color, highlight.style ?? 'background')
+      }
+      removeOrphanNoteTabs(sectionIndex, list)
+    }
+
+    // Um highlight EXCLUÍDO nunca mais dispara paintHighlight pro CFI
+    // dele (não está mais em `list`), então a aba correspondente nunca
+    // seria removida pelo caminho normal (dentro do handler de
+    // draw-annotation, que só roda quando o CFI É repintado). Comparação
+    // síncrona contra a lista atual — não depende dos paints acima
+    // (assíncronos) terem resolvido.
+    function removeOrphanNoteTabs(sectionIndex: number, list: Highlight[]): void {
+      const doc = loadedSectionsRef.current.get(sectionIndex)?.doc
+      const container = doc?.getElementById('nr-highlight-note-tabs')
+      if (!doc || !container) return
+
+      const validCfis = new Set(
+        list.filter((h) => h.sectionIndex === sectionIndex && h.note).map((h) => h.cfi),
+      )
+      for (const tab of Array.from(container.children) as HTMLElement[]) {
+        const cfi = tab.dataset.nrHighlightNoteTab
+        if (cfi && !validCfis.has(cfi)) tab.remove()
       }
     }
 
@@ -3609,17 +3889,18 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           // Range pendente enquanto o menu de seleção está aberto — consumido
           // pelo próprio click ao tocar numa cor (ver mais abaixo).
           let pendingHighlightRange: Range | null = null
-          // Estilo "armado" pro PRÓXIMO highlight a criar — trocado ao tocar
-          // num ícone de estilo (não fecha o menu), consumido ao tocar numa
-          // cor (que cria e fecha). Reseta pra 'background' em toda abertura
-          // nova do menu (não persiste de uma seleção pra outra).
-          let pendingHighlightStyle: HighlightStyle = 'background'
           // Highlight cujo menu de gerenciamento está aberto (US3), e o rect
           // de onde ele foi tocado — reusado ao trocar de estilo, que
           // reposiciona sem fechar o menu (ver ramo do estilo no listener de
           // click) e por isso não tem um novo hitTest à mão.
           let activeHighlight: Highlight | null = null
           let activeHighlightMenuRect: { left: number; top: number } | null = null
+          // CFI do highlight cuja caixa de preview de anotação está aberta
+          // (US2/feature 014) — irmã de activeHighlight, mas independente:
+          // as duas nunca ficam abertas ao mesmo tempo (ver ramo da aba no
+          // listener de click, que fecha o menu completo antes de abrir a
+          // caixa).
+          let activeNotePreviewCfi: string | null = null
           function captureSelectionStateAtGestureStart(): void {
             hadSelectionAtTouchStart = getEligibleSelectionRange(doc) !== null
           }
@@ -3650,14 +3931,6 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             if (range) {
               pendingHighlightRange = range
               const menuEl = ensureSelectionMenuEl(doc)
-              // Reseta pra 'root'/estilo padrão só numa abertura de verdade
-              // (menu estava escondido) — se o usuário está ajustando as
-              // alças com o submenu de cores já aberto, modo e estilo
-              // armado continuam os mesmos.
-              if (menuEl.hidden) {
-                pendingHighlightStyle = 'background'
-                setSelectionMenuMode(doc, menuEl, 'root', null)
-              }
               positionSelectionMenu(doc, menuEl, range)
             } else {
               // NÃO zera pendingHighlightRange aqui (achado em device): no
@@ -3681,40 +3954,30 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               return
             }
 
-            // Botões do menu de seleção (Copiar/Compartilhar/Destacar, voltar,
-            // cores) têm prioridade sobre a guarda de seleção logo abaixo —
-            // senão a guarda engoliria o próprio toque nesses botões
-            // (Invariante 3). Sempre a MESMA leitura de range/menu: prefere a
-            // seleção viva, cai pro último range elegível se o WebView já
-            // colapsou por causa deste mesmo toque (Android, achado em device).
+            // Botões do menu de seleção (Copiar/Compartilhar/Destacar) têm
+            // prioridade sobre a guarda de seleção logo abaixo — senão a
+            // guarda engoliria o próprio toque nesses botões (Invariante 3).
+            // Sempre a MESMA leitura de range/menu: prefere a seleção viva,
+            // cai pro último range elegível se o WebView já colapsou por
+            // causa deste mesmo toque (Android, achado em device).
             const liveOrPendingRange = () => getEligibleSelectionRange(doc) ?? pendingHighlightRange
 
+            // "Destacar" (feature 016): não abre mais um submenu de cores
+            // dentro do iframe — monta o draft (sem cor/estilo, ainda não
+            // decididos) e entrega pro ReaderScreen abrir a caixa unificada
+            // fora do iframe. Nenhum highlight é criado aqui.
             const openColorsBtn = getSelectionMenuButtonAtPoint(target, ownerDocument, ev.clientX, ev.clientY, '[data-nr-selection-open-colors]')
             if (openColorsBtn) {
               ev.preventDefault()
               ev.stopPropagation()
-              setSelectionMenuMode(doc, ensureSelectionMenuEl(doc), 'colors', liveOrPendingRange(), pendingHighlightStyle)
-              return
-            }
-
-            const backBtn = getSelectionMenuButtonAtPoint(target, ownerDocument, ev.clientX, ev.clientY, '[data-nr-selection-back]')
-            if (backBtn) {
-              ev.preventDefault()
-              ev.stopPropagation()
-              setSelectionMenuMode(doc, ensureSelectionMenuEl(doc), 'root', liveOrPendingRange())
-              return
-            }
-
-            // Ícone de estilo (dentro do submenu de cores): só troca o estilo
-            // "armado" e remarca visualmente — não fecha o menu nem cria nada
-            // ainda. A cor, tocada em seguida, é quem confirma e fecha.
-            const selectionStyleBtn = getSelectionMenuButtonAtPoint(target, ownerDocument, ev.clientX, ev.clientY, '[data-nr-selection-style]')
-            if (selectionStyleBtn) {
-              ev.preventDefault()
-              ev.stopPropagation()
-              const style = selectionStyleBtn.dataset.nrSelectionStyle as HighlightStyle | undefined
-              if (style) pendingHighlightStyle = style
-              setSelectionMenuMode(doc, ensureSelectionMenuEl(doc), 'colors', liveOrPendingRange(), pendingHighlightStyle)
+              const range = liveOrPendingRange()
+              if (range) {
+                const draft = buildHighlightPayloadFromRange(range, index)
+                if (draft) onRequestCreateHighlightRef.current?.(draft)
+              }
+              doc.getSelection?.()?.removeAllRanges()
+              pendingHighlightRange = null
+              closeSelectionMenu(doc)
               return
             }
 
@@ -3758,27 +4021,6 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               return
             }
 
-            const selectionColorBtn = getSelectionMenuButtonAtPoint(target, ownerDocument, ev.clientX, ev.clientY, '[data-nr-selection-color]')
-            if (selectionColorBtn) {
-              ev.preventDefault()
-              ev.stopPropagation()
-              const color = selectionColorBtn.dataset.nrSelectionColor
-              const range = liveOrPendingRange()
-              if (color && range) {
-                const basePayload = buildHighlightPayloadFromRange(range, index)
-                if (basePayload) {
-                  const payload: HighlightCreationPayload = { ...basePayload, color, style: pendingHighlightStyle }
-                  onCreateHighlightRef.current?.(payload)
-                  void paintHighlight(payload.cfi, color, pendingHighlightStyle)
-                }
-              }
-              doc.getSelection?.()?.removeAllRanges()
-              pendingHighlightRange = null
-              pendingHighlightStyle = 'background'
-              closeSelectionMenu(doc)
-              return
-            }
-
             // Botões do menu do highlight (US3), pela mesma razão do ramo
             // acima: se a guarda de seleção ou o roteamento normal viesse
             // antes, o menu engoliria os próprios toques.
@@ -3787,30 +4029,50 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               ev.preventDefault()
               ev.stopPropagation()
               const alvo = activeHighlight
-              const novaCor = highlightMenuBtn.dataset.nrHighlightColor
-              const novoEstilo = highlightMenuBtn.dataset.nrHighlightStyle as HighlightStyle | undefined
-              if (alvo && novaCor) {
-                onChangeHighlightAppearanceRef.current?.(alvo, { color: novaCor })
-                void paintHighlight(alvo.cfi, novaCor, alvo.style ?? 'background')
-                activeHighlight = null
-                activeHighlightMenuRect = null
-                closeHighlightMenu(doc)
-              } else if (alvo && novoEstilo) {
-                // Estilo aplica e persiste na hora, mas NÃO fecha o menu — o
-                // usuário pode continuar ajustando (trocar estilo de novo, ou
-                // escolher a cor em seguida). Só a cor fecha, como já era.
-                onChangeHighlightAppearanceRef.current?.(alvo, { style: novoEstilo })
-                void paintHighlight(alvo.cfi, alvo.color, novoEstilo)
-                activeHighlight = { ...alvo, style: novoEstilo }
-                if (activeHighlightMenuRect) {
-                  setHighlightMenuAppearance(doc, ensureHighlightMenuEl(doc), novoEstilo, activeHighlightMenuRect)
-                }
-              } else if (alvo && highlightMenuBtn.dataset.nrHighlightRemove === '1') {
+              if (alvo && highlightMenuBtn.dataset.nrHighlightRemove === '1') {
                 onDeleteHighlightRef.current?.(alvo)
                 void viewRef.current?.deleteAnnotation({ value: alvo.cfi })
                 activeHighlight = null
                 activeHighlightMenuRect = null
                 closeHighlightMenu(doc)
+              } else if (alvo && highlightMenuBtn.dataset.nrHighlightEdit === '1') {
+                // Feature 016: abre a caixa unificada fora do iframe — cor,
+                // estilo e nota mudam juntos, só ao confirmar (nunca mais
+                // aplica na hora, diferente do antigo submenu de cores).
+                onEditHighlightRef.current?.(alvo)
+                activeHighlight = null
+                activeHighlightMenuRect = null
+                closeHighlightMenu(doc)
+              }
+              return
+            }
+
+            // Aba de "tem anotação" (US2/feature 014) — mesma prioridade dos
+            // botões acima (antes de qualquer guarda de seleção/tradução),
+            // e ANTES do hit-test de "toque sobre highlight abre o menu"
+            // (a aba se sobrepõe visualmente ao início do highlight; sem
+            // essa prioridade, o toque cairia no branch de baixo e abriria
+            // o menu completo em vez do preview — FR-008 exige que só o
+            // RESTO do trecho abra o menu completo).
+            const noteTabBtn = getNoteTabAtPoint(target, ownerDocument, ev.clientX, ev.clientY)
+            if (noteTabBtn) {
+              ev.preventDefault()
+              ev.stopPropagation()
+              const cfi = noteTabBtn.dataset.nrHighlightNoteTab
+              const noteHighlight = cfi ? highlightsRef.current.find((h) => h.cfi === cfi) : null
+              if (noteHighlight?.note) {
+                // Nunca os dois abertos ao mesmo tempo: se o menu completo
+                // de OUTRO highlight estava aberto, fecha antes de abrir o
+                // preview.
+                if (activeHighlight) {
+                  activeHighlight = null
+                  activeHighlightMenuRect = null
+                  closeHighlightMenu(doc)
+                }
+                const previewEl = ensureNotePreviewEl(doc)
+                setNotePreviewContent(previewEl, noteHighlight.note)
+                positionNotePreview(doc, previewEl, noteTabBtn.getBoundingClientRect())
+                activeNotePreviewCfi = cfi ?? null
               }
               return
             }
@@ -3895,6 +4157,17 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
               return
             }
 
+            // Mesma lógica pra caixa de preview de anotação (US2/feature
+            // 014) — irmã do bloco acima. Se chegou até aqui, o toque não
+            // foi na própria aba (esse caso já retornou antes, no branch
+            // de noteTabBtn), então é sempre um "toque fora" (FR-006).
+            if (activeNotePreviewCfi) {
+              logReaderTapIgnored('highlight-note-preview')
+              activeNotePreviewCfi = null
+              closeNotePreview(doc)
+              return
+            }
+
             // Toque SOBRE um highlight abre o menu dele em vez da tradução
             // (FR-019). Um toque numa parte sem highlight do mesmo parágrafo
             // não casa no hitTest e segue o fluxo normal (FR-020).
@@ -3911,6 +4184,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
                 doc,
                 ensureHighlightMenuEl(doc),
                 highlightUnderTap.style ?? 'background',
+                highlightUnderTap.color,
                 activeHighlightMenuRect,
               )
               logReaderTapIgnored('highlight-menu')

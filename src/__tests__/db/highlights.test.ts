@@ -23,7 +23,7 @@ vi.mock('@/db/database', () => ({
   },
 }))
 
-import { addHighlight, deleteHighlight, getHighlightsByBookId, updateHighlightAppearance } from '@/db/highlights'
+import { addHighlight, deleteHighlight, getHighlightsByBookId, updateHighlightAppearance, updateHighlightNote } from '@/db/highlights'
 
 function makeHighlight(overrides: Partial<Highlight> = {}): Omit<Highlight, 'id'> {
   return {
@@ -100,9 +100,31 @@ describe('highlights repository', () => {
     expect(mocks.update).toHaveBeenCalledWith(7, { style: 'underline' })
   })
 
-  it('remove um highlight permanentemente (sem soft delete)', async () => {
+  // FR-007 (feature 013): nota vive no mesmo registro do highlight — apagar o
+  // highlight já apaga a nota junto, sem cascata dedicada. Esta chamada é a
+  // mesma de antes; a garantia vem da modelagem (ver plan.md), não de lógica
+  // nova aqui.
+  it('remove um highlight permanentemente (sem soft delete) — nota vai junto, mesma linha', async () => {
     await deleteHighlight(7)
 
     expect(mocks.delete).toHaveBeenCalledWith(7)
+  })
+
+  it('grava a nota de um highlight, trimada', async () => {
+    await updateHighlightNote(7, '  Reflexão sobre o trecho.  ')
+
+    expect(mocks.update).toHaveBeenCalledWith(7, { note: 'Reflexão sobre o trecho.' })
+  })
+
+  it('remove a nota ao salvar null (FR-006)', async () => {
+    await updateHighlightNote(7, null)
+
+    expect(mocks.update).toHaveBeenCalledWith(7, { note: undefined })
+  })
+
+  it('remove a nota ao salvar só espaços em branco (FR-006)', async () => {
+    await updateHighlightNote(7, '   ')
+
+    expect(mocks.update).toHaveBeenCalledWith(7, { note: undefined })
   })
 })

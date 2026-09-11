@@ -161,7 +161,8 @@ tags, pastas de origem e caches ficam no dispositivo.
 - Marcadores listados por CFI, com snippet e remocao por soft delete.
 - Highlights do livro listados na ordem em que aparecem no texto (trecho, cor,
   estilo, posicao e data), com navegacao de volta ao trecho no leitor e
-  remocao direta pela lista.
+  remocao direta pela lista. Anotacao de texto associada (quando existir)
+  aparece logo abaixo, truncada se longa.
 - Contagem de vocabulario e de highlights salvos por livro.
 - Atualizacao manual da ficha bibliografica.
 - Aba Configuracoes organizada em menu de categorias (Aparencia do Leitor,
@@ -247,15 +248,31 @@ ficha manualmente.
 - Toque longo + arrasto seleciona texto do livro (selecao nativa do WebView);
   ao soltar, abre um menu proprio do NeoReader ancorado na selecao, sem o menu
   flutuante do sistema por cima (Android).
-- Menu com Copiar, Compartilhar e o botao "Destacar", que abre um submenu com
-  3 estilos visuais (fundo colorido, sublinhado, risco ondulado) e 8 cores —
-  tocar numa cor marca e fecha num unico toque.
+- Menu com Copiar, Compartilhar e o botao "Destacar", que abre uma caixa
+  unificada (cor, estilo e anotacao juntos) fora do menu do iframe — cor/
+  estilo vem pre-selecionados com os ultimos usados pelo proprio usuario
+  (persistido entre sessoes, qualquer livro); nada e criado ate confirmar,
+  cancelar nao deixa nada pra tras.
 - Highlight persistente por intervalo exato do texto (nao por ocorrencia da
   palavra, diferente do destaque de Word Lens/vocabulario); sobrevive a
   rolagem, troca de capitulo, reflow e reabertura do livro.
-- Tocar num highlight existente abre um menu de gerenciamento (remover, trocar
-  cor, trocar estilo) em vez da traducao inline; toque curto no restante do
-  texto continua abrindo a traducao normalmente.
+- Tocar num highlight existente abre um menu de gerenciamento com Remover
+  (imediato) e Editar — Editar abre a MESMA caixa unificada, pre-preenchida
+  com a cor/estilo/anotacao atuais; as tres mudancas so aplicam juntas ao
+  confirmar, cancelar mantem tudo como estava.
+- Anotacao de texto livre (ate 2000 caracteres) associada ao highlight —
+  local-first como o highlight, removida automaticamente junto com ele,
+  visivel tambem na aba Highlights da tela de detalhes do livro.
+- Highlight com anotacao ganha um indicador visual tipo post-it no inicio do
+  trecho (pintado no mesmo overlay do highlight, sem cobrir o texto); tocar
+  nele abre uma caixa flutuante so-leitura com o texto da nota, sem precisar
+  abrir o menu de gerenciamento completo.
+- Logo apos criar um highlight, um toast tocavel convida a anotar na hora
+  ("Highlight criado. Toque para anotar.") — so aparece se a nota ficou vazia
+  na propria caixa de criacao; toca nele e a caixa unificada abre de novo,
+  ja associada ao highlight recem-criado; ignorado, some sozinho em ~5-6s sem
+  deixar nada pendente. Criar outro highlight enquanto o toast ainda esta
+  visivel substitui pelo mais recente (nunca dois ao mesmo tempo).
 - Compartilhar usa `Intent.ACTION_SEND` nativo no Android (a Web Share API nao
   e confiavel no WebView embarcado), com fallback para `navigator.share` fora
   do Android.
