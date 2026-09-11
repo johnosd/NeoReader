@@ -1553,6 +1553,44 @@ describe('EpubViewer — highlights de trecho selecionado', () => {
     expect(onTranslateSpy).toHaveBeenCalledOnce()
   })
 
+  // ── Bugfix highlight-some-ao-tocar-no-mesmo ──────────────────────────────
+  // Causa raiz de verdade (confirmada lendo foliate-js/view.js): surroundContents
+  // (usado por .nr-hl-sentence, o wrapper da traducao inline) divide nos de
+  // texto e pode invalidar o caminho que o CFI de OUTRO highlight da mesma
+  // secao espera encontrar no DOM — addAnnotation resolve normalmente, mas
+  // 'draw-annotation' nunca dispara pra esse highlight (some, silenciosamente,
+  // sem erro). A correcao evita QUALQUER mutacao de DOM ao traduzir quando a
+  // secao ja tem highlights, caindo pro fallback seguro (.nr-hl, so classe CSS
+  // no proprio paragrafo, sem mexer na arvore).
+  it('T044: traduzir noutra parte do paragrafo NAO muta o DOM quando a secao tem highlights (usa fallback seguro)', async () => {
+    const onTranslateSpy = vi.fn()
+    const { doc, para, overlayer } = await renderComHighlightPintado({ onTranslate: onTranslateSpy })
+    // hitTest vazio = o toque nao caiu sobre o highlight em si
+    overlayer.hitTest.mockReturnValue([])
+
+    clickAt(para, 120, 400)
+
+    expect(onTranslateSpy).toHaveBeenCalledOnce()
+    // Fallback seguro: classe no paragrafo, SEM span .nr-hl-sentence (que
+    // exigiria surroundContents, arriscando o CFI do highlight existente).
+    expect(para.classList.contains('nr-hl')).toBe(true)
+    expect(doc.querySelector('.nr-hl-sentence')).toBeNull()
+  })
+
+  it('T044b: traduzir noutra parte do paragrafo AINDA usa .nr-hl-sentence quando a secao NAO tem highlights', async () => {
+    const onTranslateSpy = vi.fn()
+    const setup = await renderViewer({ onTranslate: onTranslateSpy })
+    const doc = makeFakeDoc(['First sentence. Second sentence.'])
+    const para = doc.querySelector('p') as HTMLElement
+    loadSection(setup.foliateEl, doc, 0)
+
+    clickAt(para, 120, 360)
+
+    expect(onTranslateSpy).toHaveBeenCalledOnce()
+    expect(doc.querySelector('.nr-hl-sentence')).not.toBeNull()
+    expect(para.classList.contains('nr-hl')).toBe(false)
+  })
+
   it('T032: remover chama deleteAnnotation e trocar a cor repinta na cor nova', async () => {
     const onDeleteHighlight = vi.fn()
     const onChangeHighlightAppearance = vi.fn()
@@ -1663,6 +1701,247 @@ describe('EpubViewer — highlights de trecho selecionado', () => {
     expect(menu.hidden).toBe(true)
     expect(onDeleteHighlight).not.toHaveBeenCalled()
     expect(onChangeHighlightAppearance).not.toHaveBeenCalled()
+  })
+
+  // ── Indicador de anotação (US1/feature 014) ──────────────────────────────
+  // JSDOM não implementa layout de verdade — Range.prototype.getClientRects
+  // tem um default seguro em setup.ts (array vazio), mas pra testar a
+  // POSIÇÃO real da aba precisamos de um rect específico. Como o range é
+  // criado internamente pelo mock de addAnnotation (target.doc.createRange()),
+  // não dá pra estubar a instância — patcheamos o protótipo pra esta
+  // chamada e restauramos depois (vi.clearAllMocks() do afterEach global
+  // NÃO desfaz um spy no protótipo, só limpa histórico de chamadas).
+  function stubRangeClientRects(rects: Array<Pick<DOMRect, 'left' | 'top' | 'right' | 'bottom'>>) {
+    // height derivada de bottom-top (mesma conta de um DOMRect real) —
+    // upsertNoteTab usa rect.height pra dimensionar a aba (feature 014).
+    const withHeight = rects.map((r) => ({ ...r, height: r.bottom - r.top }))
+    return vi.spyOn(Range.prototype, 'getClientRects').mockReturnValue(withHeight as unknown as DOMRectList)
+  }
+
+  it('T036: highlight com nota ganha uma aba de indicador ancorada ao inicio do trecho', async () => {
+    const highlight = {
+      id: 7, bookId: 1, cfi: 'epubcfi(/6/4!/4/2/1:0,/1:10)', paraCfi: 'epubcfi(/6/4!/4/2/1:0)',
+      text: 'First sen', color: 'indigo', note: 'Minha reflexao', sectionIndex: 0, percentage: 10, createdAt: new Date(),
+    }
+    const rectsSpy = stubRangeClientRects([{ left: 40, top: 120, right: 60, bottom: 136 }])
+    try {
+      const setup = await renderViewer({ highlights: [highlight] })
+      const doc = makeFakeDoc(['First sentence. Second sentence.'])
+      loadSection(setup.foliateEl, doc, 0)
+
+      await waitFor(() => {
+        expect(doc.querySelector('[data-nr-highlight-note-tab]')).not.toBeNull()
+      })
+      const tab = doc.querySelector('[data-nr-highlight-note-tab]') as HTMLElement
+      expect(tab.dataset.nrHighlightNoteTab).toBe(highlight.cfi)
+      expect(tab.className).toBe('nr-highlight-note-tab')
+      // Ancorada NO inicio do trecho (rect.top/left diretos) — a
+      // legibilidade do texto por cima vem da opacidade do background
+      // (CSS), nao de deslocar a aba pra fora da area do texto (ver
+      // plan.md R-004, correcao final). Largura ~ 1a palavra de
+      // highlight.text ("First"): 5 chars * 8.5px = 42.5px. Altura =
+      // rect.height (bottom 136 - top 120 = 16).
+      expect(tab.style.top).toBe('120px')
+      expect(tab.style.left).toBe('40px')
+      expect(tab.style.width).toBe('42.5px')
+      expect(tab.style.height).toBe('16px')
+    } finally {
+      rectsSpy.mockRestore()
+    }
+  })
+
+  it('T037: highlight sem nota nao ganha aba de indicador', async () => {
+    const { doc, highlight, overlayer } = await renderComHighlightPintado()
+
+    // Espera o paint (assincrono) de fato acontecer antes de checar a
+    // ausencia da aba — senão a asserção passaria mesmo sem o paint ter
+    // rodado ainda.
+    await waitFor(() => {
+      expect(overlayer.add).toHaveBeenCalledWith(highlight.cfi, expect.anything(), expect.anything(), expect.anything())
+    })
+    expect(doc.querySelector('[data-nr-highlight-note-tab]')).toBeNull()
+  })
+
+  it('T038: remover o texto da nota (highlight atualizado) remove a aba na repintura seguinte', async () => {
+    const highlight = {
+      id: 7, bookId: 1, cfi: 'epubcfi(/6/4!/4/2/1:0,/1:10)', paraCfi: 'epubcfi(/6/4!/4/2/1:0)',
+      text: 'First sen', color: 'indigo', note: 'Minha reflexao', sectionIndex: 0, percentage: 10, createdAt: new Date(),
+    }
+    const rectsSpy = stubRangeClientRects([{ left: 40, top: 120, right: 60, bottom: 136 }])
+    try {
+      const { foliateEl, props, rerender } = await renderViewer({ highlights: [highlight] })
+      const doc = makeFakeDoc(['First sentence. Second sentence.'])
+      loadSection(foliateEl, doc, 0)
+      await waitFor(() => {
+        expect(doc.querySelector('[data-nr-highlight-note-tab]')).not.toBeNull()
+      })
+
+      const semNota = { ...highlight, note: undefined }
+      await act(async () => {
+        rerender(
+          <EpubViewer {...({ ...props, highlights: [semNota] } as Parameters<typeof EpubViewer>[0])} />,
+        )
+      })
+
+      await waitFor(() => {
+        expect(doc.querySelector('[data-nr-highlight-note-tab]')).toBeNull()
+      })
+    } finally {
+      rectsSpy.mockRestore()
+    }
+  })
+
+  it('T043b: com nota, o overlay pinta indicador e highlight em grupos separados (sem 2 camadas translucidas empilhadas)', async () => {
+    const highlight = {
+      id: 7, bookId: 1, cfi: 'epubcfi(/6/4!/4/2/1:0,/1:10)', paraCfi: 'epubcfi(/6/4!/4/2/1:0)',
+      text: 'First sen', color: 'rose', note: 'Minha reflexao', sectionIndex: 0, percentage: 10, createdAt: new Date(),
+    }
+    const rectsSpy = stubRangeClientRects([{ left: 40, top: 120, right: 240, bottom: 136 }])
+    try {
+      const setup = await renderViewer({ highlights: [highlight] })
+      const doc = makeFakeDoc(['First sentence. Second sentence.'])
+      loadSection(setup.foliateEl, doc, 0)
+      await waitFor(() => {
+        expect(doc.querySelector('[data-nr-highlight-note-tab]')).not.toBeNull()
+      })
+
+      const { overlayer } = setup.foliateEl.renderer.getContents()[0]
+      const call = overlayer.add.mock.calls.find((c: unknown[]) => c[0] === highlight.cfi)
+      expect(call).toBeDefined()
+      const drawFn = call![2] as (rects: unknown[], opts?: { color?: string }) => SVGElement
+
+      // Chama o draw function de verdade (nao o mock) com um rect largo,
+      // pra confirmar que ele DIVIDE em 2 grupos (indicador + resto) em
+      // vez de desenhar duas camadas sobrepostas na mesma area.
+      const g = drawFn(
+        [{ left: 40, top: 120, right: 240, bottom: 136, width: 200, height: 16 }],
+        { color: '#f43f5e' },
+      )
+      expect(g.children.length).toBe(2)
+      const noteGroup = g.children[0] as SVGElement
+      expect(noteGroup.getAttribute('fill')).toBe('#facc15')
+      // Cantinho dobrado (post-it) fica DENTRO do grupo do indicador —
+      // não introduz uma 3ª camada translucida independente.
+      expect(noteGroup.querySelector('path[fill="#eab308"]')).not.toBeNull()
+      expect((g.children[1] as SVGElement).getAttribute('fill')).toBe('#f43f5e')
+    } finally {
+      rectsSpy.mockRestore()
+    }
+  })
+
+  // ── Preview flutuante da anotação (US2/feature 014) ──────────────────────
+  it('T039: tocar na aba abre a caixa de preview so-leitura com o texto da nota, sem abrir o menu completo', async () => {
+    const onAnnotateHighlight = vi.fn()
+    const highlight = {
+      id: 7, bookId: 1, cfi: 'epubcfi(/6/4!/4/2/1:0,/1:10)', paraCfi: 'epubcfi(/6/4!/4/2/1:0)',
+      text: 'First sen', color: 'indigo', note: 'Minha reflexao', sectionIndex: 0, percentage: 10, createdAt: new Date(),
+    }
+    const rectsSpy = stubRangeClientRects([{ left: 40, top: 120, right: 60, bottom: 136 }])
+    try {
+      const setup = await renderViewer({ highlights: [highlight], onAnnotateHighlight })
+      const doc = makeFakeDoc(['First sentence. Second sentence.'])
+      loadSection(setup.foliateEl, doc, 0)
+      await waitFor(() => {
+        expect(doc.querySelector('[data-nr-highlight-note-tab]')).not.toBeNull()
+      })
+      const tab = doc.querySelector('[data-nr-highlight-note-tab]') as HTMLElement
+      setElementRect(tab, { left: 40, top: 120, right: 52, bottom: 136, width: 12, height: 16 })
+
+      click(tab)
+
+      const preview = doc.getElementById('nr-highlight-note-preview') as HTMLElement
+      expect(preview?.hidden).toBe(false)
+      expect(preview.querySelector('.nr-note-preview-text')?.textContent).toBe('Minha reflexao')
+      // offsetHeight é sempre 0 em JSDOM (sem layout real): cabe acima
+      // (rect.top 120 - 0 - GAP 10 >= 0), então fica colado acima do rect.
+      expect(preview.style.top).toBe('110px')
+      expect(doc.getElementById('nr-highlight-menu')?.hidden).not.toBe(false)
+      expect(onAnnotateHighlight).not.toHaveBeenCalled()
+    } finally {
+      rectsSpy.mockRestore()
+    }
+  })
+
+  it('T040: tocar fora da caixa de preview fecha ela', async () => {
+    const highlight = {
+      id: 7, bookId: 1, cfi: 'epubcfi(/6/4!/4/2/1:0,/1:10)', paraCfi: 'epubcfi(/6/4!/4/2/1:0)',
+      text: 'First sen', color: 'indigo', note: 'Minha reflexao', sectionIndex: 0, percentage: 10, createdAt: new Date(),
+    }
+    const rectsSpy = stubRangeClientRects([{ left: 40, top: 120, right: 60, bottom: 136 }])
+    try {
+      const setup = await renderViewer({ highlights: [highlight] })
+      const doc = makeFakeDoc(['First sentence. Second sentence.'])
+      loadSection(setup.foliateEl, doc, 0)
+      await waitFor(() => {
+        expect(doc.querySelector('[data-nr-highlight-note-tab]')).not.toBeNull()
+      })
+      const tab = doc.querySelector('[data-nr-highlight-note-tab]') as HTMLElement
+      setElementRect(tab, { left: 40, top: 120, right: 52, bottom: 136, width: 12, height: 16 })
+      click(tab)
+      const preview = doc.getElementById('nr-highlight-note-preview') as HTMLElement
+      expect(preview.hidden).toBe(false)
+
+      clickAt(doc.body, 300, 300)
+
+      expect(preview.hidden).toBe(true)
+    } finally {
+      rectsSpy.mockRestore()
+    }
+  })
+
+  it('T041: tocar em outra parte do trecho (fora da aba) continua abrindo o menu completo, sem regressao de FR-008', async () => {
+    const highlight = {
+      id: 7, bookId: 1, cfi: 'epubcfi(/6/4!/4/2/1:0,/1:10)', paraCfi: 'epubcfi(/6/4!/4/2/1:0)',
+      text: 'First sen', color: 'indigo', note: 'Minha reflexao', sectionIndex: 0, percentage: 10, createdAt: new Date(),
+    }
+    const rectsSpy = stubRangeClientRects([{ left: 40, top: 120, right: 60, bottom: 136 }])
+    try {
+      const setup = await renderViewer({ highlights: [highlight] })
+      const doc = makeFakeDoc(['First sentence. Second sentence.'])
+      loadSection(setup.foliateEl, doc, 0)
+      await waitFor(() => {
+        expect(doc.querySelector('[data-nr-highlight-note-tab]')).not.toBeNull()
+      })
+      const para = doc.querySelector('p') as HTMLElement
+      const { overlayer } = setup.foliateEl.renderer.getContents()[0]
+      overlayer.hitTest.mockReturnValue([highlight.cfi, doc.createRange(), { left: 40, top: 120, right: 300, bottom: 140 }])
+
+      clickAt(para, 200, 130)
+
+      const menu = doc.getElementById('nr-highlight-menu')
+      expect(menu?.hidden).toBe(false)
+      expect(doc.getElementById('nr-highlight-note-preview')?.hidden).not.toBe(false)
+    } finally {
+      rectsSpy.mockRestore()
+    }
+  })
+
+  it('T042: aba perto do topo da tela abre a caixa de preview ABAIXO do trecho (fallback de posicao, FR-007)', async () => {
+    const highlight = {
+      id: 7, bookId: 1, cfi: 'epubcfi(/6/4!/4/2/1:0,/1:10)', paraCfi: 'epubcfi(/6/4!/4/2/1:0)',
+      text: 'First sen', color: 'indigo', note: 'Minha reflexao', sectionIndex: 0, percentage: 10, createdAt: new Date(),
+    }
+    const rectsSpy = stubRangeClientRects([{ left: 40, top: 2, right: 60, bottom: 18 }])
+    try {
+      const setup = await renderViewer({ highlights: [highlight] })
+      const doc = makeFakeDoc(['First sentence. Second sentence.'])
+      loadSection(setup.foliateEl, doc, 0)
+      await waitFor(() => {
+        expect(doc.querySelector('[data-nr-highlight-note-tab]')).not.toBeNull()
+      })
+      const tab = doc.querySelector('[data-nr-highlight-note-tab]') as HTMLElement
+      setElementRect(tab, { left: 40, top: 2, right: 52, bottom: 18, width: 12, height: 16 })
+
+      click(tab)
+
+      const preview = doc.getElementById('nr-highlight-note-preview') as HTMLElement
+      expect(preview.hidden).toBe(false)
+      // Nao cabe acima (rect.top 2 - offsetHeight 0 - GAP 10 < 0) -> cai
+      // abaixo: scrollY(0) + rect.bottom(18) + GAP(10).
+      expect(preview.style.top).toBe('28px')
+    } finally {
+      rectsSpy.mockRestore()
+    }
   })
 
   // ── FR-003c: Copiar e Compartilhar no menu de seleção ────────────────────

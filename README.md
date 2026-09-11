@@ -261,6 +261,10 @@ ficha manualmente.
   "Anotar"/"Editar anotacao" no mesmo menu — local-first como o highlight,
   removida automaticamente junto com ele, visivel tambem na aba Highlights
   da tela de detalhes do livro.
+- Highlight com anotacao ganha um indicador visual tipo post-it no inicio do
+  trecho (pintado no mesmo overlay do highlight, sem cobrir o texto); tocar
+  nele abre uma caixa flutuante so-leitura com o texto da nota, sem precisar
+  abrir o menu de gerenciamento completo.
 - Compartilhar usa `Intent.ACTION_SEND` nativo no Android (a Web Share API nao
   e confiavel no WebView embarcado), com fallback para `navigator.share` fora
   do Android.

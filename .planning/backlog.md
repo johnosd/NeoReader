@@ -5,7 +5,7 @@ sistema sdd-*. Mantido automaticamente por update-feature-status.ps1 e
 update-bug-status.ps1.
 
 ## Ideias Futuras
-_(nenhuma no momento)_
+
 
 ## Features
 
@@ -24,6 +24,7 @@ _(nenhuma no momento)_
 | 011-book-details-settings-categorias | Reorganizar Aba Configurações do Livro em Categorias Navegáveis | Convergida | 29/29 tasks | 2026-09-09 |
 | 012-toque-tela-leitura | Controle de toque na tela de leitura | Convergida | 18/18 tasks | 2026-09-10 |
 | 013-anotacoes-highlights | Anotações associadas a highlights | Implementada | 20/20 tasks | 2026-09-10 |
+| 014-indicador-anotacao-highlight | Indicador visual de anotação em highlights com preview flutuante | Implementada | 26/26 tasks | 2026-09-11 |
 
 ## Bugs
 
@@ -42,6 +43,7 @@ _(nenhuma no momento)_
 | clique-no-paragrafo-nao-abre-menu | Clique no parágrafo não abre o menu contextual perto do início/fim do capítulo | Test | verified | Concluído | 2026-09-09 |
 | menu-chrome-leitor-some-sozinho-apos | Menu de chrome do leitor some sozinho após ~2.5s | Test | verified | Concluído | 2026-09-10 |
 | sincronizar-bookmarks-automaticamente-ao-fechar-livro | Sincronizar bookmarks automaticamente ao fechar o livro | Test | verified | Concluído | 2026-09-10 |
+| highlight-some-ao-tocar-no-mesmo | Highlight some ao tocar no mesmo parágrafo pra abrir tradução | Test | verified | Concluído | 2026-09-11 |
 
 ## Melhorias Ad-hoc
 
