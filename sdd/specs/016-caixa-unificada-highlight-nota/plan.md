@@ -341,3 +341,32 @@ reais no código (achado durante a US1 desta feature — ver R-004). Sempre usar
   caminho (`overlayer.hitTest`) que uma sessão futura precisaria investigar
   mais a fundo (ou só confirmar no device) antes de tentar de novo via
   Playwright.
+
+## Resultado Final
+
+<!-- sdd-converge, 2026-09-11 -->
+
+Feature convergida — nenhum achado. Todo FR-001 a FR-009 e SC-001 a
+SC-005 conferem com o código real, confirmados por 171 testes
+automatizados (`EpubViewer.test.tsx`/`ReaderScreen.test.tsx`/
+`HighlightComposerSheet.test.tsx`), validação num browser real via
+Playwright (criação ponta a ponta, persistência real no Dexie, pintura
+do highlight, toast condicional) e confirmação no device Android real
+(gesto de editar um highlight existente, fechando R-005).
+
+**Desvios acumulados nas Execution Notes, todos justificados**:
+limpeza de código morto foi além do previsto em T022 (`SelectionMenuMode`/
+`setSelectionMenuMode`/`renderStyleButtonsHtml` removidos por completo,
+não só "se sobrar" — ficou zero uso real depois das duas user stories);
+achado de processo real e não relacionado ao escopo funcional (`npx tsc
+--noEmit` sem `-p` é no-op neste projeto, R-004) documentado e corrigido
+nos comandos-base desta sessão em diante.
+
+`README.md` já foi atualizado no Polish (T026) — bullets da seção
+"Highlights" refletem a caixa unificada e o toast condicional. A
+feature `015-atalho-anotar-highlight-criacao` (que esta feature revisa
+em parte — toast condicional, `HighlightNoteSheet`→`HighlightComposerSheet`)
+foi convergida nesta mesma sessão, com uma nota de supersessão
+adicionada em `015/spec.md` apontando pra este documento.
+
+Nenhum trabalho restante identificado.

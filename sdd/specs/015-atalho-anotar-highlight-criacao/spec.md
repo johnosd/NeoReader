@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-11
 
-**Status**: Implementada
+**Status**: Convergida
 
 **Input**: Pedido do usuário durante entrevista sobre melhorias de UI do
 leitor ("criar um highlight com anotação junto"). Hoje são dois fluxos
@@ -12,6 +12,12 @@ separados: (1) criar o highlight (selecionar texto → tocar "Destacar" →
 escolher cor) e (2) anotar (tocar no highlight recém-criado → menu →
 "Anotar" → `HighlightNoteSheet`). O usuário quer reduzir isso a menos
 toques quando quiser anotar logo na criação.
+
+**Revisada por**: a feature `016-caixa-unificada-highlight-nota` revisou
+parte do comportamento descrito aqui (achado no `sdd-converge` desta
+feature) — o toast deixou de aparecer sempre e `HighlightNoteSheet` foi
+substituído. Ver notas em FR-001/FR-002/FR-006 abaixo e
+`016-caixa-unificada-highlight-nota/spec.md` pro comportamento atual.
 
 ## Escopo
 
@@ -98,9 +104,13 @@ nota fica associada ao highlight certo.
 
 - **FR-001**: O sistema DEVE exibir um toast logo após qualquer
   highlight ser criado, convidando o usuário a anotar aquele trecho.
+  *(Revisado pela 016: só aparece se a nota ficou vazia na caixa
+  unificada de criação — ver `016/spec.md` FR-006.)*
 - **FR-002**: O toast DEVE ser tocável — tocar nele abre o sheet de
   escrever a anotação (`HighlightNoteSheet`), associado especificamente
-  ao highlight que acabou de ser criado.
+  ao highlight que acabou de ser criado. *(Revisado pela 016:
+  `HighlightNoteSheet` foi substituído por `HighlightComposerSheet`,
+  mesmo componente usado pra criar/editar cor+estilo+nota.)*
 - **FR-003**: O toast DEVE desaparecer sozinho após alguns segundos
   (~5-6s) se o usuário não tocar nele, sem exigir nenhuma ação.
 - **FR-004**: Se o toast for ignorado, o highlight DEVE permanecer sem
@@ -115,6 +125,9 @@ nota fica associada ao highlight certo.
 - **FR-006**: O toast DEVE aparecer de forma consistente toda vez que um
   highlight é criado, sem lógica de "só na primeira vez" ou qualquer
   estado de preferência persistido sobre já ter visto o aviso antes.
+  *(Revisado pela 016: a condição de "nota vazia" não é uma flag de
+  descoberta/primeira-vez — continua sem persistência de "já visto
+  antes" — mas o toast deixa de ser incondicional.)*
 - **FR-007**: Cancelar a escrita da anotação a partir do sheet aberto
   pelo toast NÃO DEVE ter nenhum comportamento diferente de cancelar
   pelo fluxo já existente (menu → Anotar) — o highlight fica sem nota,

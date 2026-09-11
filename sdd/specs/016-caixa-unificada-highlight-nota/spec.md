@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-11
 
-**Status**: Implementada
+**Status**: Convergida
 
 **Input**: Pedido do usuário: "usuario seleciona texto, clica em highlight,
 abre box de anotacao, com opção de tipo de highlights e cores, usuario

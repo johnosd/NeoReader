@@ -263,3 +263,32 @@ npx vitest run src/__tests__/screens/ReaderScreen.test.tsx
   silenciosamente. Não é um bug do produto (todo toque REAL já vem com
   coordenadas corretas) — é só uma armadilha de automação a lembrar numa
   próxima sessão que precise repetir esse tipo de validação.
+
+## Resultado Final
+
+<!-- sdd-converge, 2026-09-11 -->
+
+Feature convergida. O mecanismo central (toast pós-criação tocável,
+`Toast.tsx` com `onAction`, substituição em vez de empilhamento,
+cancelar idêntico ao fluxo de menu) foi construído exatamente como
+planejado e segue intacto no código.
+
+**Divergência encontrada e corrigida nesta convergência**: a feature
+`016-caixa-unificada-highlight-nota` (executada logo em seguida, na
+mesma sessão) revisou de propósito duas coisas que esta spec descrevia
+como definitivas — FR-001/FR-006 ("toast sempre aparece") e FR-002
+("abre `HighlightNoteSheet`"). Na 016, o toast passou a ser
+CONDICIONAL (só aparece se a nota ficou vazia na caixa unificada de
+criação) e `HighlightNoteSheet` foi removido, substituído por
+`HighlightComposerSheet` (mesmo componente usado pra criar/editar
+cor+estilo+nota). Isso já estava corretamente documentado no `Input` de
+`016/spec.md` pra FR-008 (fluxo de menu), mas não para FR-001/002/006 —
+`spec.md` desta feature (015) foi anotado agora com notas de
+supersessão em cada FR afetada, apontando pra `016/spec.md`.
+
+`README.md` já reflete o comportamento atual (condicional) — foi
+atualizado durante o Polish da própria 016, nenhuma ação adicional
+necessária aqui.
+
+Nenhum outro desvio encontrado: FR-003/004/005/007 e SC-001/002/004
+seguem intactos e confirmados no código atual.

@@ -226,3 +226,34 @@ Task: "T002 [Foundational] messages.ts — chave highlightAnnotateToast.message"
   do Polish.
 
 <!-- sdd-converge anexa "## Phase N: Convergence" abaixo desta linha -->
+
+## Phase 5: Convergence
+
+**Purpose**: Fecha lacunas encontradas pelo `sdd-converge` entre a spec e o
+código real (2026-09-11).
+
+**Convergence Findings** (ver relatório completo no histórico da sessão):
+`FR-001`/`FR-002`/`FR-006` desta spec descrevem o comportamento ORIGINAL do
+toast (sempre aparece; abre `HighlightNoteSheet`) — a feature
+`016-caixa-unificada-highlight-nota` revisou isso de propósito (toast só
+aparece se a nota ficou vazia na caixa unificada; `HighlightNoteSheet` foi
+substituído por `HighlightComposerSheet`, que agora também é o destino do
+toque no toast). `FR-008` já estava corretamente rastreado como revertido no
+`Input`/"Reverte/Supersede" de `016/spec.md`.
+
+- [X] T017 Anotar em `sdd/specs/015-atalho-anotar-highlight-criacao/spec.md`
+      que `FR-001`/`FR-002`/`FR-006` foram revisadas pela feature 016 (toast
+      condicional à nota vazia; sheet renomeado pra
+      `HighlightComposerSheet`) — nota curta apontando pra
+      `016-caixa-unificada-highlight-nota/spec.md`, sem reescrever o resto
+      do corpo.
+
+**Registro da Fase**:
+
+- Status: Concluída
+- Feito: Nota de supersessão adicionada no topo de `spec.md` (após o `Input`)
+  e uma nota curta ao final de FR-001, FR-002 e FR-006, apontando pra
+  `016-caixa-unificada-highlight-nota`. Nenhuma mudança de código — achado
+  puramente documental.
+- Testes executados: N/A (mudança só em `spec.md`)
+- Pendências: nenhuma
