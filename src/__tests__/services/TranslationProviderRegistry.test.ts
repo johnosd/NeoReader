@@ -40,12 +40,16 @@ describe('getTranslationProviderApiKeyFromSettings', () => {
     expect(getTranslationProviderApiKeyFromSettings(DEFAULT_APP_SETTINGS, 'mymemory')).toBe('')
   })
 
-  it('provider premium ainda não registrado (openai/google, pré-US2/US3) — retorna string vazia (defensivo)', () => {
-    expect(getTranslationProviderApiKeyFromSettings({ ...DEFAULT_APP_SETTINGS, openaiTranslationApiKey: 'x' }, 'openai')).toBe('')
+  it('google (registrado na US3) retorna a chave configurada', () => {
+    expect(getTranslationProviderApiKeyFromSettings({ ...DEFAULT_APP_SETTINGS, googleTranslateApiKey: 'x' }, 'google')).toBe('x')
   })
 
   it('deepl (registrado na US1) retorna a chave configurada', () => {
     expect(getTranslationProviderApiKeyFromSettings({ ...DEFAULT_APP_SETTINGS, deeplApiKey: 'x' }, 'deepl')).toBe('x')
+  })
+
+  it('openai (registrado na US2) retorna a chave configurada', () => {
+    expect(getTranslationProviderApiKeyFromSettings({ ...DEFAULT_APP_SETTINGS, openaiTranslationApiKey: 'x' }, 'openai')).toBe('x')
   })
 })
 
@@ -54,8 +58,8 @@ describe('isTranslationProviderConfigured', () => {
     expect(isTranslationProviderConfigured('mymemory', DEFAULT_APP_SETTINGS)).toBe(true)
   })
 
-  it('provider premium ainda não registrado (openai) nunca é "configurado" (defensivo)', () => {
-    expect(isTranslationProviderConfigured('openai', { ...DEFAULT_APP_SETTINGS, openaiTranslationApiKey: 'x' })).toBe(false)
+  it('google com chave configurada é "configurado" mesmo fora do Android (não tem CORS, R-006)', () => {
+    expect(isTranslationProviderConfigured('google', { ...DEFAULT_APP_SETTINGS, googleTranslateApiKey: 'x' })).toBe(true)
   })
 
   it('deepl com chave configurada, mas fora do Android (R-006/CORS), NÃO é "configurado"', () => {
@@ -81,6 +85,11 @@ describe('isTranslationProviderPlatformRestricted (R-006 — DeepL/OpenAI bloque
   it('deepl não é restrito no Android', () => {
     mocks.isNativePlatform.mockReturnValue(true)
     expect(isTranslationProviderPlatformRestricted('deepl')).toBe(false)
+  })
+
+  it('google nunca é restrito por plataforma (Basic v2 não bloqueia CORS)', () => {
+    mocks.isNativePlatform.mockReturnValue(false)
+    expect(isTranslationProviderPlatformRestricted('google')).toBe(false)
   })
 })
 
@@ -117,18 +126,22 @@ describe('getTranslationProviderLabel', () => {
     expect(getTranslationProviderLabel('mymemory')).toBe('MyMemory')
   })
 
-  it('provider premium ainda não registrado (openai) retorna o próprio identificador (fallback)', () => {
-    expect(getTranslationProviderLabel('openai')).toBe('openai')
-  })
-
   it('deepl (registrado na US1) retorna "DeepL"', () => {
     expect(getTranslationProviderLabel('deepl')).toBe('DeepL')
+  })
+
+  it('openai (registrado na US2) retorna "OpenAI"', () => {
+    expect(getTranslationProviderLabel('openai')).toBe('OpenAI')
+  })
+
+  it('google (registrado na US3) retorna "Google Translate"', () => {
+    expect(getTranslationProviderLabel('google')).toBe('Google Translate')
   })
 })
 
 describe('TRANSLATION_PROVIDER_ORDER', () => {
-  it('mymemory + deepl nesta fase (US1) — openai/google entram nas próximas stories', () => {
-    expect(TRANSLATION_PROVIDER_ORDER).toEqual(['mymemory', 'deepl'])
+  it('mymemory + deepl + openai + google — os 3 provedores premium completos (US3)', () => {
+    expect(TRANSLATION_PROVIDER_ORDER).toEqual(['mymemory', 'deepl', 'openai', 'google'])
   })
 })
 

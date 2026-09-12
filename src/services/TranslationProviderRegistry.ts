@@ -1,5 +1,7 @@
 import { Capacitor } from '@capacitor/core'
 import { DeepLService } from './DeepLService'
+import { OpenAiTranslationService } from './OpenAiTranslationService'
+import { GoogleTranslateService } from './GoogleTranslateService'
 import type { AppSettings } from '../types/settings'
 import type {
   PremiumTranslationProvider,
@@ -56,8 +58,8 @@ export interface TranslationProviderDefinition {
 // correspondente existir — ver PREMIUM_TRANSLATION_PROVIDER_DEFINITIONS
 // abaixo, que é Partial de propósito (fases 3-5 do tasks.md preenchem uma
 // entrada por vez, nunca todas de uma vez).
-export const TRANSLATION_PROVIDER_ORDER: TranslationProvider[] = ['mymemory', 'deepl']
-export const PREMIUM_TRANSLATION_PROVIDER_ORDER: PremiumTranslationProvider[] = ['deepl']
+export const TRANSLATION_PROVIDER_ORDER: TranslationProvider[] = ['mymemory', 'deepl', 'openai', 'google']
+export const PREMIUM_TRANSLATION_PROVIDER_ORDER: PremiumTranslationProvider[] = ['deepl', 'openai', 'google']
 
 export const PREMIUM_TRANSLATION_PROVIDER_DEFINITIONS: Partial<Record<PremiumTranslationProvider, TranslationProviderDefinition>> = {
   deepl: {
@@ -71,6 +73,32 @@ export const PREMIUM_TRANSLATION_PROVIDER_DEFINITIONS: Partial<Record<PremiumTra
     isConfigured: () => DeepLService.isConfigured(),
     validateApiKey: (apiKey) => DeepLService.validateApiKey(apiKey),
     translate: (text, options) => DeepLService.translate(text, options),
+  },
+  openai: {
+    provider: 'openai',
+    label: 'OpenAI',
+    description: 'Tradução via LLM com controle fino de tom, diálogo e estilo literário.',
+    apiKeyField: 'openaiTranslationApiKey',
+    placeholder: 'sk-...',
+    requiresNativePlatform: true,
+    getApiKey: () => OpenAiTranslationService.getApiKey(),
+    isConfigured: () => OpenAiTranslationService.isConfigured(),
+    validateApiKey: (apiKey) => OpenAiTranslationService.validateApiKey(apiKey),
+    translate: (text, options) => OpenAiTranslationService.translate(text, options),
+  },
+  google: {
+    provider: 'google',
+    label: 'Google Translate',
+    description: 'Tradução com a maior cobertura de idiomas entre os 3 provedores.',
+    apiKeyField: 'googleTranslateApiKey',
+    placeholder: 'AIza...',
+    // Google Cloud Translation Basic v2 não bloqueia CORS (diferente de
+    // DeepL/OpenAI, R-006) — funciona direto do browser/WebView.
+    requiresNativePlatform: false,
+    getApiKey: () => GoogleTranslateService.getApiKey(),
+    isConfigured: () => GoogleTranslateService.isConfigured(),
+    validateApiKey: (apiKey) => GoogleTranslateService.validateApiKey(apiKey),
+    translate: (text, options) => GoogleTranslateService.translate(text, options),
   },
 }
 

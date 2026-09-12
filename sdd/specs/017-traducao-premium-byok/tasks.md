@@ -298,25 +298,66 @@ direta — sem depender de Google implementado.
 
 ### Testes da Fase
 
-- [ ] T025 [P] [US2] `src/__tests__/services/OpenAiTranslationService.test.ts`
+- [X] T025 [P] [US2] `src/__tests__/services/OpenAiTranslationService.test.ts`
       — `validateApiKey`, `translate` com parse de Structured Outputs
       (ver `contracts/openai-responses-translate.md`); resposta fora do
       schema esperado → categoria `invalid`.
-- [ ] T026 [P] [US2] Estender `SettingsTranslationScreen.test.tsx` pra
+- [X] T026 [P] [US2] Estender `SettingsTranslationScreen.test.tsx` pra
       linha OpenAI.
-- [ ] T027 [P] [US2] Estender `BookDetailsScreen.test.tsx` pra seleção de
+- [X] T027 [P] [US2] Estender `BookDetailsScreen.test.tsx` pra seleção de
       OpenAI (mesmos cenários da US1: bloqueio sem chave, fallback banner).
-- [ ] T028 [US2] Estender `ReaderScreen.test.tsx` pra OpenAI selecionado
+- [X] T028 [US2] Estender `ReaderScreen.test.tsx` pra OpenAI selecionado
       (mesmos cenários de fallback da US1).
 
 ### Implementation
 
-- [ ] T029 [US2] Criar `src/services/OpenAiTranslationService.ts` —
+- [X] T029 [US2] Criar `src/services/OpenAiTranslationService.ts` —
       contrato em `contracts/openai-responses-translate.md` (modelo mini,
       Structured Outputs `strict: true`).
-- [ ] T030 [US2] Registrar OpenAI em `TranslationProviderRegistry.ts`.
-- [ ] T031 [US2] Adicionar linha OpenAI em `SettingsTranslationScreen.tsx`.
-- [ ] T032 [US2] Chaves i18n específicas de OpenAI.
+- [X] T030 [US2] Registrar OpenAI em `TranslationProviderRegistry.ts`
+      (`requiresNativePlatform: true`, mesmo motivo do DeepL — R-006).
+- [X] T031 [US2] ~~Adicionar linha OpenAI em `SettingsTranslationScreen.tsx`~~
+      — no-op, mesmo motivo do T023: a tela já é genérica sobre
+      `PREMIUM_TRANSLATION_PROVIDER_ORDER`/`_DEFINITIONS`, registrar o
+      OpenAI (T030) já faz a linha aparecer sozinha.
+- [X] T032 [US2] ~~Chaves i18n específicas de OpenAI~~ — no-op, mesmo
+      motivo do T024: `label`/`description` ficam como string literal
+      pt-BR direto no registry (T030), não passam por `t()`.
+- [X] T032b [US2] **Task ad-hoc, bug real encontrado testando no device
+      Android**: toda tradução via OpenAI falhava com `code: "invalid"`
+      (400 da API, tempos de resposta de 400-850ms — rápido demais pra
+      geração real, sinal de rejeição de validação instantânea). Causa:
+      o corpo da requisição aninhava `text.format.json_schema.{name,
+      schema,strict}` — esse é o formato do `response_format` do Chat
+      Completions (API antiga). A Responses API (`/v1/responses`) espera
+      esses 3 campos soltos direto em `text.format` (`type`, `name`,
+      `schema`, `strict` como irmãos). O erro já vinha do contrato
+      (`contracts/openai-responses-translate.md`), escrito errado desde o
+      `sdd-plan` — não era só um typo de implementação. Corrigido em
+      `OpenAiTranslationService.ts` e no contrato; 1 assertion de teste
+      ajustada (`OpenAiTranslationService.test.ts`). Reconfirmado no
+      device: tradução funcionando.
+- [X] T032c [US2] **Task ad-hoc, achado de segurança durante o mesmo
+      teste de device** (fora do escopo de "traduzir com OpenAI", mas
+      bloqueava a própria depuração do T032b — corrigido inline, não
+      logado pro backlog, dado o tamanho pequeno e a urgência): capturar
+      logcat pra depurar o T032b revelou que a chave da OpenAI (header
+      `Authorization: Bearer sk-...`) aparecia em texto puro na tag
+      `V/Capacitor`, plugin call log nativo do bridge do Capacitor pra
+      `CapacitorHttp.request`. Causa: `capacitor.config.ts` tinha
+      `android.loggingBehavior: 'production'` — nome enganoso da própria
+      Capacitor, esse valor significa "logar sempre, inclusive em
+      release" (`CapConfig.java`: `LOG_BEHAVIOR_PRODUCTION` →
+      `loggingEnabled = true` incondicional), o oposto do que o nome
+      sugere. Corrigido: `loggingBehavior: 'debug'` (default real da
+      Capacitor quando a chave não é setada) — loga só quando
+      `BuildConfig.DEBUG=true` (nosso `assembleDebug` local), mudo em
+      qualquer build de release/Play Store. Mesma exposição já existia
+      antes desta task (afetava qualquer chamada `CapacitorHttp`,
+      incluindo DeepL na US1) — não é uma regressão introduzida pela
+      OpenAI, só foi descoberta agora. **Usuário deve rotacionar a chave
+      da OpenAI** que ficou exposta no arquivo de log capturado durante a
+      depuração.
 
 **Critério de Conclusão**: mesmo critério da US1, com OpenAI, sem
 regressão em DeepL nem MyMemory.
@@ -325,10 +366,31 @@ regressão em DeepL nem MyMemory.
 
 **Registro da Fase**:
 
-- Status:
-- Feito:
-- Testes executados:
-- Pendências:
+- Status: concluída
+- Feito: `OpenAiTranslationService.ts` completo (validação via
+  `GET /v1/models`, tradução via `POST /v1/responses` com Structured
+  Outputs); registrado no registry com `requiresNativePlatform: true`
+  (T031/T032 viraram no-op, mesmo padrão do T023/T024); 2 bugs reais
+  encontrados e corrigidos em teste de device (T032b formato do schema,
+  T032c vazamento de chave em log — ver acima e R-009/R-010 em `plan.md`).
+- Testes executados: `npx vitest run` — `OpenAiTranslationService.test.ts`
+  (18), `SettingsTranslationScreen.test.tsx` (7, incluindo 3 novos de
+  OpenAI + 1 combinado "fora do Android" DeepL+OpenAI),
+  `BookDetailsScreen.test.tsx` (49, incluindo 4 novos de OpenAI),
+  `ReaderScreen.test.tsx` (57, incluindo 4 novos de OpenAI),
+  `TranslationProviderRegistry.test.ts` (23, placeholder "ainda não
+  registrado" trocado de `openai` pra `google`). Suite completa
+  (`npm test`, 1011 testes) + `npx tsc -p tsconfig.app.json --noEmit` +
+  lint + `npm run build` — todos limpos após o fix do T032b. Confirmado
+  funcionando no device real pelo usuário ("Deu certo agora").
+- Pendências: **decisão de produto adiada pelo usuário, não implementar
+  ainda** — hoje, um erro classificado como `invalid` (FR-007) propaga
+  sem cair pro MyMemory, de propósito, pra não mascarar bugs de
+  integração durante o desenvolvimento (foi o que permitiu achar o
+  T032b). O usuário observou que isso não é o comportamento desejado em
+  produção: o usuário final não se importa com a causa, só quer uma
+  tradução — `invalid` deveria cair pro MyMemory como qualquer outra
+  falha. Task de ajuste registrada no fim da Fase 6 (Polish) — ver T045.
 
 ---
 
@@ -343,26 +405,39 @@ erro.
 
 ### Testes da Fase
 
-- [ ] T033 [P] [US3] `src/__tests__/services/GoogleTranslateService.test.ts`
+- [X] T033 [P] [US3] `src/__tests__/services/GoogleTranslateService.test.ts`
       — `validateApiKey`, `translate` (ver
       `contracts/google-translate-basic-v2.md`).
-- [ ] T034 [P] [US3] Estender `SettingsTranslationScreen.test.tsx` pra
+- [X] T034 [P] [US3] Estender `SettingsTranslationScreen.test.tsx` pra
       linha Google.
-- [ ] T035 [P] [US3] Estender `BookDetailsScreen.test.tsx` pra seleção de
+- [X] T035 [P] [US3] Estender `BookDetailsScreen.test.tsx` pra seleção de
       Google.
-- [ ] T036 [US3] Estender `ReaderScreen.test.tsx` pra Google selecionado.
+- [X] T036 [US3] Estender `ReaderScreen.test.tsx` pra Google selecionado.
 
 ### Implementation
 
-- [ ] T037 [US3] Criar `src/services/GoogleTranslateService.ts` —
-      contrato em `contracts/google-translate-basic-v2.md`. **Atenção**:
-      a chave vai no query string (`?key=...`) — confirmar que a URL
-      passada pra `fetchWithTimeout` é a mesma forma já coberta pelo teste
-      de auditoria T016 (não inventar um formato de URL que escape da
-      detecção de `sanitizeUrl`).
-- [ ] T038 [US3] Registrar Google em `TranslationProviderRegistry.ts`.
-- [ ] T039 [US3] Adicionar linha Google em `SettingsTranslationScreen.tsx`.
-- [ ] T040 [US3] Chaves i18n específicas de Google.
+- [X] T037 [US3] Criar `src/services/GoogleTranslateService.ts` —
+      contrato em `contracts/google-translate-basic-v2.md` (contrato
+      complementado com o endpoint de validação de chave, que não estava
+      documentado ainda: `GET .../v2/languages?key=...&target=en`,
+      verificado via Context7 + WebSearch antes de implementar — mesma
+      disciplina que faltou no T029/R-009, pra não repetir um endpoint
+      inventado). **Atenção da chave no query string**: confirmado que
+      `sanitizeUrl` (`DiagnosticsLogger.ts`) usa `new URL(...).searchParams`
+      genericamente — redige qualquer nome de parâmetro, não só `key`, e
+      nem `GoogleTranslateService.ts` nem `TranslationService.ts` logam a
+      URL da chamada em nenhum evento hoje — T016 continua cobrindo isso
+      sem gap novo.
+- [X] T038 [US3] Registrar Google em `TranslationProviderRegistry.ts` —
+      `requiresNativePlatform: false` (Basic v2 não bloqueia CORS, R-006
+      não se aplica ao Google).
+- [X] T039 [US3] ~~Adicionar linha Google em `SettingsTranslationScreen.tsx`~~
+      — no-op, mesmo motivo do T023/T031: a tela já é genérica; os estados
+      (`showKeys`/`validation`/`keyInputs`) já tinham a chave `google`
+      desde a Fase 2 (Foundational), então só faltava o registro (T038).
+- [X] T040 [US3] ~~Chaves i18n específicas de Google~~ — no-op, mesmo
+      motivo do T024/T032: `label`/`description` ficam como string literal
+      pt-BR direto no registry (T038).
 
 **Critério de Conclusão**: os 3 provedores completos; SC-004 reconfirmado
 com os 3 provedores reais (nenhuma chave em log); sem regressão nas
@@ -372,10 +447,33 @@ stories anteriores.
 
 **Registro da Fase**:
 
-- Status:
-- Feito:
-- Testes executados:
-- Pendências:
+- Status: concluída — implementação, testes automatizados e teste manual
+  em device real com chave Google, todos confirmados.
+- Feito: `GoogleTranslateService.ts` completo (validação via
+  `GET .../v2/languages`, tradução via `POST .../v2/translate` com chave
+  no query string); registrado no registry com `requiresNativePlatform:
+  false`; contrato complementado com o endpoint de validação (verificado
+  via Context7 + WebSearch, não só assumido). `SettingsTranslationScreen`/
+  `BookDetailsScreen`/`ReaderScreen` já eram genéricos o bastante — T039/
+  T040 viraram no-op, mesmo padrão das 2 stories anteriores.
+- Testes executados: `npx vitest run` — `GoogleTranslateService.test.ts`
+  (15), `TranslationProviderRegistry.test.ts` (24, 3 assertions que
+  usavam `google` como placeholder "ainda não registrado" viraram testes
+  positivos reais + 1 novo de `isTranslationProviderPlatformRestricted`),
+  `SettingsTranslationScreen.test.tsx` (10, 3 novos de Google + o teste
+  "fora do Android" atualizado pra confirmar que Google continua com
+  campo normal), `BookDetailsScreen.test.tsx` (53, 4 novos de Google),
+  `ReaderScreen.test.tsx` (58, 1 novo de Google fora do Android). Suite
+  completa (`npm test`, 1035 testes) + `npx tsc -p tsconfig.app.json
+  --noEmit` + lint + `npm run build` — todos limpos.
+- Pendências: nenhuma bloqueante. Usuário configurou uma chave Google
+  real, validou e traduziu 2 trechos com sucesso no device (logcat
+  confirma `provider: "google"`, `status: "success"`). R-012 (`plan.md`)
+  considerado resolvido pro caminho feliz — ressalva de baixo risco:
+  o livro testado usava `bookLanguage: "en"` puro, então a suposição de
+  que o Google aceita variante regional no `source` (diferente da
+  restrição real da DeepL, R-007) continua respaldada só pela
+  documentação oficial, não por um teste com idioma regional de verdade.
 
 ---
 
@@ -389,6 +487,21 @@ stories anteriores.
       plano pros 3 provedores reais (SC-004).
 - [ ] T044 Limpar código morto/comentário desatualizado introduzido
       durante as 3 stories.
+- [ ] T045 **Ajuste de produto pedido pelo usuário (2026-09-11, durante
+      teste de device da US2), adiado de propósito pra depois de todas as
+      stories estarem estáveis** — revisar a árvore de decisão do FR-007
+      em `TranslationService.translate()`: hoje a categoria `invalid`
+      propaga o erro sem cair pro MyMemory (deliberado, pra não mascarar
+      bug de integração durante o desenvolvimento — foi assim que o bug
+      do T032b foi encontrado). Decisão do usuário: em produção, `invalid`
+      deveria se comportar como as outras categorias de falha e cair pro
+      MyMemory também, silenciosamente pro usuário final. Ajustar
+      `classifyStatus`/árvore de decisão só depois de DeepL+OpenAI+Google
+      estarem testados e estáveis no device — enquanto a US3 (Google)
+      ainda não foi implementada, manter `invalid` sem fallback ajuda a
+      achar bugs de integração como o T032b. Atualizar `spec.md` (FR-007)
+      e `research.md`/`plan.md` (Decisões Invariantes) junto, já que isso
+      muda um comportamento documentado como intencional.
 
 ### Checklist de Release
 

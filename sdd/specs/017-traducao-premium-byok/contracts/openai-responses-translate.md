@@ -11,33 +11,43 @@ Header `Authorization: Bearer <chave>`.
 ```json
 POST https://api.openai.com/v1/responses
 {
-  "model": "gpt-5-mini",
+  "model": "gpt-5.6-luna",
   "instructions": "Traduza o texto literário do usuário para pt-BR preservando tom, diálogo e estilo. Responda só com o JSON pedido.",
   "input": "<trecho selecionado, até ~500 chars — FR-013>",
   "text": {
     "format": {
       "type": "json_schema",
-      "json_schema": {
-        "name": "translation_result",
-        "strict": true,
-        "schema": {
-          "type": "object",
-          "properties": {
-            "translated_text": { "type": "string" }
-          },
-          "required": ["translated_text"],
-          "additionalProperties": false
-        }
+      "name": "translation_result",
+      "strict": true,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "translated_text": { "type": "string" }
+        },
+        "required": ["translated_text"],
+        "additionalProperties": false
       }
     }
   }
 }
 ```
 
-**Decisão de modelo**: `gpt-5-mini` (ou o modelo mini equivalente
-disponível na conta do usuário) — custo/latência menores, suficiente pra
-tradução de um parágrafo; não expor seleção de modelo ao usuário nesta
-entrega (evita escopo novo de configuração — constitution III).
+**Atenção — não confundir com Chat Completions**: a Responses API usa `name`/
+`schema`/`strict` soltos dentro de `text.format` (formato acima). O
+`response_format: { json_schema: { name, schema, strict } }` aninhado é da
+API antiga (Chat Completions) — misturar os dois formatos gera 400
+`invalid_request_error`. Bug real encontrado em teste de device (2026-09-11):
+a primeira implementação usou o aninhamento errado e toda tradução caía em
+`invalid` sem fallback (FR-007 não usa fallback pra `invalid`).
+
+**Decisão de modelo**: `gpt-5.6-luna` — verificado em developers.openai.com/api/docs/models
+(2026-09-11) como o modelo "otimizado pra workloads sensíveis a custo"
+($0.20/MTok de entrada) atualmente disponível via Responses API; custo/
+latência menores, suficiente pra tradução de um parágrafo. Não expor
+seleção de modelo ao usuário nesta entrega (evita escopo novo de
+configuração — constitution III). **Atenção pra retomada**: nomes de
+modelo OpenAI mudam com frequência — se este modelo for descontinuado,
+reverificar a doc oficial antes de trocar, não adivinhar um nome parecido.
 
 ## Response (200)
 

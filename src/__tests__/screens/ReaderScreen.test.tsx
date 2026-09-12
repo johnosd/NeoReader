@@ -2049,6 +2049,100 @@ describe('ReaderScreen', () => {
     expect(translate).toHaveBeenCalledWith('Bonjour', 'fr', 'pt-BR', expect.objectContaining({ provider: 'mymemory' }))
   })
 
+  it('usa o provedor de tradução premium selecionado para o livro (OpenAI, no Android)', async () => {
+    mocks.isNativePlatform.mockReturnValue(true)
+    vi.mocked(getBookSettings).mockResolvedValue({ bookId: 1, translationProvider: 'openai' })
+    vi.mocked(getSettings).mockResolvedValue(makeSettings({
+      appSettings: {
+        speechifyApiKey: '',
+        elevenLabsApiKey: '',
+        fishAudioApiKey: '',
+        translationTargetLang: 'pt-BR',
+        openaiTranslationApiKey: 'openai-real-key',
+      },
+    }))
+    vi.mocked(translate).mockResolvedValueOnce({ translatedText: 'Texto traduzido', provider: 'openai' })
+
+    render(
+      <ReaderScreen
+        book={book}
+        onBack={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+
+    await flushAsyncWork()
+
+    await act(async () => {
+      await (mocks.epubViewerProps?.onTranslate as (text: string) => Promise<void>)('Bonjour')
+    })
+
+    expect(translate).toHaveBeenCalledWith('Bonjour', 'fr', 'pt-BR', expect.objectContaining({ provider: 'openai' }))
+    expect(mocks.viewerHandle.injectTranslation).toHaveBeenCalledWith('Texto traduzido', undefined, 'openai')
+  })
+
+  it('fora do Android, cai pro MyMemory mesmo com OpenAI selecionado e chave configurada (R-006/CORS)', async () => {
+    mocks.isNativePlatform.mockReturnValue(false)
+    vi.mocked(getBookSettings).mockResolvedValue({ bookId: 1, translationProvider: 'openai' })
+    vi.mocked(getSettings).mockResolvedValue(makeSettings({
+      appSettings: {
+        speechifyApiKey: '',
+        elevenLabsApiKey: '',
+        fishAudioApiKey: '',
+        translationTargetLang: 'pt-BR',
+        openaiTranslationApiKey: 'openai-real-key',
+      },
+    }))
+
+    render(
+      <ReaderScreen
+        book={book}
+        onBack={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+
+    await flushAsyncWork()
+
+    await act(async () => {
+      await (mocks.epubViewerProps?.onTranslate as (text: string) => Promise<void>)('Bonjour')
+    })
+
+    expect(translate).toHaveBeenCalledWith('Bonjour', 'fr', 'pt-BR', expect.objectContaining({ provider: 'mymemory' }))
+  })
+
+  it('usa o provedor de tradução premium selecionado para o livro (Google, fora do Android — não bloqueia CORS como DeepL/OpenAI)', async () => {
+    mocks.isNativePlatform.mockReturnValue(false)
+    vi.mocked(getBookSettings).mockResolvedValue({ bookId: 1, translationProvider: 'google' })
+    vi.mocked(getSettings).mockResolvedValue(makeSettings({
+      appSettings: {
+        speechifyApiKey: '',
+        elevenLabsApiKey: '',
+        fishAudioApiKey: '',
+        translationTargetLang: 'pt-BR',
+        googleTranslateApiKey: 'google-real-key',
+      },
+    }))
+    vi.mocked(translate).mockResolvedValueOnce({ translatedText: 'Texto traduzido', provider: 'google' })
+
+    render(
+      <ReaderScreen
+        book={book}
+        onBack={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+
+    await flushAsyncWork()
+
+    await act(async () => {
+      await (mocks.epubViewerProps?.onTranslate as (text: string) => Promise<void>)('Bonjour')
+    })
+
+    expect(translate).toHaveBeenCalledWith('Bonjour', 'fr', 'pt-BR', expect.objectContaining({ provider: 'google' }))
+    expect(mocks.viewerHandle.injectTranslation).toHaveBeenCalledWith('Texto traduzido', undefined, 'google')
+  })
+
   it('cancela a tradução anterior ao trocar de trecho antes da resposta voltar (FR-007)', async () => {
     render(
       <ReaderScreen

@@ -8,6 +8,17 @@ Query param `key=<chave>` na própria URL — **sem** header (ver
 `research.md` R4 pro cuidado de log associado; `DiagnosticsLogger.ts` já
 redige isso genericamente, nenhuma mudança necessária lá).
 
+## Validação de chave ("Testar chave")
+
+```
+GET https://translation.googleapis.com/language/translate/v2/languages?key=<chave>&target=en
+```
+
+Endpoint mais barato pra validar uma chave sem gastar caracteres de
+tradução (mesmo espírito do `GET /v2/usage` da DeepL e do `GET /v1/models`
+da OpenAI) — lista os idiomas suportados, não consome quota de tradução.
+200 = chave válida; erro segue a mesma tabela de `## Erros` abaixo.
+
 ## Request
 
 ```
