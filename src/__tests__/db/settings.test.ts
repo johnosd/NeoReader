@@ -56,6 +56,9 @@ describe('settings db helpers', () => {
         elevenLabsApiKey: '',
         fishAudioApiKey: '',
         youtubeApiKey: '',
+        deeplApiKey: '',
+        openaiTranslationApiKey: '',
+        googleTranslateApiKey: '',
         translationTargetLang: 'es',
       },
       readerDefaults: {
@@ -93,6 +96,9 @@ describe('settings db helpers', () => {
         elevenLabsApiKey: '',
         fishAudioApiKey: '',
         youtubeApiKey: '',
+        deeplApiKey: '',
+        openaiTranslationApiKey: '',
+        googleTranslateApiKey: '',
         translationTargetLang: 'fr',
       },
       readerDefaults: {
@@ -141,6 +147,9 @@ describe('settings db helpers', () => {
         elevenLabsApiKey: '',
         fishAudioApiKey: '',
         youtubeApiKey: '',
+        deeplApiKey: '',
+        openaiTranslationApiKey: '',
+        googleTranslateApiKey: '',
         translationTargetLang: 'de',
       },
       readerDefaults: {

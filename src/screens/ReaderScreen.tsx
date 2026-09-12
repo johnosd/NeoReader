@@ -49,6 +49,7 @@ import {
 import { Switch } from '../components/ui'
 import { translate } from '../services/TranslationService'
 import { scheduleBookmarkDriveSync } from '../services/BookmarkDriveSyncService'
+import { getCachedBookmarkDriveSyncStatus } from '../services/BookmarkDriveSyncStatus'
 import { createFlowId, getDiagnosticsNowMs, logError, logEvent } from '../services/DiagnosticsLogger'
 import { setReaderImmersiveMode, setSelectionMenuSuppressed } from '../services/NativeSystemUiService'
 import { TtsPlaybackSessionService, type TtsPlaybackControlEvent, type TtsAudioFocusEvent } from '../services/TtsPlaybackSessionService'
@@ -137,6 +138,10 @@ interface ReaderScreenProps {
   onBack: () => void
   onOpenVocabulary: () => void
   onOpenSettings?: () => void
+  // Chamado (em vez de tentar sincronizar) quando há bookmark pendente e o
+  // Drive está com token expirado — só Configuracoes/o icone de sync podem
+  // abrir a tela de login do Google (ver handleBack), então aqui só avisamos.
+  onBookmarkSyncBlocked?: (message: string) => void
 }
 
 export function ReaderScreen({
@@ -147,10 +152,16 @@ export function ReaderScreen({
   onBack,
   onOpenVocabulary,
   onOpenSettings = () => undefined,
+  onBookmarkSyncBlocked = () => undefined,
 }: ReaderScreenProps) {
   const { t } = useI18n()
   const viewerRef = useRef<EpubViewerHandle>(null)
   const pendingBookmarkKeysRef = useRef(new Set<string>())
+  // Cancela a tradução anterior quando uma nova é disparada antes da
+  // resposta voltar (troca de trecho) — FR-007, sem equivalente direto em
+  // Python: AbortController é a forma nativa do browser de "matar" um
+  // fetch em andamento.
+  const translationAbortControllerRef = useRef<AbortController | null>(null)
   const activeSectionIndexRef = useRef<number | null>(null)
   const sectionChangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingStartHrefRef = useRef<string | null>(startHref ?? null)
@@ -216,6 +227,7 @@ export function ReaderScreen({
     ttsConfig,
     ttsEngine,
     ttsProviderAvailability,
+    translationProvider,
     applyAppearancePatch,
     applyTtsConfigPatch,
     switchToNativeTts,
@@ -829,10 +841,19 @@ export function ReaderScreen({
 
   // Recebe o texto da frase tocada do EpubViewer, injeta bloco inline e dispara a tradução
   function handleTranslate(sourceText: string) {
+    translationAbortControllerRef.current?.abort()
+    const controller = new AbortController()
+    translationAbortControllerRef.current = controller
+
     const selectionId = viewerRef.current?.showTranslationLoading()
-    translate(sourceText, bookLanguage, translationTargetLang)
-      .then((result) => viewerRef.current?.injectTranslation(result, selectionId))
-      .catch(() => viewerRef.current?.injectTranslation(t('reader.translation.error'), selectionId))
+    translate(sourceText, bookLanguage, translationTargetLang, { provider: translationProvider, signal: controller.signal })
+      .then((result) => viewerRef.current?.injectTranslation(result.translatedText, selectionId, result.provider))
+      .catch(() => {
+        // Cancelamento explícito (nova tradução disparada antes desta
+        // terminar) não mostra erro — não é uma falha real (FR-007/FR-008).
+        if (controller.signal.aborted) return
+        viewerRef.current?.injectTranslation(t('reader.translation.error'), selectionId)
+      })
   }
 
   function handleWordLensDefinition(target: WordLensDefinitionTarget) {
@@ -954,10 +975,20 @@ export function ReaderScreen({
     // Dá mais uma chance aqui; scheduleBookmarkDriveSync já é seguro de
     // chamar de novo (dedupe interno, no-op se não houver nada pendente).
     if (bookmarks.some((bookmark) => !bookmark.syncedAt)) {
-      void scheduleBookmarkDriveSync(book.id!)
+      // 'permission-error' faz scheduleBookmarkDriveSync descartar a chamada
+      // em silêncio (token do Drive expirado não se autorrenova — mesmo
+      // problema do bugfix bookmark-nao-sincroniza-ao-clicar-no). Só
+      // Configuracoes/o ícone de sync podem abrir a tela de login do Google
+      // pra resolver isso; fechar o leitor não é essa ação explícita do
+      // usuário, então só avisamos em vez de tentar (e falhar) de novo.
+      if (getCachedBookmarkDriveSyncStatus().code === 'permission-error') {
+        onBookmarkSyncBlocked(t('reader.bookmarkSyncPendingNotice'))
+      } else {
+        void scheduleBookmarkDriveSync(book.id!)
+      }
     }
     onBack()
-  }, [flushCurrentProgress, bookmarks, book.id, onBack])
+  }, [flushCurrentProgress, bookmarks, book.id, onBack, onBookmarkSyncBlocked, t])
 
   // Intercepta o botão Back físico do Android (via plugin Capacitor)
   useCapacitorBackButton(() => {

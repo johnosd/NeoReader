@@ -1,5 +1,6 @@
 import type { FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from './settings'
 import type { TtsProvider, TtsVoiceSelections } from './tts'
+import type { TranslationProvider } from './translation'
 
 export type ReadingStatus = 'unread' | 'reading' | 'finished'
 export type BookFormat = 'EPUB'
@@ -78,6 +79,7 @@ export interface BookSettings {
   overrideBookColors?: boolean
   bookLanguage?: string | null
   translationTargetLang?: string | null
+  translationProvider?: TranslationProvider
   ttsProvider?: TtsProvider
   ttsRate?: number
   ttsSpeechifyVoiceId?: string | null

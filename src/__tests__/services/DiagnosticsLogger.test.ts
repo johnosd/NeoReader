@@ -51,6 +51,27 @@ describe('DiagnosticsLogger', () => {
     expect(serialized).not.toContain('private+book+text')
   })
 
+  // SC-004 / research.md R4: Google Cloud Translation Basic v2 autentica via
+  // query param `?key=...` (não header, diferente de DeepL/OpenAI) — este
+  // teste confirma que o mecanismo genérico já existente cobre esse formato
+  // específico, sem precisar de nenhuma mudança em DiagnosticsLogger.ts.
+  it('sanitiza a chave da Google Translate no query param "key" (SC-004)', () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined)
+
+    logEvent('diagnostic.test', {
+      provider: 'google',
+      details: {
+        url: 'https://translation.googleapis.com/language/translate/v2?key=fake-google-key&q=hello',
+      },
+    })
+
+    const event = lastConsoleJson(infoSpy)
+    const serialized = JSON.stringify(event)
+
+    expect(event.details?.url).toBe('https://translation.googleapis.com/language/translate/v2?key=[redacted]&q=[redacted]')
+    expect(serialized).not.toContain('fake-google-key')
+  })
+
   it('bloqueia texto de livro, traducao, audio e payload completo', () => {
     const sensitiveText = 'This is a private paragraph from the current book.'
     const sanitized = sanitizeDiagnosticsDetails({

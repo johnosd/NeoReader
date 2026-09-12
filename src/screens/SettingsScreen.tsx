@@ -1,4 +1,4 @@
-import { ArrowLeft, ChevronRight, CloudUpload, Globe, KeyRound, Palette, Rss, ScanText, Sparkles, Volume2 } from 'lucide-react'
+import { ArrowLeft, ChevronRight, CloudUpload, Globe, KeyRound, Languages, Palette, Rss, ScanText, Sparkles, Volume2 } from 'lucide-react'
 import { Badge, ListItem } from '../components/ui'
 import { SettingsGroup } from '../components/settings/SettingsLayout'
 import { useEntitlements } from '../hooks/useEntitlements'
@@ -12,6 +12,7 @@ interface SettingsScreenProps {
   onOpenAppearance: () => void
   onOpenWordLens: () => void
   onOpenNarration: () => void
+  onOpenTranslation: () => void
   onOpenIntegrations: () => void
   onOpenOpdsCatalogs: () => void
   onOpenSync: () => void
@@ -24,6 +25,7 @@ export function SettingsScreen({
   onOpenAppearance,
   onOpenWordLens,
   onOpenNarration,
+  onOpenTranslation,
   onOpenIntegrations,
   onOpenOpdsCatalogs,
   onOpenSync,
@@ -90,6 +92,13 @@ export function SettingsScreen({
             meta={t('settings.narration.sectionDescription')}
             trailing={<ChevronRight size={18} />}
             onClick={onOpenNarration}
+          />
+          <ListItem
+            leading={<Languages size={20} />}
+            title={t('settings.translationProviders.sectionLabel')}
+            meta={t('settings.translationProviders.sectionDescription')}
+            trailing={<ChevronRight size={18} />}
+            onClick={onOpenTranslation}
           />
           <ListItem
             leading={<KeyRound size={20} />}

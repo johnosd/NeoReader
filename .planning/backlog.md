@@ -27,6 +27,7 @@ update-bug-status.ps1.
 | 014-indicador-anotacao-highlight | Indicador visual de anotação em highlights com preview flutuante | Implementada | 26/26 tasks | 2026-09-11 |
 | 015-atalho-anotar-highlight-criacao | Atalho pra anotar highlight logo após criar | Convergida | 23/23 tasks | 2026-09-11 |
 | 016-caixa-unificada-highlight-nota | Caixa unificada de cor, estilo e nota ao criar ou editar highlight | Convergida | 34/34 tasks | 2026-09-11 |
+| 017-traducao-premium-byok | Tradução Premium BYOK (DeepL, OpenAI, Google) | Convergida | 59/60 tasks | 2026-09-11 |
 
 ## Bugs
 
@@ -46,6 +47,7 @@ update-bug-status.ps1.
 | menu-chrome-leitor-some-sozinho-apos | Menu de chrome do leitor some sozinho após ~2.5s | Test | verified | Concluído | 2026-09-10 |
 | sincronizar-bookmarks-automaticamente-ao-fechar-livro | Sincronizar bookmarks automaticamente ao fechar o livro | Test | verified | Concluído | 2026-09-10 |
 | highlight-some-ao-tocar-no-mesmo | Highlight some ao tocar no mesmo parágrafo pra abrir tradução | Test | verified | Concluído | 2026-09-11 |
+| sync-bookmarks-nao-acontece-ao-fechar | Sync de bookmarks não acontece ao fechar a tela de leitura | Test | partial | Concluído (com ressalva) ou reabrir Assess | 2026-09-11 |
 
 ## Melhorias Ad-hoc
 

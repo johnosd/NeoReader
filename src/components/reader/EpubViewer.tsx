@@ -18,6 +18,8 @@ import { scheduleWordLensDocument, type WordLensDocumentTask } from '../../utils
 import { BookFileResolver } from '../../services/BookFileResolver'
 import { shareText } from '../../services/NativeSystemUiService'
 import { createFlowId, logEvent } from '../../services/DiagnosticsLogger'
+import { getTranslationProviderLabel } from '../../services/TranslationProviderRegistry'
+import type { TranslationProvider } from '../../types/translation'
 import { useI18n } from '../../i18n'
 
 export type { FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from '../../types/settings'
@@ -1076,6 +1078,14 @@ function buildReaderCSS(
       font-style: normal !important;
       letter-spacing: 0.01em !important;
     }
+    .nr-tr-provider {
+      display: block !important;
+      color: ${palette.text} !important;
+      opacity: 0.7 !important;
+      font-size: 10.5px !important;
+      font-style: normal !important;
+      margin: 4px 0 0 !important;
+    }
     .nr-tr-loading {
       display: flex !important;
       align-items: center !important;
@@ -1446,8 +1456,10 @@ export interface EpubViewerHandle {
   resetTtsScroll(options?: { preservePlaybackSection?: boolean }): void
   // Tradução inline: injeta bloco com spinner logo após o parágrafo ativo
   showTranslationLoading(): string | null
-  // Tradução inline: substitui spinner pelo texto traduzido + botões de ação
-  injectTranslation(translatedText: string, selectionId?: string | null): void
+  // Tradução inline: substitui spinner pelo texto traduzido + botões de ação.
+  // `provider` (opcional) mostra o selo "via {provedor}" quando informado e
+  // diferente de 'mymemory' (FR-008) — omitido em mensagens de erro.
+  injectTranslation(translatedText: string, selectionId?: string | null, provider?: TranslationProvider): void
   showWordLensDefinitionLoading(target: WordLensDefinitionTarget): void
   injectWordLensDefinition(target: WordLensDefinitionTarget, entry: WordLensDictionaryEntry | null): void
   injectWordLensDefinitionError(target: WordLensDefinitionTarget): void
@@ -3656,7 +3668,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         return translationId
       },
 
-      injectTranslation: (translatedText: string, selectionId?: string | null) => {
+      injectTranslation: (translatedText: string, selectionId?: string | null, provider?: TranslationProvider) => {
         const para = activeTranslationParaRef.current
         if (!para) return
         const activeSelectionId = (para as HTMLElement).dataset.nrTranslationId
@@ -3668,7 +3680,12 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         if (!translationSlot || !actionsSlot) return
         translationInProgressRef.current = false
         activeTranslatedTextRef.current = translatedText
-        translationSlot.innerHTML = `<p class="nr-tr-text">${escapeHtml(translatedText)}</p>`
+        // FR-008: selo "via {provedor}" só quando não for o MyMemory (mesmo
+        // padrão condicional do indicador de engine de TTS no chrome).
+        const providerBadge = provider && provider !== 'mymemory'
+          ? `<p class="nr-tr-provider">${escapeHtml(t('reader.translation.via', { provider: getTranslationProviderLabel(provider) }))}</p>`
+          : ''
+        translationSlot.innerHTML = `<p class="nr-tr-text">${escapeHtml(translatedText)}</p>${providerBadge}`
         actionsSlot.innerHTML = `
           ${renderTranslationAction('next', t('reader.translation.next'), TRANSLATION_ICON.next)}
           ${renderTranslationAction('speak', t('reader.translation.speak'), TRANSLATION_ICON.speak)}

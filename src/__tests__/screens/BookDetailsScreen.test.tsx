@@ -13,6 +13,16 @@ const mocks = vi.hoisted(() => ({
     ttsProvider: 'speechify',
     ttsRate: 1,
   } as BookSettings,
+  appSettings: {
+    speechifyApiKey: 'speechify-key',
+    elevenLabsApiKey: '',
+    fishAudioApiKey: '',
+    translationTargetLang: 'pt-BR',
+    youtubeApiKey: '',
+    deeplApiKey: '',
+    openaiTranslationApiKey: '',
+    googleTranslateApiKey: '',
+  },
   progress: null as ReadingProgress | null,
   bookmarks: [] as Bookmark[],
   highlights: [] as Highlight[],
@@ -32,6 +42,15 @@ const mocks = vi.hoisted(() => ({
   capacitorListeners: {
     backButton: null as ((event?: unknown) => void) | null,
   },
+  isNativePlatform: vi.fn(() => true),
+}))
+
+// Default: Android (nativo) — DeepL bloqueia CORS fora do Android (R-006);
+// os testes de "banner Android apenas" abaixo mockam `false` explicitamente.
+vi.mock('@capacitor/core', () => ({
+  Capacitor: { isNativePlatform: mocks.isNativePlatform },
+  registerPlugin: vi.fn(() => ({})),
+  WebPlugin: class {},
 }))
 
 vi.mock('dexie-react-hooks', () => ({
@@ -89,13 +108,7 @@ vi.mock('@/db/bookSettings', () => ({
 
 vi.mock('@/db/settings', () => ({
   getSettings: vi.fn(async () => ({
-    appSettings: {
-      speechifyApiKey: 'speechify-key',
-      elevenLabsApiKey: '',
-      fishAudioApiKey: '',
-      translationTargetLang: 'pt-BR',
-      youtubeApiKey: '',
-    },
+    appSettings: mocks.appSettings,
     readerDefaults: {
       defaultFontSize: 'md',
       lineHeight: 'comfortable',
@@ -269,6 +282,16 @@ describe('BookDetailsScreen chapters', () => {
       ttsProvider: 'speechify',
       ttsRate: 1,
     } as BookSettings
+    mocks.appSettings = {
+      speechifyApiKey: 'speechify-key',
+      elevenLabsApiKey: '',
+      fishAudioApiKey: '',
+      translationTargetLang: 'pt-BR',
+      youtubeApiKey: '',
+      deeplApiKey: '',
+      openaiTranslationApiKey: '',
+      googleTranslateApiKey: '',
+    }
     mocks.progress = {
       bookId: 1,
       cfi: 'epubcfi(/6/4)',
@@ -301,6 +324,8 @@ describe('BookDetailsScreen chapters', () => {
     mocks.getCachedBookmarkDriveSyncStatus.mockReturnValue({ code: 'pending-offline' })
     mocks.refreshDriveToken.mockReset()
     mocks.capacitorListeners.backButton = null
+    mocks.isNativePlatform.mockReset()
+    mocks.isNativePlatform.mockReturnValue(true)
     FeatureQuotaService.reset()
     mocks.getStoredBookInfo.mockResolvedValue(emptyBookInfo())
     mocks.collectBookInfo.mockResolvedValue(emptyBookInfo())
@@ -1424,6 +1449,318 @@ describe('BookDetailsScreen chapters', () => {
 
     expect(await screen.findByText('Ativo')).toBeTruthy()
     expect(screen.queryByText('Voz premium aguardando API key')).toBeNull()
+  })
+
+  it('mostra banner quando o provedor de traducao selecionado (DeepL) nao tem key', async () => {
+    window.localStorage.clear()
+    mocks.bookSettings = {
+      bookId: 1,
+      ttsProvider: 'speechify',
+      ttsRate: 1,
+      translationProvider: 'deepl',
+    } as BookSettings
+
+    render(
+      <BookDetailsScreen
+        book={book}
+        onBack={vi.fn()}
+        onRead={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Idioma'))
+
+    expect(await screen.findByText('Traducao premium aguardando API key')).toBeTruthy()
+    expect(screen.getByText(/continua traduzindo com o MyMemory gratuito/)).toBeTruthy()
+  })
+
+  it('nao mostra banner quando o provedor de traducao selecionado (DeepL) tem key', async () => {
+    window.localStorage.clear()
+    mocks.bookSettings = {
+      bookId: 1,
+      ttsProvider: 'speechify',
+      ttsRate: 1,
+      translationProvider: 'deepl',
+    } as BookSettings
+    mocks.appSettings.deeplApiKey = 'deepl-real-key'
+
+    render(
+      <BookDetailsScreen
+        book={book}
+        onBack={vi.fn()}
+        onRead={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Idioma'))
+
+    expect(await screen.findByText('Provider')).toBeTruthy()
+    expect(screen.queryByText('Traducao premium aguardando API key')).toBeNull()
+  })
+
+  it('selecionar DeepL sem key nao tem efeito — abre Configuracoes (FR-005)', async () => {
+    window.localStorage.clear()
+    const onOpenSettings = vi.fn()
+
+    render(
+      <BookDetailsScreen
+        book={book}
+        onBack={vi.fn()}
+        onRead={vi.fn()}
+        onOpenSettings={onOpenSettings}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Idioma'))
+    fireEvent.click(await screen.findByText('Provider'))
+    fireEvent.click(await screen.findByText('DeepL'))
+
+    expect(onOpenSettings).toHaveBeenCalledOnce()
+    expect(mocks.updateBookSettings).not.toHaveBeenCalledWith(1, expect.objectContaining({ translationProvider: 'deepl' }))
+  })
+
+  it('fora do Android, mostra banner "so no Android" mesmo com a chave DeepL configurada (R-006/CORS)', async () => {
+    window.localStorage.clear()
+    mocks.isNativePlatform.mockReturnValue(false)
+    mocks.bookSettings = {
+      bookId: 1,
+      ttsProvider: 'speechify',
+      ttsRate: 1,
+      translationProvider: 'deepl',
+    } as BookSettings
+    mocks.appSettings.deeplApiKey = 'deepl-real-key'
+
+    render(
+      <BookDetailsScreen
+        book={book}
+        onBack={vi.fn()}
+        onRead={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Idioma'))
+
+    expect(await screen.findByText('Disponivel so no app Android')).toBeTruthy()
+    expect(screen.queryByText('Traducao premium aguardando API key')).toBeNull()
+
+    fireEvent.click(screen.getByText('Provider'))
+    // DeepL e OpenAI são ambos requiresNativePlatform — os 2 aparecem "So no
+    // app Android" no sheet, independente de key configurada (T024b).
+    expect(await screen.findAllByText('So no app Android')).toHaveLength(2)
+  })
+
+  it('mostra banner quando o provedor de traducao selecionado (OpenAI) nao tem key', async () => {
+    window.localStorage.clear()
+    mocks.bookSettings = {
+      bookId: 1,
+      ttsProvider: 'speechify',
+      ttsRate: 1,
+      translationProvider: 'openai',
+    } as BookSettings
+
+    render(
+      <BookDetailsScreen
+        book={book}
+        onBack={vi.fn()}
+        onRead={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Idioma'))
+
+    expect(await screen.findByText('Traducao premium aguardando API key')).toBeTruthy()
+  })
+
+  it('nao mostra banner quando o provedor de traducao selecionado (OpenAI) tem key', async () => {
+    window.localStorage.clear()
+    mocks.bookSettings = {
+      bookId: 1,
+      ttsProvider: 'speechify',
+      ttsRate: 1,
+      translationProvider: 'openai',
+    } as BookSettings
+    mocks.appSettings.openaiTranslationApiKey = 'openai-real-key'
+
+    render(
+      <BookDetailsScreen
+        book={book}
+        onBack={vi.fn()}
+        onRead={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Idioma'))
+
+    expect(await screen.findByText('Provider')).toBeTruthy()
+    expect(screen.queryByText('Traducao premium aguardando API key')).toBeNull()
+  })
+
+  it('selecionar OpenAI sem key nao tem efeito — abre Configuracoes (FR-005)', async () => {
+    window.localStorage.clear()
+    const onOpenSettings = vi.fn()
+
+    render(
+      <BookDetailsScreen
+        book={book}
+        onBack={vi.fn()}
+        onRead={vi.fn()}
+        onOpenSettings={onOpenSettings}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Idioma'))
+    fireEvent.click(await screen.findByText('Provider'))
+    fireEvent.click(await screen.findByText('OpenAI'))
+
+    expect(onOpenSettings).toHaveBeenCalledOnce()
+    expect(mocks.updateBookSettings).not.toHaveBeenCalledWith(1, expect.objectContaining({ translationProvider: 'openai' }))
+  })
+
+  it('fora do Android, mostra banner "so no Android" mesmo com a chave OpenAI configurada (R-006/CORS)', async () => {
+    window.localStorage.clear()
+    mocks.isNativePlatform.mockReturnValue(false)
+    mocks.bookSettings = {
+      bookId: 1,
+      ttsProvider: 'speechify',
+      ttsRate: 1,
+      translationProvider: 'openai',
+    } as BookSettings
+    mocks.appSettings.openaiTranslationApiKey = 'openai-real-key'
+
+    render(
+      <BookDetailsScreen
+        book={book}
+        onBack={vi.fn()}
+        onRead={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Idioma'))
+
+    expect(await screen.findByText('Disponivel so no app Android')).toBeTruthy()
+
+    fireEvent.click(screen.getByText('Provider'))
+    expect(await screen.findAllByText('So no app Android')).toHaveLength(2)
+  })
+
+  it('mostra banner quando o provedor de traducao selecionado (Google) nao tem key', async () => {
+    window.localStorage.clear()
+    mocks.bookSettings = {
+      bookId: 1,
+      ttsProvider: 'speechify',
+      ttsRate: 1,
+      translationProvider: 'google',
+    } as BookSettings
+
+    render(
+      <BookDetailsScreen
+        book={book}
+        onBack={vi.fn()}
+        onRead={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Idioma'))
+
+    expect(await screen.findByText('Traducao premium aguardando API key')).toBeTruthy()
+  })
+
+  it('nao mostra banner quando o provedor de traducao selecionado (Google) tem key', async () => {
+    window.localStorage.clear()
+    mocks.bookSettings = {
+      bookId: 1,
+      ttsProvider: 'speechify',
+      ttsRate: 1,
+      translationProvider: 'google',
+    } as BookSettings
+    mocks.appSettings.googleTranslateApiKey = 'google-real-key'
+
+    render(
+      <BookDetailsScreen
+        book={book}
+        onBack={vi.fn()}
+        onRead={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Idioma'))
+
+    expect(await screen.findByText('Provider')).toBeTruthy()
+    expect(screen.queryByText('Traducao premium aguardando API key')).toBeNull()
+  })
+
+  it('selecionar Google sem key nao tem efeito — abre Configuracoes (FR-005)', async () => {
+    window.localStorage.clear()
+    const onOpenSettings = vi.fn()
+
+    render(
+      <BookDetailsScreen
+        book={book}
+        onBack={vi.fn()}
+        onRead={vi.fn()}
+        onOpenSettings={onOpenSettings}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Idioma'))
+    fireEvent.click(await screen.findByText('Provider'))
+    fireEvent.click(await screen.findByText('Google Translate'))
+
+    expect(onOpenSettings).toHaveBeenCalledOnce()
+    expect(mocks.updateBookSettings).not.toHaveBeenCalledWith(1, expect.objectContaining({ translationProvider: 'google' }))
+  })
+
+  it('fora do Android, Google continua disponivel (nao bloqueia CORS como DeepL/OpenAI — R-006)', async () => {
+    window.localStorage.clear()
+    mocks.isNativePlatform.mockReturnValue(false)
+    mocks.bookSettings = {
+      bookId: 1,
+      ttsProvider: 'speechify',
+      ttsRate: 1,
+      translationProvider: 'google',
+    } as BookSettings
+    mocks.appSettings.googleTranslateApiKey = 'google-real-key'
+
+    render(
+      <BookDetailsScreen
+        book={book}
+        onBack={vi.fn()}
+        onRead={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Idioma'))
+
+    expect(await screen.findByText('Provider')).toBeTruthy()
+    expect(screen.queryByText('Disponivel so no app Android')).toBeNull()
+    expect(screen.queryByText('Traducao premium aguardando API key')).toBeNull()
+
+    fireEvent.click(screen.getByText('Provider'))
+    // Só DeepL e OpenAI são `requiresNativePlatform` — Google nunca aparece
+    // como "So no app Android" no sheet, mesmo fora do Android.
+    expect(screen.getAllByText('So no app Android')).toHaveLength(2)
+    expect(screen.queryByText('Google Translate')).toBeTruthy()
   })
 })
 

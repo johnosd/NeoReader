@@ -1,0 +1,313 @@
+# Implementation Plan: Tradução Premium BYOK (DeepL, OpenAI, Google)
+
+**Slug**: `017-traducao-premium-byok` | **Date**: 2026-09-11 | **Spec**: `sdd/specs/017-traducao-premium-byok/spec.md`
+
+## Summary
+
+Adicionar 3 provedores de tradução premium (DeepL, OpenAI, Google Cloud
+Translation) configuráveis via BYOK, seguindo exatamente o padrão já em
+produção pro BYOK de TTS premium neste mesmo repositório: chave + "Testar
+chave" numa nova seção de Configurações, seleção de um único provedor
+ativo por livro na tela de detalhes, e fallback transparente pro MyMemory
+(gratuito, já existente) quando o provedor selecionado falhar. Sem cadeia
+automática entre os 3 premium (descartada durante o `sdd-specify`), sem
+backend/vault (chamadas diretas do app pro provedor), sem Pro-gating, sem
+mudança de schema Dexie (campos novos são todos não-indexados).
+
+## Technical Context
+
+**Language/Version**: TypeScript 5.x + React 19 (já no projeto)
+
+**Primary Dependencies**: `fetch` nativo (nenhuma lib de HTTP nova),
+Dexie.js + `dexie-react-hooks` (persistência/reatividade), provider de
+i18n local (`src/i18n/`)
+
+**Storage**: IndexedDB via Dexie — tabelas já existentes `settings`,
+`bookSettings`, `translations` (v19, sem bump necessário — ver
+`data-model.md`)
+
+**Testing**: Vitest + Testing Library, mocks de `fetch`/serviços por
+provedor (mesmo padrão de `src/__tests__/services/BookmarkDriveSyncService.test.ts`
+e afins)
+
+**Target Platform**: Android (Capacitor) + Web
+
+**Performance Goals**: tap-to-translate continua com resposta percebida
+como imediata (loading state já existente); retry limitado a 2 tentativas
+(research.md R5) evita atraso perceptível em falha transitória
+
+**Constraints**: chamadas diretas do app pro provedor (constitution:
+local-first, sem backend próprio); chave em IndexedDB puro, mesmo nível de
+risco já aceito pro TTS (Fora de Escopo da spec); texto limitado a ~500
+caracteres por chamada, igual ao MyMemory hoje (FR-013)
+
+**Scale/Scope**: single-user por device; volume de chamadas = uso pontual
+de tap-to-translate (não o volume alto e contínuo da ideia futura "TTS
+Traduzido", fora de escopo — spec `## Assumptions`)
+
+## Decisões Invariantes
+
+- Um provedor selecionado por livro (nunca múltiplos simultâneos com
+  fallback entre si) — `BookSettings.translationProvider`, análogo a
+  `ttsProvider`. Reabrir isso exige reabrir o design (não é ajuste de
+  task).
+- Fallback automático só tem 1 destino possível: MyMemory. Nenhum código
+  desta feature deve introduzir uma tentativa automática de "próximo
+  provedor premium" — isso reintroduziria a cadeia descartada na spec.
+- Nenhuma chamada de rede desta feature usa outro helper além de
+  `fetchWithTimeout`/`fetch` direto com `AbortController` próprio (mesmo
+  padrão de `SpeechifyService.ts`) — sem criar um cliente HTTP novo.
+- `translate()` (`TranslationService.ts`) é o único ponto de entrada
+  chamado pela UI (`ReaderScreen.handleTranslate`) — a UI nunca importa
+  `DeepLService`/`OpenAiTranslationService`/`GoogleTranslateService`
+  diretamente pra traduzir (só a tela de Configurações os importa
+  diretamente, pra validar chave).
+
+## Constitution Check
+
+*GATE: deve passar antes da Fase 0. Reavaliado após o design da Fase 1.*
+
+| Princípio | Pré-Design | Pós-Design | Notas |
+| --- | --- | --- | --- |
+| I. Plano antes de feature grande | Pass | Pass | Este `plan.md` é a proposta; aguarda leitura do usuário antes do `sdd-execute`. |
+| II. Comentários só onde o "porquê" não é óbvio | Pass | Pass | Pontos não óbvios já identificados pra comentar na implementação: por que 2 hosts DeepL, por que OpenAI usa Structured Outputs em vez de prompt livre, por que Google usa query param em vez de header (ver `research.md`/`contracts/`). |
+| III. Explícito antes de mágico | Pass | Pass | 3 serviços de provedor explícitos em vez de 1 módulo genérico parametrizado (research.md R1); nenhuma abstração nova além do que `TtsProviderRegistry.ts` já estabeleceu como padrão. |
+| IV. Build limpo é a definição de "pronto" | Pass | Pass | Gate cross-cutting no Polish (tasks.md) e no `quickstart.md`; nada no design conflita. |
+| V. Dependências novas exigem justificativa | Pass | Pass | Nenhuma dependência nova — só `fetch` nativo, confirmado na exploração (`SpeechifyService.ts` já faz chamadas HTTP diretas sem lib). |
+
+Nenhuma violação — `## Complexity Tracking` fica vazio.
+
+## Project Structure
+
+### Documentation (this feature)
+
+```text
+sdd/specs/017-traducao-premium-byok/
+├── spec.md
+├── plan.md
+├── research.md
+├── data-model.md
+├── quickstart.md
+├── contracts/
+│   ├── deepl-translate.md
+│   ├── openai-responses-translate.md
+│   └── google-translate-basic-v2.md
+└── tasks.md
+```
+
+### Source Code (repository — projeto único, sem separação backend/frontend)
+
+```text
+src/
+├── types/
+│   ├── translation.ts          # NOVO — TranslationProvider, códigos de validação, TranslationResult
+│   ├── settings.ts             # MODIFICADO — AppSettings +3 campos de chave
+│   ├── book.ts                 # MODIFICADO — BookSettings +translationProvider
+│   └── vocabulary.ts           # MODIFICADO — TranslationCache +provider
+├── services/
+│   ├── TranslationService.ts          # MODIFICADO — translate() ganha provider+signal, delega pro registry, hash inclui provider
+│   ├── TranslationProviderRegistry.ts # NOVO — espelha TtsProviderRegistry.ts
+│   ├── DeepLService.ts                # NOVO
+│   ├── OpenAiTranslationService.ts    # NOVO
+│   ├── GoogleTranslateService.ts      # NOVO
+│   └── http.ts, DiagnosticsLogger.ts  # SEM MUDANÇA — reusados como estão (research.md R4)
+├── db/
+│   ├── translations.ts         # SEM MUDANÇA DE ASSINATURA (provider já entra no hash calculado em TranslationService)
+│   ├── bookSettings.ts         # SEM MUDANÇA (updateBookSettings já é genérico por patch)
+│   └── settings.ts             # SEM MUDANÇA (updateAppSettings já é genérico por patch)
+├── components/settings/
+│   └── apiKeyValidation.ts     # MODIFICADO — +getTranslationApiKeyValidationMessage
+├── screens/
+│   ├── SettingsTranslationScreen.tsx  # NOVO — espelha SettingsNarrationScreen.tsx
+│   ├── SettingsScreen.tsx             # MODIFICADO — +item de lista "Tradução"
+│   ├── BookDetailsScreen.tsx           # MODIFICADO — seletor de provedor de tradução + banner de fallback (espelha o bloco de TTS já existente)
+│   └── ReaderScreen.tsx                # MODIFICADO — handleTranslate resolve provider do livro + AbortController
+├── hooks/
+│   └── useReaderAppearance.ts   # MODIFICADO — expõe translationProvider/translationProviderAvailability (espelha ttsConfig/ttsProviderAvailability)
+├── App.tsx                      # MODIFICADO — rota 'settings-translation'
+└── i18n/messages.ts             # MODIFICADO — chaves pt-BR/en/es novas (settings.translation.*, bookDetails.translation.*)
+
+src/__tests__/
+├── services/
+│   ├── TranslationService.test.ts            # já existe — estender pra provider+cache
+│   ├── TranslationProviderRegistry.test.ts   # NOVO
+│   ├── DeepLService.test.ts                  # NOVO
+│   ├── OpenAiTranslationService.test.ts      # NOVO
+│   └── GoogleTranslateService.test.ts        # NOVO
+├── screens/
+│   ├── SettingsTranslationScreen.test.tsx    # NOVO
+│   ├── BookDetailsScreen.test.tsx             # já existe — estender
+│   └── ReaderScreen.test.tsx                  # já existe — estender (handleTranslate)
+└── db/translations.test.ts (se existir — confirmar padrão de teste do cache)
+```
+
+**Structure Decision**: projeto único (sem separação backend/frontend —
+já é a estrutura de todo o repositório). Segue exatamente a árvore real
+encontrada na exploração; nenhum diretório novo além dos arquivos
+individuais listados (nem `src/services/translation/`, nem qualquer outra
+pasta nova — `src/services/` já é plano hoje, um arquivo por serviço).
+
+## Complexity Tracking
+
+> Vazio — nenhuma violação de constitution identificada.
+
+## Estratégia de Testes
+
+Prioridade: unitário (serviços de provedor + registry + hash de cache) →
+integração (fluxo completo `handleTranslate` → provider → fallback, mock
+de `fetch`) → manual/E2E (browser real, `quickstart.md`) — build limpo
+como último gate antes de reportar qualquer fase como concluída.
+
+Comandos-base (reais deste repositório):
+
+```powershell
+npm run lint
+npx tsc -p tsconfig.app.json --noEmit
+npm test
+npx vitest run <caminho-do-arquivo>   # durante o desenvolvimento de cada fase
+npm run build
+```
+
+## Estado Atual
+
+<!-- Sobrescrita a cada checkpoint pelo sdd-execute. Vazia na criação. -->
+
+| Área | Estado |
+| --- | --- |
+| Foundational (Fase 2) | Concluída — tipos, `TranslationProviderRegistry.ts` (vazio de premium, só `mymemory`), `TranslationService.translate()` já com a árvore de decisão completa do FR-007, cache isolado por provider (FR-010), tela `SettingsTranslationScreen`/rota/entrada no menu, seletor + banner de fallback em `BookDetailsScreen`, `handleTranslate` com `AbortController` em `ReaderScreen`. Nenhum provider premium real ainda (DeepL é a US1). |
+| Regressão | Nenhuma — `ReaderScreen.test.tsx`/`BookDetailsScreen.test.tsx` (93 testes) verdes após ajuste de 3 assertions que só precisavam do novo 4º argumento de `translate()`. |
+| User Story 1 — DeepL (Fase 3) | Concluída e validada no device real (chave, CORS via CapacitorHttp, idioma regional, selo de provider). |
+| User Story 2 — OpenAI (Fase 4) | Concluída — `OpenAiTranslationService.ts` completo (Structured Outputs via Responses API), registrado no registry (`requiresNativePlatform: true`). 2 bugs reais corrigidos em teste de device: formato errado do `text.format` (R-009) e vazamento da chave em logcat via `loggingBehavior` mal configurado (R-010). Confirmado funcionando no device pelo usuário. Pendência de produto adiada por decisão do usuário: `invalid` ainda não cai pro MyMemory (ver R-011 e T045 em `tasks.md`). |
+| User Story 3 — Google (Fase 5) | Concluída e validada no device real — `GoogleTranslateService.ts` completo, registrado com `requiresNativePlatform: false` (não tem a restrição de CORS da DeepL/OpenAI, R-006). Contrato de validação de chave verificado via Context7+WebSearch antes de implementar (lição do R-009). Chave real validada e 2 traduções confirmadas com sucesso no device pelo usuário. As 3 user stories (DeepL, OpenAI, Google) estão agora confirmadas ponta a ponta no device real. |
+| Polish (Fase 6) | Concluída, exceto T045 (deliberadamente não implementada). Gates finais limpos (lint/tsc/1035 testes/build). Verificação em browser real (Chromium via Playwright MCP) achou e corrigiu um bug de i18n real (T044b): a descrição dos 3 provedores premium na tela de Configurações vinha de uma string pt-BR hardcoded no registry em vez de passar por `t()` — só ficava visível pro Google (DeepL/OpenAI escondem a própria descrição atrás do banner "Android apenas" fora do device). |
+
+## Riscos e Decisões
+
+| ID | Risco/Decisão | Impacto | Mitigação/Encaminhamento |
+| --- | --- | --- | --- |
+| R-001 | Google Basic v2 autentica via query param `?key=...`, não header — risco de a chave aparecer em log de URL. | Alto se não verificado; nulo se confirmado coberto. | **Resolvido**: verificado em `research.md` R4 e reconfirmado no `sdd-converge` (CF-02) — `DiagnosticsLogger.sanitizeUrl` já redige qualquer valor de query param genericamente. Task de auditoria (SC-004) confirma com teste, sem exigir mudança em `DiagnosticsLogger.ts`. |
+| R-002 | OpenAI/Google não distinguem "quota excedida" de "billing necessário" por HTTP status como a DeepL (456) faz. | Baixo — FR-007 trata as 2 categorias de forma idêntica (sem retry, cai pro MyMemory). | **Resolvido**: aceito como limitação documentada em `research.md` R2, reconfirmada e sem contradição adicional no `sdd-converge`; classificação usa `error.code` da OpenAI quando disponível (`insufficient_quota`), senão cai em `quota_exceeded` por padrão nos 2 provedores. |
+| R-003 | Cache de tradução (`src/db/translations.ts`) hoje não isola por provider — bug de correção descoberto durante o `sdd-specify` (não estava no pedido original). | Médio — sem isso, trocar de provider por livro pode devolver tradução em cache do provider errado. | Resolvido por design: `TranslationService.hashText` passa a foldar o provider no input do hash (`data-model.md`) — sem precisar de índice novo no Dexie. |
+| R-004 | OpenAI Structured Outputs (`strict: true`) pode, raramente, devolver algo fora do schema esperado (falha de parse). | Baixo. | **Resolvido**: tratado como categoria `invalid` (erro de requisição/bug interno) — FR-007 diz explicitamente que essa categoria não cai pro MyMemory automaticamente, evita mascarar. Consistente com a nota de reconciliação de FR-007 (`sdd-converge` CF-01). |
+| R-006 | **CRÍTICO — descoberto testando US1 no browser real**: a DeepL bloqueia chamadas diretas do browser via CORS por design (`Access-Control-Allow-Origin` ausente de propósito, documentado em developers.deepl.com/docs/best-practices/cors-requests — evita expor a chave em código client-side). Confirmado também pra OpenAI (mesma ausência de header CORS). Google Cloud Translation v2 **não** tem esse bloqueio (funciona direto do browser). Isso invalida a "Abordagem 1" (BYOK direto do app) da decision.md pra 2 dos 3 provedores. | Alto se não resolvido — US2 (OpenAI) repetiria o mesmo problema. | **Resolvido** — usuário escolheu restringir DeepL/OpenAI ao Android via `CapacitorHttp` nativo (bypassa CORS só no app empacotado; Web fica só com Google+MyMemory pra esses 2). Implementado: `capacitor.config.ts` (`CapacitorHttp: { enabled: true }`), `TranslationProviderDefinition.requiresNativePlatform` + `isTranslationProviderPlatformRestricted()` em `TranslationProviderRegistry.ts`, UI (`SettingsTranslationScreen`/`BookDetailsScreen`) mostra "disponível só no Android" em vez de tentar e falhar. Mesmo padrão deve ser aplicado à definição do OpenAI quando a US2 for criada (`requiresNativePlatform: true`). **Confirmado no device real**: "Testar chave" da DeepL funcionou via CapacitorHttp (bypass de CORS efetivo). |
+| R-007 | **Bug real encontrado testando tradução no device** (não CORS — chave e rede já funcionando): DeepL rejeitava toda tradução com `code: "invalid"`. Logcat mostrou `source_lang: "ES-419"` — a DeepL só aceita código BASE no idioma de origem (rejeita qualquer variante regional), diferente do destino (onde "PT-BR" é aceito). `bookLanguage` vem direto do EPUB sem filtro, podendo ter qualquer variante regional. | Alto se não corrigido — quebra tradução pra qualquer livro cujo idioma declarado tenha variante regional (comum em espanhol: es-419, es-ES). | **Resolvido**: `DeepLService.toDeepLSourceLangCode` usa `getBaseLanguage()` (`utils/language.ts`) antes de maiusculizar; idioma de destino mantido como estava (conjunto fechado de 7, só pt-BR tem região e DeepL aceita). Reconfirmado no device: tradução funcionando. Atenção pra Google (US3): pode ter a mesma restrição de código base no source_lang — verificar antes de implementar. |
+| R-008 | **Pedido de produto após ver funcionar no device**: usuário quer indicador de qual provedor traduziu, citando paridade com o indicador de engine de TTS — reverte parte do FR-008 (`spec.md` atualizado, sessão 2026-09-11). | Baixo — mudança de contrato aditiva (`translate()` retorna objeto em vez de string), não regressiva. | **Resolvido**: selo discreto "via {provedor}" no painel de tradução (só quando ≠ MyMemory), decisão do usuário entre 3 opções (selo no painel / ícone no chrome / os dois). `TranslationResult` (agora com `provider`) é o retorno de `translate()`; propagado até `EpubViewer.injectTranslation`. Mesmo padrão condicional já usado no indicador de TTS (`ttsEngine !== 'native'`). |
+| R-005 | "Idioma não suportado" (FR-007, deveria cair pro MyMemory sem retry) e "requisição inválida/bug interno" (FR-007, não deveria cair automaticamente) chegam ambos como HTTP 400 genérico em DeepL/OpenAI/Google, sem sinal confiável pra distinguir sem parsear a mensagem de erro (frágil, evitado por "explícito antes de mágico"). Descoberto implementando T007. Achado adicional no `sdd-converge` (CF-01, não documentado antes): "quota excedida" (HTTP 429) é tratada como `retryable: true` nos 3 provedores — 1 retry antes de cair pro MyMemory — enquanto FR-007 pede "sem repetição"; resultado final não muda, só ~500ms de atraso extra. | Baixo — os 7 idiomas hoje expostos na UI do app são praticamente universais nos 3 provedores; a chance real de um 400 ser por idioma é pequena. O retry extra em quota excedida não muda o resultado observável, só a latência. | **Resolvido**: decisão tomada durante T007 (todo HTTP 400 é tratado como `invalid`, propaga erro sem fallback) mantida como está — mudar o código introduziria a heurística frágil de parsing de mensagem, rejeitada de propósito. `sdd-converge` (CF-01, 2026-09-12) achou que `spec.md` (FR-007 e o Edge Case correspondente) não refletia essa limitação nem o retry em quota excedida — corrigido diretamente na spec (nota de reconciliação), sem mudança de código. |
+| R-009 | **Bug real encontrado testando OpenAI no device** (US2): toda tradução falhava com `code: "invalid"` (400, 400-850ms — rápido demais pra geração real). Causa: o corpo da requisição aninhava `text.format.json_schema.{name,schema,strict}`, formato do `response_format` do Chat Completions (API antiga). A Responses API (`/v1/responses`) espera `type`/`name`/`schema`/`strict` soltos, como irmãos, direto em `text.format`. O erro já vinha errado desde `contracts/openai-responses-translate.md` (escrito no `sdd-plan`), não só da implementação. | Alto se não corrigido — OpenAI inteiramente não-funcional. | **Resolvido**: `OpenAiTranslationService.ts` e o contrato corrigidos pro formato flat da Responses API. Reconfirmado no device: tradução funcionando. |
+| R-010 | **Achado de segurança durante a depuração do R-009** (fora do escopo de "traduzir com OpenAI", mas bloqueava a própria depuração — corrigido inline por ser pequeno e urgente, sem passar por backlog): logcat capturado pra investigar R-009 revelou a chave da OpenAI (`Authorization: Bearer sk-...`) em texto puro na tag `V/Capacitor` (log nativo de plugin call do bridge Capacitor, pra `CapacitorHttp.request`). Causa: `capacitor.config.ts` tinha `android.loggingBehavior: 'production'` — nome enganoso da própria Capacitor: esse valor significa "logar sempre, inclusive em release" (`CapConfig.java`, `LOG_BEHAVIOR_PRODUCTION` → `loggingEnabled=true` incondicional), o oposto do que parece. Já afetava DeepL desde a US1, não é uma regressão da OpenAI — só foi descoberta agora. | Alto (exposição de credenciais em qualquer build, inclusive release/Play Store) até corrigido; nulo depois. | **Resolvido**: `loggingBehavior: 'debug'` (comportamento default real da Capacitor) — loga só em build debug local, mudo em release. `sdd-converge` (CF-02, 2026-09-12) achou que `spec.md` (FR-011/SC-004) não reconhecia esse canal — corrigido diretamente na spec (nota de reconciliação), sem mudança de código. **Ação pendente do usuário**: rotacionar a chave da OpenAI exposta no arquivo de log capturado durante a depuração. |
+| R-011 | **Decisão de produto do usuário, adiada de propósito** (2026-09-11, após confirmar OpenAI funcionando): a categoria `invalid` (FR-007) hoje propaga o erro sem cair pro MyMemory — deliberado, pra não mascarar bug de integração durante o desenvolvimento (foi assim que R-009 foi encontrado). Usuário quer que, eventualmente, `invalid` também caia pro MyMemory como as outras categorias, pra não expor erro nenhum ao usuário final. | Baixo agora (comportamento atual é intencional e documentado); vira dívida se esquecido antes do release. | **Não implementado ainda, de propósito** — usuário pediu explicitamente pra manter assim "para testes". Task T045 (Fase 6/Polish) registra o ajuste pra depois que DeepL+OpenAI+Google estiverem todos estáveis no device (manter `invalid` sem fallback enquanto a US3 não é implementada ajuda a achar bugs de integração iguais ao R-009). |
+| R-012 | `GoogleTranslateService.ts` não aplica `getBaseLanguage()` no `source` (diferente da DeepL, R-007) — decisão baseada na documentação oficial (exemplos mostram `zh-CN`/`zh-TW` como código de idioma válido). | Médio se a suposição estivesse errada — mesma classe de bug que o R-007 revelou pra DeepL. | **Resolvido (parcial)**: testado no device real pelo usuário — chave validada, 2 traduções via Google confirmadas com sucesso no logcat (`translation.request` status `success`, `provider: google`, 343-469ms). Confirma o caminho feliz ponta a ponta. **Ressalva**: o livro testado tinha `bookLanguage` = `"en"` puro (sem variante regional) — o caso específico que quebrou a DeepL (`es-419`→`ES-419` rejeitado) não foi exercitado pra Google. Risco residual baixo (a suposição continua respaldada pela doc oficial), mas não 100% descartado até um livro com idioma regional ser testado com Google selecionado. |
+
+## Execution Notes
+
+<!-- Tabela append-only, mantida pelo sdd-execute. -->
+
+| Data | Fase/Story | Resumo | Pendência Principal |
+| --- | --- | --- | --- |
+| 2026-09-11 | Foundational | Infra completa (tipos, registry, `translate()` com árvore FR-007, cache FR-010, telas shell, seletor+banner em BookDetailsScreen, AbortController em ReaderScreen). Suite completa (`npm test`) 100% verde após 2 rodadas de ajuste mecânico (3 assertions de `ReaderScreen.test.tsx` pro novo argumento de `translate()`; 3 assertions de `db/settings.test.ts` pros 3 campos novos de `AppSettings`) — nenhuma regressão de comportamento, só testes que hardcodavam o shape antigo. `tsc`, lint e `npm run build` limpos. | Nenhum provider premium real ainda — US1 (DeepL) é o próximo passo. |
+| 2026-09-11 | US1 (DeepL) | `DeepLService.ts` completo; registrado no registry (T023 virou no-op — UI já é genérica); 4 arquivos de teste novos/estendidos (`DeepLService`, `SettingsTranslationScreen`, `BookDetailsScreen`, `ReaderScreen`, `TranslationProviderRegistry`). Suite completa + lint + tsc + build limpos. | Chave real do usuário em `.env` como `DEEPL_API_KEY` (sem prefixo `VITE_`) não é exposta ao client pelo Vite — sem teste manual contra a API real ainda. |
+| 2026-09-11 | US1 (DeepL) — pós-teste em device real | R-006 confirmado e resolvido (CapacitorHttp bypassa CORS, "Testar chave" funcionando). R-007: bug real de `source_lang` regional (`ES-419`) corrigido com `getBaseLanguage()`; tradução confirmada funcionando no device. R-008: pedido de produto (selo "via {provedor}") implementado — `translate()` agora retorna `TranslationResult` em vez de `string`, propagado até o painel de tradução no iframe. Suite completa + lint + tsc + build limpos após cada uma das 3 rodadas. APK reinstalado no device 3 vezes (CORS fix, idioma fix, selo). | Nenhuma — US1 validada ponta a ponta no device real (chave, CORS, tradução, selo). |
+| 2026-09-11 | US2 (OpenAI) | `OpenAiTranslationService.ts` completo (Structured Outputs via Responses API), registrado no registry (T031/T032 no-op, mesmo padrão da US1). 2 bugs reais de device: R-009 (formato errado de `text.format`, gerava 400 em toda chamada) e R-010 (chave exposta em logcat via `loggingBehavior: 'production'` mal configurado — nome enganoso, corrigido pra `'debug'`). Suite completa (1011 testes) + tsc + lint + build limpos após o fix. Confirmado funcionando no device pelo usuário. | R-011: usuário pediu, de propósito, pra adiar o ajuste de `invalid` cair pro MyMemory em produção — registrado como T045 (Fase 6), não bloqueia a US3. Ação pendente do usuário: rotacionar a chave da OpenAI exposta no log durante a depuração do R-009/R-010. |
+| 2026-09-11 | US3 (Google) | `GoogleTranslateService.ts` completo (validação via `GET .../v2/languages`, tradução via `POST .../v2/translate`, chave no query string); registrado com `requiresNativePlatform: false`. Endpoint de validação (não documentado no contrato original) verificado via Context7+WebSearch antes de implementar, evitando repetir o erro do R-009 (endpoint/formato não verificado). T039/T040 no-op — telas já eram genéricas o bastante desde a Fase 2. Suite completa (1035 testes) + tsc + lint + build limpos. | R-012 (aberto): sem teste manual ainda com chave real. |
+| 2026-09-11 | US3 (Google) — pós-teste em device real | Usuário configurou uma chave Google real, validou ("Testar chave") e traduziu 2 trechos com sucesso — confirmado no logcat (`translation.request`, `provider: "google"`, `status: "success"`, 343ms e 469ms). R-012 considerado resolvido pro caminho feliz; ressalva registrada (variante regional de idioma não exercitada neste teste, livro usava `bookLanguage: "en"` puro). As 3 user stories (DeepL, OpenAI, Google) confirmadas ponta a ponta no device real. | Nenhuma bloqueante — só a ressalva residual de R-012 (baixo risco). |
+| 2026-09-11 | Polish (Fase 6) | T041/T043/T044 fechados por revisão de código (gates limpos, sem chave logada, sem código morto). T042 excedido (3 provedores reais testados, não só 1). Verificação em browser real (Chromium via Playwright MCP — `npm run dev`) achou um bug real: `SettingsTranslationScreen.tsx` renderizava `definition.description` (string pt-BR literal do registry) direto, em vez de `t(...)` — visível com o app em inglês só pra Google (DeepL/OpenAI escondem a própria descrição atrás do banner Android-only fora do device, então o mesmo bug já existia pros 2 mas nunca apareceu). Corrigido (T044b): 3 chaves i18n novas + mapa `TRANSLATION_PROVIDER_DESCRIPTION_KEYS` na tela, mesmo padrão já usado por `SettingsNarrationScreen.tsx`/TTS. Suite completa (1035 testes) + lint + tsc + build limpos depois do fix. | T045 segue deliberadamente não implementada (decisão do usuário, R-011) — único item do checklist de release não marcado. |
+
+**PRÓXIMO**: Nenhum — a Fase 6 está fechada exceto por T045, que fica em
+aberto por decisão explícita do usuário ("para testes podemos deixar
+assim"). A feature está funcionalmente completa e confirmada no device
+real pros 3 provedores; só resta decidir com o usuário se/quando
+implementar T045 antes de considerar a feature pronta pra
+`sdd-converge`.
+
+## Arquivos Principais
+
+<!-- Sobrescrita a cada checkpoint — foco da etapa atual, não a árvore inteira. -->
+
+- `src/services/DeepLService.ts` (validação + tradução + `getBaseLanguage()` no source_lang)
+- `src/services/OpenAiTranslationService.ts` (Structured Outputs, `text.format` flat da Responses API — R-009)
+- `src/services/GoogleTranslateService.ts` (validação via `.../v2/languages`, tradução com chave no query string — R-012 aberto)
+- `src/services/TranslationProviderRegistry.ts` (deepl+openai+google registrados — os 3 provedores premium completos)
+- `src/services/TranslationService.ts` (árvore de decisão FR-007, retorna `TranslationResult`)
+- `src/types/translation.ts` (`TranslationResult.provider`)
+- `src/components/reader/EpubViewer.tsx` (`injectTranslation` com selo `.nr-tr-provider`)
+- `capacitor.config.ts` (`CapacitorHttp: { enabled: true }`, `loggingBehavior: 'debug'` — R-010)
+- `src/screens/SettingsTranslationScreen.tsx` (aviso "Android apenas" só pra DeepL/OpenAI, genérica pros 3; descrição do provider via i18n — T044b)
+- `src/i18n/messages.ts` (`settings.translationProviders.{deepl,openai,google}.description`, 3 locales — T044b)
+- `src/screens/BookDetailsScreen.tsx` (seletor + banners de fallback/plataforma)
+- `src/screens/ReaderScreen.tsx` (`handleTranslate` + AbortController + provider no selo)
+- `sdd/specs/017-traducao-premium-byok/contracts/openai-responses-translate.md` (formato de request corrigido — R-009)
+- `sdd/specs/017-traducao-premium-byok/contracts/google-translate-basic-v2.md` (endpoint de validação de chave adicionado)
+
+## Cuidados para Retomada
+
+- **Nunca** interpolar `apiKey`/a chave crua em mensagens de erro
+  customizadas (`new Error(...)`) fora de headers/query params reais —
+  o regex genérico de `DiagnosticsLogger.sanitizeString` só protege o
+  padrão `key=valor`/`Bearer <token>`, não uma chave solta em texto livre
+  (research.md R4).
+- **Nunca** implementar fallback automático pra "o próximo provedor
+  premium" — só existe 1 fallback automático válido nesta feature: pro
+  MyMemory (Decisões Invariantes acima).
+- Ao adicionar os 3 novos campos de `AppSettings`, seguir exatamente o
+  padrão de merge de `normalizeUserSettings` (`src/types/settings.ts`) —
+  já usado pros 3 campos de chave de TTS.
+- Se em algum momento parecer necessário adicionar um índice novo em
+  `bookSettings`/`translations`/`settings` (não deveria — ver
+  `data-model.md`), isso exigiria uma nova `version()` em
+  `src/db/database.ts` (schema é append-only, constitution).
+- **Nunca** setar `android.loggingBehavior: 'production'` em
+  `capacitor.config.ts` (R-010) — apesar do nome, esse valor significa
+  "logar sempre, inclusive em release", e com `CapacitorHttp` habilitado
+  isso vaza qualquer `Authorization`/chave em texto puro pro logcat de
+  qualquer build, inclusive Play Store. O valor correto é `'debug'`
+  (default da Capacitor quando a chave não é setada).
+
+## Resultado Final
+
+<!-- Anexado pelo sdd-converge em 2026-09-12. Não editar as seções acima. -->
+
+As 3 user stories (P1 DeepL, P2 OpenAI, P3 Google) foram implementadas,
+testadas automaticamente (1035 testes) e confirmadas ponta a ponta com
+chave real no device Android pelo usuário. A Fase 6 (Polish) fechou com
+todos os gates limpos, exceto T045 (deliberadamente não implementada — ver
+abaixo). O `sdd-converge` de 2026-09-12 achou 2 divergências de redação
+entre `spec.md` e o comportamento real (CF-01/CF-02, nenhuma CRITICAL) —
+ambas reconciliadas diretamente na spec, sem mudança de código, a pedido
+explícito do usuário (T046/T047, Fase 7).
+
+**Desvios acumulados do plano original** (nenhum invalida o design, todos
+já registrados como Riscos/Decisões ao longo da execução):
+
+- CORS bloqueia DeepL/OpenAI fora do Android por design da própria API —
+  não antecipado no `sdd-plan` original (que assumia BYOK direto do app
+  pros 3 provedores igualmente). Resolvido restringindo os 2 provedores
+  ao app Android via `CapacitorHttp` nativo (R-006); Google não tem essa
+  restrição.
+- Dois bugs reais de integração só detectáveis contra API real, não
+  contra mock/documentação: código de idioma regional rejeitado pela
+  DeepL no `source_lang` (R-007), e formato de schema errado (Chat
+  Completions em vez de Responses API) na OpenAI (R-009) — ambos
+  corrigidos e reconfirmados no device.
+- Vazamento de chave em texto puro via log nativo do bridge Capacitor
+  (`CapacitorHttp` plugin-call logging), canal que só existe porque
+  `CapacitorHttp` foi introduzido pelo R-006 (depois da spec original) —
+  não coberto pelo desenho original de FR-011/SC-004 (focado só em
+  `DiagnosticsLogger.ts`). Corrigido (R-010: `loggingBehavior: 'debug'`)
+  e a spec reconciliada pra reconhecer o canal (CF-02/T047).
+- FR-008 foi revertido parcialmente em campo: o usuário pediu um selo de
+  provedor no painel de tradução depois de testar DeepL no device,
+  citando paridade com o indicador de TTS — mudança de contrato aditiva
+  em `translate()` (retorna `TranslationResult` em vez de `string`).
+- Taxonomia de retry de FR-007 (5 categorias) não bate 1:1 com o que os 3
+  provedores reais sinalizam por HTTP status (2 desvios: retry em quota
+  excedida, "idioma não suportado" indistinguível de "requisição
+  inválida") — aceito como limitação das APIs reais, não uma escolha de
+  design; spec reconciliada (CF-01/T046).
+
+**Pendência conhecida, fora do escopo desta convergência**: T045 (fazer a
+categoria `invalid` também cair pro MyMemory em produção) segue
+deliberadamente não implementada — decisão explícita do usuário, registrada
+em R-011. Não é uma lacuna de convergência porque o código atual está
+correto em relação ao FR-007 vigente (que pede explicitamente que `invalid`
+NÃO caia pro MyMemory); implementar T045 exigiria antes uma revisão do
+próprio FR-007, não uma correção de bug.

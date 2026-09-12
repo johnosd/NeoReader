@@ -8,11 +8,16 @@ import {
   getTtsProviderAvailability,
   resolveTtsProviderFromAvailability,
 } from '../services/TtsProviderRegistry'
+import {
+  getTranslationProviderAvailability,
+  resolveTranslationProviderFromAvailability,
+} from '../services/TranslationProviderRegistry'
 import { clampTtsRate, normalizeLanguageTag } from '../utils/language'
 import { getBookTtsVoiceSelections } from '../utils/ttsVoiceSelection'
 import type { Book } from '../types/book'
 import type { FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from '../types/settings'
 import type { TtsPlaybackConfig, TtsProvider } from '../types/tts'
+import type { TranslationProvider } from '../types/translation'
 import type { CefrLevel } from '../types/wordLens'
 import type { ReaderStyleMode } from '../components/reader/ReaderAppearanceControls'
 
@@ -46,6 +51,8 @@ export interface UseReaderAppearanceResult {
   ttsConfig: TtsPlaybackConfig
   ttsEngine: TtsProvider
   ttsProviderAvailability: Record<TtsProvider, boolean>
+  translationProvider: TranslationProvider
+  translationProviderAvailability: Record<TranslationProvider, boolean>
   applyAppearancePatch: (patch: AppearancePatch) => void
   applyTtsConfigPatch: (patch: TtsConfigPatch) => void
   switchToNativeTts: () => void
@@ -99,6 +106,13 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
     elevenlabs: false,
     fishaudio: false,
   })
+  const [translationProvider, setTranslationProvider] = useState<TranslationProvider>('mymemory')
+  const [translationProviderAvailability, setTranslationProviderAvailability] = useState<Record<TranslationProvider, boolean>>({
+    mymemory: true,
+    deepl: false,
+    openai: false,
+    google: false,
+  })
 
   // Carrega preferências: configuração por livro (override) > global > padrão
   useEffect(() => {
@@ -118,6 +132,8 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
       const resolvedFontFamily = bs.fontFamily ?? s.readerDefaults.fontFamily
       const providerAvailability = getTtsProviderAvailability(s.appSettings)
       const voiceSelections = getBookTtsVoiceSelections(bs)
+      const translationAvailability = getTranslationProviderAvailability(s.appSettings)
+      const selectedTranslationProvider = bs.translationProvider ?? 'mymemory'
 
       setFontSize(bs.fontSize ?? s.readerDefaults.defaultFontSize)
       setLineHeight(bs.lineHeight ?? s.readerDefaults.lineHeight)
@@ -140,6 +156,8 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
       })
       setTtsProviderAvailability(providerAvailability)
       setTtsEngine(resolveTtsProviderFromAvailability(selectedProvider, providerAvailability))
+      setTranslationProviderAvailability(translationAvailability)
+      setTranslationProvider(resolveTranslationProviderFromAvailability(selectedTranslationProvider, translationAvailability))
       setReadySource({ bookId: book.id, source })
     }).catch(() => {
       if (cancelled) return
@@ -238,6 +256,8 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
     ttsConfig,
     ttsEngine,
     ttsProviderAvailability,
+    translationProvider,
+    translationProviderAvailability,
     applyAppearancePatch,
     applyTtsConfigPatch,
     switchToNativeTts,
