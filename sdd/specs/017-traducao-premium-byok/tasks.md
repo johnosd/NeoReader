@@ -481,12 +481,54 @@ stories anteriores.
 
 **Purpose**: Gates finais que atravessam as 3 stories.
 
-- [ ] T041 `npm run lint && npx tsc -p tsconfig.app.json --noEmit && npm test && npm run build` — zero erros.
-- [ ] T042 Rodar `quickstart.md` ponta a ponta com pelo menos 1 provedor real.
-- [ ] T043 Revisão final de `DiagnosticsLogger`: nenhuma chave em texto
-      plano pros 3 provedores reais (SC-004).
-- [ ] T044 Limpar código morto/comentário desatualizado introduzido
-      durante as 3 stories.
+- [X] T041 `npm run lint && npx tsc -p tsconfig.app.json --noEmit && npm test && npm run build` — zero erros. Confirmado: lint limpo, tsc limpo, 1035 testes (2 skipped) verdes, build limpo.
+- [X] T042 Rodar `quickstart.md` ponta a ponta com pelo menos 1 provedor real —
+      excedido: os 3 provedores (DeepL, OpenAI, Google) foram testados com
+      chave real no device Android durante as respectivas stories, e a UI
+      de Configurações > Tradução foi verificada num browser real
+      (Chromium via Playwright MCP, `npm run dev`) durante esta task — ver
+      T044b, achado nessa verificação.
+- [X] T043 Revisão final de `DiagnosticsLogger`: nenhuma chave em texto
+      plano pros 3 provedores reais (SC-004). Confirmado por leitura de
+      código: `DeepLService.ts`/`OpenAiTranslationService.ts`/
+      `GoogleTranslateService.ts` nunca importam `DiagnosticsLogger` — só
+      lançam `TranslationProviderError` tipado. `TranslationService.ts`
+      loga `translation.request`/`.retry`/`.fallback`/`.failure` só com
+      `{sourceLang,targetLang,charCount,truncated,attempt,code}` — nunca
+      `apiKey` nem a URL da chamada. O teste SC-004 existente
+      (`DiagnosticsLogger.test.ts`) audita o caso do Google (chave no
+      query string) como defesa em profundidade, não porque o código hoje
+      passe isso pro logger.
+- [X] T044 Limpar código morto/comentário desatualizado introduzido
+      durante as 3 stories. Nenhum `TODO`/`FIXME`/`console.log` encontrado
+      nos arquivos novos/modificados (`grep` dedicado). Ver T044b pro
+      único achado real desta varredura (não era "código morto", era uma
+      lacuna de i18n).
+- [X] T044b **Task ad-hoc, bug real encontrado no browser real durante o
+      T042** (dentro do escopo desta feature — afeta as 3 linhas de
+      provider criadas nas 3 stories): `SettingsTranslationScreen.tsx`
+      renderia `definition.description` direto — a string pt-BR *literal*
+      guardada em `TranslationProviderRegistry.ts` — em vez de passar por
+      `t()`. Em qualquer locale ≠ pt-BR (confirmado com o app em inglês),
+      a linha do provider mostrava a descrição em português no meio de
+      uma tela inteira em inglês. Só ficou visível pra Google porque
+      DeepL/OpenAI têm a própria descrição sempre escondida atrás do
+      banner "Android apenas" fora do device Android — o mesmo bug
+      existia pras 3, mascarado pros 2 primeiros. Descoberto comparando
+      com o padrão real do TTS (`SettingsNarrationScreen.tsx`): lá, a
+      descrição visível já vem de `t(educationKeys.description)`, uma
+      tabela de chaves própria da tela — `definition.description` do
+      `TtsProviderRegistry.ts` nunca é renderizada, só existe como valor
+      interno. `PREMIUM_TTS_PROVIDER_DEFINITIONS`/`PREMIUM_TRANSLATION_
+      PROVIDER_DEFINITIONS.description` são ambos "string literal pt-BR"
+      por design (T024/T032) — a peça que faltava era replicar a tabela
+      de chaves da tela, não o campo do registry. Corrigido: 3 chaves
+      novas em `i18n/messages.ts` (`settings.translationProviders.
+      {deepl,openai,google}.description`, 3 locales) +
+      `TRANSLATION_PROVIDER_DESCRIPTION_KEYS` em
+      `SettingsTranslationScreen.tsx`, mesma forma do
+      `TTS_PROVIDER_EDUCATION_KEYS`. Reconfirmado no browser real: Google
+      mostra a descrição em inglês quando o app está em inglês.
 - [ ] T045 **Ajuste de produto pedido pelo usuário (2026-09-11, durante
       teste de device da US2), adiado de propósito pra depois de todas as
       stories estarem estáveis** — revisar a árvore de decisão do FR-007
@@ -505,13 +547,19 @@ stories anteriores.
 
 ### Checklist de Release
 
-- [ ] Fase 3 (User Story 1 — DeepL) concluída
-- [ ] Fase 4 (User Story 2 — OpenAI) concluída
-- [ ] Fase 5 (User Story 3 — Google) concluída
-- [ ] `npm run lint && npm test && npm run build` limpos
-- [ ] Nenhuma chave de API em log/analytics (SC-004)
-- [ ] Testado em browser real (não só jsdom)
-- [ ] `quickstart.md` executado com sucesso
+- [X] Fase 3 (User Story 1 — DeepL) concluída — confirmada no device real.
+- [X] Fase 4 (User Story 2 — OpenAI) concluída — confirmada no device real.
+- [X] Fase 5 (User Story 3 — Google) concluída — confirmada no device real.
+- [X] `npm run lint && npm test && npm run build` limpos.
+- [X] Nenhuma chave de API em log/analytics (SC-004) — ver T043.
+- [X] Testado em browser real (não só jsdom) — Chromium via Playwright MCP,
+      achou e corrigiu T044b (i18n da descrição do provider).
+- [X] `quickstart.md` executado com sucesso — excedido, 3 provedores reais
+      em vez de 1.
+
+**Pendência conhecida, fora deste checklist**: T045 (fazer a categoria
+`invalid` cair pro MyMemory em produção) segue deliberadamente não
+implementada — decisão explícita do usuário, ver R-011 em `plan.md`.
 
 ---
 

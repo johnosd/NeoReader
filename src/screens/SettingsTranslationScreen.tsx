@@ -18,7 +18,17 @@ import {
 } from '../services/TranslationProviderRegistry'
 import type { AppSettings, UserSettings } from '../types/settings'
 import type { PremiumTranslationProvider } from '../types/translation'
-import { useI18n } from '../i18n'
+import { useI18n, type MessageKey } from '../i18n'
+
+// `definition.description` (TranslationProviderRegistry.ts) é uma string
+// literal pt-BR interna, nunca renderizada direto — mesmo padrão do
+// TtsProviderRegistry.ts/SettingsNarrationScreen.tsx: a descrição visível
+// passa por i18n, mapeada aqui por provider.
+const TRANSLATION_PROVIDER_DESCRIPTION_KEYS: Record<PremiumTranslationProvider, MessageKey> = {
+  deepl: 'settings.translationProviders.deepl.description',
+  openai: 'settings.translationProviders.openai.description',
+  google: 'settings.translationProviders.google.description',
+}
 
 interface SettingsTranslationScreenProps {
   onBack: () => void
@@ -194,7 +204,7 @@ function SettingsTranslationForm({
               <ApiKeyField
                 key={provider}
                 label={definition.label}
-                description={definition.description}
+                description={t(TRANSLATION_PROVIDER_DESCRIPTION_KEYS[provider])}
                 icon={<Languages size={18} />}
                 state={validation[provider]}
                 emptyLabel={t('settings.translationProviders.notConfigured')}

@@ -179,6 +179,7 @@ npm run build
 | User Story 1 — DeepL (Fase 3) | Concluída e validada no device real (chave, CORS via CapacitorHttp, idioma regional, selo de provider). |
 | User Story 2 — OpenAI (Fase 4) | Concluída — `OpenAiTranslationService.ts` completo (Structured Outputs via Responses API), registrado no registry (`requiresNativePlatform: true`). 2 bugs reais corrigidos em teste de device: formato errado do `text.format` (R-009) e vazamento da chave em logcat via `loggingBehavior` mal configurado (R-010). Confirmado funcionando no device pelo usuário. Pendência de produto adiada por decisão do usuário: `invalid` ainda não cai pro MyMemory (ver R-011 e T045 em `tasks.md`). |
 | User Story 3 — Google (Fase 5) | Concluída e validada no device real — `GoogleTranslateService.ts` completo, registrado com `requiresNativePlatform: false` (não tem a restrição de CORS da DeepL/OpenAI, R-006). Contrato de validação de chave verificado via Context7+WebSearch antes de implementar (lição do R-009). Chave real validada e 2 traduções confirmadas com sucesso no device pelo usuário. As 3 user stories (DeepL, OpenAI, Google) estão agora confirmadas ponta a ponta no device real. |
+| Polish (Fase 6) | Concluída, exceto T045 (deliberadamente não implementada). Gates finais limpos (lint/tsc/1035 testes/build). Verificação em browser real (Chromium via Playwright MCP) achou e corrigiu um bug de i18n real (T044b): a descrição dos 3 provedores premium na tela de Configurações vinha de uma string pt-BR hardcoded no registry em vez de passar por `t()` — só ficava visível pro Google (DeepL/OpenAI escondem a própria descrição atrás do banner "Android apenas" fora do device). |
 
 ## Riscos e Decisões
 
@@ -209,17 +210,14 @@ npm run build
 | 2026-09-11 | US2 (OpenAI) | `OpenAiTranslationService.ts` completo (Structured Outputs via Responses API), registrado no registry (T031/T032 no-op, mesmo padrão da US1). 2 bugs reais de device: R-009 (formato errado de `text.format`, gerava 400 em toda chamada) e R-010 (chave exposta em logcat via `loggingBehavior: 'production'` mal configurado — nome enganoso, corrigido pra `'debug'`). Suite completa (1011 testes) + tsc + lint + build limpos após o fix. Confirmado funcionando no device pelo usuário. | R-011: usuário pediu, de propósito, pra adiar o ajuste de `invalid` cair pro MyMemory em produção — registrado como T045 (Fase 6), não bloqueia a US3. Ação pendente do usuário: rotacionar a chave da OpenAI exposta no log durante a depuração do R-009/R-010. |
 | 2026-09-11 | US3 (Google) | `GoogleTranslateService.ts` completo (validação via `GET .../v2/languages`, tradução via `POST .../v2/translate`, chave no query string); registrado com `requiresNativePlatform: false`. Endpoint de validação (não documentado no contrato original) verificado via Context7+WebSearch antes de implementar, evitando repetir o erro do R-009 (endpoint/formato não verificado). T039/T040 no-op — telas já eram genéricas o bastante desde a Fase 2. Suite completa (1035 testes) + tsc + lint + build limpos. | R-012 (aberto): sem teste manual ainda com chave real. |
 | 2026-09-11 | US3 (Google) — pós-teste em device real | Usuário configurou uma chave Google real, validou ("Testar chave") e traduziu 2 trechos com sucesso — confirmado no logcat (`translation.request`, `provider: "google"`, `status: "success"`, 343ms e 469ms). R-012 considerado resolvido pro caminho feliz; ressalva registrada (variante regional de idioma não exercitada neste teste, livro usava `bookLanguage: "en"` puro). As 3 user stories (DeepL, OpenAI, Google) confirmadas ponta a ponta no device real. | Nenhuma bloqueante — só a ressalva residual de R-012 (baixo risco). |
+| 2026-09-11 | Polish (Fase 6) | T041/T043/T044 fechados por revisão de código (gates limpos, sem chave logada, sem código morto). T042 excedido (3 provedores reais testados, não só 1). Verificação em browser real (Chromium via Playwright MCP — `npm run dev`) achou um bug real: `SettingsTranslationScreen.tsx` renderizava `definition.description` (string pt-BR literal do registry) direto, em vez de `t(...)` — visível com o app em inglês só pra Google (DeepL/OpenAI escondem a própria descrição atrás do banner Android-only fora do device, então o mesmo bug já existia pros 2 mas nunca apareceu). Corrigido (T044b): 3 chaves i18n novas + mapa `TRANSLATION_PROVIDER_DESCRIPTION_KEYS` na tela, mesmo padrão já usado por `SettingsNarrationScreen.tsx`/TTS. Suite completa (1035 testes) + lint + tsc + build limpos depois do fix. | T045 segue deliberadamente não implementada (decisão do usuário, R-011) — único item do checklist de release não marcado. |
 
-**PRÓXIMO**: Fase 6 — Polish & Cross-Cutting Concerns. As 3 user stories
-estão implementadas, testadas automaticamente e confirmadas no device
-real. Falta: (1) revisão final de `DiagnosticsLogger`/SC-004 com os 3
-provedores reais (T043) — já parcialmente coberta pelas auditorias de
-`sanitizeUrl` (T016/T037), mas vale reconfirmar com os 3 juntos; (2)
-limpeza de comentário/código morto (T044); (3) decidir se T045
-(fallback de `invalid` pro MyMemory) entra nesta rodada ou fica pra
-depois — o usuário pediu pra adiar explicitamente, só implementar se
-ele pedir; (4) gates finais (`lint && tsc && test && build`) já passam
-continuamente a cada checkpoint — só formalizar o checklist de release.
+**PRÓXIMO**: Nenhum — a Fase 6 está fechada exceto por T045, que fica em
+aberto por decisão explícita do usuário ("para testes podemos deixar
+assim"). A feature está funcionalmente completa e confirmada no device
+real pros 3 provedores; só resta decidir com o usuário se/quando
+implementar T045 antes de considerar a feature pronta pra
+`sdd-converge`.
 
 ## Arquivos Principais
 
@@ -233,7 +231,8 @@ continuamente a cada checkpoint — só formalizar o checklist de release.
 - `src/types/translation.ts` (`TranslationResult.provider`)
 - `src/components/reader/EpubViewer.tsx` (`injectTranslation` com selo `.nr-tr-provider`)
 - `capacitor.config.ts` (`CapacitorHttp: { enabled: true }`, `loggingBehavior: 'debug'` — R-010)
-- `src/screens/SettingsTranslationScreen.tsx` (aviso "Android apenas" só pra DeepL/OpenAI, genérica pros 3)
+- `src/screens/SettingsTranslationScreen.tsx` (aviso "Android apenas" só pra DeepL/OpenAI, genérica pros 3; descrição do provider via i18n — T044b)
+- `src/i18n/messages.ts` (`settings.translationProviders.{deepl,openai,google}.description`, 3 locales — T044b)
 - `src/screens/BookDetailsScreen.tsx` (seletor + banners de fallback/plataforma)
 - `src/screens/ReaderScreen.tsx` (`handleTranslate` + AbortController + provider no selo)
 - `sdd/specs/017-traducao-premium-byok/contracts/openai-responses-translate.md` (formato de request corrigido — R-009)
