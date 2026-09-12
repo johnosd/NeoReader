@@ -28,6 +28,7 @@ update-bug-status.ps1.
 | 015-atalho-anotar-highlight-criacao | Atalho pra anotar highlight logo após criar | Convergida | 23/23 tasks | 2026-09-11 |
 | 016-caixa-unificada-highlight-nota | Caixa unificada de cor, estilo e nota ao criar ou editar highlight | Convergida | 34/34 tasks | 2026-09-11 |
 | 017-traducao-premium-byok | Tradução Premium BYOK (DeepL, OpenAI, Google) | Convergida | 59/60 tasks | 2026-09-11 |
+| 018-tts-traduzido | TTS Traduzido (audiobook com tradução em lote por parágrafo) | Implementada | 44/44 tasks | 2026-09-12 |
 
 ## Bugs
 

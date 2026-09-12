@@ -53,6 +53,9 @@ export interface UseReaderAppearanceResult {
   ttsProviderAvailability: Record<TtsProvider, boolean>
   translationProvider: TranslationProvider
   translationProviderAvailability: Record<TranslationProvider, boolean>
+  // Feature 018 (TTS Traduzido) — lido de BookSettings, escrito só por
+  // BookDetailsScreen (via updateBookSettings direto); aqui é somente leitura.
+  audiobookTranslationEnabled: boolean
   applyAppearancePatch: (patch: AppearancePatch) => void
   applyTtsConfigPatch: (patch: TtsConfigPatch) => void
   switchToNativeTts: () => void
@@ -113,6 +116,7 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
     openai: false,
     google: false,
   })
+  const [audiobookTranslationEnabled, setAudiobookTranslationEnabled] = useState(false)
 
   // Carrega preferências: configuração por livro (override) > global > padrão
   useEffect(() => {
@@ -158,6 +162,7 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
       setTtsEngine(resolveTtsProviderFromAvailability(selectedProvider, providerAvailability))
       setTranslationProviderAvailability(translationAvailability)
       setTranslationProvider(resolveTranslationProviderFromAvailability(selectedTranslationProvider, translationAvailability))
+      setAudiobookTranslationEnabled(bs.audiobookTranslationEnabled ?? false)
       setReadySource({ bookId: book.id, source })
     }).catch(() => {
       if (cancelled) return
@@ -258,6 +263,7 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
     ttsProviderAvailability,
     translationProvider,
     translationProviderAvailability,
+    audiobookTranslationEnabled,
     applyAppearancePatch,
     applyTtsConfigPatch,
     switchToNativeTts,

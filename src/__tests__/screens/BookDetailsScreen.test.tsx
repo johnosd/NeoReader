@@ -1762,6 +1762,112 @@ describe('BookDetailsScreen chapters', () => {
     expect(screen.getAllByText('So no app Android')).toHaveLength(2)
     expect(screen.queryByText('Google Translate')).toBeTruthy()
   })
+
+  // Feature 018 (TTS Traduzido)
+  it('toggle "ouvir traduzido" liga e persiste quando o aviso já foi confirmado antes (US1)', async () => {
+    mocks.appSettings.translationTargetLang = 'en'
+    mocks.bookSettings = {
+      bookId: 1,
+      ttsProvider: 'speechify',
+      ttsRate: 1,
+      audiobookTranslationWarningDismissed: true,
+    } as BookSettings
+
+    render(
+      <BookDetailsScreen book={book} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Idioma'))
+    const toggle = await screen.findByRole('switch', { name: 'Ouvir traduzido' }) as HTMLButtonElement
+    expect(toggle.disabled).toBe(false)
+
+    fireEvent.click(toggle)
+
+    await waitFor(() => {
+      expect(mocks.updateBookSettings).toHaveBeenCalledWith(1, { audiobookTranslationEnabled: true })
+    })
+  })
+
+  it('primeira ativação por livro mostra o aviso de consumo antes de persistir (FR-013)', async () => {
+    mocks.appSettings.translationTargetLang = 'en'
+    mocks.bookSettings = { bookId: 1, ttsProvider: 'speechify', ttsRate: 1 } as BookSettings
+
+    render(
+      <BookDetailsScreen book={book} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Idioma'))
+    fireEvent.click(await screen.findByRole('switch', { name: 'Ouvir traduzido' }))
+
+    expect(await screen.findByText('Ouvir este livro traduzido')).toBeTruthy()
+    expect(mocks.updateBookSettings).not.toHaveBeenCalledWith(1, expect.objectContaining({ audiobookTranslationEnabled: true }))
+
+    fireEvent.click(screen.getByText('Entendi, ativar'))
+
+    await waitFor(() => {
+      expect(mocks.updateBookSettings).toHaveBeenCalledWith(1, {
+        audiobookTranslationEnabled: true,
+        audiobookTranslationWarningDismissed: true,
+      })
+    })
+  })
+
+  it('desativar "ouvir traduzido" não mostra o aviso de consumo', async () => {
+    mocks.appSettings.translationTargetLang = 'en'
+    mocks.bookSettings = {
+      bookId: 1,
+      ttsProvider: 'speechify',
+      ttsRate: 1,
+      audiobookTranslationEnabled: true,
+      audiobookTranslationWarningDismissed: true,
+    } as BookSettings
+
+    render(
+      <BookDetailsScreen book={book} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Idioma'))
+    fireEvent.click(await screen.findByRole('switch', { name: 'Ouvir traduzido' }))
+
+    await waitFor(() => {
+      expect(mocks.updateBookSettings).toHaveBeenCalledWith(1, { audiobookTranslationEnabled: false })
+    })
+  })
+
+  it('toggle "ouvir traduzido" fica desabilitado quando o idioma-alvo é igual ao idioma do livro (FR-015)', async () => {
+    // Default do beforeEach: idioma detectado 'pt-BR' == translationTargetLang 'pt-BR'.
+    render(
+      <BookDetailsScreen book={book} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Idioma'))
+
+    const toggle = await screen.findByRole('switch', { name: 'Ouvir traduzido' }) as HTMLButtonElement
+    expect(toggle.disabled).toBe(true)
+  })
+
+  it('toggle "ouvir traduzido" fica desabilitado quando o idioma do livro não está definido (FR-015)', async () => {
+    mocks.appSettings.translationTargetLang = 'en'
+    mocks.parseExtras.mockResolvedValue({
+      description: null,
+      language: null,
+      toc: [],
+    } as never)
+
+    render(
+      <BookDetailsScreen book={book} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Idioma'))
+
+    const toggle = await screen.findByRole('switch', { name: 'Ouvir traduzido' }) as HTMLButtonElement
+    expect(toggle.disabled).toBe(true)
+  })
 })
 
 describe('BookDetailsScreen voice settings', () => {

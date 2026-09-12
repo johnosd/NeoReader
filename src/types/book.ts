@@ -90,6 +90,9 @@ export interface BookSettings {
   ttsNativeVoiceKey?: string | null
   ttsNativeVoiceLabel?: string | null
   ttsVoiceSelections?: TtsVoiceSelections
+  // Feature 018 (TTS Traduzido) — não indexados, não exigem novo Dexie version()
+  audiobookTranslationEnabled?: boolean
+  audiobookTranslationWarningDismissed?: boolean
   updatedAt?: Date
 }
 

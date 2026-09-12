@@ -8,6 +8,7 @@ import {
   type ParagraphBookmarkPayload,
   type ReaderImageOpenPayload,
   type ReaderRelocatePayload,
+  type TtsChunk,
   type VisibleReadingLocation,
   type WordLensDefinitionTarget,
 } from '../components/reader/EpubViewer'
@@ -33,6 +34,7 @@ import { addHighlight, deleteHighlight, getHighlightsByBookId, updateHighlightAp
 import { getSettings, updateReaderDefaults } from '../db/settings'
 import { db } from '../db/database'
 import { useTTS } from '../hooks/useTTS'
+import { useTranslatedAudiobook } from '../hooks/useTranslatedAudiobook'
 import { TtsMiniPlayer } from '../components/reader/TtsMiniPlayer'
 import {
   READER_PROGRESS_FOOTER_HEIGHT_PX,
@@ -172,6 +174,10 @@ export function ReaderScreen({
   const currentTtsParaIdxRef = useRef(0)
   const pendingTtsConfigRestartRef = useRef<number | null>(null)
   const ttsFallbackNoticeShownRef = useRef(new Set<TtsProvider>())
+  // Feature 018 (TTS Traduzido) — não-null enquanto uma sessão de audiobook
+  // traduzido está ativa; é o MESMO array passado a tts.play(), mutado em
+  // memória (Decisão Invariante 2) conforme o prefetch de parágrafos avança.
+  const translatedChunksArrayRef = useRef<TtsChunk[] | null>(null)
   // Cache da capa em base64 pro Service nativo — busca só uma vez por livro
   // (undefined = ainda não buscou, '' = buscou e não achou capa).
   const bookCoverBase64Ref = useRef<string | undefined>(undefined)
@@ -182,6 +188,9 @@ export function ReaderScreen({
   const [ttsFinished, setTtsFinished] = useState(false)
   const [ttsFallbackNotice, setTtsFallbackNotice] = useState<{ provider: TtsProvider; reason: string } | null>(null)
   const [ttsProviderFallback, setTtsProviderFallback] = useState<{ provider: TtsProvider } | null>(null)
+  // FR-008: erro visível quando a tradução do audiobook falha sem fallback
+  // restante — o playback já foi pausado quando isto é setado.
+  const [translatedAudiobookError, setTranslatedAudiobookError] = useState<string | null>(null)
   // Controla visibilidade do mini player — true do início até o usuário apertar ⏹
   const [ttsPlayerVisible, setTtsPlayerVisible] = useState(false)
   const [showBackToTtsLocation, setShowBackToTtsLocation] = useState(false)
@@ -228,6 +237,7 @@ export function ReaderScreen({
     ttsEngine,
     ttsProviderAvailability,
     translationProvider,
+    audiobookTranslationEnabled,
     applyAppearancePatch,
     applyTtsConfigPatch,
     switchToNativeTts,
@@ -473,6 +483,23 @@ export function ReaderScreen({
   }, [book.id, book.missingFile])
 
 
+  // Feature 018 (TTS Traduzido) — indireção via ref: useTranslatedAudiobook
+  // precisa existir ANTES de useTTS (seus callbacks o referenciam), mas seu
+  // onFatalFailure precisa pausar o `tts` que só existe DEPOIS. Populado no
+  // useEffect logo após a criação de `tts`, abaixo.
+  const pauseTtsOnTranslationFailureRef = useRef<() => void>(() => {})
+  const translatedAudiobook = useTranslatedAudiobook({
+    getParagraphs: () => viewerRef.current?.getParagraphs() ?? [],
+    onFatalFailure: (error) => {
+      logError('reader.translatedAudiobook.failure', error, {
+        screen: 'reader',
+        status: 'failure',
+      })
+      pauseTtsOnTranslationFailureRef.current()
+      setTranslatedAudiobookError(t('reader.translatedAudiobook.error'))
+    },
+  })
+
   // TTS: gerencia estado e sequenciamento de audiobook
   const tts = useTTS({
     bookId: book.id,
@@ -485,6 +512,14 @@ export function ReaderScreen({
     nativeVoiceKey: ttsConfig.nativeVoiceKey,
     voiceSelections: ttsConfig.voiceSelections,
     onWordHighlight: (paraIdx, start, end) => {
+      // FR-010: numa sessão de leitura traduzida, os offsets são relativos
+      // ao texto TRADUZIDO, não ao DOM original — usar highlightTts(...,0,0)
+      // degrada pro modo "só destaca o parágrafo" que já existe nativamente
+      // (EpubViewer.tsx), em vez de tentar (incorretamente) mapear a palavra.
+      if (translatedAudiobook.isActive()) {
+        viewerRef.current?.highlightTts(paraIdx, 0, 0)
+        return
+      }
       viewerRef.current?.highlightTts(paraIdx, start, end)
     },
     // Quando muda de parágrafo: destaca + rola para centralizar na tela
@@ -492,6 +527,12 @@ export function ReaderScreen({
       currentTtsParaIdxRef.current = paraIdx
       viewerRef.current?.highlightTts(paraIdx, 0, 0)
       viewerRef.current?.scrollToParagraph(paraIdx)
+
+      // Prefetch do próximo parágrafo traduzido (Decisão Invariante 3) —
+      // `push`-a no MESMO array que tts.play() já está iterando.
+      if (translatedAudiobook.isActive() && translatedChunksArrayRef.current) {
+        translatedAudiobook.advanceToNextParagraph(paraIdx, translatedChunksArrayRef.current)
+      }
 
       // Só atualiza a notificação quando o capítulo muda de fato — evitar
       // chamar o nativo a cada parágrafo (a maioria não muda de capítulo).
@@ -526,9 +567,18 @@ export function ReaderScreen({
     },
   })
 
+  // Chokepoint único (research.md R2): quando uma sessão de leitura
+  // traduzida está ativa, TODOS os controles de navegação (play/pause/
+  // resume/prev/next/restart de config) automaticamente operam sobre o
+  // array traduzido em vez do original — sem precisar tocar em cada um.
   const getTtsChunks = useCallback(() => {
+    if (translatedChunksArrayRef.current) return translatedChunksArrayRef.current
     return viewerRef.current?.getSentenceChunks() ?? []
   }, [])
+
+  useEffect(() => {
+    pauseTtsOnTranslationFailureRef.current = () => { void tts.pause() }
+  }, [tts])
 
   // Capa/título/capítulo pra notificação nativa (US3) — busca a capa só uma
   // vez por livro (cacheada em bookCoverBase64Ref) e reusa nas chamadas seguintes.
@@ -626,6 +676,8 @@ export function ReaderScreen({
     // de "livro acabou", só ReaderScreen sabe disso).
     void TtsPlaybackSessionService.stop()
     tts.resetPosition()
+    translatedAudiobook.cancel()
+    translatedChunksArrayRef.current = null
     setTtsPlayerVisible(false)
     setShowBackToTtsLocation(false)
     setTtsFallbackNotice(null)
@@ -646,15 +698,7 @@ export function ReaderScreen({
     setTtsPlayerVisible(true)
   }
 
-  function handleTtsSectionReady() {
-    if (!ttsAdvancePendingRef.current) return
-
-    const chunks = getTtsChunks()
-    if (chunks.length > 0) {
-      startPlay(chunks, 0)
-      return
-    }
-
+  function retryOrFinishEmptySection() {
     if (ttsAutoAdvanceSkipCountRef.current >= 6) {
       finishTtsAtBookEnd()
       return
@@ -663,6 +707,36 @@ export function ReaderScreen({
     ttsAutoAdvanceSkipCountRef.current += 1
     const moved = viewerRef.current?.goToNextTtsSection() ?? false
     if (!moved) finishTtsAtBookEnd()
+  }
+
+  function handleTtsSectionReady() {
+    if (!ttsAdvancePendingRef.current) return
+
+    // Toda troca de seção invalida a sessão traduzida anterior (paraIdx é
+    // relativo à seção carregada) — sempre começa uma sessão nova aqui,
+    // nunca reaproveita translatedChunksArrayRef da seção anterior.
+    if (audiobookTranslationEnabled) {
+      setTranslatedAudiobookError(null)
+      void translatedAudiobook.buildInitialChunks(0, bookLanguage, translationTargetLang, translationProvider)
+        .then((chunks) => {
+          if (chunks === null) return // falha fatal já tratada (onFatalFailure pausou/mostrou erro)
+          if (chunks.length > 0) {
+            translatedChunksArrayRef.current = chunks
+            startPlay(chunks, 0)
+            return
+          }
+          retryOrFinishEmptySection()
+        })
+      return
+    }
+
+    const chunks = getTtsChunks()
+    if (chunks.length > 0) {
+      startPlay(chunks, 0)
+      return
+    }
+
+    retryOrFinishEmptySection()
   }
 
   function handleReaderSectionReady(_sectionIndex: number, sectionHref?: string) {
@@ -699,6 +773,18 @@ export function ReaderScreen({
           startPlay(chunks, startIdx)
         })
       }
+    } else if (audiobookTranslationEnabled) {
+      // Sessão traduzida: sempre começa do primeiro parágrafo visível —
+      // "resumir do chunk exato de antes" não se aplica (a tradução é
+      // reconstruída do zero a cada início de sessão, Decisão Invariante 11).
+      const startParaIdx = viewerRef.current?.getFirstVisibleParagraphIndex() ?? 0
+      setTranslatedAudiobookError(null)
+      void translatedAudiobook.buildInitialChunks(startParaIdx, bookLanguage, translationTargetLang, translationProvider)
+        .then((chunks) => {
+          if (!chunks || chunks.length === 0) return
+          translatedChunksArrayRef.current = chunks
+          startPlay(chunks, 0)
+        })
     } else {
       const chunks = getTtsChunks()
       const lastIdx = tts.lastChunkIdx.current
@@ -745,6 +831,10 @@ export function ReaderScreen({
 
     const targetIdx = tts.lastChunkIdx.current + 1
     if (targetIdx >= chunks.length) {
+      // Numa sessão traduzida, "acabaram os chunks" pode só significar que
+      // o próximo parágrafo ainda está sendo traduzido (prefetch em voo) —
+      // nesse caso, espera em vez de avançar de seção por engano.
+      if (translatedAudiobook.isActive() && translatedAudiobook.hasPendingTranslation()) return
       void tts.stop().then(() => {
         advanceTtsToNextSection()
       })
@@ -764,6 +854,7 @@ export function ReaderScreen({
     const nextIdx = chunks.findIndex((c, i) => i > currIdx && c.paraIdx > currParaIdx)
 
     if (nextIdx < 0) {
+      if (translatedAudiobook.isActive() && translatedAudiobook.hasPendingTranslation()) return
       void tts.stop().then(() => {
         advanceTtsToNextSection()
       })
@@ -779,10 +870,13 @@ export function ReaderScreen({
     ttsAutoAdvanceSkipCountRef.current = 0
     void tts.stop()
     tts.resetPosition()
+    translatedAudiobook.cancel()
+    translatedChunksArrayRef.current = null
     setTtsPlayerVisible(false)
     setShowBackToTtsLocation(false)
     setTtsFallbackNotice(null)
     setTtsProviderFallback(null)
+    setTranslatedAudiobookError(null)
   }
 
   function handleBackToTtsLocation() {
@@ -1332,6 +1426,15 @@ export function ReaderScreen({
           reason={ttsFallbackNotice.reason}
           onDismiss={() => setTtsFallbackNotice(null)}
         />
+      )}
+
+      {/* FR-008: tradução do audiobook falhou sem fallback restante — o
+          playback já foi pausado (pauseTtsOnTranslationFailureRef) quando
+          este erro aparece. */}
+      {translatedAudiobookError && (
+        <Toast tone="error" durationMs={0} onDismiss={() => setTranslatedAudiobookError(null)}>
+          {translatedAudiobookError}
+        </Toast>
       )}
 
       {ttsPlayerVisible && (

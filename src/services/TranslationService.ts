@@ -15,7 +15,10 @@ const TARGET_LANG = 'pt-BR'
 // MyMemory API accepts about 500 chars per request on the free plan — mesmo
 // limite aplicado a todos os provedores (FR-013), truncado uma única vez
 // antes de despachar pro provider selecionado.
-const MAX_CHARS = 500
+// Exportado: feature 018 (TTS Traduzido) usa o mesmo valor pra decidir
+// quando um parágrafo precisa ser dividido antes de traduzir, em vez de
+// duplicar o número e arriscar os dois saírem de sincronia.
+export const MAX_CHARS = 500
 // FR-007: 1 tentativa original + 1 retry pra timeout/429-transitório/5xx
 // (research.md R5) — número pequeno de propósito, só pra absorver falha
 // transitória sem atrasar o tap-to-translate perceptivelmente.
