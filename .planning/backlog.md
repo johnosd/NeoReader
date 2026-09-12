@@ -27,7 +27,7 @@ update-bug-status.ps1.
 | 014-indicador-anotacao-highlight | Indicador visual de anotação em highlights com preview flutuante | Implementada | 26/26 tasks | 2026-09-11 |
 | 015-atalho-anotar-highlight-criacao | Atalho pra anotar highlight logo após criar | Convergida | 23/23 tasks | 2026-09-11 |
 | 016-caixa-unificada-highlight-nota | Caixa unificada de cor, estilo e nota ao criar ou editar highlight | Convergida | 34/34 tasks | 2026-09-11 |
-| 017-traducao-premium-byok | Tradução Premium BYOK (DeepL, OpenAI, Google) | Em Execução | 57/58 tasks | 2026-09-11 |
+| 017-traducao-premium-byok | Tradução Premium BYOK (DeepL, OpenAI, Google) | Convergida | 59/60 tasks | 2026-09-11 |
 
 ## Bugs
 

@@ -2,8 +2,9 @@
 
 NeoReader e um leitor de EPUB mobile-first para Android e Web. O app combina
 biblioteca local, importacao por arquivo ou pasta, leitura continua, marcadores,
-traducao inline, vocabulario salvo, TTS com provedores premium e fallback nativo,
-descoberta de livros e fichas bibliograficas enriquecidas.
+traducao inline com provedores premium via BYOK e fallback gratuito, vocabulario
+salvo, TTS com provedores premium e fallback nativo, descoberta de livros e
+fichas bibliograficas enriquecidas.
 
 O projeto e construido em React + Vite, empacotado para Android com Capacitor e
 usa IndexedDB/Dexie como armazenamento local principal. A aplicacao e local-first:
@@ -48,7 +49,8 @@ tags, pastas de origem e caches ficam no dispositivo.
 | Virtualizacao | `@tanstack/react-virtual` (lista e grid da Biblioteca) |
 | Auth | Firebase Auth + `@capacitor-firebase/authentication` |
 | i18n | Provider local em `src/i18n` |
-| Traducao | MyMemory API |
+| Traducao | MyMemory API (gratuito, padrao) |
+| Traducao premium | DeepL, OpenAI e Google Cloud Translation via BYOK |
 | Metadados | EPUB metadata, Google Books, Open Library, YouTube Data API v3 |
 | Descoberta | NYT Books API + catalogos OPDS (publicos/self-hosted) |
 | Credencial segura | AndroidX Security Crypto (Keystore) via plugin nativo — nunca texto puro no Dexie |
@@ -299,8 +301,17 @@ ficha manualmente.
 - Bloco de traducao injetado dentro do iframe do EPUB.
 - Acoes inline: proxima frase, ouvir, marcar/remover marcador e salvar no
   vocabulario.
-- Servico de traducao via MyMemory API, com timeout, truncamento para 500
-  caracteres e cache local por hash + par de idiomas.
+- Servico de traducao via MyMemory API (gratuito, padrao), com timeout,
+  truncamento para 500 caracteres e cache local por hash + par de idiomas
+  + provedor.
+- Provedores premium via BYOK (DeepL, OpenAI, Google Cloud Translation):
+  chave configurada e testada em Configuracoes, selecionada por livro nos
+  Detalhes do Livro. DeepL e OpenAI bloqueiam CORS fora do app Android
+  (disponiveis so no app nativo); Google funciona tambem na Web. Falha no
+  provedor selecionado cai automaticamente para o MyMemory, sem interromper
+  a leitura.
+- Selo discreto "via {provedor}" no painel de traducao quando o provedor
+  efetivo nao for o MyMemory.
 - Idioma do livro detectado pelo EPUB ou inferido.
 - Idioma alvo configuravel globalmente e por livro.
 - Idiomas expostos na UI: Ingles, Portugues (BR), Espanhol, Frances, Alemao,
@@ -363,6 +374,8 @@ retorna ao menu.
 - Word Lens: ativacao e nivel CEFR.
 - Narracao: painel indicando fallback nativo e API keys locais para
   Speechify, ElevenLabs e Fish Audio.
+- Traducao: API keys locais (BYOK) para DeepL, OpenAI e Google Cloud
+  Translation, com "Testar chave" por provedor.
 - Integracoes: API key local do YouTube Data API.
 - Sincronizacao na Nuvem: status de backup/restauracao de bookmarks,
   progresso e vocabulario.
@@ -461,6 +474,9 @@ VITE_ADMOB_BANNER_UNIT_ID_ANDROID=
 | `VITE_SPEECHIFY_API_KEY` | TTS premium Speechify | Nao |
 | `VITE_ELEVENLABS_API_KEY` | TTS premium ElevenLabs | Nao |
 | `VITE_FISH_AUDIO_API_KEY` | TTS premium Fish Audio | Nao |
+| `VITE_DEEPL_API_KEY` | Traducao premium DeepL (fallback de dev; producao usa a chave salva em Configuracoes) | Nao |
+| `VITE_OPENAI_API_KEY` | Traducao premium OpenAI (fallback de dev; producao usa a chave salva em Configuracoes) | Nao |
+| `VITE_GOOGLE_TRANSLATE_API_KEY` | Traducao premium Google Cloud Translation (fallback de dev; producao usa a chave salva em Configuracoes) | Nao |
 | `VITE_GOOGLE_BOOKS_API_KEY` | Metadados Google Books com menor risco de quota publica | Nao |
 | `VITE_NYT_API_KEY` | Listas NYT Best Sellers na tela Descubra | Nao |
 | `VITE_REVENUECAT_ANDROID_API_KEY` | RevenueCat em Android nativo | Nao |

@@ -626,3 +626,65 @@ Task: "T013 [P] src/i18n/messages.ts"
   descartados na spec (`## Clarifications`).
 
 <!-- sdd-converge anexa "## Phase N: Convergence" abaixo desta linha -->
+
+## Phase 7: Convergence
+
+**Purpose**: Reconciliar `spec.md` com o comportamento real implementado —
+achados do `sdd-converge` de 2026-09-11 (CF-01/CF-02, ver relatório da
+sessão). Nenhum é CRITICAL nem bloqueia as 3 user stories, que estão
+completas e confirmadas no device real; ambos são divergências de redação
+entre a spec original e decisões técnicas já tomadas (e já documentadas em
+`plan.md` → `## Riscos e Decisões`) durante a implementação.
+
+- [X] T046 **[CF-01]** Reconciliar FR-007 e o Edge Case "Provedor
+      selecionado não suporta o par de idiomas" em `spec.md` com o
+      comportamento real: (a) "quota excedida" (HTTP 429) hoje tenta 1
+      retry antes de cair pro MyMemory nos 3 provedores
+      (`classifyStatus` em `DeepLService.ts`/`OpenAiTranslationService.ts`/
+      `GoogleTranslateService.ts` marca `quota_exceeded` como
+      `retryable: true`), não "sem repetição" como o FR-007 literal diz —
+      resultado final não muda (ainda cai pro MyMemory), só adiciona
+      ~500ms; (b) "idioma não suportado" não tem sinal HTTP distinto de
+      "requisição inválida" nos 3 provedores (ambos batem em HTTP 400 →
+      categoria `invalid`, que propaga erro em vez de cair pro MyMemory)
+      — já aceito como limitação em `plan.md` R-005, mas nunca refletido
+      na redação do FR-007/Edge Case. **Não mude código** — distinguir os
+      dois casos sem sinal HTTP confiável reintroduziria a heurística
+      frágil que T007 rejeitou de propósito (constitution III). Só
+      atualizar a redação de `spec.md` pra descrever a taxonomia de retry
+      realmente implementada (retryable por HTTP status: timeout/429/5xx;
+      não-retryable-mas-com-fallback: permissão/rede; sem fallback:
+      requisição inválida/idioma não suportado/cancelamento).
+- [X] T047 **[CF-02]** Reconciliar FR-011/SC-004 em `spec.md`: o texto
+      atual lista só `DiagnosticsLogger`/mensagens de erro/analytics como
+      escopo — mas o bridge nativo do Capacitor (`CapacitorHttp`
+      plugin-call logging, canal que só entrou no design via T024b,
+      depois da spec escrita) também pode expor a chave em texto puro no
+      logcat do device. Já auditado e mitigado (R-010 em `plan.md`:
+      `capacitor.config.ts` → `loggingBehavior: 'debug'`, elimina o
+      vazamento em builds release/Play Store; exposição residual só em
+      builds debug locais do próprio desenvolvedor). Atualizar FR-011/
+      SC-004 pra reconhecer esse canal explicitamente e a ressalva de
+      escopo (release vs. debug local).
+
+### Critério de Conclusão
+
+`spec.md` reflete com precisão o comportamento real já implementado e
+testado — nenhuma mudança de código nesta fase, só reconciliação de
+redação. Depois de T046/T047, rodar `sdd-converge` de novo pra confirmar
+convergência limpa.
+
+**Registro da Fase**:
+
+- Status: concluída
+- Feito: T046 e T047 aplicados diretamente em `spec.md` a pedido do
+  usuário (sem passar pelo ciclo formal `sdd-execute`, dado que ambos são
+  reconciliação de redação, sem mudança de código): nota de reconciliação
+  no FR-007 + no Edge Case correspondente (retry em quota excedida;
+  "idioma não suportado" indistinguível de "requisição inválida"); FR-011
+  e SC-004 esclarecidos sobre o canal de log nativo do Capacitor; nova
+  entrada em `## Clarifications` (sessão 2026-09-12) documentando a
+  decisão de ajustar a redação, não o código.
+- Testes executados: nenhum — mudança é só de documentação (`spec.md`),
+  sem alteração em código-fonte.
+- Pendências: nenhuma.

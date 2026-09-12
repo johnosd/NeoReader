@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-11
 
-**Status**: Em Execução
+**Status**: Convergida
 
 **Input**: Assessment `sdd/assessments/traduo-multi-provedor-byok-deepl-openai-google/` (veredito `go`, 2026-09-10) — adicionar tradução premium ao leitor via três provedores configuráveis por BYOK (DeepL, OpenAI, Google Cloud Translation), com botão "Testar chave" (7 categorias de resultado) e um modelo de seleção/fallback refinado durante a entrevista deste `sdd-specify` (ver `## Clarifications`).
 
@@ -177,7 +177,10 @@ e cai pro MyMemory nos mesmos cenários de erro das stories anteriores.
   automaticamente pro MyMemory, e a tela de detalhes de cada livro afetado
   passa a indicar o fallback.
 - Provedor selecionado não suporta o par de idiomas configurado no app →
-  cai pro MyMemory, sem retry.
+  cai pro MyMemory, sem retry. **Nota (convergência, 2026-09-12)**: na
+  prática, os 3 provedores reais não distinguem esse caso de "requisição
+  inválida" (ambos chegam como HTTP 400) — o comportamento real segue o
+  próximo bullet (exibe erro, não cai pro MyMemory). Ver nota em FR-007.
 - Usuário sai da tela ou troca de trecho antes da resposta de uma chamada
   de tradução pendente → a chamada é cancelada, sem cair pro MyMemory (não
   havia erro real do provedor, é cancelamento do usuário).
@@ -230,6 +233,21 @@ e cai pro MyMemory nos mesmos cenários de erro das stories anteriores.
     MyMemory automaticamente — exibe erro ao usuário.
   - Cancelamento explícito do usuário (ex: sair da tela ou trocar de trecho
     antes da resposta): aborta a chamada sem cair pro MyMemory.
+
+  **Nota de reconciliação (convergência, 2026-09-12)**: os 3 provedores
+  reais classificam falha por HTTP status, não pela taxonomia de 5
+  categorias acima — na prática isso colapsa em 2 desvios aceitos: (1)
+  "quota excedida" (HTTP 429) é tratada como retryable (1 retry antes de
+  cair pro MyMemory, igual timeout/5xx) em vez de "sem repetição" — o
+  resultado final não muda, só adiciona ~500ms; (2) nenhum dos 3
+  provedores tem um sinal HTTP distinto pra "idioma não suportado" vs.
+  "requisição inválida" (ambos chegam como HTTP 400) — na prática esse
+  caso segue o comportamento de "erro de requisição inválida" (exibe erro,
+  não cai pro MyMemory) em vez do fallback silencioso descrito acima.
+  Aceito como limitação das APIs reais (não uma escolha arbitrária de
+  design) — distinguir os dois exigiria parsear a mensagem de erro em
+  texto livre de cada provedor, uma heurística frágil evitada de propósito
+  (`plan.md` R-005).
 - **FR-008**: A queda automática pro MyMemory (FR-007) DEVE ser transparente
   pro usuário durante a leitura — sem diálogo de confirmação. **Revisado em
   2026-09-11**: o painel de tradução DEVE mostrar um selo discreto
@@ -249,7 +267,14 @@ e cai pro MyMemory nos mesmos cenários de erro das stories anteriores.
   provedores diferentes não pode compartilhar entrada de cache.
 - **FR-011**: Nenhuma chave de API DEVE aparecer em texto plano em eventos
   de diagnóstico/log (`DiagnosticsLogger`), mensagens de erro exibidas ao
-  usuário, ou qualquer analytics.
+  usuário, ou qualquer analytics. **Escopo esclarecido (convergência,
+  2026-09-12)**: isso também cobre o log nativo de plugin call do bridge
+  Capacitor (`CapacitorHttp`, canal fora do controle do
+  `DiagnosticsLogger.ts`, introduzido só durante a implementação — ver
+  `plan.md` R-006/R-010) — em builds de release/Play Store esse log fica
+  desligado (`capacitor.config.ts` → `loggingBehavior: 'debug'`); a
+  exposição residual em builds debug locais do próprio desenvolvedor é
+  aceita (não alcança usuário final).
 - **FR-012**: A configuração e uso de provedores de tradução premium DEVE
   estar disponível pra qualquer usuário (Free ou Pro) — não é uma feature
   Pro-gated.
@@ -286,8 +311,10 @@ e cai pro MyMemory nos mesmos cenários de erro das stories anteriores.
 - **SC-003**: As regras de retry/fallback especificadas no FR-007 estão
   cobertas por testes automatizados, simulando cada categoria de erro.
 - **SC-004**: Auditoria de `DiagnosticsLogger.ts` e demais pontos de
-  log/erro confirma que nenhuma chave de API aparece em texto plano em
-  eventos de diagnóstico.
+  log/erro (inclusive o log nativo de plugin call do bridge Capacitor —
+  ver nota em FR-011) confirma que nenhuma chave de API aparece em texto
+  plano em eventos de diagnóstico, nem em nenhum log alcançável por um
+  build de release/Play Store.
 - **SC-005**: `npm run lint && npm test && npm run build` passam limpos com
   a feature implementada.
 
@@ -364,3 +391,16 @@ e cai pro MyMemory nos mesmos cenários de erro das stories anteriores.
   usado no chrome do TTS, `ttsEngine !== 'native'`). Descartadas as opções
   de indicador persistente no chrome do leitor e de fazer as duas coisas —
   FR-008 atualizado.
+
+### Sessão 2026-09-12 (sdd-converge — reconciliação pós-implementação)
+
+- Q: `sdd-converge` achou 2 divergências de redação entre a spec e o
+  comportamento real dos 3 provedores já implementados/testados no device
+  real (retry em "quota excedida"; "idioma não suportado" indistinguível
+  de "requisição inválida"; log nativo do Capacitor como canal adicional
+  de FR-011/SC-004) — mudar o código pra bater com a redação original, ou
+  ajustar a redação pra bater com o comportamento real (já é o pretendido,
+  as APIs reais não oferecem o sinal necessário pra distinguir alguns
+  casos)? → A: Ajustar a redação (usuário pediu diretamente as edições) —
+  FR-007, Edge Case correspondente, FR-011 e SC-004 atualizados com notas
+  de reconciliação. Nenhuma mudança de código.
