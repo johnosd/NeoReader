@@ -14,8 +14,14 @@ import { setReaderImmersiveMode, setSelectionMenuSuppressed } from '@/services/N
 import { addHighlight, updateHighlightAppearance } from '@/db/highlights'
 
 type MockTtsOptions = {
+  provider?: TtsProvider
+  language?: string
+  speechifyVoiceId?: string | null
+  nativeVoiceKey?: string | null
+  voiceSelections?: Record<string, { id?: string | null; label?: string | null; avatarUrl?: string | null; modelId?: string | null } | undefined>
   onFinished?: () => void
   onParagraphChange?: (paraIdx: number) => void
+  onWordHighlight?: (paraIdx: number, start: number, end: number) => void
   onProviderFallback?: (payload: { provider: TtsProvider; fallbackProvider: 'native'; reason: string }) => void
 }
 
@@ -24,6 +30,7 @@ const mocks = vi.hoisted(() => {
     goTo: vi.fn(),
     getVisibleLocation: vi.fn(() => ({ cfi: null })),
     getSentenceChunks: vi.fn<() => TtsChunk[]>(),
+    getParagraphs: vi.fn<() => string[]>(),
     getFirstVisibleParagraphIndex: vi.fn(() => 0),
     resetTtsScroll: vi.fn(),
     highlightTts: vi.fn(),
@@ -73,6 +80,7 @@ const mocks = vi.hoisted(() => {
     updateHighlightNote: vi.fn(),
     setReaderImmersiveMode: vi.fn().mockResolvedValue(undefined),
   setSelectionMenuSuppressed: vi.fn().mockResolvedValue(undefined),
+    listSpeechifyCompatibleVoices: vi.fn(async () => [] as Array<{ id: string; label: string; locale: string; provider: string; modelId?: string }>),
     loadWordLensData: vi.fn().mockResolvedValue(null),
     loadWordLensDefinition: vi.fn().mockResolvedValue(null),
     ttsPlaybackSessionService: {
@@ -223,11 +231,13 @@ vi.mock('@/db/database', () => ({
 vi.mock('@/services/SpeechifyService', () => ({
   SpeechifyService: {
     isConfigured: vi.fn(async () => false),
+    listCompatibleVoices: mocks.listSpeechifyCompatibleVoices,
   },
 }))
 
 vi.mock('@/services/TranslationService', () => ({
   translate: vi.fn(async () => ({ translatedText: 'Texto traduzido', provider: 'mymemory' })),
+  MAX_CHARS: 500,
 }))
 
 vi.mock('@/services/BookmarkDriveSyncService', () => ({
@@ -298,6 +308,7 @@ vi.mock('@/components/reader/TtsMiniPlayer', () => ({
     activeProvider,
     fallbackFromProvider,
     providerAvailability,
+    isTranslated,
     ttsRate,
     bottomOffsetPx,
     onPrevParagraph,
@@ -313,6 +324,7 @@ vi.mock('@/components/reader/TtsMiniPlayer', () => ({
     activeProvider: TtsProvider
     fallbackFromProvider?: TtsProvider | null
     providerAvailability: Record<TtsProvider, boolean>
+    isTranslated?: boolean
     ttsRate: number
     bottomOffsetPx?: number
     onPrevParagraph: () => void
@@ -328,6 +340,7 @@ vi.mock('@/components/reader/TtsMiniPlayer', () => ({
     <div data-testid="tts-mini-player">
       <span>{`provider:${activeProvider}`}</span>
       <span>{fallbackFromProvider ? `fallback:${fallbackFromProvider}` : 'fallback:none'}</span>
+      <span>{isTranslated ? 'translated:yes' : 'translated:no'}</span>
       <span>{`rate:${ttsRate.toFixed(1)}`}</span>
       <span>{`offset:${bottomOffsetPx ?? 0}`}</span>
       <span>{providerAvailability.speechify ? 'speechify:enabled' : 'speechify:disabled'}</span>
@@ -457,6 +470,8 @@ describe('ReaderScreen', () => {
     mocks.viewerHandle.goToNextTtsSection.mockReturnValue(false)
     mocks.viewerHandle.getSentenceChunks.mockReset()
     mocks.viewerHandle.getSentenceChunks.mockReturnValue([])
+    mocks.viewerHandle.getParagraphs.mockReset()
+    mocks.viewerHandle.getParagraphs.mockReturnValue([])
     mocks.viewerHandle.getFirstVisibleParagraphIndex.mockReturnValue(0)
     mocks.viewerHandle.resetTtsScroll.mockClear()
     mocks.viewerHandle.scrollToParagraph.mockClear()
@@ -470,6 +485,8 @@ describe('ReaderScreen', () => {
     vi.mocked(updateBookSettings).mockClear()
     vi.mocked(getSettings).mockResolvedValue(makeSettings())
     vi.mocked(getBookSettings).mockResolvedValue({})
+    mocks.listSpeechifyCompatibleVoices.mockReset()
+    mocks.listSpeechifyCompatibleVoices.mockResolvedValue([])
   })
 
   it('bloqueia o reader e permite remover livro marcado como arquivo ausente', async () => {
@@ -2166,5 +2183,330 @@ describe('ReaderScreen', () => {
     })
 
     expect(firstSignal?.aborted).toBe(true)
+  })
+
+  describe('leitura traduzida (feature 018)', () => {
+    it('ativa "ouvir traduzido" e toca com o texto já traduzido, não o original (US1)', async () => {
+      vi.mocked(getBookSettings).mockResolvedValue({ bookId: 1, audiobookTranslationEnabled: true })
+      mocks.viewerHandle.getParagraphs.mockReturnValue(['Bonjour le monde.'])
+      vi.mocked(translate).mockResolvedValueOnce({ translatedText: 'Hello world.', provider: 'mymemory' })
+
+      render(
+        <ReaderScreen book={book} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />,
+      )
+
+      await flushAsyncWork()
+      fireEvent.click(screen.getByText('toggle-tts'))
+      await flushAsyncWork()
+
+      expect(translate).toHaveBeenCalledWith('Bonjour le monde.', 'fr', 'pt-BR', expect.objectContaining({ provider: 'mymemory' }))
+      expect(mocks.tts.play).toHaveBeenCalledTimes(1)
+      const [playedChunks] = mocks.tts.play.mock.calls[0]
+      expect(playedChunks[0].text).toBe('Hello world.')
+      expect(playedChunks[0].paraIdx).toBe(0)
+      expect(screen.getByText('translated:yes')).toBeTruthy()
+    })
+
+    it('onParagraphChange dispara o prefetch do próximo parágrafo em segundo plano', async () => {
+      vi.mocked(getBookSettings).mockResolvedValue({ bookId: 1, audiobookTranslationEnabled: true })
+      mocks.viewerHandle.getParagraphs.mockReturnValue(['Primeiro paragrafo.', 'Segundo paragrafo.'])
+      vi.mocked(translate).mockImplementation(async (text: string) => ({ translatedText: `T:${text}`, provider: 'mymemory' }))
+
+      render(
+        <ReaderScreen book={book} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />,
+      )
+
+      await flushAsyncWork()
+      fireEvent.click(screen.getByText('toggle-tts'))
+      await flushAsyncWork()
+      vi.mocked(translate).mockClear()
+
+      await act(async () => {
+        mocks.ttsOptions?.onParagraphChange?.(0)
+        await Promise.resolve()
+      })
+
+      expect(translate).toHaveBeenCalledWith('Segundo paragrafo.', 'fr', 'pt-BR', expect.objectContaining({ provider: 'mymemory' }))
+    })
+
+    it('cancelar (stop) enquanto a tradução inicial está em voo evita tocar áudio de uma sessão morta (FR-011)', async () => {
+      vi.mocked(getBookSettings).mockResolvedValue({ bookId: 1, audiobookTranslationEnabled: true })
+      mocks.viewerHandle.getParagraphs.mockReturnValue(['Bonjour.'])
+      let resolveTranslate: ((value: { translatedText: string; provider: string }) => void) | null = null
+      vi.mocked(translate).mockImplementationOnce(() => new Promise((resolve) => {
+        resolveTranslate = resolve as (value: { translatedText: string; provider: string }) => void
+      }))
+
+      render(
+        <ReaderScreen book={book} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />,
+      )
+
+      await flushAsyncWork()
+      fireEvent.click(screen.getByText('toggle-tts'))
+
+      await act(async () => {
+        mocks.capacitorListeners.playbackControl?.({ action: 'stop' })
+        await Promise.resolve()
+      })
+
+      await act(async () => {
+        resolveTranslate?.({ translatedText: 'Hello.', provider: 'mymemory' })
+        await Promise.resolve()
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+
+      expect(mocks.tts.play).not.toHaveBeenCalled()
+    })
+
+    it('destaque degrada pro parágrafo inteiro (sem offsets de palavra) durante a leitura traduzida (FR-010)', async () => {
+      vi.mocked(getBookSettings).mockResolvedValue({ bookId: 1, audiobookTranslationEnabled: true })
+      mocks.viewerHandle.getParagraphs.mockReturnValue(['Bonjour le monde.'])
+      vi.mocked(translate).mockResolvedValueOnce({ translatedText: 'Hello world.', provider: 'mymemory' })
+
+      render(
+        <ReaderScreen book={book} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />,
+      )
+
+      await flushAsyncWork()
+      fireEvent.click(screen.getByText('toggle-tts'))
+      await flushAsyncWork()
+      mocks.viewerHandle.highlightTts.mockClear()
+
+      await act(async () => {
+        mocks.ttsOptions?.onWordHighlight?.(0, 3, 7)
+        await Promise.resolve()
+      })
+
+      expect(mocks.viewerHandle.highlightTts).toHaveBeenCalledWith(0, 0, 0)
+      expect(mocks.viewerHandle.highlightTts).not.toHaveBeenCalledWith(0, 3, 7)
+    })
+
+    it('não usa leitura traduzida quando audiobookTranslationEnabled está desligado (comportamento original preservado)', async () => {
+      vi.mocked(getBookSettings).mockResolvedValue({ bookId: 1 })
+      mocks.viewerHandle.getSentenceChunks.mockReturnValue([
+        { text: 'Original sentence.', paraIdx: 0, offsetInPara: 0 },
+      ])
+
+      render(
+        <ReaderScreen book={book} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />,
+      )
+
+      await flushAsyncWork()
+      fireEvent.click(screen.getByText('toggle-tts'))
+      await flushAsyncWork()
+
+      expect(translate).not.toHaveBeenCalled()
+      expect(mocks.tts.play).toHaveBeenCalledWith(
+        [{ text: 'Original sentence.', paraIdx: 0, offsetInPara: 0 }],
+        0,
+      )
+      expect(screen.getByText('translated:no')).toBeTruthy()
+    })
+
+    it('usa o provedor BYOK premium configurado para o livro como motor (US2)', async () => {
+      mocks.isNativePlatform.mockReturnValue(true)
+      vi.mocked(getBookSettings).mockResolvedValue({
+        bookId: 1,
+        audiobookTranslationEnabled: true,
+        translationProvider: 'deepl',
+      })
+      vi.mocked(getSettings).mockResolvedValue(makeSettings({
+        appSettings: {
+          speechifyApiKey: '',
+          elevenLabsApiKey: '',
+          fishAudioApiKey: '',
+          translationTargetLang: 'pt-BR',
+          deeplApiKey: 'deepl-real-key',
+        },
+      }))
+      mocks.viewerHandle.getParagraphs.mockReturnValue(['Bonjour le monde.'])
+      vi.mocked(translate).mockResolvedValueOnce({ translatedText: 'Hello world.', provider: 'deepl' })
+
+      render(
+        <ReaderScreen book={book} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />,
+      )
+
+      await flushAsyncWork()
+      fireEvent.click(screen.getByText('toggle-tts'))
+      await flushAsyncWork()
+
+      expect(translate).toHaveBeenCalledWith('Bonjour le monde.', 'fr', 'pt-BR', expect.objectContaining({ provider: 'deepl' }))
+      expect(mocks.tts.play).toHaveBeenCalledTimes(1)
+    })
+
+    it('sem provedor BYOK configurado, usa MyMemory como motor (US2)', async () => {
+      vi.mocked(getBookSettings).mockResolvedValue({ bookId: 1, audiobookTranslationEnabled: true })
+      mocks.viewerHandle.getParagraphs.mockReturnValue(['Bonjour le monde.'])
+      vi.mocked(translate).mockResolvedValueOnce({ translatedText: 'Hello world.', provider: 'mymemory' })
+
+      render(
+        <ReaderScreen book={book} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />,
+      )
+
+      await flushAsyncWork()
+      fireEvent.click(screen.getByText('toggle-tts'))
+      await flushAsyncWork()
+
+      expect(translate).toHaveBeenCalledWith('Bonjour le monde.', 'fr', 'pt-BR', expect.objectContaining({ provider: 'mymemory' }))
+    })
+
+    it('sticky fallback: depois do provedor BYOK falhar (cai pra MyMemory), o próximo parágrafo já pede MyMemory direto (FR-007)', async () => {
+      mocks.isNativePlatform.mockReturnValue(true)
+      vi.mocked(getBookSettings).mockResolvedValue({
+        bookId: 1,
+        audiobookTranslationEnabled: true,
+        translationProvider: 'deepl',
+      })
+      vi.mocked(getSettings).mockResolvedValue(makeSettings({
+        appSettings: {
+          speechifyApiKey: '',
+          elevenLabsApiKey: '',
+          fishAudioApiKey: '',
+          translationTargetLang: 'pt-BR',
+          deeplApiKey: 'deepl-real-key',
+        },
+      }))
+      mocks.viewerHandle.getParagraphs.mockReturnValue(['Primeiro paragrafo.', 'Segundo paragrafo.'])
+      // 1ª chamada (paragrafo 0): TranslationService.translate() já resolveu
+      // o fallback internamente (feature 017) — devolve provider 'mymemory'
+      // mesmo com 'deepl' pedido.
+      vi.mocked(translate).mockResolvedValueOnce({ translatedText: 'First paragraph.', provider: 'mymemory' })
+      vi.mocked(translate).mockResolvedValueOnce({ translatedText: 'Second paragraph.', provider: 'mymemory' })
+
+      render(
+        <ReaderScreen book={book} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />,
+      )
+
+      await flushAsyncWork()
+      fireEvent.click(screen.getByText('toggle-tts'))
+      await flushAsyncWork()
+
+      expect(translate).toHaveBeenNthCalledWith(1, 'Primeiro paragrafo.', 'fr', 'pt-BR', expect.objectContaining({ provider: 'deepl' }))
+
+      await act(async () => {
+        mocks.ttsOptions?.onParagraphChange?.(0)
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+
+      // Sticky: a 2ª chamada (parágrafo seguinte) já pede 'mymemory' direto,
+      // nunca tenta 'deepl' de novo na mesma sessão.
+      expect(translate).toHaveBeenNthCalledWith(2, 'Segundo paragrafo.', 'fr', 'pt-BR', expect.objectContaining({ provider: 'mymemory' }))
+    })
+
+    it('com provedor premium, sintetiza com uma voz compatível com o idioma-alvo, não a voz salva pro idioma original', async () => {
+      vi.mocked(getBookSettings).mockResolvedValue({
+        bookId: 1,
+        audiobookTranslationEnabled: true,
+        ttsProvider: 'speechify',
+        ttsSpeechifyVoiceId: 'original-voice-en',
+        ttsSpeechifyVoiceLabel: 'Voz original (EN)',
+      })
+      vi.mocked(getSettings).mockResolvedValue(makeSettings({
+        appSettings: {
+          speechifyApiKey: 'sf-key',
+          elevenLabsApiKey: '',
+          fishAudioApiKey: '',
+          translationTargetLang: 'pt-BR',
+        },
+      }))
+      mocks.listSpeechifyCompatibleVoices.mockResolvedValue([
+        { id: 'pt-voice-1', label: 'Voz PT', locale: 'pt-BR', provider: 'speechify' },
+      ])
+
+      render(
+        <ReaderScreen book={book} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />,
+      )
+
+      await flushAsyncWork()
+      await flushAsyncWork()
+
+      expect(mocks.ttsOptions?.language).toBe('pt-BR')
+      expect(mocks.ttsOptions?.voiceSelections?.speechify?.id).toBe('pt-voice-1')
+    })
+
+    it('quando a voz salva já é compatível com o idioma-alvo (escolhida manualmente), respeita a escolha em vez de trocar pela de melhor rank', async () => {
+      vi.mocked(getBookSettings).mockResolvedValue({
+        bookId: 1,
+        audiobookTranslationEnabled: true,
+        ttsProvider: 'speechify',
+        // Usuário já escolheu manualmente 'pt-voice-1' na lista (agora
+        // filtrada pro idioma-alvo, feature 018/T042) — não é a 1ª
+        // (melhor rank) da lista, só pra provar que não é coincidência.
+        ttsSpeechifyVoiceId: 'pt-voice-1',
+        ttsSpeechifyVoiceLabel: 'Voz PT escolhida pelo usuário',
+      })
+      vi.mocked(getSettings).mockResolvedValue(makeSettings({
+        appSettings: {
+          speechifyApiKey: 'sf-key',
+          elevenLabsApiKey: '',
+          fishAudioApiKey: '',
+          translationTargetLang: 'pt-BR',
+        },
+      }))
+      mocks.listSpeechifyCompatibleVoices.mockResolvedValue([
+        { id: 'pt-voice-2', label: 'Voz PT (melhor rank)', locale: 'pt-BR', provider: 'speechify' },
+        { id: 'pt-voice-1', label: 'Voz PT escolhida pelo usuário', locale: 'pt-BR', provider: 'speechify' },
+      ])
+
+      render(
+        <ReaderScreen book={book} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />,
+      )
+
+      await flushAsyncWork()
+      await flushAsyncWork()
+
+      expect(mocks.ttsOptions?.language).toBe('pt-BR')
+      expect(mocks.ttsOptions?.voiceSelections?.speechify?.id).toBe('pt-voice-1')
+    })
+
+    it('com provedor native, não sobrescreve a voz — só o idioma (resolveVoiceIndex já resolve incompatibilidade sozinho)', async () => {
+      vi.mocked(getBookSettings).mockResolvedValue({
+        bookId: 1,
+        audiobookTranslationEnabled: true,
+        ttsProvider: 'native',
+        ttsNativeVoiceKey: 'original-native-voice',
+      })
+
+      render(
+        <ReaderScreen book={book} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />,
+      )
+
+      await flushAsyncWork()
+      await flushAsyncWork()
+
+      expect(mocks.ttsOptions?.language).toBe('pt-BR')
+      expect(mocks.ttsOptions?.nativeVoiceKey).toBe('original-native-voice')
+      expect(mocks.listSpeechifyCompatibleVoices).not.toHaveBeenCalled()
+    })
+
+    it('sem voz compatível encontrada pro idioma-alvo, mantém a seleção original em vez de limpar', async () => {
+      vi.mocked(getBookSettings).mockResolvedValue({
+        bookId: 1,
+        audiobookTranslationEnabled: true,
+        ttsProvider: 'speechify',
+        ttsSpeechifyVoiceId: 'original-voice-en',
+      })
+      vi.mocked(getSettings).mockResolvedValue(makeSettings({
+        appSettings: {
+          speechifyApiKey: 'sf-key',
+          elevenLabsApiKey: '',
+          fishAudioApiKey: '',
+          translationTargetLang: 'pt-BR',
+        },
+      }))
+      mocks.listSpeechifyCompatibleVoices.mockResolvedValue([])
+
+      render(
+        <ReaderScreen book={book} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />,
+      )
+
+      await flushAsyncWork()
+      await flushAsyncWork()
+
+      expect(mocks.ttsOptions?.language).toBe('pt-BR')
+      expect(mocks.ttsOptions?.voiceSelections?.speechify?.id).toBe('original-voice-en')
+    })
   })
 })

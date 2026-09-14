@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Gauge, LocateFixed, Pause, Play, Square } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Gauge, Languages, LocateFixed, Pause, Play, Square } from 'lucide-react'
 import speechifyIcon from '../../assets/tts-providers/speechify.svg'
 import elevenLabsIcon from '../../assets/tts-providers/elevenlabs.svg'
 import fishAudioIcon from '../../assets/tts-providers/fishaudio.svg'
@@ -12,6 +12,9 @@ interface TtsMiniPlayerProps {
   activeProvider: TtsProvider
   fallbackFromProvider?: TtsProvider | null
   providerAvailability: Record<TtsProvider, boolean>
+  // Feature 018 (TTS Traduzido) — true enquanto a sessão de leitura
+  // traduzida está ativa (mostra um indicador visual no player).
+  isTranslated?: boolean
   ttsRate: number
   showBackToTtsLocation: boolean
   bottomOffsetPx?: number
@@ -40,6 +43,7 @@ export function TtsMiniPlayer({
   activeProvider,
   fallbackFromProvider,
   providerAvailability,
+  isTranslated = false,
   ttsRate,
   showBackToTtsLocation,
   bottomOffsetPx = 0,
@@ -82,6 +86,15 @@ export function TtsMiniPlayer({
                 </option>
               ))}
             </select>
+            {isTranslated && (
+              <span
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-primary/25 text-indigo-primary"
+                title={t('tts.translatedIndicator')}
+                aria-label={t('tts.translatedIndicator')}
+              >
+                <Languages size={12} />
+              </span>
+            )}
           </div>
 
           <div className="flex shrink-0 items-center gap-1 rounded-full border border-white/8 bg-bg-surface-2/55 px-1.5 py-1 text-text-secondary">

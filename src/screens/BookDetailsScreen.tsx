@@ -2,7 +2,7 @@
 import { useCallback } from 'react'
 import { ArrowLeft, Star, ChevronRight, Globe, Calendar, HardDrive, Sparkles, BookOpen, Bookmark, Highlighter, X, Check, Volume2, Mic2, Gauge, Search, Play, Loader2, Cloud, CloudOff, Palette, Info } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Badge, BottomSheet, Button, EmptyState, ListItem, Spinner } from '../components/ui'
+import { Badge, BottomSheet, Button, EmptyState, ListItem, Spinner, Switch } from '../components/ui'
 import { SettingsGroup } from '../components/settings/SettingsLayout'
 import { AuthorTab } from '../components/AuthorTab'
 import { IntegrationHelpBanner } from '../components/IntegrationHelpBanner'
@@ -64,7 +64,8 @@ import type {
 import type { AppSettings, FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from '../types/settings'
 import type { TtsProvider, TtsVoiceOption } from '../types/tts'
 import type { TranslationProvider } from '../types/translation'
-import { clampTtsRate, normalizeLanguageTag } from '../utils/language'
+import { clampTtsRate, getBaseLanguage, normalizeLanguageTag } from '../utils/language'
+import { estimateTranslatedCharCount } from '../services/TranslatedAudiobookService'
 import { BOOK_LANGUAGE_OPTIONS, getLanguageLabel, TRANSLATION_LANGUAGE_OPTIONS } from '../utils/languageOptions'
 import { resolveReadingState } from '../utils/readingState'
 import {
@@ -156,6 +157,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
   const [translationProviderSheetOpen, setTranslationProviderSheetOpen] = useState(false)
   const [ttsVoiceSheetOpen, setTtsVoiceSheetOpen] = useState(false)
   const [ttsSpeedSheetOpen, setTtsSpeedSheetOpen] = useState(false)
+  const [audiobookTranslationWarningSheetOpen, setAudiobookTranslationWarningSheetOpen] = useState(false)
   const [ttsVoicePreviewingId, setTtsVoicePreviewingId] = useState<string | null>(null)
   const [ttsVoicePreviewError, setTtsVoicePreviewError] = useState<string | null>(null)
   const ttsVoicePreviewAudioRef = useRef<HTMLAudioElement | null>(null)
@@ -337,13 +339,27 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
   const selectedTranslationProviderLabel = translationProviders.find((option) => option.value === selectedTranslationProvider)?.label ?? selectedTranslationProvider
   const effectiveTranslationProviderLabel = translationProviders.find((option) => option.value === effectiveTranslationProvider)?.label ?? effectiveTranslationProvider
   const translationProviderInFallback = effectiveTranslationProvider !== selectedTranslationProvider
+  // Feature 018 (TTS Traduzido) — FR-015: sem idioma do livro definido, ou
+  // com idioma-alvo igual ao idioma do livro, não há o que traduzir no
+  // audiobook. getBaseLanguage compara só a parte principal do idioma
+  // (ex.: 'pt' de 'pt-BR') pra não bloquear por causa de região/dialeto.
+  const effectiveTranslationTargetLang = bookSettingsRow?.translationTargetLang ?? appSettings.translationTargetLang
+  const bookLanguageUndefined = !bookSettingsRow?.bookLanguage && !detectedBookLanguage
+  const audiobookTranslationSameLanguage = getBaseLanguage(effectiveTranslationTargetLang) === getBaseLanguage(effectiveBookLanguage)
+  const audiobookTranslationDisabled = bookLanguageUndefined || audiobookTranslationSameLanguage
+  const audiobookTranslationActive = Boolean(bookSettingsRow?.audiobookTranslationEnabled) && !audiobookTranslationDisabled
+  // Com "ouvir traduzido" ativo, a voz relevante pra tocar é a do idioma
+  // ALVO, não a do livro — a lista de vozes (abaixo) e o rótulo exibido
+  // devem refletir isso, senão o usuário escolhe uma voz que nunca soa
+  // (ReaderScreen.tsx sobrescreve pra uma compatível em tempo de síntese).
+  const effectiveVoiceLanguage = audiobookTranslationActive ? effectiveTranslationTargetLang : effectiveBookLanguage
   const selectedVoice = getBookTtsVoiceSelection(bookSettingsRow, effectiveTtsProvider)
   const selectedVoiceLabel = !providerConfigured
     ? t('bookDetails.tts.providerUnavailable', { provider: selectedProviderLabel })
     : (selectedVoice?.label ?? (effectiveTtsProvider === 'native' ? t('bookDetails.setting.defaultVoiceDevice') : t('bookDetails.tts.providerDefaultVoice')))
   const selectedVoiceAvatarUrl = providerConfigured ? (selectedVoice?.avatarUrl ?? null) : null
   const selectedVoiceMeta = providerConfigured
-    ? `${selectedVoiceLabel} - ${getLanguageLabel(effectiveBookLanguage) ?? effectiveBookLanguage}`
+    ? `${selectedVoiceLabel} - ${getLanguageLabel(effectiveVoiceLanguage) ?? effectiveVoiceLanguage}`
     : t('bookDetails.configureApiKey')
   const publishedYear = formatPublishedYear(bookInfo?.publishedDate?.value)
   const headerRating = bookInfo?.rating
@@ -357,6 +373,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
   const aboutDescription = extras?.description ?? bookInfo?.synopsis?.value ?? null
   const youtubeReviews = bookInfo?.reviews?.value.filter((review) => review.provider === 'youtube') ?? []
   const {
+    options: ttsVoiceOptions,
     visibleOptions: visibleTtsVoiceOptions,
     hiddenCount: hiddenTtsVoiceCount,
     loading: ttsVoiceLoading,
@@ -367,8 +384,22 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
     loadOptions: loadVoiceOptions,
   } = useBookDetailsTtsVoices({
     appSettings,
-    effectiveBookLanguage,
+    voiceLanguage: effectiveVoiceLanguage,
   })
+  // Voz "selecionada" a exibir na lista (feature 018): quando a leitura
+  // traduzida está ativa num provider premium e a voz salva não é
+  // compatível com o idioma-alvo (ou nunca foi escolhida), ReaderScreen.tsx
+  // já substitui pela voz de melhor rank em tempo de síntese — refletir
+  // isso aqui evita mostrar "Padrão"/uma voz que na prática não vai tocar.
+  // Nativo fica de fora: seu fallback (resolveVoiceIndex) deixa o SISTEMA
+  // escolher, não necessariamente a 1ª da lista (só ordenada por nome).
+  const savedTtsVoiceId = getBookTtsVoiceSelection(bookSettingsRow, selectedTtsProvider)?.id ?? null
+  const savedTtsVoiceCompatible = savedTtsVoiceId
+    ? ttsVoiceOptions.some((option) => option.id === savedTtsVoiceId)
+    : false
+  const displaySelectedTtsVoiceId = audiobookTranslationActive && selectedTtsProvider !== 'native' && !savedTtsVoiceCompatible
+    ? ttsVoiceOptions[0]?.id ?? null
+    : savedTtsVoiceId
 
   function applyBookSettingsPatch(patch: Partial<Omit<BookSettings, 'id' | 'bookId'>>) {
     setOptimisticBookSettings((previous) => ({
@@ -384,6 +415,26 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
       .then(() => updateBookSettings(book.id!, patch))
     pendingBookSettingsSaveRef.current = save
     void save
+  }
+
+  // Feature 018 (TTS Traduzido) — FR-013: primeira ativação por livro mostra
+  // o aviso de consumo antes de persistir; ativações seguintes (já
+  // confirmadas uma vez) vão direto.
+  function handleAudiobookTranslationToggle(nextEnabled: boolean) {
+    if (!nextEnabled) {
+      applyBookSettingsPatch({ audiobookTranslationEnabled: false })
+      return
+    }
+    if (bookSettingsRow?.audiobookTranslationWarningDismissed) {
+      applyBookSettingsPatch({ audiobookTranslationEnabled: true })
+      return
+    }
+    setAudiobookTranslationWarningSheetOpen(true)
+  }
+
+  function confirmAudiobookTranslationWarning() {
+    applyBookSettingsPatch({ audiobookTranslationEnabled: true, audiobookTranslationWarningDismissed: true })
+    setAudiobookTranslationWarningSheetOpen(false)
   }
 
   function openReader(startHref?: string) {
@@ -1146,7 +1197,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
                       )}
                       trailing={<ChevronRight size={18} />}
                       onClick={() => setTranslationTargetLangSheetOpen(true)}
-                      divider={false}
+                      divider
                     />
                   </div>
                 </div>
@@ -1155,6 +1206,27 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
 
                   {settingsCategory === 'narration' && (
               <div className="rounded-md p-4 bg-bg-surface border border-border flex flex-col gap-4">
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-3">
+                    {t('bookDetails.setting.audiobookTranslationSectionTitle')}
+                  </p>
+                  <div className="-mx-4 rounded-md border border-border overflow-hidden">
+                    <ListItem
+                      leading={<Volume2 size={18} />}
+                      title={t('bookDetails.setting.audiobookTranslation')}
+                      meta={audiobookTranslationDisabled ? t('bookDetails.audiobookTranslation.disabledReason') : t('bookDetails.audiobookTranslation.description')}
+                      trailing={(
+                        <Switch
+                          checked={audiobookTranslationActive}
+                          disabled={audiobookTranslationDisabled}
+                          onChange={handleAudiobookTranslationToggle}
+                          aria-label={t('bookDetails.setting.audiobookTranslation')}
+                        />
+                      )}
+                      divider={false}
+                    />
+                  </div>
+                </div>
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-3">
                     {t('bookDetails.setting.ttsSectionTitle')}
@@ -1323,6 +1395,23 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
       </BottomSheet>
 
       <BottomSheet
+        open={audiobookTranslationWarningSheetOpen}
+        onClose={() => setAudiobookTranslationWarningSheetOpen(false)}
+        title={t('bookDetails.audiobookTranslation.warning.title')}
+      >
+        <div className="flex flex-col gap-4 px-4 pb-2">
+          <p className="text-sm text-text-secondary">
+            {t('bookDetails.audiobookTranslation.warning.description', {
+              chars: estimateTranslatedCharCount(liveBook.fileSize ?? 0).toLocaleString(locale),
+            })}
+          </p>
+          <Button variant="primary" fullWidth onClick={confirmAudiobookTranslationWarning}>
+            {t('bookDetails.audiobookTranslation.warning.confirm')}
+          </Button>
+        </div>
+      </BottomSheet>
+
+      <BottomSheet
         open={translationTargetLangSheetOpen}
         onClose={() => setTranslationTargetLangSheetOpen(false)}
         title={t('bookDetails.setting.translationLanguage')}
@@ -1411,7 +1500,9 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
       <BottomSheet
         open={ttsVoiceSheetOpen}
         onClose={closeTtsVoiceSheet}
-        title={t('bookDetails.setting.bookVoice')}
+        title={audiobookTranslationActive
+          ? `${t('bookDetails.setting.bookVoice')} · ${getLanguageLabel(effectiveVoiceLanguage) ?? effectiveVoiceLanguage}`
+          : t('bookDetails.setting.bookVoice')}
       >
         <>
           <IntegrationHelpBanner
@@ -1467,7 +1558,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
                 title={t('bookDetails.setting.defaultVoice')}
                 meta={selectedTtsProvider === 'native' ? t('bookDetails.setting.defaultVoiceDevice') : t('bookDetails.setting.defaultVoiceProvider')}
                 trailing={
-                  !getBookTtsVoiceSelection(bookSettingsRow, selectedTtsProvider)?.id
+                  !displaySelectedTtsVoiceId
                     ? <Check size={18} className="text-purple-light" />
                     : undefined
                 }
@@ -1475,7 +1566,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
                 divider={visibleTtsVoiceOptions.length > 0}
               />
               {visibleTtsVoiceOptions.map((voice, index) => {
-                const active = getBookTtsVoiceSelection(bookSettingsRow, selectedTtsProvider)?.id === voice.id
+                const active = displaySelectedTtsVoiceId === voice.id
                 const previewing = ttsVoicePreviewingId === voice.id
                 return (
                   <ListItem
