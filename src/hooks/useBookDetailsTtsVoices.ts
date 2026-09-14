@@ -12,12 +12,16 @@ const INITIAL_TTS_VOICE_COUNT = 12
 
 interface UseBookDetailsTtsVoicesOptions {
   appSettings: AppSettings
-  effectiveBookLanguage: string
+  // Idioma usado pra filtrar/ranquear vozes compatíveis — não é sempre o
+  // idioma do livro: com "ouvir traduzido" (feature 018) ativo, o chamador
+  // passa o idioma-ALVO aqui, pra listar vozes que soem certo na leitura
+  // traduzida em vez de vozes do idioma original.
+  voiceLanguage: string
 }
 
 export function useBookDetailsTtsVoices({
   appSettings,
-  effectiveBookLanguage,
+  voiceLanguage,
 }: UseBookDetailsTtsVoicesOptions) {
   const { t } = useI18n()
   const [options, setOptions] = useState<TtsVoiceOption[]>([])
@@ -36,14 +40,14 @@ export function useBookDetailsTtsVoices({
         return
       }
 
-      setOptions(await listTtsProviderCompatibleVoices(provider, effectiveBookLanguage, appSettings))
+      setOptions(await listTtsProviderCompatibleVoices(provider, voiceLanguage, appSettings))
     } catch {
       setOptions([])
       setError(t('bookDetails.tts.compatibleVoicesError'))
     } finally {
       setLoading(false)
     }
-  }, [appSettings, effectiveBookLanguage, t])
+  }, [appSettings, voiceLanguage, t])
 
   const filteredOptions = useMemo(() => {
     const normalizedSearch = search.trim().toLocaleLowerCase()

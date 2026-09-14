@@ -439,6 +439,143 @@ release.
   plano (foco de áudio nativo, wake lock, notificação) — a superfície mais
   sensível a diferenças entre browser e device real nesta feature.
 
+### Ajustes pós-teste em device real (2026-09-12)
+
+Usuário conectou um device e testou manualmente; 3 pontos levantados,
+entrevistados antes de implementar (ver histórico da conversa) — todos
+dentro do escopo desta feature, tratados como tasks ad-hoc (sdd-execute
+passo 6, "dentro do escopo mas não previsto em nenhuma task"):
+
+- [X] T039 (ad-hoc) Mover o toggle "Ouvir traduzido" da aba Idioma pra uma
+  nova subseção "Leitura traduzida" no topo da aba Narração
+  (`BookDetailsScreen.tsx`), acima da seção de provedor/voz/velocidade —
+  decisão do usuário: onde a pessoa já decide TTS, faz mais sentido decidir
+  "traduzido ou não" antes de escolher provedor/voz pra isso. Nova string
+  i18n `bookDetails.setting.audiobookTranslationSectionTitle` (3 locales).
+  5 testes de `BookDetailsScreen.test.tsx` atualizados pra navegar até
+  "Narracao" em vez de "Idioma".
+- [X] T040 (ad-hoc) Confirmado (não um bug — usuário não tinha testado esse
+  caso ainda): o guard de FR-015 (`audiobookTranslationDisabled` em
+  `BookDetailsScreen.tsx`, via `getBaseLanguage`) já bloqueia corretamente
+  quando idioma-alvo == idioma do livro, inclusive variantes regionais
+  (`pt` vs `pt-BR`) — sem mudança de código, só reconfirmado pelos 2 testes
+  já existentes (T035).
+- [X] T041 (ad-hoc) **Bug real corrigido**: com "ouvir traduzido" ativo, a
+  síntese continuava usando `ttsConfig.language` e a voz salva (`voiceId`)
+  do idioma ORIGINAL do livro — um provedor premium (Speechify/ElevenLabs/
+  FishAudio) falaria o texto traduzido com a voz/idioma errado (`synthesize()`
+  desses provedores usa o `voiceId` cegamente, sem checar compatibilidade).
+  TTS nativo já não tinha esse problema (`NativeTtsService.resolveVoiceIndex`
+  já ignora uma voz incompatível e deixa o sistema decidir), mas ainda
+  precisava do idioma certo. Corrigido em `ReaderScreen.tsx`: novo estado
+  `translatedVoiceOverride` + efeito que busca a voz com melhor rank pro
+  idioma-alvo via `listTtsProviderCompatibleVoices` (reaproveita o
+  ranking/compatibilidade que os providers de TTS já tinham, feature `001`)
+  quando "ouvir traduzido" está ativo e o provider não é nativo;
+  `effectiveTtsPlaybackConfig` (memo) aplica `language` = idioma-alvo +
+  a voz override (guardada com o provider/idioma em que foi buscada, pra
+  nunca aplicar uma voz stale de um provider/idioma diferente) antes de
+  passar pra `useTTS()`. Nenhuma mudança em `useTTS.ts`. Override é
+  efêmero (nunca persistido em `BookSettings`) — só vale enquanto a leitura
+  traduzida está ativa nesta sessão.
+  - **Achado durante a implementação**: 2 erros novos de lint do React 19
+    (`react-hooks/refs` já visto antes; `react-hooks/set-state-in-effect`
+    — `setState` síncrono no early-return do efeito) — corrigidos inline
+    reestruturando pra nunca chamar `setState` fora de um callback
+    assíncrono, e validando a relevância do override (provider+idioma) no
+    consumo em vez de resetar o state no efeito.
+  - 3 testes novos em `ReaderScreen.test.tsx` (provider premium usa voz
+    compatível; provider native não sobrescreve voz, só idioma; sem voz
+    compatível encontrada mantém a seleção original). `SpeechifyService`
+    mock estendido com `listCompatibleVoices`.
+- Testes executados após os 3 ajustes: `npm run lint` (limpo),
+  `npx tsc -p tsconfig.app.json --noEmit` (limpo), `npm test` (1059
+  passando, 2 skipped pré-existentes, 0 regressão), `npm run build`
+  (limpo). Build reinstalado no device
+  (`npm run build && npx cap sync android && gradlew assembleDebug && adb
+  install -r`) para o usuário revalidar os 3 pontos.
+
+### Polimento adicional pós-teste em device (2026-09-12, rodada 2)
+
+Usuário confirmou que os 3 ajustes da rodada 1 funcionam bem, mas pediu mais
+1 polimento (entrevistado antes de implementar):
+
+- [X] T042 (ad-hoc) A lista de vozes em "Voz do livro" (aba Narração,
+  `BookDetailsScreen.tsx`) agora é filtrada pelo idioma-ALVO quando "ouvir
+  traduzido" está ativo (antes só filtrava pelo idioma do livro,
+  independente do toggle) — o usuário passa a poder escolher manualmente
+  a voz certa em vez de depender só do auto-pick silencioso (R-007) rodando
+  nos bastidores. Decisões da entrevista: (1) reusa o MESMO campo de voz do
+  livro (sem campo novo em `BookSettings`) — a rede de segurança do R-007
+  cobre o caso de a voz salva ficar "desatualizada" pro outro modo; (2) a
+  lista pré-seleciona a voz de melhor rank quando a salva não é compatível,
+  em vez de cair pra "Usar voz padrão"; (3) reusa a mesma tela "Voz do
+  livro" já existente (Narração → Voz e velocidade), só mudando qual
+  idioma filtra a lista — sem tela nova.
+  - `useBookDetailsTtsVoices.ts`: parâmetro renomeado de
+    `effectiveBookLanguage` pra `voiceLanguage` (mais preciso — nem sempre
+    é o idioma do livro).
+  - `BookDetailsScreen.tsx`: novo `effectiveVoiceLanguage` (idioma-alvo se
+    "ouvir traduzido" ativo E não bloqueado por FR-015, senão idioma do
+    livro) alimenta a busca de vozes; título da sheet ganha o idioma
+    (“Voz do livro · Inglês”) quando em modo traduzido; `displaySelectedTtsVoiceId`
+    decide qual voz aparece marcada — a salva, se compatível com o idioma
+    efetivo, senão a de melhor rank (só pra providers premium; nativo
+    mantém "Usar voz padrão" porque seu próprio fallback deixa o SISTEMA
+    decidir, não necessariamente a 1ª da lista).
+  - 3 testes novos em `BookDetailsScreen.test.tsx`: busca no idioma-alvo
+    quando ativo; continua buscando no idioma do livro quando inativo
+    (regressão); voz salva incompatível marca a melhor da lista em vez de
+    "Padrão".
+- Testes executados: `npm run lint` (limpo), `npx tsc --noEmit` (limpo),
+  `npm test` (1062 passando, 0 regressão), `npm run build` (limpo). Build
+  reinstalado no device pro usuário revalidar.
+
+### Bug real encontrado no re-teste de T042 (2026-09-12, rodada 3)
+
+- [X] T043 (bugfix) Usuário escolheu manualmente uma voz masculina + idioma
+  pt-BR na lista já corrigida por T042, mas o audiobook tocou com a voz
+  padrão mesmo assim. **Causa raiz**: o efeito de auto-pick do R-007
+  (rodada 1) sobrescrevia `voiceSelections[provider]` incondicionalmente
+  sempre que "ouvir traduzido" estava ativo num provider premium — nunca
+  checava se a voz JÁ CONFIGURADA (agora possivelmente escolhida à mão via
+  T042) já era compatível com o idioma-alvo. T042 consertou a LISTA/tela;
+  T043 conserta a APLICAÇÃO em tempo de síntese, que ainda ignorava a
+  escolha do usuário. Corrigido em `ReaderScreen.tsx`: o efeito agora
+  primeiro verifica se `getPlaybackTtsVoiceId(ttsConfig, provider)` está
+  entre as vozes compatíveis retornadas por `listTtsProviderCompatibleVoices`
+  — se estiver, `translatedVoiceOverride` fica `null` (não sobrescreve,
+  repassa a escolha do usuário intacta); só cai pro auto-pick (melhor rank)
+  quando a voz configurada não é compatível ou não foi escolhida nenhuma.
+  1 teste novo em `ReaderScreen.test.tsx` prova que uma voz salva
+  compatível (mas que NÃO é a de melhor rank) é respeitada, não trocada.
+- Testes executados: `npm run lint` (limpo),
+  `npx tsc -p tsconfig.app.json --noEmit` (limpo), `npm test` (1063
+  passando, 0 regressão), `npm run build` (limpo). Build reinstalado no
+  device pro usuário revalidar.
+
+### Polimento adicional (2026-09-12, rodada 4)
+
+Usuário confirmou que T043 resolveu o problema da voz. Pediu mais 1
+polimento, de escopo pequeno e sem ambiguidade — implementado direto, sem
+nova entrevista:
+
+- [X] T044 (ad-hoc) Indicador visual no mini player (`TtsMiniPlayer.tsx`)
+  quando a leitura traduzida está ativa — um badge circular com o ícone
+  `Languages` (lucide-react, mesmo ícone já usado em
+  `SettingsTranslationScreen.tsx` pra contexto de tradução) ao lado do
+  seletor de provider, com `title`/`aria-label` "Lendo traduzido"
+  (3 locales). Nova prop `isTranslated?: boolean` em `TtsMiniPlayerProps`,
+  passada de `ReaderScreen.tsx` como `translatedAudiobook.isActive()`.
+  2 testes novos em `TtsMiniPlayer.test.tsx` (mostra/não mostra o badge);
+  2 asserts novos em `ReaderScreen.test.tsx` confirmando
+  `translated:yes`/`translated:no` no mock do mini player conforme o
+  estado da sessão.
+- Testes executados: `npm run lint` (limpo),
+  `npx tsc -p tsconfig.app.json --noEmit` (limpo), `npm test` (1065
+  passando, 0 regressão), `npm run build` (limpo). Build reinstalado no
+  device pro usuário revalidar.
+
 ---
 
 ## Dependencies & Execution Order
@@ -487,3 +624,35 @@ release.
 - Parar em qualquer checkpoint pra validar a story isoladamente
 
 <!-- sdd-converge anexa "## Phase N: Convergence" abaixo desta linha -->
+
+## Phase 7: Convergence
+
+**Purpose**: Reconciliar `spec.md` com o comportamento real, validado em
+device Android ao longo de 4 rodadas de teste do usuário (T039-T044). O
+código já está correto e testado — o trabalho aqui é só de documentação.
+
+- [X] T045 (CF-01) Atualizar FR-001 e a Clarification correspondente em
+  `spec.md` pra refletir a posição real do toggle "Ouvir traduzido" (aba
+  Narração de `BookDetailsScreen`, não aba Idioma como o rascunho original
+  prescrevia) — decisão tomada em teste real no device (T039).
+- [X] T046 (CF-02) Adicionar FR-016 em `spec.md` cobrindo a exigência de voz
+  compatível com o idioma-alvo durante a leitura traduzida (auto-seleção
+  quando a voz configurada não é compatível, respeito à escolha manual
+  quando já é, lista de vozes filtrada pelo idioma efetivo) — achado como
+  bug real em device (R-007/T041-T043 em plan.md), nunca coberto por
+  nenhum FR original. Nova SC-007 também adicionada.
+- [X] T047 (CF-03) Adicionar FR-017 em `spec.md` cobrindo o indicador visual
+  de leitura traduzida no mini player — pedido do usuário após validar a
+  feature em device (T044), nunca coberto por nenhum FR original.
+
+**Registro da Fase**:
+
+- Status: Concluída.
+- Feito: `spec.md` — FR-001 anotado com a posição real; FR-016 e FR-017
+  novos; SC-007 novo; Clarifications atualizadas (resposta de FR-001
+  corrigida + nova sessão "2026-09-12 (sdd-converge)" documentando as 3
+  divergências); `**Status**` → `Convergida`.
+- Testes executados: nenhum — mudança só de documentação, código já
+  validado nas rodadas anteriores (1065 testes, `npm run build`/`lint`
+  limpos, confirmado em device Android real pelo usuário).
+- Pendências: nenhuma.

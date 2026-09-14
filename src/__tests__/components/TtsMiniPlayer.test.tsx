@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { TtsMiniPlayer } from '@/components/reader/TtsMiniPlayer'
 
-function renderMiniPlayer(bottomOffsetPx = 0) {
+function renderMiniPlayer(bottomOffsetPx = 0, isTranslated = false) {
   return render(
     <TtsMiniPlayer
       isPlaying={false}
@@ -13,6 +13,7 @@ function renderMiniPlayer(bottomOffsetPx = 0) {
         elevenlabs: false,
         fishaudio: false,
       }}
+      isTranslated={isTranslated}
       ttsRate={1}
       showBackToTtsLocation={false}
       bottomOffsetPx={bottomOffsetPx}
@@ -40,5 +41,17 @@ describe('TtsMiniPlayer', () => {
     renderMiniPlayer()
 
     expect(screen.getByTestId('tts-mini-player').style.bottom).toBe('0px')
+  })
+
+  it('mostra o indicador de leitura traduzida quando isTranslated=true (feature 018)', () => {
+    renderMiniPlayer(0, true)
+
+    expect(screen.getByLabelText('Lendo traduzido')).toBeTruthy()
+  })
+
+  it('não mostra o indicador de leitura traduzida por padrão', () => {
+    renderMiniPlayer()
+
+    expect(screen.queryByLabelText('Lendo traduzido')).toBeNull()
   })
 })

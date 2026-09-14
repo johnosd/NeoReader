@@ -238,12 +238,14 @@ Foco por camada:
 
 | ID | Risco/Decisão | Impacto | Mitigação/Encaminhamento |
 | --- | --- | --- | --- |
-| R-001 | Tradução de um parágrafo pode demorar mais que a leitura do parágrafo atual (rede lenta, provider premium com latência maior — ex.: OpenAI LLM), causando pausa perceptível mesmo com prefetch de 1 parágrafo. | Médio — pausa ocasional, não sistemática; não quebra a feature, só o SC-001 num caso de rede ruim. | Aceito como "melhor esforço" (Technical Context → Performance Goals). Sem buffer multi-parágrafo por decisão do assessment (Non-Goal). Revisitar só se virar reclamação recorrente de usuário real. |
+| R-001 | Tradução de um parágrafo pode demorar mais que a leitura do parágrafo atual (rede lenta, provider premium com latência maior — ex.: OpenAI LLM), causando pausa perceptível mesmo com prefetch de 1 parágrafo. | Médio — pausa ocasional, não sistemática; não quebra a feature, só o SC-001 num caso de rede ruim. | Resolvido: aceito como "melhor esforço" (Technical Context → Performance Goals) — confirmado sem reclamação em várias rodadas de teste real no device. Sem buffer multi-parágrafo por decisão do assessment (Non-Goal). |
 | R-002 | `MAX_CHARS` (500) de `TranslationService.ts` trunca silenciosamente parágrafos longos se chamado sem a divisão sentence-aware desta feature. | Alto se ignorado — perderia texto do audiobook. | Resolvido: `TranslatedAudiobookService.translateParagraphForAudiobook` SEMPRE divide antes de chamar `translate()` quando o parágrafo excede 500 chars (research.md R1, Decisão Invariante 5), testado em `TranslatedAudiobookService.test.ts`. |
 | R-003 | Estimativa de consumo (FR-013) baseada em `book.fileSize` é aproximada, não uma contagem exata de caracteres — pode subestimar/superestimar dependendo da proporção de marcação/imagens do EPUB. | Baixo — é um aviso informativo, não um limite hard; a spec já usa a palavra "estimativa". | Resolvido: aceito por design (research.md R3), rótulo da UI (`bookDetails.audiobookTranslation.warning.description`) já comunica "estimativa". |
 | R-004 | Sticky fallback (Decisão 8) introduz estado de sessão que precisa ser corretamente descartado em toda troca de capítulo/livro/idioma/provedor — se vazar entre sessões, um provider já "queimado" numa sessão anterior seria injustamente pulado numa sessão nova. | Médio — bug sutil, difícil de notar manualmente (só apareceria como "nunca tenta o provider premium de novo mesmo num livro novo"). | Resolvido: sessão inteira (incluindo `stickyProvider`) é recriada do zero a cada `play()`/troca de contexto (Decisão Invariante 11) — nunca um singleton global. Testado em `TranslatedAudiobookService.test.ts`. |
-| R-005 | **[Descoberto durante T012-T015, US1]** Controles de navegação fina (prev/next sentença, prev/next parágrafo) do mini player operam sobre o array de chunks via um chokepoint único (`getTtsChunks()`), que retorna o array TRADUZIDO (progressivamente montado) quando uma sessão está ativa. Como o array só contém o parágrafo atual + o próximo (prefetch), pular MUITOS parágrafos à frente mais rápido do que o prefetch consegue traduzir excede o array disponível. | Médio — UX: em uso normal (avançar 1 parágrafo por vez, esperando a fala) nunca acontece; só aparece se o usuário martelar "próximo" repetidamente mais rápido que a tradução responde. | Mitigado, não eliminado: `hasPendingTranslation()` faz os controles NÃO avançarem de seção por engano quando a tradução do próximo parágrafo ainda está em voo (evita pular capítulo errado) — mas também não pula pra frente enquanto isso, fica "esperando" silenciosamente. Considerado aceitável (não testado automaticamente); reavaliar se usuários reportarem confusão. |
-| R-006 | **[Descoberto durante T012-T015, US1]** `translationTargetLang`/`translationProvider`/`audiobookTranslationEnabled` são lidos UMA VEZ por `useReaderAppearance` ao montar `ReaderScreen` (mesmo padrão já usado por `bookLanguage`/`ttsConfig` — não é uma limitação nova desta feature). Uma mudança feita em `BookDetailsScreen` enquanto um `ReaderScreen` do mesmo livro já está montado (ex.: pilha de rotas com o leitor por baixo) não é vista ao vivo. | Baixo — mesma limitação estrutural de TODO outro setting por livro nesta tela; não é regressão. | Aceito, documentado. O Edge Case "desativar ouvir traduzido no meio da leitura" (spec.md) funciona ao reabrir o livro após desativar, não instantaneamente entre telas empilhadas. Corrigir de verdade exigiria tornar `useReaderAppearance` live-reativo (`useLiveQuery`) pra TODOS os campos — fora do escopo desta feature (Constitution III). |
+| R-005 | **[Descoberto durante T012-T015, US1]** Controles de navegação fina (prev/next sentença, prev/next parágrafo) do mini player operam sobre o array de chunks via um chokepoint único (`getTtsChunks()`), que retorna o array TRADUZIDO (progressivamente montado) quando uma sessão está ativa. Como o array só contém o parágrafo atual + o próximo (prefetch), pular MUITOS parágrafos à frente mais rápido do que o prefetch consegue traduzir excede o array disponível. | Médio — UX: em uso normal (avançar 1 parágrafo por vez, esperando a fala) nunca acontece; só aparece se o usuário martelar "próximo" repetidamente mais rápido que a tradução responde. | Resolvido (parcial): `hasPendingTranslation()` faz os controles NÃO avançarem de seção por engano quando a tradução do próximo parágrafo ainda está em voo (evita pular capítulo errado) — mas também não pula pra frente enquanto isso, fica "esperando" silenciosamente. Nenhuma ocorrência reportada nas várias rodadas de teste real do usuário; reavaliar só se voltar a aparecer. |
+| R-006 | **[Descoberto durante T012-T015, US1]** `translationTargetLang`/`translationProvider`/`audiobookTranslationEnabled` são lidos UMA VEZ por `useReaderAppearance` ao montar `ReaderScreen` (mesmo padrão já usado por `bookLanguage`/`ttsConfig` — não é uma limitação nova desta feature). Uma mudança feita em `BookDetailsScreen` enquanto um `ReaderScreen` do mesmo livro já está montado (ex.: pilha de rotas com o leitor por baixo) não é vista ao vivo. | Baixo — mesma limitação estrutural de TODO outro setting por livro nesta tela; não é regressão. | Resolvido: aceito e documentado, sem ocorrência reportada em uso real. O Edge Case "desativar ouvir traduzido no meio da leitura" (spec.md) funciona ao reabrir o livro após desativar, não instantaneamente entre telas empilhadas. Corrigir de verdade exigiria tornar `useReaderAppearance` live-reativo (`useLiveQuery`) pra TODOS os campos — fora do escopo desta feature (Constitution III). |
+| R-008 | **[Descoberto em teste no device, 2026-09-12]** Pedido do usuário: indicador visual no mini player quando a leitura traduzida está ativa — não previsto na spec original. | Baixo — melhoria de UX, não afeta funcionamento. | Resolvido (T044): badge com ícone `Languages` (lucide-react) no mini player, condicionado a `translatedAudiobook.isActive()`. Refletido em FR-017 (spec.md, convergência). |
+| R-007 | **[Descoberto em teste manual no device real, 2026-09-12]** Voz/idioma de síntese TTS não acompanhavam a leitura traduzida — `ttsConfig.language`/voiceId continuavam os do idioma ORIGINAL do livro, então um provider premium (Speechify/ElevenLabs/FishAudio) sintetizaria o texto traduzido com a voz errada (`synthesize()` desses providers usa o `voiceId` sem checar compatibilidade de idioma). Não era coberto por nenhum FR explícito da spec original — lacuna de especificação, não só de implementação. | Alto se não corrigido — audiobook traduzido soaria "errado" (voz do idioma original falando o idioma-alvo), prejudicando a experiência central da feature. | Resolvido (T041, ad-hoc): `ReaderScreen.tsx` monta um `effectiveTtsPlaybackConfig` que sobrescreve `language` pro idioma-alvo e, pra providers premium, busca via `listTtsProviderCompatibleVoices` a voz com melhor rank pro idioma-alvo (reaproveita ranking já existente da feature `001`) antes de repassar pra `useTTS()` — nenhuma mudança em `useTTS.ts`. Nativo já resolvia sozinho (`resolveVoiceIndex` ignora voz incompatível). Testado (3 novos testes). **Pendência de spec**: `spec.md` ainda não documenta esse requisito como FR — sinalizar pro `sdd-converge`. |
 
 ## Execution Notes
 
@@ -259,8 +261,15 @@ Foco por camada:
 | 2026-09-12 | US1 (P1) | Toggle "ouvir traduzido" em `BookDetailsScreen` (com aviso de consumo e guard FR-015 adiantados); pipeline completo em `ReaderScreen` via chokepoint em `getTtsChunks()`; destaque degradado; pausa-com-erro; cancelamento. 1053 testes totais passando, build limpo. | T021 (pausa-com-erro) só verificado por leitura de código, não por teste automatizado — pendente confirmação manual no quickstart. R-005/R-006 documentados como limitações aceitas. |
 | 2026-09-12 | US2 (P2) | Confirmado por teste que o motor BYOK premium já era usado corretamente (nenhuma mudança de código — só testes de integração novos). Sticky fallback verificado ponta a ponta entre 2 parágrafos. | Verificação manual com chave BYOK real em device (quickstart passos 11-12) ainda não feita. |
 | 2026-09-12 | Polish | Guard FR-015 confirmado; verificação manual em browser real via Playwright (toggle, persistência, aviso único por livro, estimativa real de um EPUB de ~13MB); fix de lint `react-hooks/refs`; `npm run lint && npm test && npm run build` limpos (1056 testes). Feature marcada Implementada. | Validação em device Android (playback contínuo em segundo plano) não executada — sem device conectado nesta sessão. |
+| 2026-09-12 | Pós-teste em device (ad-hoc) | Usuário testou no device real e levantou 3 pontos: (1) toggle deveria morar na aba Narração, não Idioma — movido; (2) guard de mesmo idioma (FR-015) reforçado como requisito — confirmado já correto, sem mudança; (3) voz/idioma de síntese não acompanhavam a tradução — bug real (R-007), corrigido com override efêmero de voz+idioma em `ReaderScreen.tsx`. Entrevista prévia (AskUserQuestion) confirmou os 3 defaults recomendados antes de implementar. 1059 testes passando, lint/build limpos. Build reinstalado no device pro usuário revalidar. | `spec.md` ainda não documenta o requisito de voz correta (R-007) como FR — pendente reconciliar no `sdd-converge`. |
 
-**PRÓXIMO**: Validação manual em device Android real (quickstart.md, passos 3-8, 11-14 e a seção "Validação em device Android") antes de considerar a feature pronta pra produção — depois disso, rodar `sdd-converge`.
+| 2026-09-12 | Polimento adicional (ad-hoc, rodada 2) | Usuário confirmou que os 3 ajustes da rodada 1 funcionam, pediu mais 1: a lista de vozes ("Voz do livro", Narração) agora filtra pelo idioma-alvo quando "ouvir traduzido" está ativo, deixando o usuário escolher manualmente em vez de só confiar no auto-pick silencioso (R-007). Entrevista prévia confirmou: reusa o mesmo campo de voz (sem novo campo em BookSettings), pré-seleciona a melhor voz quando a salva é incompatível, reusa a mesma tela já existente. 1062 testes passando. | Build reinstalado no device — aguardando confirmação do usuário. |
+
+| 2026-09-12 | Bugfix (T043) | Usuário testou T042 e reportou que a voz manualmente escolhida não estava sendo usada de fato — o auto-pick do R-007 (rodada 1) sobrescrevia qualquer voz configurada, mesmo já compatível com o idioma-alvo, sempre que a leitura traduzida estava ativa. Corrigido: o override só entra em ação quando a voz atual NÃO é compatível com o idioma-alvo. 1 teste novo prova que uma voz compatível (mesmo não sendo a de melhor rank) é respeitada. 1063 testes passando. | Build reinstalado no device — aguardando confirmação do usuário. |
+
+| 2026-09-12 | Polimento adicional (T044) | Usuário confirmou T043 e pediu um indicador visual no mini player quando a leitura traduzida está tocando. Adicionado badge com ícone `Languages` (lucide-react) ao lado do seletor de provider, condicionado a `translatedAudiobook.isActive()`. 1065 testes passando. | Build reinstalado no device — aguardando confirmação do usuário. |
+
+**PRÓXIMO**: Usuário revalida no device o indicador visual no mini player — depois disso, rodar `sdd-converge` (vai precisar reconciliar FR-001/FR-015 com a posição real do toggle, adicionar um FR novo pra R-007/T042/T043 — seleção/respeito de voz compatível com o idioma traduzido — e outro pra T044 — indicador visual de sessão traduzida —, nenhum dos dois existia na spec original).
 
 ## Arquivos Principais
 
@@ -303,3 +312,54 @@ Foco por camada:
   (regra nova do React 19) — sempre sincronizar refs de "options mais
   recentes" via `useEffect`, nunca durante o render (ver
   `useTranslatedAudiobook.ts`).
+
+## Resultado Final
+
+Feature convergida em 2026-09-12, após implementação completa (44 tasks
+originais) e 4 rodadas adicionais de polimento (T039-T044) guiadas por
+teste manual real em device Android, cada uma entrevistando o usuário antes
+de implementar quando a decisão era de design/UX.
+
+**O que foi construído**: pipeline de audiobook traduzido completo —
+tradução em lote por parágrafo (MyMemory ou BYOK premium da feature `017`)
+com prefetch de 1 parágrafo à frente, sticky fallback por sessão, progresso
+sempre pela posição original do EPUB, destaque degradado a nível de
+parágrafo, aviso de consumo uma vez por livro, cancelamento correto em toda
+troca de contexto, e pausa-com-erro em falha total — tudo reaproveitando o
+`useTTS.ts` da feature `001` sem alterá-lo (Decisão Invariante 1, mantida
+intacta do início ao fim). Nenhuma dependência nova.
+
+**Desvios acumulados em relação ao plano original** (todos reconciliados na
+spec via `sdd-converge`, ver `## Phase 7: Convergence` em `tasks.md`):
+
+1. Toggle "Ouvir traduzido" mora na aba Narração de `BookDetailsScreen`, não
+   na aba Idioma como o plano original previa (FR-001 atualizado).
+2. Subsistema inteiro de compatibilidade de voz com o idioma-alvo
+   (`effectiveTtsPlaybackConfig`/`translatedVoiceOverride` em
+   `ReaderScreen.tsx`, `effectiveVoiceLanguage`/`displaySelectedTtsVoiceId`
+   em `BookDetailsScreen.tsx`) — não existia em nenhum artefato de design
+   original; nasceu de um bug real encontrado só em device (R-007), e foi
+   refinado 2 vezes (T042: lista de vozes filtrada; T043: respeitar escolha
+   manual já compatível). Agora é FR-016.
+3. Indicador visual de sessão traduzida no mini player (badge com ícone
+   `Languages`) — pedido do usuário após validar a feature, sem
+   correspondência em nenhum FR original. Agora é FR-017.
+4. `TranslationService.MAX_CHARS` precisou ser exportado (mudança aditiva,
+   sem alterar comportamento da feature `017`) pra evitar duplicar o número
+   em `TranslatedAudiobookService.ts`.
+
+**Decisões técnicas que ficaram diferentes do design inicial**: nenhuma
+mudança arquitetural — todas as Decisões Invariantes originais (`useTTS.ts`
+intocado, array de chunks mutado em vez de reescrito, chunking reusado,
+destaque via `highlightTts(paraIdx,0,0)`) se mantiveram válidas até o fim,
+inclusive depois dos 4 rounds de polimento. O único padrão NOVO introduzido
+(não previsto, mas consistente com a filosofia "explícito antes de mágico"
+da Constitution) foi o override efêmero de voz/idioma em `ReaderScreen.tsx`
+— nunca persistido, sempre recalculado a partir do estado real da sessão.
+
+**Cobertura de teste final**: 1065 testes automatizados (0 regressão em toda
+a suite do projeto), `npm run lint`/`npm run build`/`tsc --noEmit` limpos,
+mais validação manual extensiva em device Android real (RXCX103NMVZ) ao
+longo de todas as rodadas — a mais completa de qualquer feature deste
+projeto até aqui, por decisão do próprio fluxo de trabalho desta sessão
+(usuário testando cada ajuste imediatamente após o build).

@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-12
 
-**Status**: Implementada
+**Status**: Convergida
 
 **Input**: Assessment `sdd/assessments/tts-traduzido/` (veredito: go, 2026-09-10).
 Ideia original de backlog: permitir ouvir um livro em áudio (TTS) traduzido
@@ -220,8 +220,13 @@ que o aviso não aparece novamente.
 ### Functional Requirements
 
 - **FR-001**: O sistema DEVE permitir ativar/desativar "ouvir traduzido" por
-  livro, em `BookDetailsScreen`, junto às configurações já existentes de
-  idioma de tradução e provedor.
+  livro, em `BookDetailsScreen`. **Nota de reconciliação (convergência,
+  2026-09-12)**: implementado na aba Narração (nova subseção "Leitura
+  traduzida", acima das configurações de provedor/voz/velocidade de TTS) —
+  não na aba Idioma como o rascunho original desta spec previa. Decisão
+  tomada em teste real no device: como "ouvir traduzido" decide COMO o TTS
+  vai soar, faz mais sentido junto das outras configurações de narração do
+  que junto das configurações de tradução de texto.
 - **FR-002**: Quando "ouvir traduzido" está ativo, o sistema DEVE traduzir
   cada parágrafo em uma única chamada ao motor de tradução configurado,
   antes de sintetizar/tocar qualquer frase desse parágrafo.
@@ -272,6 +277,20 @@ que o aviso não aparece novamente.
   motivo) o toggle "ouvir traduzido" quando o idioma-alvo efetivo de
   tradução for igual ao idioma original do livro, ou quando o idioma
   original do livro não estiver definido.
+- **FR-016** *(adicionado na convergência, 2026-09-12 — achado real em teste
+  no device, não previsto no rascunho original)*: Quando "ouvir traduzido"
+  está ativo, o sistema DEVE sintetizar com uma voz compatível com o
+  idioma-alvo, não com a voz configurada para o idioma original do livro.
+  Isso inclui: (a) selecionar automaticamente uma voz compatível quando a
+  voz atualmente configurada não for compatível com o idioma-alvo; (b)
+  respeitar a escolha manual do usuário quando a voz já configurada for
+  compatível com o idioma-alvo, sem substituí-la; (c) a lista de seleção de
+  voz por livro DEVE ser filtrada pelo idioma-alvo enquanto "ouvir
+  traduzido" estiver ativo (voltando a filtrar pelo idioma original do
+  livro quando desativado).
+- **FR-017** *(adicionado na convergência, 2026-09-12 — pedido do usuário
+  após validar a feature em device)*: O sistema DEVE indicar visualmente,
+  no mini player do audiobook, quando a leitura traduzida está ativa.
 
 ### Key Entities
 
@@ -309,6 +328,10 @@ que o aviso não aparece novamente.
 - **SC-006**: O aviso de consumo aparece exatamente uma vez por livro (até
   ser confirmado) em teste manual dirigido, nunca a cada sessão de audiobook
   no mesmo livro.
+- **SC-007** *(adicionado na convergência, 2026-09-12)*: A voz ouvida durante
+  a leitura traduzida soa no idioma-alvo (não com sotaque/voz do idioma
+  original) em teste manual dirigido, com e sem uma voz escolhida
+  manualmente pelo usuário — validado em device Android real.
 
 ## Assumptions
 
@@ -355,9 +378,9 @@ que o aviso não aparece novamente.
   provedores BYOK premium de TTS e tradução, que também não são Pro-gated
   hoje. (Refletido em FR-014.)
 - Q: Onde o usuário ativa/desativa a leitura traduzida do audiobook? → A: Em
-  `BookDetailsScreen`, ao lado das configurações já existentes de idioma de
-  tradução e provedor por livro — não no mini player do leitor. (Refletido
-  em FR-001.)
+  `BookDetailsScreen`, por livro — não no mini player do leitor. (Refletido
+  em FR-001; posição exata dentro de `BookDetailsScreen` revisada na
+  convergência de 2026-09-12 — ver Sessão abaixo.)
 - Q: Se a tradução de um parágrafo falhar de vez durante o audiobook (sem
   fallback restante), o que a leitura traduzida deve fazer? → A: Pausar o
   audiobook e mostrar um erro visível, em vez de pular o parágrafo e tocar
@@ -368,3 +391,26 @@ que o aviso não aparece novamente.
   antes de iniciar a leitura traduzida? → A: Uma vez por livro, com opção de
   não perguntar de novo — não a cada sessão de audiobook. (Refletido em
   FR-013 e na User Story 3.)
+
+### Sessão 2026-09-12 (sdd-converge — reconciliação pós-implementação)
+
+Feature testada extensivamente pelo usuário em device Android real, ao
+longo de várias rodadas, revelando 3 divergências entre o rascunho original
+desta spec e o comportamento correto/desejado:
+
+- Q: O toggle "ouvir traduzido" deveria ficar na aba Idioma ou na aba
+  Narração de `BookDetailsScreen`? → A: Narração — decidido pelo usuário
+  após testar no device; a opção controla COMO o TTS soa, então pertence
+  junto das outras configurações de narração. (Refletido em FR-001.)
+- Q: A voz usada para sintetizar a leitura traduzida precisa ser compatível
+  com o idioma-alvo? → A: Sim — achado como bug real em teste no device (a
+  voz do idioma original tocava incorretamente sobre o texto traduzido).
+  Corrigido com auto-seleção quando a voz configurada não é compatível, e
+  respeito à escolha manual do usuário quando já é. (Novo FR-016.)
+- Q: Deveria haver algum indicador visual de que a leitura traduzida está
+  ativa? → A: Sim — pedido pelo usuário após validar a feature; um ícone no
+  mini player. (Novo FR-017.)
+
+Nenhuma das 3 exigiu mudança de comportamento além do já implementado e
+testado em device — a reconciliação atualizou apenas a redação da spec pra
+bater com a realidade já validada.

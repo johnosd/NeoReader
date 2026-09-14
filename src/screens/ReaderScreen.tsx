@@ -40,7 +40,7 @@ import {
   READER_PROGRESS_FOOTER_HEIGHT_PX,
   ReaderProgressFooter,
 } from '../components/reader/ReaderProgressFooter'
-import { getTtsProviderLabel, isPremiumTtsProvider } from '../services/TtsProviderRegistry'
+import { getTtsProviderLabel, isPremiumTtsProvider, listTtsProviderCompatibleVoices } from '../services/TtsProviderRegistry'
 import {
   ReaderFontControl,
   ReaderFontSizeControl,
@@ -65,6 +65,7 @@ import { areCfisEquivalent, isCfiInLocation, normalizeCfi } from '../utils/cfi'
 import { areTocHrefDocumentSuffixesEqual, findTopLevelTocLabel } from '../utils/toc'
 import { getReaderThemePalette } from '../utils/readerPreferences'
 import { clampTtsRate } from '../utils/language'
+import { getPlaybackTtsVoiceId } from '../utils/ttsVoiceSelection'
 import { useI18n } from '../i18n'
 import { loadWordLensData, loadWordLensDefinition } from '../services/WordLensDataService'
 import type { WordLensData } from '../types/wordLens'
@@ -500,17 +501,85 @@ export function ReaderScreen({
     },
   })
 
+  // Feature 018 — quando "ouvir traduzido" está ativo, a voz salva pro
+  // livro foi escolhida pro idioma ORIGINAL; usá-la pra sintetizar o
+  // idioma-alvo tocaria com sotaque/voz errada (ex.: voz de inglês falando
+  // português). TTS nativo já resolve isso sozinho (resolveVoiceIndex em
+  // NativeTtsService ignora uma voz incompatível e deixa o sistema decidir).
+  // Provedores premium (Speechify/ElevenLabs/FishAudio) usam o voiceId
+  // cegamente — por isso buscamos aqui a voz com melhor rank pro
+  // idioma-alvo e sobrescrevemos só pra sessão de leitura traduzida (nunca
+  // persistido em bookSettings, é um override efêmero).
+  // Guarda pra QUAL provider/idioma-alvo o override foi buscado — evita
+  // aplicar uma voz da Speechify buscada antes num render onde o provider
+  // agora é ElevenLabs (só descartamos no consumo abaixo, nunca resetando
+  // o state sincronamente dentro do efeito — react-hooks/set-state-in-effect).
+  const [translatedVoiceOverride, setTranslatedVoiceOverride] = useState<
+    { provider: TtsProvider; targetLang: string; id: string; modelId?: string } | null
+  >(null)
+
+  useEffect(() => {
+    if (!audiobookTranslationEnabled || ttsConfig.provider === 'native') return
+    let cancelled = false
+    void getSettings().then(async (s) => {
+      const voices = await listTtsProviderCompatibleVoices(ttsConfig.provider, translationTargetLang, s.appSettings)
+      if (cancelled) return
+      // Se o usuário já escolheu manualmente uma voz compatível com o
+      // idioma-alvo (feature 018, ajuste da tela "Voz do livro"), respeita
+      // essa escolha — NÃO sobrescreve. Só cai pro auto-pick (melhor rank)
+      // quando a voz configurada não está entre as compatíveis (ou não foi
+      // escolhida nenhuma). Sem essa checagem, o override rodava cego por
+      // cima de qualquer seleção manual, mesmo já certa (bug reportado).
+      const currentVoiceId = getPlaybackTtsVoiceId(ttsConfig, ttsConfig.provider)
+      const currentVoiceCompatible = currentVoiceId ? voices.some((voice) => voice.id === currentVoiceId) : false
+      if (currentVoiceCompatible) {
+        setTranslatedVoiceOverride(null)
+        return
+      }
+      const [best] = voices
+      setTranslatedVoiceOverride(best
+        ? { provider: ttsConfig.provider, targetLang: translationTargetLang, id: best.id, modelId: best.modelId }
+        : null)
+    })
+    return () => { cancelled = true }
+  }, [audiobookTranslationEnabled, ttsConfig, translationTargetLang])
+
+  const effectiveTtsPlaybackConfig = useMemo(() => {
+    if (!audiobookTranslationEnabled) return ttsConfig
+    const relevantOverride = translatedVoiceOverride
+      && translatedVoiceOverride.provider === ttsConfig.provider
+      && translatedVoiceOverride.targetLang === translationTargetLang
+      ? translatedVoiceOverride
+      : null
+    if (ttsConfig.provider === 'native' || !relevantOverride) {
+      return { ...ttsConfig, language: translationTargetLang }
+    }
+    return {
+      ...ttsConfig,
+      language: translationTargetLang,
+      voiceSelections: {
+        ...ttsConfig.voiceSelections,
+        [ttsConfig.provider]: {
+          id: relevantOverride.id,
+          label: null,
+          avatarUrl: null,
+          modelId: relevantOverride.modelId ?? null,
+        },
+      },
+    }
+  }, [ttsConfig, audiobookTranslationEnabled, translationTargetLang, translatedVoiceOverride])
+
   // TTS: gerencia estado e sequenciamento de audiobook
   const tts = useTTS({
     bookId: book.id,
     bookTitle: book.title,
-    provider: ttsConfig.provider,
-    language: ttsConfig.language,
-    rate: ttsConfig.rate,
-    speechifyVoiceId: ttsConfig.speechifyVoiceId,
-    elevenLabsVoiceId: ttsConfig.elevenLabsVoiceId,
-    nativeVoiceKey: ttsConfig.nativeVoiceKey,
-    voiceSelections: ttsConfig.voiceSelections,
+    provider: effectiveTtsPlaybackConfig.provider,
+    language: effectiveTtsPlaybackConfig.language,
+    rate: effectiveTtsPlaybackConfig.rate,
+    speechifyVoiceId: effectiveTtsPlaybackConfig.speechifyVoiceId,
+    elevenLabsVoiceId: effectiveTtsPlaybackConfig.elevenLabsVoiceId,
+    nativeVoiceKey: effectiveTtsPlaybackConfig.nativeVoiceKey,
+    voiceSelections: effectiveTtsPlaybackConfig.voiceSelections,
     onWordHighlight: (paraIdx, start, end) => {
       // FR-010: numa sessão de leitura traduzida, os offsets são relativos
       // ao texto TRADUZIDO, não ao DOM original — usar highlightTts(...,0,0)
@@ -1443,6 +1512,7 @@ export function ReaderScreen({
           activeProvider={ttsProviderFallback ? 'native' : ttsEngine}
           fallbackFromProvider={ttsProviderFallback?.provider ?? null}
           providerAvailability={ttsProviderAvailability}
+          isTranslated={translatedAudiobook.isActive()}
           ttsRate={ttsConfig.rate}
           showBackToTtsLocation={showBackToTtsLocation}
           bottomOffsetPx={READER_PROGRESS_FOOTER_HEIGHT_PX}

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { BookDetailsScreen } from '@/screens/BookDetailsScreen'
 import { FeatureQuotaService } from '@/services/FeatureQuotaService'
@@ -1778,7 +1778,7 @@ describe('BookDetailsScreen chapters', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
-    fireEvent.click(await screen.findByText('Idioma'))
+    fireEvent.click(await screen.findByText('Narracao'))
     const toggle = await screen.findByRole('switch', { name: 'Ouvir traduzido' }) as HTMLButtonElement
     expect(toggle.disabled).toBe(false)
 
@@ -1798,7 +1798,7 @@ describe('BookDetailsScreen chapters', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
-    fireEvent.click(await screen.findByText('Idioma'))
+    fireEvent.click(await screen.findByText('Narracao'))
     fireEvent.click(await screen.findByRole('switch', { name: 'Ouvir traduzido' }))
 
     expect(await screen.findByText('Ouvir este livro traduzido')).toBeTruthy()
@@ -1829,7 +1829,7 @@ describe('BookDetailsScreen chapters', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
-    fireEvent.click(await screen.findByText('Idioma'))
+    fireEvent.click(await screen.findByText('Narracao'))
     fireEvent.click(await screen.findByRole('switch', { name: 'Ouvir traduzido' }))
 
     await waitFor(() => {
@@ -1844,7 +1844,7 @@ describe('BookDetailsScreen chapters', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
-    fireEvent.click(await screen.findByText('Idioma'))
+    fireEvent.click(await screen.findByText('Narracao'))
 
     const toggle = await screen.findByRole('switch', { name: 'Ouvir traduzido' }) as HTMLButtonElement
     expect(toggle.disabled).toBe(true)
@@ -1863,7 +1863,7 @@ describe('BookDetailsScreen chapters', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
-    fireEvent.click(await screen.findByText('Idioma'))
+    fireEvent.click(await screen.findByText('Narracao'))
 
     const toggle = await screen.findByRole('switch', { name: 'Ouvir traduzido' }) as HTMLButtonElement
     expect(toggle.disabled).toBe(true)
@@ -1939,5 +1939,68 @@ describe('BookDetailsScreen voice settings', () => {
     })
     expect(FakeAudio.instances[0]?.src).toBe('https://cdn.example/luna.mp3')
     expect(mocks.updateBookSettings).not.toHaveBeenCalled()
+  })
+
+  // Feature 018 (TTS Traduzido) — polimento pós-teste em device
+  it('com "ouvir traduzido" ativo, busca vozes no idioma-alvo, não no idioma do livro', async () => {
+    mocks.bookSettings = {
+      bookId: 1,
+      ttsProvider: 'speechify',
+      ttsRate: 1,
+      audiobookTranslationEnabled: true,
+    } as BookSettings
+    mocks.appSettings.translationTargetLang = 'en'
+    mocks.appSettings.speechifyApiKey = 'speechify-key'
+    mocks.listSpeechifyVoices.mockResolvedValue([
+      { id: 'james', label: 'James', locale: 'en', provider: 'speechify', previewUrl: null, avatarUrl: null, meta: 'male' },
+    ])
+
+    render(
+      <BookDetailsScreen book={book} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Narracao'))
+    fireEvent.click(screen.getByRole('button', { name: /Voz/ }))
+
+    expect(await screen.findByText('James')).toBeTruthy()
+    expect(mocks.listSpeechifyVoices).toHaveBeenCalledWith('en', 'speechify-key')
+  })
+
+  it('sem "ouvir traduzido", continua buscando vozes no idioma do livro (comportamento inalterado)', async () => {
+    await openVoiceSheet()
+
+    expect(mocks.listSpeechifyVoices).toHaveBeenCalledWith('pt-BR', 'speechify-key')
+  })
+
+  it('com "ouvir traduzido" ativo e voz salva incompatível com o idioma-alvo, marca a melhor voz do idioma-alvo em vez de "Padrão"', async () => {
+    mocks.bookSettings = {
+      bookId: 1,
+      ttsProvider: 'speechify',
+      ttsRate: 1,
+      audiobookTranslationEnabled: true,
+      // Voz salva é do idioma ORIGINAL (pt-BR) — incompatível com o
+      // idioma-alvo 'en' configurado abaixo.
+      ttsSpeechifyVoiceId: 'luna',
+      ttsSpeechifyVoiceLabel: 'Luna',
+    } as BookSettings
+    mocks.appSettings.translationTargetLang = 'en'
+    mocks.appSettings.speechifyApiKey = 'speechify-key'
+    mocks.listSpeechifyVoices.mockResolvedValue([
+      { id: 'james', label: 'James', locale: 'en', provider: 'speechify', previewUrl: null, avatarUrl: null, meta: 'male' },
+    ])
+
+    render(
+      <BookDetailsScreen book={book} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Narracao'))
+    fireEvent.click(screen.getByRole('button', { name: /Voz/ }))
+    await screen.findByText('James')
+
+    const voiceList = screen.getByPlaceholderText('Pesquisar voz por nome').closest('.space-y-3') as HTMLElement
+    const jamesRow = within(voiceList).getByText('James').closest('[role="button"]') as HTMLElement
+    const defaultRow = within(voiceList).getByText('Usar voz padrao').closest('[role="button"]') as HTMLElement
+    expect(jamesRow.querySelector('svg.lucide-check')).toBeTruthy()
+    expect(defaultRow.querySelector('svg.lucide-check')).toBeNull()
   })
 })

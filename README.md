@@ -172,7 +172,8 @@ tags, pastas de origem e caches ficam no dispositivo.
   - Aparencia do Leitor: tema, fonte, tamanho, line height e modo de leitura
     deste livro;
   - Idioma: idioma original do livro e idioma alvo da traducao;
-  - Narracao: provedor TTS, voz e velocidade;
+  - Narracao: provedor TTS, voz e velocidade, e "Ouvir traduzido" (audiobook
+    no idioma-alvo da traducao, com selecao de voz compativel);
   - Detalhes: sinopse/ficha bibliografica, diagnosticos de metadados, idioma
     detectado, data de adicao, ultimo acesso e tamanho do arquivo (conteudo
     que antes vivia numa aba propria "Detalhes", agora migrado pra dentro de
@@ -342,6 +343,11 @@ ficha manualmente.
   app em segundo plano, com notificacao estilo player (capa, titulo,
   capitulo, play/pause/avancar) e pausa/retomada automatica em ligacoes ou
   outros apps de midia.
+- "Ouvir traduzido": traduz o livro em lote por paragrafo (MyMemory ou o
+  provedor premium BYOK ja configurado, feature de traducao) e narra no
+  idioma-alvo, com prefetch de 1 paragrafo a frente, selecao automatica de
+  voz compativel com o idioma-alvo, aviso de consumo de caracteres na
+  primeira ativacao por livro, e indicador visual no mini player.
 - Provedores: Speechify, ElevenLabs, Fish Audio e TTS nativo do dispositivo.
 - Fallback automatico para TTS nativo quando o provedor premium nao esta
   configurado ou falha.
