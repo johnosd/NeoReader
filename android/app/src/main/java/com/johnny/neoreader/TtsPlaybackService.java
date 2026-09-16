@@ -60,6 +60,11 @@ public class TtsPlaybackService extends Service {
     private String currentChapterLabel;
     private Bitmap currentCoverBitmap;
     private boolean isPlaying = true;
+    // true assim que ACTION_START chama startForeground() pela 1a vez nesta
+    // instância. Distingue playback real do NeoReader de um ACTION_MEDIA_BUTTON
+    // que acordou o Service a frio (ex: botão de fone tocado com o audiobook
+    // do NeoReader parado — outro app pode disparar isso, ver onStartCommand).
+    private boolean hasStartedForeground = false;
 
     @Override
     public void onCreate() {
@@ -76,6 +81,21 @@ public class TtsPlaybackService extends Service {
         // ACTION_MEDIA_BUTTON — MediaButtonReceiver traduz pro callback certo
         // do MediaSessionCompat (onPlay/onPause/etc.).
         if (intent != null && Intent.ACTION_MEDIA_BUTTON.equals(intent.getAction())) {
+            if (!hasStartedForeground) {
+                // MediaButtonReceiver resolveu este Service pelo intent-filter
+                // de MEDIA_BUTTON e nos acordou via startForegroundService()
+                // (pode ser um botão de fone/tela de bloqueio sem nenhum
+                // audiobook do NeoReader tocando — outro app de mídia, ou uma
+                // sessão anterior já finalizada). Já que fomos ligados via
+                // startForegroundService, o Android exige startForeground()
+                // em poucos segundos ou mata o processo com
+                // ForegroundServiceDidNotStartInTimeException; como não há
+                // playback real pra manter vivo, cumprimos a exigência com a
+                // notificação atual e paramos em seguida.
+                startForeground(NOTIFICATION_ID, buildNotification());
+                stopSelf(startId);
+                return START_NOT_STICKY;
+            }
             MediaButtonReceiver.handleIntent(mediaSession, intent);
             return START_NOT_STICKY;
         }
@@ -106,7 +126,22 @@ public class TtsPlaybackService extends Service {
         isPlaying = true;
         updatePlaybackStateCompat();
         updateMediaSessionMetadata();
-        startForeground(NOTIFICATION_ID, buildNotification());
+        try {
+            startForeground(NOTIFICATION_ID, buildNotification());
+            hasStartedForeground = true;
+        } catch (IllegalStateException error) {
+            // Android 12+ pode negar startForeground() (ForegroundServiceStartNotAllowedException,
+            // que extends IllegalStateException) se o processo não estiver mais
+            // em condição de abrir foreground service em background — ex: uma
+            // retentativa de start() chegando logo após o Service ter caído.
+            // Sem isso, a negação derrubava o app inteiro em vez de só abortar
+            // esta tentativa de playback.
+            Log.w(TAG, "onStartCommand: startForeground negado pelo sistema, abortando este start", error);
+            releaseWakeLock();
+            abandonAudioFocus();
+            stopSelf(startId);
+            return START_NOT_STICKY;
+        }
         Log.d(TAG, "onStartCommand: foreground service iniciado (title=" + currentTitle + ")");
 
         // Não sticky: se o Android matar o processo, o estado de reprodução
