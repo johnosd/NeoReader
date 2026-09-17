@@ -256,7 +256,17 @@ código nesta mesma leva, ela é commit separado, antes.)
 
 Depois reporte ao usuário, em uma lista curta:
 
-1. Versão gerada (`versionName` / `versionCode`) e caminho da pasta arquivada.
+1. Versão gerada (`versionName` / `versionCode`) e o **caminho absoluto do
+   `.aab` arquivado**, sozinho num bloco de código pra dar pra copiar e colar
+   direto no seletor de arquivo do Play Console:
+
+   ```
+   C:\Users\<usuário>\...\release-artifacts\neoreader-<versionName>-<versionCode>\neoreader-<versionName>-<versionCode>.aab
+   ```
+
+   Sempre o arquivo, nunca só a pasta, e sempre o caminho completo — o do
+   `release-artifacts/`, não o de `android/app/build/outputs/` (esse é
+   sobrescrito no próximo build).
 2. Resultado dos gates e da verificação de assinatura.
 3. Passos do upload: [Play Console](https://play.google.com/console) → NeoReader
    → **Test and release** → track (Internal / Closed / Open / Production) →
