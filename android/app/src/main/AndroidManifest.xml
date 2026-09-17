@@ -44,11 +44,20 @@
             android:value="ca-app-pub-7766179998340736~2404866742" />
 
         <!-- Foreground service que mantém o audiobook (TTS contínuo) tocando com
-             a tela apagada ou o app em segundo plano. -->
+             a tela apagada ou o app em segundo plano. O intent-filter de
+             MEDIA_BUTTON é exigido pelo próprio MediaButtonReceiver abaixo:
+             sem ele, um botão de mídia real (bluetooth, tela de bloqueio) não
+             acha serviço de destino e o receiver derruba o processo com
+             IllegalStateException ("Could not find any Service that handles
+             android.intent.action.MEDIA_BUTTON"). -->
         <service
             android:name=".TtsPlaybackService"
             android:foregroundServiceType="mediaPlayback"
-            android:exported="false" />
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </service>
 
         <!-- Traduz botões de mídia (tela de bloqueio, fones bluetooth) em
              callbacks do MediaSessionCompat do TtsPlaybackService. -->

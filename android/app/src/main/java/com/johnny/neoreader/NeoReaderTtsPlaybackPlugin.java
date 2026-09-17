@@ -6,6 +6,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 
 import androidx.core.app.ActivityCompat;
@@ -29,6 +31,16 @@ public class NeoReaderTtsPlaybackPlugin extends Plugin {
     private static final int NOTIFICATION_PERMISSION_REQUEST_CODE = 4802;
 
     private static NeoReaderTtsPlaybackPlugin instance;
+
+    // Capacitor executa @PluginMethod em thread de background, mas
+    // TtsPlaybackService.onStartCommand roda na main thread e mexe nos
+    // mesmos campos (currentCoverBitmap, mediaSession) sem lock nenhum.
+    // MediaSessionCompat também não é thread-safe por contrato. Sem esse
+    // post pra main thread, uma troca rápida de metadata durante um
+    // onStartCommand causava corrida: a bitmap antiga era reciclada no meio
+    // do outro lado ainda estar parcelando ela pro MediaSession, crashando
+    // com "Bitmap is recycled".
+    private static final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     @Override
     public void load() {
@@ -87,19 +99,27 @@ public class NeoReaderTtsPlaybackPlugin extends Plugin {
 
     @PluginMethod
     public void updateMetadata(PluginCall call) {
-        TtsPlaybackService service = TtsPlaybackService.getRunningInstance();
-        if (service != null) {
-            service.updateMetadata(call.getString("title"), call.getString("chapterLabel"), call.getString("coverBase64"));
-        }
+        String title = call.getString("title");
+        String chapterLabel = call.getString("chapterLabel");
+        String coverBase64 = call.getString("coverBase64");
+        mainHandler.post(() -> {
+            TtsPlaybackService service = TtsPlaybackService.getRunningInstance();
+            if (service != null) {
+                service.updateMetadata(title, chapterLabel, coverBase64);
+            }
+        });
         call.resolve();
     }
 
     @PluginMethod
     public void updatePlaybackState(PluginCall call) {
-        TtsPlaybackService service = TtsPlaybackService.getRunningInstance();
-        if (service != null) {
-            service.updatePlaybackState("playing".equals(call.getString("state")));
-        }
+        boolean playing = "playing".equals(call.getString("state"));
+        mainHandler.post(() -> {
+            TtsPlaybackService service = TtsPlaybackService.getRunningInstance();
+            if (service != null) {
+                service.updatePlaybackState(playing);
+            }
+        });
         call.resolve();
     }
 

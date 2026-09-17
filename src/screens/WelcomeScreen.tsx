@@ -1,9 +1,24 @@
 import { useState } from 'react'
-import { BarChart3, BookOpen, Bookmark, ChevronRight, Volume2 } from 'lucide-react'
+import { BarChart3, BookOpen, Bookmark, ChevronRight, Languages, Rss } from 'lucide-react'
 import { useI18n, type MessageKey } from '../i18n'
+// Logos reais dos providers (ja usados no app, ver TtsMiniPlayer.tsx, ou
+// baixados dos kits oficiais/Wikimedia/Simple Icons pra tradução) — em vez
+// de icones genericos do lucide-react pros slides que citam marcas.
+import elevenLabsLogo from '../assets/tts-providers/elevenlabs.svg'
+import speechifyLogo from '../assets/tts-providers/speechify.svg'
+import fishAudioLogo from '../assets/tts-providers/fishaudio.svg'
+import openaiLogo from '../assets/translation-providers/openai.svg'
+import googleLogo from '../assets/translation-providers/google.svg'
+import deeplLogo from '../assets/translation-providers/deepl.svg'
 
 interface WelcomeScreenProps {
   onComplete: () => void
+}
+
+interface ProviderBadge {
+  name: string
+  logo: string
+  captionKey: MessageKey
 }
 
 const slides = [
@@ -13,6 +28,14 @@ const slides = [
     descriptionKey: 'welcome.slide.store.description',
     glow: 'rgba(123,44,191,0.32)',
   },
+  // Diferencial de maior destaque (feature 018) logo apos a abertura, antes
+  // dos demais diferenciais novos (FR-002 da spec 019).
+  {
+    icon: Languages,
+    titleKey: 'welcome.slide.translatedTts.title',
+    descriptionKey: 'welcome.slide.translatedTts.description',
+    glow: 'rgba(99,102,241,0.28)',
+  },
   {
     icon: Bookmark,
     titleKey: 'welcome.slide.reading.title',
@@ -20,10 +43,30 @@ const slides = [
     glow: 'rgba(16,185,129,0.26)',
   },
   {
-    icon: Volume2,
+    providers: [
+      { name: 'ElevenLabs', logo: elevenLabsLogo, captionKey: 'welcome.provider.elevenlabs.caption' },
+      { name: 'Speechify', logo: speechifyLogo, captionKey: 'welcome.provider.speechify.caption' },
+      { name: 'Fish Audio', logo: fishAudioLogo, captionKey: 'welcome.provider.fishaudio.caption' },
+    ],
     titleKey: 'welcome.slide.voice.title',
     descriptionKey: 'welcome.slide.voice.description',
     glow: 'rgba(14,165,233,0.22)',
+  },
+  {
+    providers: [
+      { name: 'OpenAI', logo: openaiLogo, captionKey: 'welcome.provider.openai.caption' },
+      { name: 'Google', logo: googleLogo, captionKey: 'welcome.provider.google.caption' },
+      { name: 'DeepL', logo: deeplLogo, captionKey: 'welcome.provider.deepl.caption' },
+    ],
+    titleKey: 'welcome.slide.translationProviders.title',
+    descriptionKey: 'welcome.slide.translationProviders.description',
+    glow: 'rgba(157,78,221,0.26)',
+  },
+  {
+    icon: Rss,
+    titleKey: 'welcome.slide.opds.title',
+    descriptionKey: 'welcome.slide.opds.description',
+    glow: 'rgba(236,72,153,0.22)',
   },
   {
     icon: BarChart3,
@@ -32,7 +75,8 @@ const slides = [
     glow: 'rgba(251,191,36,0.24)',
   },
 ] satisfies Array<{
-  icon: typeof BookOpen
+  icon?: typeof BookOpen
+  providers?: ProviderBadge[]
   titleKey: MessageKey
   descriptionKey: MessageKey
   glow: string
@@ -65,9 +109,33 @@ export function WelcomeScreen({ onComplete }: WelcomeScreenProps) {
       </header>
 
       <section className="relative z-10 flex-1 flex items-center justify-center px-8">
-        <div className="w-40 h-40 rounded-[40px] bg-white/[0.04] border border-white/[0.08] flex items-center justify-center shadow-deep">
-          <Icon size={76} strokeWidth={1.7} className="text-purple-light" />
-        </div>
+        {current.providers ? (
+          // Cards com logo + nome + legenda, num row horizontal scrollavel —
+          // mesmo idioma visual das rows de livros do resto do app ("Netflix
+          // for Books"), em vez de 1 icone generico. Largura fixa por card
+          // (nao encolhe pra caber) pra legenda continuar legivel; quando os
+          // 3 nao cabem na tela (~360-400px), o row rola em vez de espremer.
+          <div className="w-full overflow-x-auto px-8 -mx-8 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div className="flex gap-3 px-8">
+              {current.providers.map((provider) => (
+                <div
+                  key={provider.name}
+                  className="w-[134px] shrink-0 flex flex-col items-center gap-2 rounded-[20px] bg-white/[0.04] border border-white/[0.08] px-3 py-5 text-center shadow-deep"
+                >
+                  <img src={provider.logo} alt="" aria-hidden="true" className="h-9 w-9 shrink-0 object-contain" />
+                  <span className="text-sm font-bold text-text-primary">{provider.name}</span>
+                  <span className="text-xs leading-snug text-text-muted">{t(provider.captionKey)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          Icon && (
+            <div className="w-40 h-40 rounded-[40px] bg-white/[0.04] border border-white/[0.08] flex items-center justify-center shadow-deep">
+              <Icon size={76} strokeWidth={1.7} className="text-purple-light" />
+            </div>
+          )
+        )}
       </section>
 
       <section className="relative z-10 px-8 pb-12">
