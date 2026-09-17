@@ -3,6 +3,12 @@
 Processo pra publicar uma nova versão do NeoReader Android na Play Store.
 Cobre da atualização de versão até o upload do `.aab` assinado.
 
+> Pra executar esse processo com o Claude Code, use o skill `/play-release`
+> (`.claude/skills/play-release/SKILL.md`) — ele automatiza os passos 1 e 2,
+> redige as release notes nos 3 idiomas e verifica a assinatura do bundle.
+> Este documento continua sendo a referência do **porquê** de cada passo
+> (Play App Signing, upload key, recuperação de chave).
+
 ## 1. Bumpar a versão
 
 Edite `android/app/build.gradle`:
