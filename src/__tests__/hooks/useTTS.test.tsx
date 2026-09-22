@@ -1199,4 +1199,53 @@ describe('useTTS', () => {
       await playPromise
     })
   })
+  it('cancela o prefetch (lookahead) quando stop e chamado', async () => {
+    speechifyMock.getApiKey.mockResolvedValue('speechify-key')
+    speechifyMock.isConfigured.mockResolvedValue(true)
+
+    // O chunk principal resolve rapido
+    speechifyMock.synthesize.mockImplementationOnce(async () => {
+      return { audioBlob: new Blob(['audio-main']), speechMarks: [] }
+    })
+
+    // O prefetch vai aguardar
+    let resolvePrefetch: any
+    speechifyMock.synthesize.mockImplementationOnce(async (text, options) => {
+      return new Promise((resolve, reject) => {
+        resolvePrefetch = resolve
+        options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+      })
+    })
+
+    const callbacks = createCallbacks()
+    const { result } = renderHook(() => useTTS({
+      ...callbacks,
+      provider: 'speechify',
+      language: 'en-US',
+      rate: 1,
+    }))
+
+    const chunks = [
+      { text: 'Frase 1 principal.', paraIdx: 0, offsetInPara: 0 },
+      { text: 'Frase 2 lookahead.', paraIdx: 1, offsetInPara: 0 },
+    ]
+
+    let playPromise: any
+    await act(async () => {
+      playPromise = result.current.play(chunks, 0)
+    })
+
+    // O lookahead foi chamado
+    expect(speechifyMock.synthesize).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      await result.current.stop()
+    })
+
+    await act(async () => {
+      // Ignora erro do playPromise abortado
+      await playPromise.catch(() => {})
+    })
+  })
+
 })

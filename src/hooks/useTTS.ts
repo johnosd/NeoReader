@@ -238,6 +238,7 @@ export function useTTS(options: UseTTSOptions) {
   // Prevents duplicate TextToSpeech.stop() calls when stop() is invoked concurrently.
   const nativeStopPendingRef = useRef(false)
   const premiumSynthesisAbortControllerRef = useRef<AbortController | null>(null)
+  const prefetchAbortControllerRef = useRef<AbortController | null>(null)
   // Resolve function registrado pelo speakWithNative ativo. Quando TextToSpeech.stop()
   // confirma o stop no Android, chamamos este resolver para desbloquear o Promise.race
   // dentro de speakWithNative — o speak() nativo nunca rejeita/resolve por conta própria
@@ -748,14 +749,17 @@ export function useTTS(options: UseTTSOptions) {
     provider: Exclude<TtsProvider, 'native'>,
     chunk: TtsChunk,
     session: number,
+    signal: AbortSignal,
   ) {
     const text = normalizeChunkText(chunk.text)
     if (!text) return
     const config = configRef.current
     const apiKey = await getPremiumTtsApiKey(provider)
     if (!apiKey) return
-    // Aborta se a sessão mudou (stop chamado ou novo play iniciado)
-    if (shouldStopRef.current || playSessionRef.current !== session) return
+    
+    // Aborta se a sessão mudou ou sinal de prefetch disparado
+    if (shouldStopRef.current || playSessionRef.current !== session || signal.aborted) return
+    
     const voiceId = getPlaybackTtsVoiceId(config, provider)
     const modelId = getPlaybackTtsVoiceModelId(config, provider)
     const cacheParams: PremiumTtsAudioCacheParams = {
@@ -766,20 +770,32 @@ export function useTTS(options: UseTTSOptions) {
       text,
     }
     if (getCachedPremiumTtsAudio(cacheParams)) return
-    try {
-      const result = await synthesizePremiumTts(provider, text, {
-        apiKey,
-        language: config.language,
-        rate: config.rate,
-        voiceId,
-        modelId,
-        // Sem AbortSignal: o prefetch não deve ser cancelado pelo abort do chunk principal
-      })
-      // Verifica novamente após await — sessão pode ter mudado durante a síntese
-      if (shouldStopRef.current || playSessionRef.current !== session) return
-      setCachedPremiumTtsAudio(cacheParams, result)
-    } catch {
-      // Falha silenciosa — o loop principal sintetiza normalmente quando chegar no chunk
+    
+    let retries = 1
+    while (retries >= 0) {
+      if (shouldStopRef.current || playSessionRef.current !== session || signal.aborted) return
+      try {
+        const result = await synthesizePremiumTts(provider, text, {
+          apiKey,
+          language: config.language,
+          rate: config.rate,
+          voiceId,
+          modelId,
+          signal,
+        })
+        // Verifica novamente após await — sessão pode ter mudado
+        if (shouldStopRef.current || playSessionRef.current !== session || signal.aborted) return
+        setCachedPremiumTtsAudio(cacheParams, result)
+        break
+      } catch (error) {
+        if (isTransientTtsFailure(error) && retries > 0 && !signal.aborted) {
+          retries--
+          await new Promise(resolve => setTimeout(resolve, 500))
+          continue
+        }
+        // Falha silenciosa — o loop principal sintetiza e para se falhar novamente
+        break
+      }
     }
   }
 
@@ -796,6 +812,8 @@ export function useTTS(options: UseTTSOptions) {
 
     shouldStopRef.current = false
     nativeStopPendingRef.current = false
+    prefetchAbortControllerRef.current?.abort()
+    prefetchAbortControllerRef.current = new AbortController()
     activeChunksRef.current = chunks
     nativeRangeEventSeenRef.current = false
     updatePaused(false)
@@ -858,7 +876,11 @@ export function useTTS(options: UseTTSOptions) {
         // Lookahead: quando o áudio deste chunk INICIAR, dispara síntese do próximo
         const nextChunk = chunks[index + 1]
         const lookahead = isPremiumTtsProvider(playbackProvider) && nextChunk
-          ? () => { void prefetchPremiumChunk(playbackProvider as Exclude<TtsProvider, 'native'>, nextChunk, mySession) }
+          ? () => {
+              const signal = prefetchAbortControllerRef.current?.signal
+              if (!signal) return
+              void prefetchPremiumChunk(playbackProvider as Exclude<TtsProvider, 'native'>, nextChunk, mySession, signal)
+            }
           : undefined
 
         const { sessionEnded, usedProvider } = await speakChunk(
@@ -982,6 +1004,8 @@ export function useTTS(options: UseTTSOptions) {
     void TtsPlaybackSessionService.stop()
     premiumSynthesisAbortControllerRef.current?.abort()
     premiumSynthesisAbortControllerRef.current = null
+    prefetchAbortControllerRef.current?.abort()
+    prefetchAbortControllerRef.current = null
     if (shouldLogStopIntent) {
       playbackStopReasonRef.current = 'stopped'
     }
