@@ -1209,10 +1209,8 @@ describe('useTTS', () => {
     })
 
     // O prefetch vai aguardar
-    let resolvePrefetch: any
     speechifyMock.synthesize.mockImplementationOnce(async (text, options) => {
-      return new Promise((resolve, reject) => {
-        resolvePrefetch = resolve
+      return new Promise((_resolve, reject) => {
         options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
       })
     })
@@ -1230,7 +1228,7 @@ describe('useTTS', () => {
       { text: 'Frase 2 lookahead.', paraIdx: 1, offsetInPara: 0 },
     ]
 
-    let playPromise: any
+    let playPromise: Promise<void>
     await act(async () => {
       playPromise = result.current.play(chunks, 0)
     })
@@ -1245,6 +1243,56 @@ describe('useTTS', () => {
     await act(async () => {
       // Ignora erro do playPromise abortado
       await playPromise.catch(() => {})
+    })
+  })
+
+  it('prefetch do lookahead cobre os 3 chunks a frente em sequencia', async () => {
+    speechifyMock.getApiKey.mockResolvedValue('speechify-key')
+    speechifyMock.isConfigured.mockResolvedValue(true)
+
+    const callbacks = createCallbacks()
+    const { result } = renderHook(() => useTTS({
+      ...callbacks,
+      provider: 'speechify',
+      language: 'en-US',
+      rate: 1,
+    }))
+
+    const chunks = [
+      { text: 'Frase 1.', paraIdx: 0, offsetInPara: 0 },
+      { text: 'Frase 2.', paraIdx: 1, offsetInPara: 0 },
+      { text: 'Frase 3.', paraIdx: 2, offsetInPara: 0 },
+      { text: 'Frase 4.', paraIdx: 3, offsetInPara: 0 },
+      { text: 'Frase 5.', paraIdx: 4, offsetInPara: 0 },
+    ]
+
+    let playPromise: Promise<void> | undefined
+    await act(async () => {
+      playPromise = result.current.play(chunks, 0)
+    })
+    await flushMicrotasks()
+
+    // O lookahead de chunks[0] dispara prefetch de chunks[1], chunks[2] e chunks[3].
+    expect(speechifyMock.synthesize).toHaveBeenCalledWith(
+      'Frase 2.',
+      expect.objectContaining({ signal: expect.anything() }),
+    )
+    expect(speechifyMock.synthesize).toHaveBeenCalledWith(
+      'Frase 3.',
+      expect.objectContaining({ signal: expect.anything() }),
+    )
+    expect(speechifyMock.synthesize).toHaveBeenCalledWith(
+      'Frase 4.',
+      expect.objectContaining({ signal: expect.anything() }),
+    )
+    // chunks[4] está fora da janela de 3 frases do lookahead de chunks[0].
+    expect(speechifyMock.synthesize).not.toHaveBeenCalledWith('Frase 5.', expect.anything())
+
+    await act(async () => {
+      await result.current.stop()
+    })
+    await act(async () => {
+      await playPromise?.catch(() => {})
     })
   })
 

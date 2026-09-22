@@ -873,13 +873,15 @@ export function useTTS(options: UseTTSOptions) {
           callbacksRef.current.onParagraphChange(chunk.paraIdx)
         }
 
-        // Lookahead: quando o áudio deste chunk INICIAR, dispara síntese do próximo
-        const nextChunk = chunks[index + 1]
-        const lookahead = isPremiumTtsProvider(playbackProvider) && nextChunk
+        // Lookahead: quando o áudio deste chunk INICIAR, dispara síntese das próximas 3 frases
+        const lookahead = isPremiumTtsProvider(playbackProvider) && chunks[index + 1]
           ? () => {
               const signal = prefetchAbortControllerRef.current?.signal
               if (!signal) return
-              void prefetchPremiumChunk(playbackProvider as Exclude<TtsProvider, 'native'>, nextChunk, mySession, signal)
+              const provider = playbackProvider as Exclude<TtsProvider, 'native'>
+              if (chunks[index + 1]) void prefetchPremiumChunk(provider, chunks[index + 1], mySession, signal)
+              if (chunks[index + 2]) void prefetchPremiumChunk(provider, chunks[index + 2], mySession, signal)
+              if (chunks[index + 3]) void prefetchPremiumChunk(provider, chunks[index + 3], mySession, signal)
             }
           : undefined
 

@@ -33,7 +33,7 @@ update-bug-status.ps1.
 | 017-traducao-premium-byok | Tradução Premium BYOK (DeepL, OpenAI, Google) | Convergida | 59/60 tasks | 2026-09-11 |
 | 018-tts-traduzido | TTS Traduzido (audiobook com tradução em lote por parágrafo) | Convergida | 53/53 tasks | 2026-09-12 |
 | 019-onboarding-diferenciais | Onboarding com Diferenciais (TTS Traduzido, Vozes e Tradução Premium, OPDS, Sync) | Em Execucao | 43/45 tasks | 2026-09-16 |
-| 020-tts-buffer-lookahead | Buffer e Lookahead de TTS na língua nativa | Em Execução | 4/11 tasks | 2026-09-21 |
+| 020-tts-buffer-lookahead | Buffer e Lookahead de TTS na língua nativa | Em Execução | 6/11 tasks | 2026-09-21 |
 
 ## Bugs
 
