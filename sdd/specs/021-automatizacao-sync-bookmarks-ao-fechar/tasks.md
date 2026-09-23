@@ -127,3 +127,14 @@
 - **User Stories (Phase 2 e 3)**: dependem do Foundational.
 - **Polish (fase final)**: depende de todas as user stories desejadas estarem completas.
 
+
+---
+
+## Phase 5: Convergence
+
+**Purpose**: Lacunas encontradas pelo `sdd-converge` (2026-09-23). Código das US1/US2 implementado e coberto por testes unitários; as lacunas são de validação em device e de documentação. SC-003 (AAB de release) ficou de fora por decisão do usuário ("esse problema de chave já ocorreu e não precisamos mudar nada").
+
+- [ ] T015 [US2] Executar o quickstart §4 no device: revogar o acesso do NeoReader em myaccount.google.com, criar um bookmark e confirmar no logcat `drive.token.silent.needs-ui` durante a leitura, sem nenhuma tela. Mandar o app para background e trazer de volta, e confirmar que a tela de consentimento aparece só nesse momento; depois de consentir, `bookmark.sync.success`. Origem: FR-004 / US2 / quickstart §4 (convergence C1).
+- [ ] T016 [US1] Validar o SC-001 com a expiração real: app aberto por mais de 1h desde a última renovação, criar um bookmark e fechar o livro, e confirmar `authorizeSilent` + `drive.token.silent.renewed` com token diferente do anterior + `bookmark.sync.success`, sem UI. Origem: SC-001 (convergence C2).
+- [ ] T017 [P] [US1] Executar o quickstart §2 (resume depois do modo avião) e §3 (evento `online`) no device, confirmando `bookmark.sync.success` sem ação do usuário. Origem: FR-002 / quickstart §2 e §3 (convergence C3).
+- [ ] T018 [P] Corrigir o `quickstart.md`: trocar `clearLastToken()` (método do spike, que não existe no `GoogleDriveAuthPlugin`) por "`localStorage.setItem('neoreader:drive-token-expiry','0')` + `location.reload()` via CDP (não usar `force-stop`: o WebView perde a escrita)"; trocar `npm run android:build` (script inexistente) pelo fluxo `npx cap sync android` + `gradlew.bat assembleDebug`; e registrar que a validação em release foi dispensada. Origem: quickstart §1 / plan: Estratégia de Testes (convergence C4).
