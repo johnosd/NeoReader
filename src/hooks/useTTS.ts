@@ -127,22 +127,30 @@ function getPremiumFallbackReason(provider: TtsProvider, error: unknown, t: Tran
 }
 
 // Erros transientes: AbortError (WebView suspensa, timeout), erros de rede,
-// e falha de PLAYBACK do <audio> compartilhado (NotAllowedError — Chromium
+// falha de PLAYBACK do <audio> compartilhado (NotAllowedError — Chromium
 // recusa audio.play() depois de suspender o elemento sozinho por perda de
 // foco de áudio da WebView em segundo plano; MediaError — normalizado em
-// mensagem reconhecível por handleAudioError). Nesses casos o provider
-// premium pode ter sucesso na próxima tentativa, então o loop não troca
-// permanentemente para native (ver retry em speakChunk).
+// mensagem reconhecível por handleAudioError), e HTTP 429 (rate limit).
+// 429 entra aqui de propósito: confirmado em log real de device que é
+// tipicamente AUTOINFLIGIDO pela concorrência do prefetch/lookahead (várias
+// requisições em paralelo pro mesmo provider), não uma indisponibilidade
+// real — se resolve sozinho rápido, então vale continuar tentando premium
+// no próximo chunk em vez de assentar em nativo pro resto da sessão (só
+// 402/5xx, que são causas mais duradouras, continuam assentando).
+// Nesses casos o provider premium pode ter sucesso na próxima tentativa,
+// então o loop não troca permanentemente para native (ver retry em
+// speakChunk, que dá um respiro extra especificamente pro caso 429).
 function isTransientTtsFailure(error: unknown): boolean {
   if (error instanceof DOMException && (error.name === 'AbortError' || error.name === 'NotAllowedError')) return true
   const message = getErrorMessage(error)
   const normalized = message.toLowerCase()
-  return (
+  if (
     normalized.includes('aborted') ||
     normalized.includes('failed to fetch') ||
     normalized.includes('networkerror') ||
     normalized.includes('audio playback failed')
-  )
+  ) return true
+  return getHttpStatusFromError(message) === 429
 }
 
 // Falha que o usuário PODE resolver sozinho (key inválida/não configurada,
@@ -719,10 +727,11 @@ export function useTTS(options: UseTTSOptions) {
   }
 
   // Despacha para o provider correto com fallback automático para native em caso de erro.
-  // Falha transiente (rede momentânea, playback interrompido pelo foco de
-  // áudio da WebView) ganha 1 nova tentativa no MESMO chunk antes de cair
-  // pro nativo — a segunda tentativa é cache hit (synth já ficou em cache na
-  // primeira), então só reexecuta o playback, sem nova requisição HTTP.
+  // Falha transiente ganha 1 nova tentativa no MESMO chunk antes de cair pro
+  // nativo: falha de PLAYBACK (rede momentânea, foco de áudio da WebView) —
+  // a 2a tentativa é cache hit (synth já ficou em cache na 1a), sem nova
+  // requisição HTTP; falha de SÍNTESE por 429 (rate limit) — a 2a tentativa
+  // é uma requisição HTTP nova de verdade, depois de um respiro curto.
   // nativeParaIdx: controla highlights sintéticos no native — undefined desativa (ex: speakOne).
   // Retorna sessionEnded=true se a sessão foi cancelada durante o erro (caller deve parar).
   async function speakChunk(
@@ -748,7 +757,16 @@ export function useTTS(options: UseTTSOptions) {
             return { sessionEnded: true, usedProvider: provider }
           }
           lastError = error
-          if (attempt === 0 && isTransientTtsFailure(error)) continue
+          if (attempt === 0 && isTransientTtsFailure(error)) {
+            // 429 provavelmente falha de novo se retentar na hora — dá um
+            // respiro curto antes do retry (mesmo padrão do prefetch em
+            // prefetchPremiumChunk). Outros casos transientes (playback,
+            // rede) retentam na hora, sem motivo pra esperar.
+            if (getHttpStatusFromError(getErrorMessage(error)) === 429) {
+              await new Promise((resolve) => setTimeout(resolve, 500))
+            }
+            continue
+          }
           break
         }
       }

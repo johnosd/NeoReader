@@ -53,7 +53,7 @@ update-bug-status.ps1.
 | sincronizar-bookmarks-automaticamente-ao-fechar-livro | Sincronizar bookmarks automaticamente ao fechar o livro | Test | verified | Concluído | 2026-09-10 |
 | highlight-some-ao-tocar-no-mesmo | Highlight some ao tocar no mesmo parágrafo pra abrir tradução | Test | verified | Concluído | 2026-09-11 |
 | sync-bookmarks-nao-acontece-ao-fechar | Sync de bookmarks não acontece ao fechar a tela de leitura | Test | partial | Concluído (com ressalva) ou reabrir Assess | 2026-09-11 |
-| fallback-silencioso-tts-premium-nativo-android | Fallback silencioso do TTS premium para o nativo Android | Fix | applied | Rodar fase Test | 2026-09-23 |
+| fallback-silencioso-tts-premium-nativo-android | Fallback silencioso do TTS premium para o nativo Android | Test | verified | Concluído | 2026-09-23 |
 
 ## Melhorias Ad-hoc
 

@@ -1036,6 +1036,101 @@ describe('useTTS', () => {
     warnSpy.mockRestore()
   })
 
+  it('retry com atraso recupera premium quando 429 (rate limit) falha só na primeira tentativa', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    speechifyMock.getApiKey.mockResolvedValue('speechify-key')
+    speechifyMock.isConfigured.mockResolvedValue(true)
+    // 429 costuma ser autoinfligido pela concorrência do prefetch/lookahead
+    // (confirmado em log real de device) — se resolve sozinho rápido.
+    speechifyMock.synthesize.mockRejectedValueOnce(new Error('Speechify error: 429'))
+
+    const callbacks = createCallbacks()
+    const { result } = renderHook(() => useTTS({
+      ...callbacks,
+      provider: 'speechify',
+      language: 'en-US',
+      rate: 1,
+    }))
+    const chunks: TtsChunk[] = [
+      { text: 'Rate limited once then recovers.', paraIdx: 0, offsetInPara: 0 },
+    ]
+
+    let playPromise: Promise<void> | undefined
+    await act(async () => {
+      playPromise = result.current.play(chunks, 0)
+    })
+    // Espera real o respiro de 500ms do retry + flush de microtasks.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 700))
+      for (let i = 0; i < 8; i += 1) await Promise.resolve()
+    })
+
+    // Retry de 429 é uma requisição HTTP nova de verdade (não cache hit).
+    expect(speechifyMock.synthesize).toHaveBeenCalledTimes(2)
+    expect(callbacks.onProviderFallback).not.toHaveBeenCalled()
+    expect(textToSpeechMock.speak).not.toHaveBeenCalled()
+
+    await act(async () => {
+      FakeAudio.instances[0]?.finish()
+      await playPromise
+    })
+
+    expect(callbacks.onFinished).toHaveBeenCalledOnce()
+    expect(callbacks.onProviderFallback).not.toHaveBeenCalled()
+
+    warnSpy.mockRestore()
+  })
+
+  it('mantém tentativa de premium no próximo chunk quando 429 persiste nas duas tentativas do chunk atual', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    speechifyMock.getApiKey.mockResolvedValue('speechify-key')
+    speechifyMock.isConfigured.mockResolvedValue(true)
+    speechifyMock.synthesize
+      .mockRejectedValueOnce(new Error('Speechify error: 429'))
+      .mockRejectedValueOnce(new Error('Speechify error: 429'))
+
+    const callbacks = createCallbacks()
+    const { result } = renderHook(() => useTTS({
+      ...callbacks,
+      provider: 'speechify',
+      language: 'en-US',
+      rate: 1,
+    }))
+    const chunks: TtsChunk[] = [
+      { text: 'Rate limited chunk.', paraIdx: 0, offsetInPara: 0 },
+      { text: 'Retries speechify again here.', paraIdx: 1, offsetInPara: 0 },
+    ]
+
+    let playPromise: Promise<void> | undefined
+    await act(async () => {
+      playPromise = result.current.play(chunks, 0)
+    })
+    // 1a tentativa falha (429) -> respiro de 500ms -> 2a tentativa falha
+    // (429) -> cai pro nativo só NESTE chunk -> avança pro próximo chunk,
+    // que tenta speechify de novo (não assentou em nativo pro resto da sessão).
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 700))
+      for (let i = 0; i < 8; i += 1) await Promise.resolve()
+    })
+
+    expect(speechifyMock.synthesize).toHaveBeenCalledTimes(3)
+    expect(textToSpeechMock.speak).toHaveBeenCalledTimes(1)
+    expect(callbacks.onProviderFallback).toHaveBeenCalledOnce()
+    expect(callbacks.onProviderFallback).toHaveBeenCalledWith(expect.objectContaining({
+      transient: true,
+      silent: true,
+    }))
+
+    // A 3a chamada (chunk 1) fica pendente aguardando audio.play/'ended' —
+    // finaliza pra não vazar timers/promises pendentes no teste.
+    await act(async () => {
+      FakeAudio.instances[FakeAudio.instances.length - 1]?.finish()
+      await playPromise
+    })
+
+    warnSpy.mockRestore()
+  })
+
   it('handleAudioFocusChange ignora eventos quando o provider ativo e premium (US4/R-003)', async () => {
     // O <audio> premium roda no WebView e o Chromium ja se pausa/retoma sozinho
     // ao perder/reaver foco (confirmado em device real) — reagir aqui tambem
