@@ -37,6 +37,7 @@ import { createFlowId, getDiagnosticsNowMs, logEvent } from './services/Diagnost
 import { cleanupExpiredTtsVoiceCaches } from './db/ttsVoiceCaches'
 import { getBookById } from './db/books'
 import { scheduleVocabularyDriveSync } from './services/VocabularyDriveSyncService'
+import { initBookmarkSyncTriggers } from './services/BookmarkDriveSyncService'
 import { clearWordLensDictionaryPartitionsCache } from './services/WordLensDataService'
 import type { Book } from './types/book'
 import type { LibraryFilter } from './hooks/useLibraryCatalog'
@@ -89,7 +90,6 @@ function App() {
   const [stack, setStack] = useState<Route[]>([{ name: 'home' }])
   const [externalImporting, setExternalImporting] = useState(false)
   const [externalImportError, setExternalImportError] = useState<string | null>(null)
-  const [bookmarkSyncNotice, setBookmarkSyncNotice] = useState<string | null>(null)
   const [externalIntentSignal, setExternalIntentSignal] = useState(0)
   const current = stack[stack.length - 1]
 
@@ -157,6 +157,7 @@ function App() {
     if (!Capacitor.isNativePlatform()) return
 
     void cleanupNativeImportTemp().catch(() => undefined)
+    const disposeBookmarkSyncTriggers = initBookmarkSyncTriggers()
 
     let disposed = false
     const listenerPromise = CapApp.addListener('appStateChange', (state) => {
@@ -170,6 +171,7 @@ function App() {
 
     return () => {
       disposed = true
+      disposeBookmarkSyncTriggers()
       void listenerPromise
         .then((listener) => listener.remove())
         .catch(() => undefined)
@@ -277,11 +279,6 @@ function App() {
             {externalImportError}
           </Toast>
         )}
-        {bookmarkSyncNotice && (
-          <Toast tone="warning" durationMs={6000} onDismiss={() => setBookmarkSyncNotice(null)}>
-            {bookmarkSyncNotice}
-          </Toast>
-        )}
       </>
     )
   }
@@ -340,7 +337,6 @@ function App() {
             onBack={pop}
             onOpenVocabulary={() => push({ name: 'vocabulary', bookId: current.book.id })}
             onOpenSettings={() => push({ name: 'settings' })}
-            onBookmarkSyncBlocked={setBookmarkSyncNotice}
           />
         </ErrorBoundary>
       )

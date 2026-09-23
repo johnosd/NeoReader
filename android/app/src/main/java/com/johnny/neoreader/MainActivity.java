@@ -30,8 +30,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(NeoReaderLibraryPlugin.class);
         registerPlugin(NeoReaderTtsPlaybackPlugin.class);
-        // SPIKE descartável — ver DriveAuthSpikePlugin.
-        registerPlugin(DriveAuthSpikePlugin.class);
+        registerPlugin(GoogleDriveAuthPlugin.class);
         super.onCreate(savedInstanceState);
     }
 

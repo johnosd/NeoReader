@@ -535,18 +535,16 @@ describe('ReaderScreen', () => {
     expect(onBack).toHaveBeenCalledOnce()
   })
 
-  it('ao fechar o livro com bookmark pendente e status permission-error, avisa em vez de tentar sincronizar', async () => {
+  it('ao fechar o livro com bookmark pendente e status permission-error, ainda tenta sincronizar sem avisar (feature 021)', async () => {
     mocks.bookmarks = [{ id: 1, syncedAt: null }]
     mocks.getCachedBookmarkDriveSyncStatus.mockReturnValue({ code: 'permission-error' })
     const onBack = vi.fn()
-    const onBookmarkSyncBlocked = vi.fn()
 
     render(
       <ReaderScreen
         book={book}
         onBack={onBack}
         onOpenVocabulary={vi.fn()}
-        onBookmarkSyncBlocked={onBookmarkSyncBlocked}
       />,
     )
     await flushAsyncWork()
@@ -555,8 +553,9 @@ describe('ReaderScreen', () => {
       fireEvent.click(screen.getByText('go-back'))
     })
 
-    expect(mocks.scheduleBookmarkDriveSync).not.toHaveBeenCalled()
-    expect(onBookmarkSyncBlocked).toHaveBeenCalledWith(expect.any(String))
+    // A decisão de barrar (só com consentimento pendente) é do
+    // scheduleBookmarkDriveSync, não da tela — e nenhum toast é disparado.
+    expect(mocks.scheduleBookmarkDriveSync).toHaveBeenCalledWith(1)
     expect(onBack).toHaveBeenCalledOnce()
   })
 

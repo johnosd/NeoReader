@@ -6,7 +6,6 @@ update-bug-status.ps1.
 
 ## Ideias Futuras
 
-1. **Automatização do sync de bookmarks ao fechar**: Melhorar o fluxo de salvamento de bookmarks ao fechar um livro. O objetivo é remover o aviso de erro atual e fazer com que o sistema tente sincronizar de forma automática e invisível (sem exigir que o usuário vá à lista de bookmarks e clique no ícone de nuvem).
 
 
 ## Features
@@ -33,6 +32,7 @@ update-bug-status.ps1.
 | 018-tts-traduzido | TTS Traduzido (audiobook com tradução em lote por parágrafo) | Convergida | 53/53 tasks | 2026-09-12 |
 | 019-onboarding-diferenciais | Onboarding com Diferenciais (TTS Traduzido, Vozes e Tradução Premium, OPDS, Sync) | Em Execucao | 43/45 tasks | 2026-09-16 |
 | 020-tts-buffer-lookahead | Buffer e Lookahead de TTS na língua nativa | Em Execução | 6/11 tasks | 2026-09-21 |
+| 021-automatizacao-sync-bookmarks-ao-fechar | Automatização do sync de bookmarks ao fechar | Em Execucao | 4/19 tasks | 2026-09-23 |
 
 ## Bugs
 

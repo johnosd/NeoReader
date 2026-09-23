@@ -51,7 +51,6 @@ import {
 import { Switch } from '../components/ui'
 import { translate } from '../services/TranslationService'
 import { scheduleBookmarkDriveSync } from '../services/BookmarkDriveSyncService'
-import { getCachedBookmarkDriveSyncStatus } from '../services/BookmarkDriveSyncStatus'
 import { createFlowId, getDiagnosticsNowMs, logError, logEvent } from '../services/DiagnosticsLogger'
 import { setReaderImmersiveMode, setSelectionMenuSuppressed } from '../services/NativeSystemUiService'
 import { TtsPlaybackSessionService, type TtsPlaybackControlEvent, type TtsAudioFocusEvent } from '../services/TtsPlaybackSessionService'
@@ -141,10 +140,6 @@ interface ReaderScreenProps {
   onBack: () => void
   onOpenVocabulary: () => void
   onOpenSettings?: () => void
-  // Chamado (em vez de tentar sincronizar) quando há bookmark pendente e o
-  // Drive está com token expirado — só Configuracoes/o icone de sync podem
-  // abrir a tela de login do Google (ver handleBack), então aqui só avisamos.
-  onBookmarkSyncBlocked?: (message: string) => void
 }
 
 export function ReaderScreen({
@@ -155,7 +150,6 @@ export function ReaderScreen({
   onBack,
   onOpenVocabulary,
   onOpenSettings = () => undefined,
-  onBookmarkSyncBlocked = () => undefined,
 }: ReaderScreenProps) {
   const { t } = useI18n()
   const viewerRef = useRef<EpubViewerHandle>(null)
@@ -1140,21 +1134,14 @@ export function ReaderScreen({
     // livro logo depois de marcar, o sync pode não ter terminado ainda.
     // Dá mais uma chance aqui; scheduleBookmarkDriveSync já é seguro de
     // chamar de novo (dedupe interno, no-op se não houver nada pendente).
+    // Token vencido não é mais motivo pra avisar: o sync renova sozinho sem
+    // UI (feature 021); se precisar de consentimento, isso vira tela só na
+    // próxima abertura do app (retryPendingBookmarkSyncs), nunca aqui.
     if (bookmarks.some((bookmark) => !bookmark.syncedAt)) {
-      // 'permission-error' faz scheduleBookmarkDriveSync descartar a chamada
-      // em silêncio (token do Drive expirado não se autorrenova — mesmo
-      // problema do bugfix bookmark-nao-sincroniza-ao-clicar-no). Só
-      // Configuracoes/o ícone de sync podem abrir a tela de login do Google
-      // pra resolver isso; fechar o leitor não é essa ação explícita do
-      // usuário, então só avisamos em vez de tentar (e falhar) de novo.
-      if (getCachedBookmarkDriveSyncStatus().code === 'permission-error') {
-        onBookmarkSyncBlocked(t('reader.bookmarkSyncPendingNotice'))
-      } else {
-        void scheduleBookmarkDriveSync(book.id!)
-      }
+      void scheduleBookmarkDriveSync(book.id!)
     }
     onBack()
-  }, [flushCurrentProgress, bookmarks, book.id, onBack, onBookmarkSyncBlocked, t])
+  }, [flushCurrentProgress, bookmarks, book.id, onBack])
 
   // Intercepta o botão Back físico do Android (via plugin Capacitor)
   useCapacitorBackButton(() => {
