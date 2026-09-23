@@ -40,7 +40,7 @@ interface UseTTSOptions extends TtsPlaybackConfig {
   bookTitle?: string
   onWordHighlight: (paraIdx: number, start: number, end: number) => void
   onParagraphChange: (paraIdx: number) => void
-  onProviderFallback?: (payload: { provider: TtsProvider; fallbackProvider: 'native'; reason: string; transient: boolean }) => void
+  onProviderFallback?: (payload: { provider: TtsProvider; fallbackProvider: 'native'; reason: string; transient: boolean; silent: boolean }) => void
   onStop: () => void
   onFinished?: () => void
   onError?: (error: unknown) => void
@@ -126,18 +126,41 @@ function getPremiumFallbackReason(provider: TtsProvider, error: unknown, t: Tran
   return t('tts.fallbackReason.unexpected', { provider: providerLabel })
 }
 
-// Erros transientes: AbortError (WebView suspensa, timeout) e erros de rede.
-// Nesses casos o provider premium pode ter sucesso na próxima tentativa,
-// então o loop não troca permanentemente para native.
+// Erros transientes: AbortError (WebView suspensa, timeout), erros de rede,
+// e falha de PLAYBACK do <audio> compartilhado (NotAllowedError — Chromium
+// recusa audio.play() depois de suspender o elemento sozinho por perda de
+// foco de áudio da WebView em segundo plano; MediaError — normalizado em
+// mensagem reconhecível por handleAudioError). Nesses casos o provider
+// premium pode ter sucesso na próxima tentativa, então o loop não troca
+// permanentemente para native (ver retry em speakChunk).
 function isTransientTtsFailure(error: unknown): boolean {
-  if (error instanceof DOMException && error.name === 'AbortError') return true
+  if (error instanceof DOMException && (error.name === 'AbortError' || error.name === 'NotAllowedError')) return true
   const message = getErrorMessage(error)
   const normalized = message.toLowerCase()
   return (
     normalized.includes('aborted') ||
     normalized.includes('failed to fetch') ||
-    normalized.includes('networkerror')
+    normalized.includes('networkerror') ||
+    normalized.includes('audio playback failed')
   )
+}
+
+// Falha que o usuário PODE resolver sozinho (key inválida/não configurada,
+// voz ausente/rejeitada, request malformado etc) — só essas merecem toast +
+// persistir 'native' no livro, senão o app ficaria martelando o mesmo erro
+// pra sempre sem avisar ninguém. Falha transiente (ver acima) e falha de
+// rede/servidor/limite/créditos (fora do controle do usuário no momento)
+// caem pro nativo silenciosamente só NESTA sessão — decisão de produto
+// confirmada com o usuário: a sessão de leitura seguinte tenta o provider
+// premium de novo sozinha, sem exigir troca manual.
+function isUserActionableTtsFailure(error: unknown): boolean {
+  if (isTransientTtsFailure(error)) return false
+
+  const status = getHttpStatusFromError(getErrorMessage(error))
+  if (status === 402 || status === 429) return false
+  if (status !== null && status >= 500) return false
+
+  return true
 }
 
 function getAudioDurationMs(audio: HTMLAudioElement): number | null {
@@ -452,7 +475,11 @@ export function useTTS(options: UseTTSOptions) {
       }
 
       function handleAudioError() {
-        finish(audio.error ?? new Error('Audio playback failed'))
+        // audio.error é um MediaError (não DOMException/Error) — normaliza
+        // numa mensagem reconhecível, senão getErrorMessage cai no genérico
+        // "[object MediaError]" e a falha não é classificada como transiente.
+        const mediaError = audio.error
+        finish(new Error(`audio playback failed${mediaError ? ` (code ${mediaError.code})` : ''}`))
       }
 
       audio.addEventListener('play', handlePlay)
@@ -692,6 +719,10 @@ export function useTTS(options: UseTTSOptions) {
   }
 
   // Despacha para o provider correto com fallback automático para native em caso de erro.
+  // Falha transiente (rede momentânea, playback interrompido pelo foco de
+  // áudio da WebView) ganha 1 nova tentativa no MESMO chunk antes de cair
+  // pro nativo — a segunda tentativa é cache hit (synth já ficou em cache na
+  // primeira), então só reexecuta o playback, sem nova requisição HTTP.
   // nativeParaIdx: controla highlights sintéticos no native — undefined desativa (ex: speakOne).
   // Retorna sessionEnded=true se a sessão foi cancelada durante o erro (caller deve parar).
   async function speakChunk(
@@ -707,32 +738,46 @@ export function useTTS(options: UseTTSOptions) {
   ): Promise<{ sessionEnded: boolean; usedProvider: TtsProvider }> {
     if (isPremiumTtsProvider(provider)) {
       activeProviderRef.current = provider
-      try {
-        await speakWithPremium(provider, text, paraIdx, offsetInPara, session, trackPlaybackState, onPlayStarted)
-        return { sessionEnded: false, usedProvider: provider }
-      } catch (error) {
-        if (shouldStopRef.current || playSessionRef.current !== session) {
-          return { sessionEnded: true, usedProvider: provider }
+      let lastError: unknown
+      for (let attempt = 0; attempt <= 1; attempt += 1) {
+        try {
+          await speakWithPremium(provider, text, paraIdx, offsetInPara, session, trackPlaybackState, onPlayStarted)
+          return { sessionEnded: false, usedProvider: provider }
+        } catch (error) {
+          if (shouldStopRef.current || playSessionRef.current !== session) {
+            return { sessionEnded: true, usedProvider: provider }
+          }
+          lastError = error
+          if (attempt === 0 && isTransientTtsFailure(error)) continue
+          break
         }
-        const transient = isTransientTtsFailure(error)
-        logPremiumTtsFallback(provider, error)
-        logWarn('tts.provider.fallback', {
-          provider,
-          status: 'fallback',
-          error,
-          details: {
-            fallbackProvider: 'native',
-            textLength: text.length,
-            paraIdx,
-            transient,
-          },
-        })
-        onFallback(provider, error)
-        await fallbackToNative(text, session, nativeParaIdx, offsetInPara)
-        // Transiente (AbortError/rede): retorna o provider original → loop retenta premium no próximo chunk.
-        // Permanente (API error, auth, etc.): retorna 'native' → play() troca playbackProvider definitivamente.
-        return { sessionEnded: false, usedProvider: transient ? provider : 'native' }
       }
+
+      const error = lastError
+      const transient = isTransientTtsFailure(error)
+      // silent: fora do controle do usuário no momento (transiente, ou
+      // rede/servidor/limite/créditos) — cai pro nativo sem toast nem
+      // persistir no livro. Só falha "acionável" (key inválida, voz
+      // ausente, request malformado) avisa e persiste.
+      const silent = !isUserActionableTtsFailure(error)
+      logPremiumTtsFallback(provider, error)
+      logWarn('tts.provider.fallback', {
+        provider,
+        status: 'fallback',
+        error,
+        details: {
+          fallbackProvider: 'native',
+          textLength: text.length,
+          paraIdx,
+          transient,
+          silent,
+        },
+      })
+      onFallback(provider, error)
+      await fallbackToNative(text, session, nativeParaIdx, offsetInPara)
+      // Transiente (AbortError/rede/playback): retorna o provider original → loop retenta premium no próximo chunk.
+      // Permanente (API error, auth, etc.): retorna 'native' → play() troca playbackProvider definitivamente.
+      return { sessionEnded: false, usedProvider: transient ? provider : 'native' }
     }
 
     activeProviderRef.current = 'native'
@@ -847,6 +892,7 @@ export function useTTS(options: UseTTSOptions) {
         fallbackProvider: 'native',
         reason: getPremiumFallbackReason(provider, error, t),
         transient: isTransientTtsFailure(error),
+        silent: !isUserActionableTtsFailure(error),
       })
     }
 
@@ -1073,6 +1119,7 @@ export function useTTS(options: UseTTSOptions) {
         fallbackProvider: 'native',
         reason: getPremiumFallbackReason(provider, error, t),
         transient: isTransientTtsFailure(error),
+        silent: !isUserActionableTtsFailure(error),
       })
     }
 

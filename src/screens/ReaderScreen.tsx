@@ -611,13 +611,16 @@ export function ReaderScreen({
         void syncTtsPlaybackMetadata(chapterLabel)
       }
     },
-    onProviderFallback: ({ provider, reason, transient }) => {
-      if (!ttsFallbackNoticeShownRef.current.has(provider)) {
+    onProviderFallback: ({ provider, reason, silent }) => {
+      // silent = fora do controle do usuário no momento (rede/servidor/
+      // limite/créditos, ou playback momentâneo da WebView) — o app já caiu
+      // pro nativo sozinho; não incomoda com toast nem grava a troca no
+      // livro, pra sessão de leitura seguinte tentar o premium de novo
+      // sozinha (decisão de produto — ver assessment.md do bug).
+      if (!silent && !ttsFallbackNoticeShownRef.current.has(provider)) {
         ttsFallbackNoticeShownRef.current.add(provider)
         setTtsFallbackNotice({ provider, reason })
-        // Só persiste 'native' no banco em falhas permanentes (key inválida, sem créditos, etc.)
-        // Erros transientes (timeout, rede) não mudam a config do livro permanentemente
-        if (!transient) switchToNativeTts()
+        switchToNativeTts()
       }
       setTtsProviderFallback({ provider })
     },

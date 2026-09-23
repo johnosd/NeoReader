@@ -76,15 +76,21 @@ vi.mock('@/services/TtsPlaybackSessionService', () => ({
 class FakeAudio extends EventTarget {
   static instances: FakeAudio[] = []
   static nextPlayError: unknown = null
+  // Quantas chamadas seguidas de audio.play() devem rejeitar com
+  // nextPlayError antes de "curar" sozinho — default 1 (falha só na
+  // primeira, como antes). Usado pra simular o retry de speakChunk: setar
+  // 2 faz as duas tentativas (original + retry) falharem.
+  static nextPlayErrorCount = 1
 
   currentTime = 0
   duration = 2
   ended = false
   paused = true
   play = vi.fn(async () => {
-    if (FakeAudio.nextPlayError) {
+    if (FakeAudio.nextPlayError && FakeAudio.nextPlayErrorCount > 0) {
       const error = FakeAudio.nextPlayError
-      FakeAudio.nextPlayError = null
+      FakeAudio.nextPlayErrorCount -= 1
+      if (FakeAudio.nextPlayErrorCount === 0) FakeAudio.nextPlayError = null
       throw error
     }
     this.paused = false
@@ -110,6 +116,7 @@ class FakeAudio extends EventTarget {
   static reset() {
     FakeAudio.instances = []
     FakeAudio.nextPlayError = null
+    FakeAudio.nextPlayErrorCount = 1
   }
 }
 
@@ -382,12 +389,61 @@ describe('useTTS', () => {
     expect(callbacks.onFinished).not.toHaveBeenCalled()
   })
 
-  it('limpa audio premium e cai para nativo quando audio.play falha', async () => {
+  it('retry recupera o premium quando audio.play falha só na primeira tentativa (NotAllowedError)', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    speechifyMock.getApiKey.mockResolvedValue('speechify-key')
+    speechifyMock.isConfigured.mockResolvedValue(true)
+    // Default nextPlayErrorCount=1: só a 1a chamada de audio.play() falha —
+    // simula o <audio> compartilhado suspenso pelo foco da WebView, que
+    // "cura" sozinho na tentativa seguinte.
+    FakeAudio.nextPlayError = new DOMException('Autoplay bloqueado', 'NotAllowedError')
+
+    const callbacks = createCallbacks()
+    const { result } = renderHook(() => useTTS({
+      ...callbacks,
+      provider: 'speechify',
+      language: 'en-US',
+      rate: 1,
+    }))
+    const chunks: TtsChunk[] = [
+      { text: 'Premium playback can fail once.', paraIdx: 0, offsetInPara: 0 },
+    ]
+
+    let playPromise: Promise<void> | undefined
+    await act(async () => {
+      playPromise = result.current.play(chunks, 0)
+    })
+    // Várias rodadas de microtask: 1a tentativa falha, retry reusa o cache
+    // (sem nova chamada HTTP) e chega até audio.play() de novo.
+    await act(async () => {
+      for (let i = 0; i < 8; i += 1) await Promise.resolve()
+    })
+
+    // Cache hit no retry — só 1 chamada de síntese pra 2 tentativas de playback.
+    expect(speechifyMock.synthesize).toHaveBeenCalledOnce()
+    expect(FakeAudio.instances).toHaveLength(1)
+    expect(FakeAudio.instances[0]?.play).toHaveBeenCalledTimes(2)
+    expect(callbacks.onProviderFallback).not.toHaveBeenCalled()
+    expect(textToSpeechMock.speak).not.toHaveBeenCalled()
+
+    await act(async () => {
+      FakeAudio.instances[0]?.finish()
+      await playPromise
+    })
+
+    expect(callbacks.onProviderFallback).not.toHaveBeenCalled()
+    expect(callbacks.onFinished).toHaveBeenCalledOnce()
+
+    warnSpy.mockRestore()
+  })
+
+  it('cai pro nativo silenciosamente (sem persistir) quando audio.play falha nas duas tentativas', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     speechifyMock.getApiKey.mockResolvedValue('speechify-key')
     speechifyMock.isConfigured.mockResolvedValue(true)
     FakeAudio.nextPlayError = new DOMException('Autoplay bloqueado', 'NotAllowedError')
+    FakeAudio.nextPlayErrorCount = 2
 
     const callbacks = createCallbacks()
     const { result } = renderHook(() => useTTS({
@@ -404,27 +460,34 @@ describe('useTTS', () => {
       await result.current.play(chunks, 0)
     })
 
+    // Síntese só 1x (retry reusa cache), mas playback tentado 2x antes de desistir.
+    expect(speechifyMock.synthesize).toHaveBeenCalledOnce()
     expect(FakeAudio.instances).toHaveLength(1)
-    expect(FakeAudio.instances[0]?.play).toHaveBeenCalledOnce()
+    expect(FakeAudio.instances[0]?.play).toHaveBeenCalledTimes(2)
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock')
     expect(textToSpeechMock.speak).toHaveBeenCalledOnce()
     expect(callbacks.onProviderFallback).toHaveBeenCalledWith(expect.objectContaining({
       provider: 'speechify',
       fallbackProvider: 'native',
       reason: 'Speechify falhou por um erro inesperado.',
+      transient: true,
+      silent: true,
     }))
+    // 2 falhas de playback logadas — uma por tentativa (original + retry).
     const playbackErrors = getConsoleEvents(errorSpy, 'tts.playback.error')
-    expect(playbackErrors).toHaveLength(1)
-    expect(playbackErrors[0]).toEqual(expect.objectContaining({
-      provider: 'speechify',
-      status: 'failure',
-      errorMessage: 'Autoplay bloqueado',
-    }))
-    expect(playbackErrors[0]?.details).toEqual(expect.objectContaining({
-      mode: 'continuous',
-      paraIdx: 0,
-      trackPlaybackState: true,
-    }))
+    expect(playbackErrors).toHaveLength(2)
+    for (const playbackError of playbackErrors) {
+      expect(playbackError).toEqual(expect.objectContaining({
+        provider: 'speechify',
+        status: 'failure',
+        errorMessage: 'Autoplay bloqueado',
+      }))
+      expect(playbackError.details).toEqual(expect.objectContaining({
+        mode: 'continuous',
+        paraIdx: 0,
+        trackPlaybackState: true,
+      }))
+    }
 
     warnSpy.mockRestore()
     errorSpy.mockRestore()
@@ -912,6 +975,11 @@ describe('useTTS', () => {
       provider: 'speechify',
       fallbackProvider: 'native',
       reason: 'Speechify está indisponível no momento.',
+      // 5xx não é acionável pelo usuário (fora do controle dele no
+      // momento) — cai pro nativo silenciosamente, sem toast nem persistir
+      // no livro (ver isUserActionableTtsFailure).
+      transient: false,
+      silent: true,
     }))
     expect(callbacks.onFinished).toHaveBeenCalledOnce()
     const diagnosticCall = warnSpy.mock.calls.find((call) => (
