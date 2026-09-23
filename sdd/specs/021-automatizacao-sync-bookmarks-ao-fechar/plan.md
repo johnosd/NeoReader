@@ -93,7 +93,8 @@ npm run android:build
 
 | ID | Risco/Decisão | Impacto | Mitigação/Encaminhamento |
 | --- | --- | --- | --- |
-| R-001 | AAB Release vs Google Sign-In Bug | Alto | O teste no device físico com o APK assinado para release é critério de aceite mandatório desta feature. |
+| R-001 | AAB Release vs Google Sign-In Bug | Alto | **Resolvido**: dispensado pelo usuário em 2026-09-23 — esse problema de assinatura já ocorreu antes no projeto e não exige mudança nesta feature. Risco aceito; reabrir como bug se o sync falhar em produção por esse motivo. |
+| R-002 | Validação em device do caso residual (`needsUi=true`, revogação de acesso — T015) e da expiração real de 1h (SC-001 — T016) | Médio | **Resolvido**: dispensado pelo usuário em 2026-09-23 — "vou utilizar o aplicativo por um tempo e caso apareça o problema novamente, eu irei abrir um novo bug". Ambos os caminhos têm cobertura de teste unitário (`FirebaseAuthService.test.ts`, `BookmarkDriveSyncTriggers.test.ts`) e T017 (gatilho de resume/online) foi validado no device com sucesso, então o risco residual é só a lacuna entre mock e comportamento real do Google nesses 2 cenários específicos. |
 
 ## Execution Notes
 
@@ -107,15 +108,68 @@ npm run android:build
 | 2026-09-23 | Correção da validação acima | **A validação anterior NÃO exercitou a renovação**: logcat sem nenhuma chamada `authorizeSilent`. `localStorage.removeItem` via CDP seguido de `am force-stop` não chega ao disco (o WebView grava o DOMStorage de forma assíncrona), então o token antigo e válido sobreviveu e os syncs passaram com ele. Refeito: `drive-token-expiry=0` (simula o TTL) + `location.reload()` sem matar o processo → `authorizeSilent` chamado, `drive.token.silent.renewed` 180ms depois, expiry renovado, `vocabulary.sync.success`, nenhuma UI. O logger não tinha problema: o evento faltava porque a renovação não aconteceu. Bookmark depois da renovação usa o mesmo `GoogleDriveAppDataService` (coberto por teste). O Google devolveu o mesmo token do cache (ainda válido do lado dele); a emissão de token novo após 1h real não foi observada. Validação do AAB de release dispensada pelo usuário ("esse problema de chave já ocorreu e não precisamos mudar nada"). | Nenhuma bloqueante. |
 | 2026-09-23 | Phase 5: Convergence | T017: o usuário testou no device o cenário do modo avião e relatou "funcionou" (evidência = relato do usuário; o logcat daquele teste não foi capturado nesta sessão). T018: `quickstart.md` reescrito com o fluxo real (gradlew/adb/CDP, expiração via `drive-token-expiry=0` + `location.reload()`, aviso sobre `force-stop`, release dispensado, cenário 5 de expiração real). | T015 (revogação/consentimento) e T016 (1h real). |
 
-**PRÓXIMO**: Validar em device AAB Release.
-
 ## Arquivos Principais
 
 - `android/app/src/main/java/com/johnny/neoreader/GoogleDriveAuthPlugin.java`
 - `android/app/src/main/java/com/johnny/neoreader/MainActivity.java`
 - `src/plugins/GoogleDriveAuthPlugin.ts`
+- `src/services/FirebaseAuthService.ts` (`renewDriveTokenSilently`, `isDriveConsentRequired`)
+- `src/services/GoogleDriveAppDataService.ts`
+- `src/services/BookmarkDriveSyncService.ts` (`initBookmarkSyncTriggers`, `retryPendingBookmarkSyncs`)
 
 ## Cuidados para Retomada
 
-- (nenhum ainda)
+- Se o sintoma original (bookmark não sincroniza ao fechar / toast de erro)
+  reaparecer, abrir um bug novo em vez de reabrir esta feature — a decisão do
+  usuário em 2026-09-23 foi encerrar o ciclo de validação manual e usar o app
+  normalmente daqui pra frente.
+
+## Resultado Final
+
+<!-- Anexado pelo sdd-converge (2026-09-23). Nada acima foi reescrito. -->
+
+Feature convergida com as duas user stories (P1 e P2) implementadas e
+cobertas por teste automatizado:
+
+- **US1 (sync silencioso)**: `GoogleDriveAppDataService` renova o token sem
+  UI tanto na ausência de token (cold start após o TTL de ~55min) quanto após
+  um 401/403 em voo, via `GoogleDriveAuthPlugin.authorizeSilent()`
+  (`AuthorizationClient` do Google Identity Services, sem
+  `requestOfflineAccess`). O token renovado é persistido
+  (`rememberGoogleDriveAccessToken`). `initBookmarkSyncTriggers` re-tenta os
+  bookmarks pendentes no cold start, no resume do app e ao voltar a rede. O
+  toast `reader.bookmarkSyncPendingNotice` foi removido (chave i18n e código
+  morto também).
+- **US2 (consentimento residual)**: quando o Google exige UI
+  (`hasResolution()=true`), a flag `isDriveConsentRequired` é persistida em
+  `localStorage` e só é consumida no próximo resume/cold start, via
+  `refreshDriveToken({ userInitiated: false })` — respeitando o cooldown
+  existente contra o bug "app pede login do Google o tempo todo". Qualquer
+  token novo ou logout limpa a flag.
+
+**Desvios acumulados em relação ao plano original** (ver Execution Notes
+acima para o histórico completo): a primeira implementação (de outro
+modelo) tinha 9 problemas — cobria só o retry pós-401 (não o cold start sem
+token), não persistia o token renovado, o guard `permission-error`
+continuava travando os gatilhos, a flag de consentimento não sobrevivia a
+cold start, o resume furava o cooldown anti-spam de login, faltavam
+cleanups de listener, o retry rodava para não-Pro, e `ReaderScreen.tsx` foi
+regravado com encoding corrompido (BOM + mojibake). Tudo corrigido numa
+revisão de código antes do commit (`9c18cfe`); T005/T011 (testes que
+estavam marcadas como feitas sem existir) foram escritas de fato.
+
+**Validado em device (debug, RXCX103NMVZ)**: renovação silenciosa
+confirmada via `authorizeSilent` → `drive.token.silent.renewed` (simulando
+o TTL vencido, sem matar o processo); gatilho de retorno ao app depois do
+modo avião confirmado pelo usuário. **Não validado** (risco aceito
+explicitamente pelo usuário em 2026-09-23, ver R-002): revogação de acesso
+via Google Account (caso `needsUi=true`) e expiração real de 1h. **Não
+validado** (risco aceito, ver R-001): comportamento no AAB de release —
+mesmo bug de assinatura já conhecido do projeto, sem mudança necessária
+nesta feature.
+
+**Métricas de sucesso da spec**: SC-002 (zero toasts no caminho feliz) e a
+parte funcional de SC-001 (sync sem interação) confirmadas em device;
+SC-001 restrito à emissão de token novo após 1h real e SC-003 (release)
+ficam como risco aceito, não bloqueante.
 

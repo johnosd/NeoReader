@@ -25,13 +25,17 @@ tags, pastas de origem e caches ficam no dispositivo.
   ocultados para usuario Pro quando o entitlement estiver ativo.
 - Drive Sync de bookmarks existe via Google Drive `appDataFolder`, bloqueado
   pelo entitlement Pro. Progresso, vocabulario, EPUB e recursos de IA ainda nao
-  entram no sync. O token de acesso **nao** se renova sozinho: renovar exige
-  abrir a tela de consentimento do Google (limitacao do plugin, ver
-  `sdd/bugs/app-pedindo-login-google-muita-frequencia/`), entao quando o token
-  expira (~1h) o sync para em silencio e o status vira erro de permissao — so
-  o botao "Reconectar" em Configuracoes > Sincronizacao na Nuvem pede login de
-  novo. Um bookmark pendente ou com erro pode ser sincronizado direto pelo
-  proprio icone de nuvem na tela de Detalhes do Livro, sem abrir Configuracoes.
+  entram no sync. O token de acesso (~1h) se renova sozinho, sem UI, via
+  `GoogleDriveAuthPlugin` nativo (`AuthorizationClient` do Google Identity
+  Services, Android apenas) — cold start sem token e 401/403 em voo disparam a
+  renovacao automaticamente (feature `021-automatizacao-sync-bookmarks-ao-
+  fechar`). Bookmarks pendentes sao re-tentados ao fechar o livro, ao voltar
+  pro app e ao recuperar rede. So quando o Google exige consentimento de novo
+  (acesso revogado, conta trocada) o app pede login — e so no proximo
+  cold start/resume, nunca no meio da leitura (respeitando o cooldown contra
+  `sdd/bugs/app-pedindo-login-google-muita-frequencia/`). Um bookmark pendente
+  ou com erro tambem pode ser sincronizado direto pelo icone de nuvem na tela
+  de Detalhes do Livro, sem abrir Configuracoes.
 - Review/Author/Descubra usam quota Free mensal local-first; cache ja carregado
   continua visivel e Pro remove a quota.
 

@@ -1,4 +1,6 @@
-# Spec: Automatização do sync de bookmarks ao fechar
+# Feature Specification: Automatização do sync de bookmarks ao fechar
+
+**Status**: Convergida
 
 ## Scope
 
