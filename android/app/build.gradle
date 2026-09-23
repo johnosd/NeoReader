@@ -62,6 +62,10 @@ dependencies {
     // no proximo `npx cap sync android` se uma versao estavel mais nova existir.
     implementation "androidx.security:security-crypto:1.1.0-alpha06"
     implementation "androidx.media:media:$androidxMediaVersion"
+    // AuthorizationClient do GoogleDriveAuthPlugin (feature 021, token do
+    // Drive sem UI). Mesma versão que o @capacitor-firebase/authentication já
+    // empacota — só expõe a lib ao classpath do :app, nada novo no APK.
+    implementation "com.google.android.gms:play-services-auth:20.7.0"
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"

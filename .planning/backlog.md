@@ -7,6 +7,7 @@ update-bug-status.ps1.
 ## Ideias Futuras
 
 
+
 ## Features
 
 | Slug | Título | Status | Progresso | Última Atualização |
@@ -30,6 +31,9 @@ update-bug-status.ps1.
 | 017-traducao-premium-byok | Tradução Premium BYOK (DeepL, OpenAI, Google) | Convergida | 59/60 tasks | 2026-09-11 |
 | 018-tts-traduzido | TTS Traduzido (audiobook com tradução em lote por parágrafo) | Convergida | 53/53 tasks | 2026-09-12 |
 | 019-onboarding-diferenciais | Onboarding com Diferenciais (TTS Traduzido, Vozes e Tradução Premium, OPDS, Sync) | Em Execucao | 43/45 tasks | 2026-09-16 |
+| 020-tts-buffer-lookahead | Buffer e Lookahead de TTS na língua nativa | Em Execução | 6/11 tasks | 2026-09-21 |
+| 021-automatizacao-sync-bookmarks-ao-fechar | Automatização do sync de bookmarks ao fechar | Convergida | 19/23 tasks | 2026-09-23 |
+| 022-suporte-pdf-paridade | Suporte a PDF com paridade de recursos do EPUB | Planejada | 0/101 tasks | 2026-09-23 |
 
 ## Bugs
 
@@ -50,6 +54,7 @@ update-bug-status.ps1.
 | sincronizar-bookmarks-automaticamente-ao-fechar-livro | Sincronizar bookmarks automaticamente ao fechar o livro | Test | verified | Concluído | 2026-09-10 |
 | highlight-some-ao-tocar-no-mesmo | Highlight some ao tocar no mesmo parágrafo pra abrir tradução | Test | verified | Concluído | 2026-09-11 |
 | sync-bookmarks-nao-acontece-ao-fechar | Sync de bookmarks não acontece ao fechar a tela de leitura | Test | partial | Concluído (com ressalva) ou reabrir Assess | 2026-09-11 |
+| fallback-silencioso-tts-premium-nativo-android | Fallback silencioso do TTS premium para o nativo Android | Test | verified | Concluído | 2026-09-23 |
 
 ## Melhorias Ad-hoc
 

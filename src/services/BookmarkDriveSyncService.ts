@@ -1,4 +1,6 @@
+import { App as CapApp } from '@capacitor/app'
 import { db } from '../db/database'
+import { isDriveConsentRequired, refreshDriveToken } from './FirebaseAuthService'
 import type { Bookmark } from '../types/book'
 import { BillingService } from './BillingService'
 import {
@@ -43,7 +45,13 @@ const rerunBookIds = new Set<number>()
 
 export function scheduleBookmarkDriveSync(bookId: number): Promise<void> {
   if (!Number.isFinite(bookId)) return Promise.resolve()
-  if (getCachedBookmarkDriveSyncStatus().code === 'permission-error') return Promise.resolve()
+  // Só barra quando o Google disse que precisa de consentimento (UI): aí
+  // tentar de novo é garantidamente inútil até o usuário reabrir o app. Um
+  // 'permission-error' por token vencido se resolve sozinho com a renovação
+  // silenciosa dentro do GoogleDriveAppDataService (feature 021).
+  if (getCachedBookmarkDriveSyncStatus().code === 'permission-error' && isDriveConsentRequired()) {
+    return Promise.resolve()
+  }
   if (inFlightBookIds.has(bookId)) {
     rerunBookIds.add(bookId)
     return Promise.resolve()
@@ -215,4 +223,52 @@ function normalizeBookmarkSyncError(error: unknown): string {
   }
 
   return normalizeBookmarkDriveSyncError(error)
+}
+
+// Gatilhos de retry dos bookmarks pendentes (feature 021): cold start (a
+// própria chamada), app voltando ao foreground e rede voltando. Devolve o
+// cleanup dos listeners — o chamador (App.tsx) remove no unmount.
+export function initBookmarkSyncTriggers(): () => void {
+  let disposed = false
+  const runIfActive = () => {
+    if (!disposed) void retryPendingBookmarkSyncs()
+  }
+
+  const appStateListener = CapApp.addListener('appStateChange', (state) => {
+    if (state.isActive) runIfActive()
+  })
+  window.addEventListener('online', runIfActive)
+  runIfActive()
+
+  return () => {
+    disposed = true
+    window.removeEventListener('online', runIfActive)
+    void appStateListener.then((listener) => listener.remove()).catch(() => undefined)
+  }
+}
+
+export async function retryPendingBookmarkSyncs(): Promise<void> {
+  try {
+    // Sem Pro não há sync — evita varrer o banco e agendar à toa a cada resume.
+    await BillingService.waitForEntitlements()
+    if (!hasBookmarkDriveSyncEntitlement()) return
+
+    // Caso residual (escopo revogado/conta trocada): a spec quer a tela do
+    // Google só quando o usuário ABRE o app — que é exatamente quando este
+    // retry roda (cold start/resume), nunca no meio da leitura.
+    // userInitiated: false mantém o cooldown de 30min/teto por sessão do
+    // refreshDriveToken: se o usuário cancelar, não reabrimos a cada resume.
+    if (isDriveConsentRequired()) {
+      const outcome = await refreshDriveToken({ userInitiated: false })
+      if (outcome !== 'refreshed') return
+      // Token novo: o guard de permission-error não pode mais barrar o retry.
+      setBookmarkDriveSyncStatus('pending-offline')
+    }
+
+    const pendingBookmarks = await db.bookmarks.filter((bookmark) => !bookmark.syncedAt).toArray()
+    const bookIds = new Set(pendingBookmarks.map((bookmark) => bookmark.bookId))
+    for (const bookId of bookIds) void scheduleBookmarkDriveSync(bookId)
+  } catch (error) {
+    logWarn('bookmark.sync.retry-pending.failure', { status: 'failure', error })
+  }
 }

@@ -22,7 +22,7 @@ type MockTtsOptions = {
   onFinished?: () => void
   onParagraphChange?: (paraIdx: number) => void
   onWordHighlight?: (paraIdx: number, start: number, end: number) => void
-  onProviderFallback?: (payload: { provider: TtsProvider; fallbackProvider: 'native'; reason: string }) => void
+  onProviderFallback?: (payload: { provider: TtsProvider; fallbackProvider: 'native'; reason: string; silent?: boolean }) => void
 }
 
 const mocks = vi.hoisted(() => {
@@ -535,18 +535,16 @@ describe('ReaderScreen', () => {
     expect(onBack).toHaveBeenCalledOnce()
   })
 
-  it('ao fechar o livro com bookmark pendente e status permission-error, avisa em vez de tentar sincronizar', async () => {
+  it('ao fechar o livro com bookmark pendente e status permission-error, ainda tenta sincronizar sem avisar (feature 021)', async () => {
     mocks.bookmarks = [{ id: 1, syncedAt: null }]
     mocks.getCachedBookmarkDriveSyncStatus.mockReturnValue({ code: 'permission-error' })
     const onBack = vi.fn()
-    const onBookmarkSyncBlocked = vi.fn()
 
     render(
       <ReaderScreen
         book={book}
         onBack={onBack}
         onOpenVocabulary={vi.fn()}
-        onBookmarkSyncBlocked={onBookmarkSyncBlocked}
       />,
     )
     await flushAsyncWork()
@@ -555,8 +553,9 @@ describe('ReaderScreen', () => {
       fireEvent.click(screen.getByText('go-back'))
     })
 
-    expect(mocks.scheduleBookmarkDriveSync).not.toHaveBeenCalled()
-    expect(onBookmarkSyncBlocked).toHaveBeenCalledWith(expect.any(String))
+    // A decisão de barrar (só com consentimento pendente) é do
+    // scheduleBookmarkDriveSync, não da tela — e nenhum toast é disparado.
+    expect(mocks.scheduleBookmarkDriveSync).toHaveBeenCalledWith(1)
     expect(onBack).toHaveBeenCalledOnce()
   })
 
@@ -1767,6 +1766,7 @@ describe('ReaderScreen', () => {
         provider: 'speechify',
         fallbackProvider: 'native',
         reason: 'Falha de rede ao conectar com Speechify.',
+        silent: true,
       })
       await Promise.resolve()
     })
@@ -1840,6 +1840,7 @@ describe('ReaderScreen', () => {
         provider: 'speechify',
         fallbackProvider: 'native',
         reason: 'API key do Speechify inválida, expirada ou sem permissão.',
+        silent: false,
       })
       await Promise.resolve()
     })
@@ -1874,6 +1875,7 @@ describe('ReaderScreen', () => {
         provider: 'speechify',
         fallbackProvider: 'native',
         reason: 'API key do Speechify inválida, expirada ou sem permissão.',
+        silent: false,
       })
       await Promise.resolve()
     })
@@ -1887,6 +1889,7 @@ describe('ReaderScreen', () => {
         provider: 'speechify',
         fallbackProvider: 'native',
         reason: 'Falha de rede ao conectar com Speechify.',
+        silent: true,
       })
       await Promise.resolve()
     })
@@ -1896,6 +1899,41 @@ describe('ReaderScreen', () => {
     expect(updateBookSettings).toHaveBeenLastCalledWith(book.id, {
       ttsProvider: 'native',
     })
+  })
+
+  it('fallback silencioso (rede/servidor/créditos) cai pro nativo sem avisar nem persistir no livro', async () => {
+    mocks.viewerHandle.getSentenceChunks.mockReturnValue([
+      { text: 'Speechify silent fallback test.', paraIdx: 0, offsetInPara: 0 },
+    ])
+
+    render(
+      <ReaderScreen
+        book={book}
+        onBack={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+      />,
+    )
+
+    await flushAsyncWork()
+
+    fireEvent.click(screen.getByText('toggle-tts'))
+
+    await act(async () => {
+      mocks.ttsOptions?.onProviderFallback?.({
+        provider: 'speechify',
+        fallbackProvider: 'native',
+        reason: 'Speechify está indisponível no momento.',
+        silent: true,
+      })
+      await Promise.resolve()
+    })
+
+    // Nenhum toast, nenhuma gravação permanente no livro — só o indicador de
+    // sessão (mini-player) reflete que esta sessão está tocando no nativo.
+    expect(screen.queryByText('TTS alternado')).toBeNull()
+    expect(updateBookSettings).not.toHaveBeenCalled()
+    expect(screen.getByText('provider:native')).toBeTruthy()
+    expect(screen.getByText('fallback:speechify')).toBeTruthy()
   })
 
   it('aplica defaults de leitura e usa o idioma efetivo do livro na traducao e no vocabulario', async () => {

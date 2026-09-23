@@ -76,15 +76,21 @@ vi.mock('@/services/TtsPlaybackSessionService', () => ({
 class FakeAudio extends EventTarget {
   static instances: FakeAudio[] = []
   static nextPlayError: unknown = null
+  // Quantas chamadas seguidas de audio.play() devem rejeitar com
+  // nextPlayError antes de "curar" sozinho — default 1 (falha só na
+  // primeira, como antes). Usado pra simular o retry de speakChunk: setar
+  // 2 faz as duas tentativas (original + retry) falharem.
+  static nextPlayErrorCount = 1
 
   currentTime = 0
   duration = 2
   ended = false
   paused = true
   play = vi.fn(async () => {
-    if (FakeAudio.nextPlayError) {
+    if (FakeAudio.nextPlayError && FakeAudio.nextPlayErrorCount > 0) {
       const error = FakeAudio.nextPlayError
-      FakeAudio.nextPlayError = null
+      FakeAudio.nextPlayErrorCount -= 1
+      if (FakeAudio.nextPlayErrorCount === 0) FakeAudio.nextPlayError = null
       throw error
     }
     this.paused = false
@@ -110,6 +116,7 @@ class FakeAudio extends EventTarget {
   static reset() {
     FakeAudio.instances = []
     FakeAudio.nextPlayError = null
+    FakeAudio.nextPlayErrorCount = 1
   }
 }
 
@@ -382,12 +389,61 @@ describe('useTTS', () => {
     expect(callbacks.onFinished).not.toHaveBeenCalled()
   })
 
-  it('limpa audio premium e cai para nativo quando audio.play falha', async () => {
+  it('retry recupera o premium quando audio.play falha só na primeira tentativa (NotAllowedError)', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    speechifyMock.getApiKey.mockResolvedValue('speechify-key')
+    speechifyMock.isConfigured.mockResolvedValue(true)
+    // Default nextPlayErrorCount=1: só a 1a chamada de audio.play() falha —
+    // simula o <audio> compartilhado suspenso pelo foco da WebView, que
+    // "cura" sozinho na tentativa seguinte.
+    FakeAudio.nextPlayError = new DOMException('Autoplay bloqueado', 'NotAllowedError')
+
+    const callbacks = createCallbacks()
+    const { result } = renderHook(() => useTTS({
+      ...callbacks,
+      provider: 'speechify',
+      language: 'en-US',
+      rate: 1,
+    }))
+    const chunks: TtsChunk[] = [
+      { text: 'Premium playback can fail once.', paraIdx: 0, offsetInPara: 0 },
+    ]
+
+    let playPromise: Promise<void> | undefined
+    await act(async () => {
+      playPromise = result.current.play(chunks, 0)
+    })
+    // Várias rodadas de microtask: 1a tentativa falha, retry reusa o cache
+    // (sem nova chamada HTTP) e chega até audio.play() de novo.
+    await act(async () => {
+      for (let i = 0; i < 8; i += 1) await Promise.resolve()
+    })
+
+    // Cache hit no retry — só 1 chamada de síntese pra 2 tentativas de playback.
+    expect(speechifyMock.synthesize).toHaveBeenCalledOnce()
+    expect(FakeAudio.instances).toHaveLength(1)
+    expect(FakeAudio.instances[0]?.play).toHaveBeenCalledTimes(2)
+    expect(callbacks.onProviderFallback).not.toHaveBeenCalled()
+    expect(textToSpeechMock.speak).not.toHaveBeenCalled()
+
+    await act(async () => {
+      FakeAudio.instances[0]?.finish()
+      await playPromise
+    })
+
+    expect(callbacks.onProviderFallback).not.toHaveBeenCalled()
+    expect(callbacks.onFinished).toHaveBeenCalledOnce()
+
+    warnSpy.mockRestore()
+  })
+
+  it('cai pro nativo silenciosamente (sem persistir) quando audio.play falha nas duas tentativas', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     speechifyMock.getApiKey.mockResolvedValue('speechify-key')
     speechifyMock.isConfigured.mockResolvedValue(true)
     FakeAudio.nextPlayError = new DOMException('Autoplay bloqueado', 'NotAllowedError')
+    FakeAudio.nextPlayErrorCount = 2
 
     const callbacks = createCallbacks()
     const { result } = renderHook(() => useTTS({
@@ -404,27 +460,34 @@ describe('useTTS', () => {
       await result.current.play(chunks, 0)
     })
 
+    // Síntese só 1x (retry reusa cache), mas playback tentado 2x antes de desistir.
+    expect(speechifyMock.synthesize).toHaveBeenCalledOnce()
     expect(FakeAudio.instances).toHaveLength(1)
-    expect(FakeAudio.instances[0]?.play).toHaveBeenCalledOnce()
+    expect(FakeAudio.instances[0]?.play).toHaveBeenCalledTimes(2)
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock')
     expect(textToSpeechMock.speak).toHaveBeenCalledOnce()
     expect(callbacks.onProviderFallback).toHaveBeenCalledWith(expect.objectContaining({
       provider: 'speechify',
       fallbackProvider: 'native',
       reason: 'Speechify falhou por um erro inesperado.',
+      transient: true,
+      silent: true,
     }))
+    // 2 falhas de playback logadas — uma por tentativa (original + retry).
     const playbackErrors = getConsoleEvents(errorSpy, 'tts.playback.error')
-    expect(playbackErrors).toHaveLength(1)
-    expect(playbackErrors[0]).toEqual(expect.objectContaining({
-      provider: 'speechify',
-      status: 'failure',
-      errorMessage: 'Autoplay bloqueado',
-    }))
-    expect(playbackErrors[0]?.details).toEqual(expect.objectContaining({
-      mode: 'continuous',
-      paraIdx: 0,
-      trackPlaybackState: true,
-    }))
+    expect(playbackErrors).toHaveLength(2)
+    for (const playbackError of playbackErrors) {
+      expect(playbackError).toEqual(expect.objectContaining({
+        provider: 'speechify',
+        status: 'failure',
+        errorMessage: 'Autoplay bloqueado',
+      }))
+      expect(playbackError.details).toEqual(expect.objectContaining({
+        mode: 'continuous',
+        paraIdx: 0,
+        trackPlaybackState: true,
+      }))
+    }
 
     warnSpy.mockRestore()
     errorSpy.mockRestore()
@@ -912,6 +975,11 @@ describe('useTTS', () => {
       provider: 'speechify',
       fallbackProvider: 'native',
       reason: 'Speechify está indisponível no momento.',
+      // 5xx não é acionável pelo usuário (fora do controle dele no
+      // momento) — cai pro nativo silenciosamente, sem toast nem persistir
+      // no livro (ver isUserActionableTtsFailure).
+      transient: false,
+      silent: true,
     }))
     expect(callbacks.onFinished).toHaveBeenCalledOnce()
     const diagnosticCall = warnSpy.mock.calls.find((call) => (
@@ -964,6 +1032,101 @@ describe('useTTS', () => {
       lang: 'en-US',
     }))
     expect(callbacks.onProviderFallback).toHaveBeenCalledOnce()
+
+    warnSpy.mockRestore()
+  })
+
+  it('retry com atraso recupera premium quando 429 (rate limit) falha só na primeira tentativa', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    speechifyMock.getApiKey.mockResolvedValue('speechify-key')
+    speechifyMock.isConfigured.mockResolvedValue(true)
+    // 429 costuma ser autoinfligido pela concorrência do prefetch/lookahead
+    // (confirmado em log real de device) — se resolve sozinho rápido.
+    speechifyMock.synthesize.mockRejectedValueOnce(new Error('Speechify error: 429'))
+
+    const callbacks = createCallbacks()
+    const { result } = renderHook(() => useTTS({
+      ...callbacks,
+      provider: 'speechify',
+      language: 'en-US',
+      rate: 1,
+    }))
+    const chunks: TtsChunk[] = [
+      { text: 'Rate limited once then recovers.', paraIdx: 0, offsetInPara: 0 },
+    ]
+
+    let playPromise: Promise<void> | undefined
+    await act(async () => {
+      playPromise = result.current.play(chunks, 0)
+    })
+    // Espera real o respiro de 500ms do retry + flush de microtasks.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 700))
+      for (let i = 0; i < 8; i += 1) await Promise.resolve()
+    })
+
+    // Retry de 429 é uma requisição HTTP nova de verdade (não cache hit).
+    expect(speechifyMock.synthesize).toHaveBeenCalledTimes(2)
+    expect(callbacks.onProviderFallback).not.toHaveBeenCalled()
+    expect(textToSpeechMock.speak).not.toHaveBeenCalled()
+
+    await act(async () => {
+      FakeAudio.instances[0]?.finish()
+      await playPromise
+    })
+
+    expect(callbacks.onFinished).toHaveBeenCalledOnce()
+    expect(callbacks.onProviderFallback).not.toHaveBeenCalled()
+
+    warnSpy.mockRestore()
+  })
+
+  it('mantém tentativa de premium no próximo chunk quando 429 persiste nas duas tentativas do chunk atual', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    speechifyMock.getApiKey.mockResolvedValue('speechify-key')
+    speechifyMock.isConfigured.mockResolvedValue(true)
+    speechifyMock.synthesize
+      .mockRejectedValueOnce(new Error('Speechify error: 429'))
+      .mockRejectedValueOnce(new Error('Speechify error: 429'))
+
+    const callbacks = createCallbacks()
+    const { result } = renderHook(() => useTTS({
+      ...callbacks,
+      provider: 'speechify',
+      language: 'en-US',
+      rate: 1,
+    }))
+    const chunks: TtsChunk[] = [
+      { text: 'Rate limited chunk.', paraIdx: 0, offsetInPara: 0 },
+      { text: 'Retries speechify again here.', paraIdx: 1, offsetInPara: 0 },
+    ]
+
+    let playPromise: Promise<void> | undefined
+    await act(async () => {
+      playPromise = result.current.play(chunks, 0)
+    })
+    // 1a tentativa falha (429) -> respiro de 500ms -> 2a tentativa falha
+    // (429) -> cai pro nativo só NESTE chunk -> avança pro próximo chunk,
+    // que tenta speechify de novo (não assentou em nativo pro resto da sessão).
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 700))
+      for (let i = 0; i < 8; i += 1) await Promise.resolve()
+    })
+
+    expect(speechifyMock.synthesize).toHaveBeenCalledTimes(3)
+    expect(textToSpeechMock.speak).toHaveBeenCalledTimes(1)
+    expect(callbacks.onProviderFallback).toHaveBeenCalledOnce()
+    expect(callbacks.onProviderFallback).toHaveBeenCalledWith(expect.objectContaining({
+      transient: true,
+      silent: true,
+    }))
+
+    // A 3a chamada (chunk 1) fica pendente aguardando audio.play/'ended' —
+    // finaliza pra não vazar timers/promises pendentes no teste.
+    await act(async () => {
+      FakeAudio.instances[FakeAudio.instances.length - 1]?.finish()
+      await playPromise
+    })
 
     warnSpy.mockRestore()
   })
@@ -1199,4 +1362,101 @@ describe('useTTS', () => {
       await playPromise
     })
   })
+  it('cancela o prefetch (lookahead) quando stop e chamado', async () => {
+    speechifyMock.getApiKey.mockResolvedValue('speechify-key')
+    speechifyMock.isConfigured.mockResolvedValue(true)
+
+    // O chunk principal resolve rapido
+    speechifyMock.synthesize.mockImplementationOnce(async () => {
+      return { audioBlob: new Blob(['audio-main']), speechMarks: [] }
+    })
+
+    // O prefetch vai aguardar
+    speechifyMock.synthesize.mockImplementationOnce(async (text, options) => {
+      return new Promise((_resolve, reject) => {
+        options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+      })
+    })
+
+    const callbacks = createCallbacks()
+    const { result } = renderHook(() => useTTS({
+      ...callbacks,
+      provider: 'speechify',
+      language: 'en-US',
+      rate: 1,
+    }))
+
+    const chunks = [
+      { text: 'Frase 1 principal.', paraIdx: 0, offsetInPara: 0 },
+      { text: 'Frase 2 lookahead.', paraIdx: 1, offsetInPara: 0 },
+    ]
+
+    let playPromise: Promise<void>
+    await act(async () => {
+      playPromise = result.current.play(chunks, 0)
+    })
+
+    // O lookahead foi chamado
+    expect(speechifyMock.synthesize).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      await result.current.stop()
+    })
+
+    await act(async () => {
+      // Ignora erro do playPromise abortado
+      await playPromise.catch(() => {})
+    })
+  })
+
+  it('prefetch do lookahead cobre os 3 chunks a frente em sequencia', async () => {
+    speechifyMock.getApiKey.mockResolvedValue('speechify-key')
+    speechifyMock.isConfigured.mockResolvedValue(true)
+
+    const callbacks = createCallbacks()
+    const { result } = renderHook(() => useTTS({
+      ...callbacks,
+      provider: 'speechify',
+      language: 'en-US',
+      rate: 1,
+    }))
+
+    const chunks = [
+      { text: 'Frase 1.', paraIdx: 0, offsetInPara: 0 },
+      { text: 'Frase 2.', paraIdx: 1, offsetInPara: 0 },
+      { text: 'Frase 3.', paraIdx: 2, offsetInPara: 0 },
+      { text: 'Frase 4.', paraIdx: 3, offsetInPara: 0 },
+      { text: 'Frase 5.', paraIdx: 4, offsetInPara: 0 },
+    ]
+
+    let playPromise: Promise<void> | undefined
+    await act(async () => {
+      playPromise = result.current.play(chunks, 0)
+    })
+    await flushMicrotasks()
+
+    // O lookahead de chunks[0] dispara prefetch de chunks[1], chunks[2] e chunks[3].
+    expect(speechifyMock.synthesize).toHaveBeenCalledWith(
+      'Frase 2.',
+      expect.objectContaining({ signal: expect.anything() }),
+    )
+    expect(speechifyMock.synthesize).toHaveBeenCalledWith(
+      'Frase 3.',
+      expect.objectContaining({ signal: expect.anything() }),
+    )
+    expect(speechifyMock.synthesize).toHaveBeenCalledWith(
+      'Frase 4.',
+      expect.objectContaining({ signal: expect.anything() }),
+    )
+    // chunks[4] está fora da janela de 3 frases do lookahead de chunks[0].
+    expect(speechifyMock.synthesize).not.toHaveBeenCalledWith('Frase 5.', expect.anything())
+
+    await act(async () => {
+      await result.current.stop()
+    })
+    await act(async () => {
+      await playPromise?.catch(() => {})
+    })
+  })
+
 })

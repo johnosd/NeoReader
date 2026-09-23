@@ -16,7 +16,8 @@ import {
   type User,
 } from 'firebase/auth'
 import type { AuthUser } from '../types/auth'
-import { logWarn } from './DiagnosticsLogger'
+import { GoogleDriveAuth } from '../plugins/GoogleDriveAuthPlugin'
+import { logEvent, logWarn } from './DiagnosticsLogger'
 
 const REQUIRED_CONFIG_KEYS = [
   'VITE_FIREBASE_API_KEY',
@@ -49,6 +50,12 @@ const DRIVE_TOKEN_TTL_MS = 55 * 60 * 1000
 const DRIVE_REAUTH_COOLDOWN_KEY = 'neoreader:drive-reauth-cooldown-until'
 const DRIVE_REAUTH_COOLDOWN_MS = 30 * 60 * 1000
 const DRIVE_REAUTH_MAX_ATTEMPTS_PER_SESSION = 3
+
+// Feature 021: marcada quando a renovação silenciosa responde que precisa de
+// UI (escopo revogado, conta trocada). Persistida pra sobreviver ao cold
+// start — é na próxima abertura do app que a tela de consentimento aparece.
+// Qualquer token novo (rememberGoogleDriveAccessToken) limpa a marca.
+const DRIVE_CONSENT_REQUIRED_KEY = 'neoreader:drive-consent-required'
 
 function loadPersistedDriveToken(): string | null {
   try {
@@ -129,11 +136,65 @@ function rememberGoogleDriveAccessToken(accessToken?: string | null) {
       localStorage.removeItem(DRIVE_TOKEN_KEY)
       localStorage.removeItem(DRIVE_TOKEN_EXPIRY_KEY)
     }
+    // Token novo resolve o consentimento pendente; null = logout, e a marca
+    // não pode sobreviver pra abrir o Google na conta errada depois.
+    localStorage.removeItem(DRIVE_CONSENT_REQUIRED_KEY)
   } catch { /* localStorage indisponível */ }
 }
 
 export function getGoogleDriveAccessToken(): string | null {
   return googleDriveAccessToken
+}
+
+export function isDriveConsentRequired(): boolean {
+  try {
+    return localStorage.getItem(DRIVE_CONSENT_REQUIRED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function markDriveConsentRequired() {
+  try {
+    localStorage.setItem(DRIVE_CONSENT_REQUIRED_KEY, '1')
+  } catch { /* localStorage indisponível */ }
+}
+
+let inFlightSilentDriveTokenRenewal: Promise<string | null> | null = null
+
+// Renova o token do Drive SEM UI (feature 021), via AuthorizationClient do
+// Google Identity Services no plugin nativo GoogleDriveAuth. Diferente de
+// refreshDriveToken, nunca abre tela: se o Google disser que precisa de UI,
+// só marca o consentimento pendente e devolve null. Seguro de chamar a partir
+// de sync em background. No web não existe caminho silencioso → null.
+export async function renewDriveTokenSilently(): Promise<string | null> {
+  if (!isNativeRuntime()) return null
+  // Coalesce: list + update de vários livros falhando juntos viram 1 chamada.
+  if (inFlightSilentDriveTokenRenewal) return inFlightSilentDriveTokenRenewal
+
+  inFlightSilentDriveTokenRenewal = (async () => {
+    try {
+      const result = await GoogleDriveAuth.authorizeSilent()
+      if (result.needsUi) {
+        markDriveConsentRequired()
+        logWarn('drive.token.silent.needs-ui', { status: 'failure' })
+        return null
+      }
+      const token = result.accessToken?.trim()
+      if (!token) return null
+      rememberGoogleDriveAccessToken(token)
+      logEvent('drive.token.silent.renewed', { status: 'success' })
+      return token
+    } catch (error) {
+      // Falha do Play Services/rede: não é caso de consentimento, só não deu agora.
+      logWarn('drive.token.silent.failure', { status: 'failure', error })
+      return null
+    } finally {
+      inFlightSilentDriveTokenRenewal = null
+    }
+  })()
+
+  return inFlightSilentDriveTokenRenewal
 }
 
 function readDriveReauthCooldownUntil(): number {
@@ -197,7 +258,8 @@ let driveReauthAttemptsThisSession = 0
 
 // Solicita novo token Drive ao Google. ATENÇÃO: isto SEMPRE abre UI no
 // Android — folha de seleção de conta + tela de consentimento OAuth. Não
-// existe caminho silencioso: o plugin monta a autorização com
+// existe caminho silencioso POR ESTE PLUGIN (o silencioso é
+// renewDriveTokenSilently, via AuthorizationClient): o plugin monta a autorização com
 // `requestOfflineAccess(clientId, /* forceCodeForRefreshToken */ true)`
 // hardcoded, e o Google documenta que, com esse flag, toda autorização
 // depois da primeira exige consentimento do usuário de novo.

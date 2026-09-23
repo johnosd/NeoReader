@@ -30,6 +30,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(NeoReaderLibraryPlugin.class);
         registerPlugin(NeoReaderTtsPlaybackPlugin.class);
+        registerPlugin(GoogleDriveAuthPlugin.class);
         super.onCreate(savedInstanceState);
     }
 

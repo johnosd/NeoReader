@@ -35,8 +35,13 @@ const mocks = vi.hoisted(() => {
     addScope: vi.fn(),
     credentialFromResult: vi.fn(() => ({ accessToken: 'web-drive-token' })),
     setCustomParameters: vi.fn(),
+    authorizeSilent: vi.fn(),
   }
 })
+
+vi.mock('@/plugins/GoogleDriveAuthPlugin', () => ({
+  GoogleDriveAuth: { authorizeSilent: mocks.authorizeSilent },
+}))
 
 vi.mock('@capacitor/core', () => ({
   Capacitor: {
@@ -214,5 +219,78 @@ describe('FirebaseAuthService', () => {
     // Ação explícita do usuário continua passando.
     await expect(refreshDriveToken({ userInitiated: true })).resolves.toBe('failed')
     expect(mocks.nativeSignInWithGoogle).toHaveBeenCalledTimes(2)
+  })
+
+  describe('renewDriveTokenSilently (feature 021)', () => {
+    it('no Android, grava o token renovado sem abrir nenhuma tela', async () => {
+      mocks.isNativePlatform.mockReturnValue(true)
+      mocks.authorizeSilent.mockResolvedValue({ needsUi: false, accessToken: 'silent-token' })
+      const { getGoogleDriveAccessToken, renewDriveTokenSilently } = await importService()
+
+      await expect(renewDriveTokenSilently()).resolves.toBe('silent-token')
+      expect(getGoogleDriveAccessToken()).toBe('silent-token')
+      // Persistido: sobrevive a um cold start dentro do TTL.
+      expect(localStorage.getItem('neoreader:drive-access-token')).toBe('silent-token')
+      expect(mocks.nativeSignInWithGoogle).not.toHaveBeenCalled()
+    })
+
+    it('quando o Google exige UI, marca consentimento pendente e devolve null', async () => {
+      mocks.isNativePlatform.mockReturnValue(true)
+      mocks.authorizeSilent.mockResolvedValue({ needsUi: true })
+      const { isDriveConsentRequired, renewDriveTokenSilently } = await importService()
+
+      await expect(renewDriveTokenSilently()).resolves.toBeNull()
+      expect(isDriveConsentRequired()).toBe(true)
+      expect(mocks.nativeSignInWithGoogle).not.toHaveBeenCalled()
+    })
+
+    it('token novo por qualquer caminho limpa o consentimento pendente', async () => {
+      mocks.isNativePlatform.mockReturnValue(true)
+      mocks.authorizeSilent.mockResolvedValue({ needsUi: true })
+      const { isDriveConsentRequired, refreshDriveToken, renewDriveTokenSilently } = await importService()
+
+      await renewDriveTokenSilently()
+      expect(isDriveConsentRequired()).toBe(true)
+
+      await expect(refreshDriveToken({ userInitiated: true })).resolves.toBe('refreshed')
+      expect(isDriveConsentRequired()).toBe(false)
+    })
+
+    it('logout limpa o consentimento pendente', async () => {
+      mocks.isNativePlatform.mockReturnValue(true)
+      mocks.authorizeSilent.mockResolvedValue({ needsUi: true })
+      const { isDriveConsentRequired, renewDriveTokenSilently, signOut } = await importService()
+
+      await renewDriveTokenSilently()
+      await signOut()
+
+      expect(isDriveConsentRequired()).toBe(false)
+    })
+
+    it('falha do Play Services nao e tratada como consentimento pendente', async () => {
+      mocks.isNativePlatform.mockReturnValue(true)
+      mocks.authorizeSilent.mockRejectedValue(new Error('play services unavailable'))
+      const { isDriveConsentRequired, renewDriveTokenSilently } = await importService()
+
+      await expect(renewDriveTokenSilently()).resolves.toBeNull()
+      expect(isDriveConsentRequired()).toBe(false)
+    })
+
+    it('coalesce chamadas concorrentes numa unica chamada nativa', async () => {
+      mocks.isNativePlatform.mockReturnValue(true)
+      mocks.authorizeSilent.mockResolvedValue({ needsUi: false, accessToken: 'silent-token' })
+      const { renewDriveTokenSilently } = await importService()
+
+      await Promise.all([renewDriveTokenSilently(), renewDriveTokenSilently()])
+
+      expect(mocks.authorizeSilent).toHaveBeenCalledOnce()
+    })
+
+    it('no web nao existe caminho silencioso', async () => {
+      const { renewDriveTokenSilently } = await importService()
+
+      await expect(renewDriveTokenSilently()).resolves.toBeNull()
+      expect(mocks.authorizeSilent).not.toHaveBeenCalled()
+    })
   })
 })
