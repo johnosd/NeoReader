@@ -1,5 +1,6 @@
-import { cpSync, copyFileSync, existsSync, mkdirSync } from 'node:fs'
-import { dirname, resolve as resolvePath } from 'node:path'
+import { cpSync, copyFileSync, createReadStream, existsSync, mkdirSync, statSync } from 'node:fs'
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import { dirname, extname, resolve as resolvePath, sep } from 'node:path'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { defineConfig } from 'vite'
@@ -44,6 +45,45 @@ const copyFoliatePdfjsAssets = () => {
   }
 }
 
+// copyFoliatePdfjsAssets só roda no build; no `npm run dev` o worker/cmaps do
+// pdf.js em /vendor/pdfjs davam 404. Este plugin (apply: 'serve') serve a mesma
+// pasta direto do node_modules — não afeta o build nem o caminho EPUB (R-006).
+const PDFJS_CONTENT_TYPES: Record<string, string> = {
+  '.mjs': 'text/javascript',
+  '.css': 'text/css',
+  '.map': 'application/json',
+  '.json': 'application/json',
+}
+
+const serveFoliatePdfjsAssets = () => ({
+  name: 'serve-foliate-pdfjs-assets',
+  apply: 'serve' as const,
+  configureServer(server: {
+    middlewares: {
+      use: (
+        path: string,
+        handler: (req: IncomingMessage, res: ServerResponse, next: () => void) => void,
+      ) => void
+    }
+  }) {
+    // `use(path, fn)` do Connect remove o prefixo da URL: req.url chega como "/pdf.worker.min.mjs?x".
+    server.middlewares.use('/vendor/pdfjs', (req, res, next) => {
+      const pathname = decodeURIComponent((req.url ?? '').split('?')[0])
+      let file = resolvePath(foliatePdfjsDir, `.${pathname}`)
+
+      // Impede sair da pasta do pdf.js com "../".
+      if (!file.startsWith(foliatePdfjsDir + sep)) return next()
+
+      // Mesmo aliasing do build: o foliate pede "*.min.*", o pacote só traz sem ".min".
+      if (!existsSync(file)) file = file.replace(/\.min(\.mjs(?:\.map)?)$/, '$1')
+      if (!existsSync(file) || !statSync(file).isFile()) return next()
+
+      res.setHeader('Content-Type', PDFJS_CONTENT_TYPES[extname(file)] ?? 'application/octet-stream')
+      createReadStream(file).pipe(res)
+    })
+  },
+})
+
 const hardenFoliateIframeSandbox = () => ({
   name: 'harden-foliate-iframe-sandbox',
   transform: {
@@ -58,7 +98,13 @@ const hardenFoliateIframeSandbox = () => ({
 })
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), hardenFoliateIframeSandbox(), copyFoliatePdfjsAssets()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    hardenFoliateIframeSandbox(),
+    copyFoliatePdfjsAssets(),
+    serveFoliatePdfjsAssets(),
+  ],
   server: {
     proxy: {
       '/fish-audio-api': {

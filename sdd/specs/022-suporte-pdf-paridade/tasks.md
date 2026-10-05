@@ -29,24 +29,34 @@ description: "Tasks da feature 022 — suporte a PDF com paridade de recursos do
 
 **Purpose**: Ferramentas para desenvolver e medir PDF sem tocar no EPUB.
 
-- [ ] T001 Registrar a linha de base de regressão EPUB antes de qualquer mudança: rodar `npm run lint`, `npm test`, `npm run build`, `npm run test:debug-epubs` e anotar contagem de testes/tempos no Registro da Fase 1 de `sdd/specs/022-suporte-pdf-paridade/tasks.md`
-- [ ] T002 Servir `/vendor/pdfjs` no dev server (plugin `apply: 'serve'` com middleware estático apontando para `node_modules/foliate-js/vendor/pdfjs`, incluindo os aliases `.min.*`) em `vite.config.ts`, sem alterar `copyFoliatePdfjsAssets` nem `hardenFoliateIframeSandbox` (R-006)
-- [ ] T003 [P] Montar o corpus local `debug-books/pdf/` conforme `quickstart.md` § Pré-requisitos e adicionar `debug-books/pdf/` ao `.gitignore` se `debug-books/` ainda não estiver ignorado
-- [ ] T004 [P] Criar `scripts/extract-pdf-text-fixtures.mjs` (roda no Chromium via página de dev/Playwright MCP) que exporta, por PDF do corpus, `{ pageIndex, viewport, items: [{ str, transform, width, height, hasEOL, fontName }] }` para `src/__tests__/fixtures/pdf/<nome>.json` (research.md §4)
+- [X] T001 Registrar a linha de base de regressão EPUB antes de qualquer mudança: rodar `npm run lint`, `npm test`, `npm run build`, `npm run test:debug-epubs` e anotar contagem de testes/tempos no Registro da Fase 1 de `sdd/specs/022-suporte-pdf-paridade/tasks.md`
+- [X] T002 Servir `/vendor/pdfjs` no dev server (plugin `apply: 'serve'` com middleware estático apontando para `node_modules/foliate-js/vendor/pdfjs`, incluindo os aliases `.min.*`) em `vite.config.ts`, sem alterar `copyFoliatePdfjsAssets` nem `hardenFoliateIframeSandbox` (R-006)
+- [X] T003 [P] Montar o corpus local `debug-books/pdf/` conforme `quickstart.md` § Pré-requisitos e adicionar `debug-books/pdf/` ao `.gitignore` se `debug-books/` ainda não estiver ignorado
+- [X] T004 [P] Criar `scripts/extract-pdf-text-fixtures.mjs` (roda no Chromium via página de dev/Playwright MCP) que exporta, por PDF do corpus, `{ pageIndex, viewport, items: [{ str, transform, width, height, hasEOL, fontName }] }` para `src/__tests__/fixtures/pdf/<nome>.json` (research.md §4)
 
 ### Testes da Fase
 
-- [ ] T005 Validar T002: `npm run dev` + Playwright MCP carrega `/vendor/pdfjs/pdf.worker.min.mjs` com 200; `npm run build` gera `dist/vendor/pdfjs` igual antes
-- [ ] T006 Gate EPUB: `npm run lint && npm test && npm run build && npm run test:debug-epubs` iguais à linha de base de T001
+- [X] T005 Validar T002: `npm run dev` + Playwright MCP carrega `/vendor/pdfjs/pdf.worker.min.mjs` com 200; `npm run build` gera `dist/vendor/pdfjs` igual antes
+- [X] T006 Gate EPUB: `npm run lint && npm test && npm run build && npm run test:debug-epubs` iguais à linha de base de T001
 
 **Critério de Conclusão**: dev server serve os assets do pdf.js, corpus e fixtures existem, e a linha de base EPUB está registrada e inalterada.
 
 **Registro da Fase**:
 
-- Status:
+- Status: Concluída (2026-10-05)
 - Feito:
+  - T001 linha de base EPUB: lint ok · `npm test` 121 arquivos passando + 2 skipped / **1094 testes passando + 2 skipped** (~56 s) · `npm run build` ok (~10 s) · `npm run test:debug-epubs` **71 testes** (~32 s).
+  - T002 `vite.config.ts`: plugin `serveFoliatePdfjsAssets` (`apply: 'serve'`) serve `/vendor/pdfjs/*` do `node_modules`, com alias `.min.*` e guarda contra `../`. `copyFoliatePdfjsAssets` e `hardenFoliateIframeSandbox` intocados.
+  - T003 corpus sintético em `debug-books/pdf/` (já ignorado pelo git) gerado por `scripts/pdf-corpus/generate-corpus.mjs` (+ `postprocess.py`, pypdf): `1col` (40 pág., outline, header/footer repetidos, ISBN na copyright), `1col-pt`/`1col-es` (18 pág.; o `es` declara `/Lang`), `2col` (5 pág. A4), `tabelas` (16 pág.: tabelas, SVG, raster, fórmulas), `escaneado` (8 pág. só imagem), `misto` (15 pág., 3 sem texto), `semmeta` (sem /Info), `senha` (senha `neoreader`), `corrompido`, `naoepdf`, `grande` (**1000 pág. / 188,4 MB**).
+  - T004 `scripts/extract-pdf-text-fixtures.mjs` (servidor HTTP local + Chromium via Playwright; erros tipados para senha/corrompido) e fixtures versionáveis em `src/__tests__/fixtures/pdf/` (`1col` 12 pág., `2col` 5, `tabelas` 8, `misto` 12, `escaneado` 8, `1col-pt`/`1col-es` pág. 3–6; 1,3 MB no total).
 - Testes executados:
+  - T005: `npx vite --port 5199 --strictPort` → `curl` 200 em `pdf.worker.min.mjs`, `pdf.min.mjs`, `.map`, `pdf.mjs`, css, cmaps e standard_fonts; em Chromium real (Playwright) o pdf.js importado do dev server abriu `1col.pdf` (40 pág.) e leu 245 itens na pág. 3. `npm run build` → `dist/vendor/pdfjs` com os mesmos 195 arquivos/hashes SHA-256 da linha de base.
+  - T006 (gate EPUB): lint ok · 121 passando + 2 skipped / **1094 passando + 2 skipped** · build ok · debug-epubs **71 passando** — idêntico à linha de base.
+  - 2 iterações no gerador do corpus: `grande.pdf` saiu com 14 MB (pypdf deduplicou cópias → agora 10 blocos distintos), depois 279 MB e 1306 pág. (ajustado para 188,4 MB / 1000 pág.); outline só saiu com `tagged: true`.
 - Pendências:
+  - Desvio: o Playwright MCP não estava disponível na sessão; T004/T005 usaram a biblioteca `playwright` já presente em `node_modules` (não está no `package.json` — nenhuma dependência adicionada).
+  - O corpus é sintético (só Chromium/Skia como produtor). Antes de fechar T015, vale incluir 2–3 PDFs reais do usuário (LaTeX/InDesign/Word) em `debug-books/pdf/` para calibrar a heurística.
+  - `C:	mp-fixture-probe` (pasta vazia criada por engano na raiz do C:) — o sandbox bloqueou o `rmdir`; apagar manualmente.
 
 ---
 
@@ -307,7 +317,7 @@ description: "Tasks da feature 022 — suporte a PDF com paridade de recursos do
 
 ### Checklist de Release
 
-- [ ] Fase 1 (Setup) concluída
+- [X] Fase 1 (Setup) concluída
 - [ ] Fase 2 (Foundational) concluída
 - [ ] Fase 3 (US1 — import + página fiel) concluída
 - [ ] Fase 4 (US2 — modo texto) concluída

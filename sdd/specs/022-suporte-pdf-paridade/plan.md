@@ -197,6 +197,11 @@ npm run android:run
 
 | Área | Estado |
 | --- | --- |
+| Fase 1 — Setup | Concluída (2026-10-05): dev server serve `/vendor/pdfjs`; corpus PDF sintético e fixtures prontos; baseline EPUB registrada e inalterada |
+| Fase 2 — Foundational | Não iniciada (próxima: T007–T010a testes, T011–T017 implementação) |
+| Fases 3–9 | Não iniciadas |
+| Código de app para PDF | Nenhum ainda — única mudança em arquivo existente: `vite.config.ts` (plugin só de dev) |
+| Regressão EPUB | Baseline = 1094 testes passando + 2 skipped (121 arquivos) · corpus EPUB 71 · lint/build ok; gate da Fase 1 idêntico |
 
 ## Riscos e Decisões
 
@@ -212,7 +217,7 @@ npm run android:run
 | R-003 | Qualidade da reconstrução de parágrafos (multi-coluna, tabelas, cabeçalhos) | Alto — é o diferencial | Função pura com fixtures de PDFs reais; SC-003 medido no corpus; fallback de trecho "como na página" quando a ordem de colunas é incerta (spec, Edge Cases). |
 | R-004 | Memória/tempo com PDF grande (arquivo `local` chega como URL e o foliate faria `fetch` → Blob inteiro) | Alto — já houve alerta de memória no Play Console | research.md §1: preferir leitura por faixas (pdf.js `PDFDataRangeTransport` sobre Blob, ou range HTTP no servidor local do Capacitor). Medir SC-002 no device na Fase 3. |
 | R-005 | Pinça/zoom e pan horizontal no modo scroll do layout fixo (`:host([flow="scrolled"])` tem `overflow-x: hidden`) no Android WebView | Médio | research.md §2: gesto tratado nos documentos das páginas (mesmo origin) aplicando `scale-factor`; `overflow-x` sobrescrito por estilo inline no host. Spike no início da Fase 3. |
-| R-006 | Assets do pdf.js ausentes no dev server (`copyFoliatePdfjsAssets` só em build) | Médio — bloqueia teste em Chromium via `npm run dev` | Task de Setup: middleware `apply: 'serve'` em `vite.config.ts` servindo `/vendor/pdfjs` (sem afetar build/EPUB). |
+| R-006 | Assets do pdf.js ausentes no dev server (`copyFoliatePdfjsAssets` só em build) | Médio — bloqueia teste em Chromium via `npm run dev` | Resolvido: plugin `serveFoliatePdfjsAssets` (T002/T005) em `vite.config.ts`; build com `dist/vendor/pdfjs` idêntico ao baseline. |
 | R-007 | Conversão localizador ↔ CFI no modo texto é assíncrona e depende do HTML sintético | Médio | `PdfLocatorResolver` usa atributos de offset gravados no HTML gerado; round-trip coberto por teste unitário. |
 | R-008 | pdf.js real não roda de forma confiável em jsdom (worker, canvas) | Médio — cobertura automatizada | Lógica de valor fica em funções puras (fixtures); pdf.js mockado nos testes de integração; validação real em Chromium/device. research.md §4. |
 | R-009 | Muitos PDFs com texto "quebrado" (fontes sem ToUnicode) parecem ter texto mas geram lixo | Médio | Detecção de camada de texto considera proporção de caracteres imprimíveis/válidos, não só presença de itens; esses caem no aviso de FR-014. |
@@ -220,6 +225,7 @@ npm run android:run
 | R-011 | Passos pós-open do `EpubViewer` pensados para EPUB rodando no livro sintético (Analyze A1): pulo automático de capítulo-stub (`isChapterStubSection`, até 4 seções) sumiria trechos curtos; progresso pelo sumário depende de hrefs; setup só re-roda quando `book.id` muda | Médio — trecho pulado ou modo que não troca | Mitigado no HTML gerado e no `ReaderScreen`, sem tocar o `EpubViewer` (ver DI-003): `data-type="chapter"` em toda seção, sem `data-pdf-bookmark`, sem `transformTarget`/`entries`/`resources`, hrefs sintéticos resolvidos pelo próprio livro, `key` por modo. Validado por T045a/T045b no início da Fase 4; se falhar, reabrir o design. |
 | R-012 | PDF raramente traz idioma nos metadados; Word Lens, tradução e TTS dependem dele (Analyze A3) | Médio — tradução/TTS no idioma errado em silêncio | DI-012: metadados → detecção por stopwords no import → indefinido com aviso único; nunca `'en'` silencioso para PDF. |
 | R-013 | Ficha de PDF sem enriquecimento: provedor local só lê EPUB e Open Library exige ISBN (Analyze A2) | Baixo/Médio — ficha pobre em PDF | DI-013: `PdfBookInfoProvider` com ISBN extraído do texto; falha em achar ISBN é aceitável (Google Books ainda busca por título/autor). |
+| R-014 | Corpus PDF é sintético (Chromium/Skia como único produtor): a heurística pode passar nele e falhar em PDFs de LaTeX/InDesign/Word (itens de texto agrupados de outro jeito) | Médio — SC-003 medido num corpus otimista | T015 deve incluir 2–3 PDFs reais do usuário em `debug-books/pdf/`; a extração de fixtures (`scripts/extract-pdf-text-fixtures.mjs`) funciona com qualquer PDF, mas só versionar fixture cujo texto possa ser versionado. |
 
 ## Execution Notes
 
@@ -231,17 +237,28 @@ npm run android:run
 
 | Data | Fase/Story | Resumo | Pendência Principal |
 | --- | --- | --- | --- |
+| 2026-10-05 | Fase 1 (Setup) | T001–T006: baseline EPUB registrada; plugin dev `/vendor/pdfjs`; corpus sintético (12 PDFs, `grande` = 1000 pág./188 MB) + extrator de fixtures; gate EPUB idêntico à baseline (1094 testes + 71 corpus) | Corpus sintético: incluir PDFs reais na calibragem do T015 (R-014) |
 
-**PRÓXIMO**: —
+**PRÓXIMO**: Fase 2 (Foundational) — começar pelos testes T007–T010a e tipos T011; depois utilitários T012–T014a, spike T015, `PdfBookFactory` T016 e `PdfTextExtractor` T017; fechar com gate T018.
 
 ## Arquivos Principais
 
 <!-- Sobrescrita a cada checkpoint — foco da etapa atual, não a árvore inteira. -->
 
-- (nenhum ainda)
+Foco da Fase 2 (Foundational) — tipos, localizador, trechos, reconstrução de parágrafos, `PdfBookFactory`:
+
+- `src/types/book.ts`, `src/types/bookInfo.ts` — `BookFormat`, campos PDF, `'pdf-metadata'` (T011)
+- `src/utils/bookFormat.ts`, `pdfLocator.ts`, `pdfChunks.ts`, `pdfParagraphs.ts`, `textLanguage.ts`, `isbn.ts` — funções puras novas (T012–T015)
+- `src/services/pdf/PdfBookFactory.ts`, `PdfTextExtractor.ts` — a partir de `node_modules/foliate-js/pdf.js` (T016–T017)
+- Insumos prontos da Fase 1: `src/__tests__/fixtures/pdf/*.json` (itens reais do pdf.js), `debug-books/pdf/` (corpus), `scripts/extract-pdf-text-fixtures.mjs`, `scripts/pdf-corpus/`
 
 ## Cuidados para Retomada
 
 <!-- Armadilhas operacionais específicas desta feature, anexadas conforme descobertas. -->
 
-- (nenhum ainda)
+- **Dev server**: `npm run dev -- --port N` no PowerShell tool NÃO repassa a flag (o Vite tratou o número como pasta raiz → 404 em tudo). Use `npx vite --port N --strictPort`. A porta 5173 costuma estar ocupada por outro dev server do usuário — não matar.
+- **Playwright MCP não esteve disponível** na sessão da Fase 1. Os scripts `scripts/extract-pdf-text-fixtures.mjs` e `scripts/pdf-corpus/generate-corpus.mjs` usam o pacote `playwright` que já está em `node_modules` (marcado "extraneous": não está no `package.json`; se sumir, `npm i --no-save playwright`). Nunca adicioná-lo ao `package.json` sem perguntar (constituição V).
+- **Corpus é sintético** (gerado pelo Chromium com texto próprio): não substitui PDFs reais (LaTeX/InDesign/Word). Para calibrar T015 com mais fidelidade, copiar 2–3 PDFs reais do usuário para `debug-books/pdf/` e rodar `node scripts/extract-pdf-text-fixtures.mjs --only <nome>` (só versionar fixture de PDF cujo texto possa ser versionado).
+- **Forma dos itens do pdf.js neste corpus** (relevante para `pdfParagraphs`): a palavra pode vir **quebrada em vários itens sem espaço entre eles** (soft hyphen, kerning); hifenização de fim de linha vem como um item `"-"` **isolado**; há itens `{ str: '', hasEOL: true }` vazios; espaços entre itens devem ser inferidos pelo gap em x.
+- **Senha do `senha.pdf`**: `neoreader` (só para teste manual; o app deve recusar o arquivo, FR-015).
+- `grande.pdf` = 1000 páginas / 188,4 MB (abaixo do teto de 200 MB, de propósito: representa o caso "sem aviso"). Para testar o aviso de FR-016, gerar um maior à parte.
