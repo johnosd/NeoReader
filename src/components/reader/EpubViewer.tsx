@@ -13,6 +13,7 @@ import { registerUnmanifestedEpubStylesheets } from '../../utils/epubResources'
 import { areTocHrefDocumentSuffixesEqual, normalizeTocHref } from '../../utils/toc'
 import { clampPercentage, fractionToPercentage } from '../../utils/progress'
 import { splitParagraphIntoTtsChunks } from '../../utils/ttsChunking'
+import { isContainerOnlyBlock, removeContainerOnlyBlocks } from '../../utils/readableBlocks'
 import { CEFR_LEVELS, type CefrLevel, type WordLensData, type WordLensDictionaryEntry } from '../../types/wordLens'
 import { scheduleWordLensDocument, type WordLensDocumentTask } from '../../utils/wordLensDom'
 import { BookFileResolver } from '../../services/BookFileResolver'
@@ -1737,7 +1738,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     }
 
     function buildLoadedSectionContent(index: number, doc: Document): LoadedSectionContent {
-      const paragraphs = Array.from(doc.querySelectorAll(BLOCK))
+      // removeContainerOnlyBlocks: evita <li><p>x</p></li> virar 2 parágrafos (TTS lia em dobro)
+      const paragraphs = removeContainerOnlyBlocks(Array.from(doc.querySelectorAll(BLOCK)), BLOCK)
         .filter((el) => (el.textContent?.trim().length ?? 0) > 2)
       paragraphs.forEach((para) => getOrCreateParagraphBookmarkCfi(para, index))
       return {
@@ -1853,7 +1855,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     }
 
     function getParagraphsFromDocument(doc: Document): Element[] {
-      return Array.from(doc.querySelectorAll(BLOCK))
+      // Mesma deduplicação de buildLoadedSectionContent: os índices precisam bater
+      return removeContainerOnlyBlocks(Array.from(doc.querySelectorAll(BLOCK)), BLOCK)
         .filter((el) => !el.closest('#nr-translation-block'))
         .filter((el) => (el as HTMLElement).id !== 'nr-para-remainder')
         .filter((el) => (el.textContent?.trim().length ?? 0) > 2)
@@ -1863,7 +1866,9 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       return !!el &&
         !el.closest('#nr-translation-block') &&
         (el as HTMLElement).id !== 'nr-para-remainder' &&
-        (el.textContent?.trim().length ?? 0) > 2
+        (el.textContent?.trim().length ?? 0) > 2 &&
+        // Toque na margem do <li> de <li><p>: cai no fallback por coordenadas
+        !isContainerOnlyBlock(el, BLOCK)
     }
 
     function findClosestReadableBlock(doc: Document, clientX: number, clientY: number): HTMLElement | null {
