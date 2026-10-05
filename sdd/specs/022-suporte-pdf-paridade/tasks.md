@@ -68,36 +68,48 @@ description: "Tasks da feature 022 — suporte a PDF com paridade de recursos do
 
 ### Testes da Fase
 
-- [ ] T007 [P] Testes de `src/utils/bookFormat.ts` em `src/__tests__/utils/bookFormat.test.ts`: EPUB real (ZIP + `mimetype`), PDF (`%PDF-`), PDF com lixo antes do header (até 1024 bytes), arquivo aleatório → `null`
-- [ ] T008 [P] Testes de `src/utils/pdfLocator.ts` em `src/__tests__/utils/pdfLocator.test.ts`: format/parse de ponto e intervalo, strings inválidas, ordenação, igualdade, `isPdfLocator` vs `epubcfi(...)`, e que `createBookmarkSyncKey` gera chave estável para localizador
-- [ ] T009 [P] Testes de `src/utils/pdfChunks.ts` em `src/__tests__/utils/pdfChunks.test.ts`: com outline, sem outline, capítulo > 40 páginas subdividido, outline fora de ordem
-- [ ] T010 [P] Testes de `src/utils/pdfParagraphs.ts` em `src/__tests__/utils/pdfParagraphs.test.ts` usando fixtures de T004: linhas por baseline, quebra de parágrafo por gap/recuo/pontuação, heading por fonte maior, 2 colunas em ordem, cabeçalho/rodapé repetido removido, dehifenização, parágrafo cruzando página, `ranges` apontando para o texto bruto correto, página sem texto → nenhum bloco, região de figura → bloco `figure`
+- [X] T007 [P] Testes de `src/utils/bookFormat.ts` em `src/__tests__/utils/bookFormat.test.ts`: EPUB real (ZIP + `mimetype`), PDF (`%PDF-`), PDF com lixo antes do header (até 1024 bytes), arquivo aleatório → `null`
+- [X] T008 [P] Testes de `src/utils/pdfLocator.ts` em `src/__tests__/utils/pdfLocator.test.ts`: format/parse de ponto e intervalo, strings inválidas, ordenação, igualdade, `isPdfLocator` vs `epubcfi(...)`, e que `createBookmarkSyncKey` gera chave estável para localizador
+- [X] T009 [P] Testes de `src/utils/pdfChunks.ts` em `src/__tests__/utils/pdfChunks.test.ts`: com outline, sem outline, capítulo > 40 páginas subdividido, outline fora de ordem
+- [X] T010 [P] Testes de `src/utils/pdfParagraphs.ts` em `src/__tests__/utils/pdfParagraphs.test.ts` usando fixtures de T004: linhas por baseline, quebra de parágrafo por gap/recuo/pontuação, heading por fonte maior, 2 colunas em ordem, cabeçalho/rodapé repetido removido, dehifenização, parágrafo cruzando página, `ranges` apontando para o texto bruto correto, página sem texto → nenhum bloco, região de figura → bloco `figure`
 
-- [ ] T010a [P] Testes de `src/utils/textLanguage.ts` e `src/utils/isbn.ts` em `src/__tests__/utils/textLanguage.test.ts` e `src/__tests__/utils/isbn.test.ts`: detecção en/pt/es/fr/de com textos de fixtures, texto curto/misturado → indefinido (abaixo da margem de confiança); ISBN-10/13 com hífens/espaços, prefixo "ISBN", dígito verificador inválido rejeitado, vários ISBNs → ordem de ocorrência
+- [X] T010a [P] Testes de `src/utils/textLanguage.ts` e `src/utils/isbn.ts` em `src/__tests__/utils/textLanguage.test.ts` e `src/__tests__/utils/isbn.test.ts`: detecção en/pt/es/fr/de com textos de fixtures, texto curto/misturado → indefinido (abaixo da margem de confiança); ISBN-10/13 com hífens/espaços, prefixo "ISBN", dígito verificador inválido rejeitado, vários ISBNs → ordem de ocorrência
 
 ### Implementation
 
-- [ ] T011 [P] `BookFormat = 'EPUB' | 'PDF'` e campos `pdfTextLayer?`, `pageCount?`, `detectedLanguage?` em `Book`; `pdfReadingMode?` em `BookSettings` — em `src/types/book.ts`; `'pdf-metadata'` em `BookInfoSource` (`src/types/bookInfo.ts`) (não indexados; sem `version()` nova, data-model.md)
-- [ ] T012 [P] Implementar `detectBookFormat(blob)` em `src/utils/bookFormat.ts` (DI-011)
-- [ ] T013 [P] Implementar localizador `neopdf:v1` em `src/utils/pdfLocator.ts` (DI-005), incluindo `buildRawPageText(items)` com a regra de texto bruto da versão 1 e comentário explicando por que o localizador não depende da heurística
-- [ ] T014 [P] Implementar divisão em trechos em `src/utils/pdfChunks.ts` (DI-009)
-- [ ] T014a [P] Implementar `src/utils/textLanguage.ts` (detecção por stopwords sobre os idiomas de `src/utils/languageOptions.ts`, margem de confiança como constante nomeada, DI-012) e `src/utils/isbn.ts` (achar e validar ISBN-10/13 em texto, DI-013) — funções puras, sem dependência nova
-- [ ] T015 Spike de heurística (research.md §3): versão inicial de `src/utils/pdfParagraphs.ts`, medir SC-003 em 5 PDFs do corpus e registrar números no Registro da Fase; ajustar constantes nomeadas até ≥ 95% nos PDFs de 1 coluna
-- [ ] T016 Implementar `src/services/pdf/PdfBookFactory.ts`: adaptar `node_modules/foliate-js/pdf.js` (MIT — cabeçalho de atribuição) para devolver `{ book, pdf }` com um único `PDFDocumentProxy` (DI-008), leitura por faixas sobre Blob (research.md §1), mesmo layout `pre-paginated`, `toc`, `metadata`, `getCover`, `destroy`; importar o pdf.js pelo alias `@pdfjs/pdf.min.mjs` já existente
-- [ ] T017 Implementar `src/services/pdf/PdfTextExtractor.ts`: texto bruto + itens por página com cache LRU limitado (ex.: 32 páginas) e `reconstructChunk(chunk)` que chama `pdfParagraphs` com a página seguinte como lookahead
+- [X] T011 [P] `BookFormat = 'EPUB' | 'PDF'` e campos `pdfTextLayer?`, `pageCount?`, `detectedLanguage?` em `Book`; `pdfReadingMode?` em `BookSettings` — em `src/types/book.ts`; `'pdf-metadata'` em `BookInfoSource` (`src/types/bookInfo.ts`) (não indexados; sem `version()` nova, data-model.md)
+- [X] T012 [P] Implementar `detectBookFormat(blob)` em `src/utils/bookFormat.ts` (DI-011)
+- [X] T013 [P] Implementar localizador `neopdf:v1` em `src/utils/pdfLocator.ts` (DI-005), incluindo `buildRawPageText(items)` com a regra de texto bruto da versão 1 e comentário explicando por que o localizador não depende da heurística
+- [X] T014 [P] Implementar divisão em trechos em `src/utils/pdfChunks.ts` (DI-009)
+- [X] T014a [P] Implementar `src/utils/textLanguage.ts` (detecção por stopwords sobre os idiomas de `src/utils/languageOptions.ts`, margem de confiança como constante nomeada, DI-012) e `src/utils/isbn.ts` (achar e validar ISBN-10/13 em texto, DI-013) — funções puras, sem dependência nova
+- [X] T015 Spike de heurística (research.md §3): versão inicial de `src/utils/pdfParagraphs.ts`, medir SC-003 em 5 PDFs do corpus e registrar números no Registro da Fase; ajustar constantes nomeadas até ≥ 95% nos PDFs de 1 coluna
+- [X] T016 Implementar `src/services/pdf/PdfBookFactory.ts`: adaptar `node_modules/foliate-js/pdf.js` (MIT — cabeçalho de atribuição) para devolver `{ book, pdf }` com um único `PDFDocumentProxy` (DI-008), leitura por faixas sobre Blob (research.md §1), mesmo layout `pre-paginated`, `toc`, `metadata`, `getCover`, `destroy`; importar o pdf.js pelo alias `@pdfjs/pdf.min.mjs` já existente
+- [X] T017 Implementar `src/services/pdf/PdfTextExtractor.ts`: texto bruto + itens por página com cache LRU limitado (ex.: 32 páginas) e `reconstructChunk(chunk)` que chama `pdfParagraphs` com a página seguinte como lookahead
 
 **Checkpoint**: Fundação pronta — user stories podem começar.
 
-- [ ] T018 Gate EPUB: `npm run lint && npm test && npm run build && npm run test:debug-epubs` iguais à linha de base
+- [X] T018 Gate EPUB: `npm run lint && npm test && npm run build && npm run test:debug-epubs` iguais à linha de base
 
 **Critério de Conclusão**: tipos compilam, localizador/trechos/reconstrução têm testes verdes, SC-003 ≥ 95% medido no spike, e o `PdfBookFactory` abre um PDF do corpus em Chromium (Playwright MCP) devolvendo `book` + `pdf`. Nenhuma mudança observável no app para EPUB.
 
 **Registro da Fase**:
 
-- Status:
+- Status: Concluída (2026-10-05)
 - Feito:
+  - T011 tipos: `BookFormat = 'EPUB' | 'PDF'`, `PdfTextLayer`, `PdfReadingMode`, campos `pdfTextLayer`/`pageCount`/`detectedLanguage` em `Book`, `pdfReadingMode` e `pdfLanguageWarningDismissed` em `BookSettings` (este último acrescentado para guardar a dispensa do aviso de idioma, T033b), `'pdf-metadata'` em `BookInfoSource` (+ rótulo "PDF" em `BookDetailsScreen.tsx`, exigido pelo `Record<BookInfoSource,…>`). Sem `version()` nova do Dexie.
+  - T012–T014a utilitários puros: `bookFormat.ts` (ZIP→EPUB sem olhar `mimetype`, de propósito: mesmo critério frouxo do fluxo EPUB, DI-001), `pdfLocator.ts` (+ `buildRawPage`), `pdfChunks.ts`, `textLanguage.ts` (stopwords en/pt-BR/es/fr/de/it + kana→ja; `rankLanguages` exportada para calibrar), `isbn.ts`.
+  - T015 `pdfParagraphs.ts` (≈750 linhas, função pura): linhas por baseline, colunas por "rio" vertical (com rio herdado das páginas vizinhas), cabeçalho/rodapé repetido, quebra por gap/recuo/linha curta/lista/título (por fonte e por forma), dehifenização com exceção de clítico, parágrafo atravessando coluna/página (âncora no último parágrafo de corpo, ignora nota de rodapé), tabela/lacuna → `figure` com `region`, `ranges` em texto bruto.
+  - T016 `src/services/pdf/pdfjs.ts` (tipos mínimos + `loadPdfjs()` sob demanda), `pdfPageRender.ts` e `PdfBookFactory.ts` (`createPdfBook(blob) → { book, pdf }`, leitura por faixas com `disableAutoFetch`, `outlineEntriesFromToc`), adaptados de `foliate-js/pdf.js` (MIT, atribuição no cabeçalho). Alias `@pdfjs/pdf.min.mjs` também no `vitest.config.ts` e declaração em `src/types/foliate.d.ts`.
+  - T017 `PdfTextExtractor.ts` (cache LRU de 32 páginas e 4 trechos, dedupe de chamadas simultâneas, `cleanup()` da página, `reconstructChunk` com 2 páginas de contexto antes e 3 depois).
 - Testes executados:
+  - Novos: `bookFormat` 6, `pdfLocator` 33, `pdfChunks` 19, `isbn` 11, `textLanguage` 9, `pdfParagraphs` 41, `PdfTextExtractor` 16 (= **135 testes novos**).
+  - **SC-003 (spike T015)** — sintético: 1col/1col-pt/1col-es/2col/misto ≥ 95% de parágrafos limpos (100% nas janelas medidas). **PDFs reais** (11 livros do usuário, págs. 20–45, quebra falsa = bloco sem pontuação final seguido de minúscula): 0–1,3% em 8 livros de prosa, 2,9% (GTD_Trello, inglês), 5% (A Arte de Fazer Acontecer, caixas de texto), 6,8% (Web Scraping — livro técnico, blocos de código viram 1 linha = 1 parágrafo). **Amostra manual de 40 parágrafos aleatórios** lida por mim: Vida Organizada ≈ 97,5%, Trabalho Organizado ≈ 97,5%. Meta ≥ 95% em 1 coluna atingida na prosa.
+  - T016/T017 em Chromium real (Playwright + `npx vite`, PDF servido por HTTP em streaming = caminho do Android): abre 1col/2col/escaneado/misto/senha/corrompido com os erros tipados `PasswordException`/`InvalidPDFException`. `grande.pdf` (1000 págs/188 MB): fetch 0,5 s, abertura 0,65 s, texto de um trecho 139 ms, heap JS 25 MB. Livro real de 157 MB (escaneado, 491 págs): abertura 138 ms. Livros reais de 300 págs: abertura 117–179 ms.
+  - T018 gate EPUB: lint ok (após corrigir 2 `no-useless-escape` em `isbn.ts`) · **1226 testes passando + 2 skipped** (128 arquivos + 2 skipped; baseline 1094 → +132 líquidos; nenhum teste EPUB alterado) · build ok · debug-epubs **71**.
 - Pendências:
+  - Achado para T028: `metadata.author` pode vir como **array** (`["Mitchell, Ryan"]`) e `dc:language` existe em alguns PDFs reais (`pt`) — `PdfService` precisa normalizar ambos.
+  - Limitações conhecidas da heurística (não bloqueiam): subtítulo em negrito do mesmo tamanho colado ao parágrafo seguinte; texto com letras espaçadas ("V o c ê") sai espaçado; bloco de código = 1 linha por parágrafo; nota de rodapé sai como bloco após o parágrafo de origem (a decidir no modo texto/TTS se vira nota ou é ignorada); rótulo de figura (SVG) e fórmula soltos viram parágrafos curtos.
+  - Validação em device Android adiada para a Fase 3 (T026), como previsto.
 
 ---
 
@@ -318,7 +330,7 @@ description: "Tasks da feature 022 — suporte a PDF com paridade de recursos do
 ### Checklist de Release
 
 - [X] Fase 1 (Setup) concluída
-- [ ] Fase 2 (Foundational) concluída
+- [X] Fase 2 (Foundational) concluída
 - [ ] Fase 3 (US1 — import + página fiel) concluída
 - [ ] Fase 4 (US2 — modo texto) concluída
 - [ ] Fase 5 (US3 — Word Lens + tradução) concluída

@@ -3,7 +3,10 @@ import type { TtsProvider, TtsVoiceSelections } from './tts'
 import type { TranslationProvider } from './translation'
 
 export type ReadingStatus = 'unread' | 'reading' | 'finished'
-export type BookFormat = 'EPUB'
+export type BookFormat = 'EPUB' | 'PDF'
+// Camada de texto do PDF, medida por amostragem no import (feature 022, R-009).
+export type PdfTextLayer = 'full' | 'partial' | 'none'
+export type PdfReadingMode = 'page' | 'text'
 export type BookCoverSource = 'epub-extracted' | 'manual-upload' | 'legacy-inline'
 export type BookStorageMode = 'embedded' | 'external' | 'local'
 export type BookImportSource = 'local' | 'drive' | 'public-domain' | 'opds'
@@ -22,6 +25,10 @@ export interface Book {
   fileSize?: number
   fileHash?: string
   format?: BookFormat
+  // Feature 022 (PDF) — só existem em livros PDF; não indexados, sem novo Dexie version()
+  pdfTextLayer?: PdfTextLayer
+  pageCount?: number
+  detectedLanguage?: string | null  // idioma dos metadados do PDF ou detectado no import; null/ausente = indefinido
   addedAt: Date
   importedAt?: Date
   lastOpenedAt: Date | null
@@ -93,6 +100,9 @@ export interface BookSettings {
   // Feature 018 (TTS Traduzido) — não indexados, não exigem novo Dexie version()
   audiobookTranslationEnabled?: boolean
   audiobookTranslationWarningDismissed?: boolean
+  // Feature 022 (PDF) — não indexados
+  pdfReadingMode?: PdfReadingMode  // último modo usado; ausente = 'page'
+  pdfLanguageWarningDismissed?: boolean  // aviso único de idioma indefinido (FR-020)
   updatedAt?: Date
 }
 

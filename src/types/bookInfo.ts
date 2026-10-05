@@ -1,5 +1,6 @@
 export type BookInfoSource =
   | 'epub-metadata'
+  | 'pdf-metadata'
   | 'google-books'
   | 'open-library'
   | 'youtube'

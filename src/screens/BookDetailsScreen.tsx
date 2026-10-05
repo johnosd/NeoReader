@@ -2134,6 +2134,7 @@ interface BookInfoDetailRow {
 function formatBookInfoSource(source: BookInfoSource): string {
   const labels: Record<BookInfoSource, string> = {
     'epub-metadata': 'EPUB',
+    'pdf-metadata': 'PDF',
     'google-books': 'Google Books',
     'open-library': 'Open Library',
     youtube: 'YouTube',

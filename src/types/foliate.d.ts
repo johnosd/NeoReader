@@ -231,3 +231,7 @@ declare module 'foliate-js/opds.js' {
     params: { ns: string | null; name: string; required: boolean; value: string }[]
   }
 }
+
+// Alias do pdf.js vendorizado (vite.config.ts → resolve.alias). O módulo só registra globalThis.pdfjsLib
+// como efeito colateral; os tipos do que usamos ficam em src/services/pdf/pdfjs.ts.
+declare module '@pdfjs/pdf.min.mjs' {}

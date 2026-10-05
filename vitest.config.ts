@@ -21,6 +21,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
+      // Mesmo alias do vite.config.ts: o import dinâmico do pdf.js precisa resolver (os testes o mockam).
+      '@pdfjs/pdf.min.mjs': fileURLToPath(new URL('./node_modules/foliate-js/vendor/pdfjs/pdf.mjs', import.meta.url)),
     },
   },
 })

@@ -136,8 +136,8 @@ function paragraph(L, rng, sentences = 4 + Math.floor(rng() * 4)) {
 // HTML dos documentos
 // ---------------------------------------------------------------------------
 
+// Sem @page { margin: ... } aqui: uma regra @page no CSS vence a opção `margin` do page.pdf().
 const BASE_CSS = `
-  @page { margin: 0 }
   * { box-sizing: border-box }
   body { margin: 0; font-family: Georgia, 'Times New Roman', serif; font-size: 11pt; line-height: 1.4; color: #111 }
   h1 { font-size: 20pt; margin: 0 0 14pt; page-break-before: always; page-break-after: avoid }

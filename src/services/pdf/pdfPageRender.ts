@@ -1,0 +1,269 @@
+// Renderização de uma página PDF dentro do documento (iframe) do foliate-fxl: canvas + camada de
+// texto + camada de anotações (links).
+//
+// Adaptado de foliate-js/pdf.js (MIT, Copyright (c) 2022 John Factotum), conforme o pacote
+// vendorizado em node_modules/foliate-js (fork readest/foliate-js, licença MIT do próprio repositório).
+// Mudanças: tipado em TypeScript, pdf.js carregado sob demanda, sem globais soltas.
+
+import { loadPdfjs, pdfjsPath, type PdfPageProxy } from './pdfjs'
+
+// Render em andamento por documento: um zoom novo cancela o render anterior.
+const activeRenderTasks = new WeakMap<Document, { cancel(): void }>()
+// "Geração" por documento: detecta render obsoleto depois de cada await.
+const renderGenerations = new WeakMap<Document, number>()
+
+// Pan por arraste e seleção de texto, instalados uma vez por documento de página.
+const panInitialized = new WeakSet<Document>()
+
+function setupPanningEvents(doc: Document) {
+  if (panInitialized.has(doc)) return
+  panInitialized.add(doc)
+
+  const container = doc.querySelector<HTMLElement>('.textLayer')
+  if (!container) return
+
+  let isPanning = false
+  let startX = 0
+  let startY = 0
+  let scrollLeft = 0
+  let scrollTop = 0
+  let scrollParent: HTMLElement | Window | null = null
+
+  // Sobe pelo DOM (atravessando o shadow root do foliate) até o primeiro ancestral rolável.
+  const findScrollableParent = (element: Element): HTMLElement | Window => {
+    let current: Element | null = element
+    while (current) {
+      if (current !== document.body && current.nodeType === 1) {
+        const style = window.getComputedStyle(current)
+        if (/(auto|scroll)/.test(style.overflow + style.overflowY + style.overflowX)) {
+          if (current.scrollHeight > current.clientHeight || current.scrollWidth > current.clientWidth) {
+            return current as HTMLElement
+          }
+        }
+      }
+      if (current.parentElement) current = current.parentElement
+      else if ((current.parentNode as ShadowRoot | null)?.host) current = (current.parentNode as ShadowRoot).host
+      else break
+    }
+    return window
+  }
+
+  const stopPanning = () => {
+    isPanning = false
+    scrollParent = null
+    container.style.cursor = 'grab'
+  }
+
+  container.onpointerdown = (e) => {
+    const selection = doc.getSelection()
+    const hasTextSelection = !!selection && selection.toString().length > 0
+    const under = doc.elementFromPoint(e.clientX, e.clientY)
+    const hasTextUnderneath =
+      !!under && (under.tagName === 'SPAN' || under.tagName === 'P') && (under.textContent ?? '').trim().length > 0
+
+    if (!hasTextUnderneath && !hasTextSelection) {
+      isPanning = true
+      startX = e.screenX
+      startY = e.screenY
+      const iframe = doc.defaultView?.frameElement
+      if (iframe) {
+        scrollParent = findScrollableParent(iframe)
+        if (scrollParent === window) {
+          scrollLeft = window.scrollX || window.pageXOffset
+          scrollTop = window.scrollY || window.pageYOffset
+        } else {
+          scrollLeft = (scrollParent as HTMLElement).scrollLeft
+          scrollTop = (scrollParent as HTMLElement).scrollTop
+        }
+        container.style.cursor = 'grabbing'
+      }
+    } else {
+      container.classList.add('selecting')
+    }
+  }
+
+  container.onpointermove = (e) => {
+    if (!isPanning || !scrollParent) return
+    e.preventDefault()
+    const dx = e.screenX - startX
+    const dy = e.screenY - startY
+    if (scrollParent === window) {
+      window.scrollTo(scrollLeft - dx, scrollTop - dy)
+    } else {
+      ;(scrollParent as HTMLElement).scrollLeft = scrollLeft - dx
+      ;(scrollParent as HTMLElement).scrollTop = scrollTop - dy
+    }
+  }
+
+  container.onpointerup = () => {
+    if (isPanning) stopPanning()
+    else container.classList.remove('selecting')
+  }
+  container.onpointerleave = () => {
+    if (isPanning) stopPanning()
+  }
+
+  doc.addEventListener('selectionchange', () => {
+    const selection = doc.getSelection()
+    if (selection && selection.toString().length > 0) container.style.cursor = 'text'
+    else if (!isPanning) container.style.cursor = 'grab'
+  })
+
+  container.style.cursor = 'grab'
+}
+
+/** Desenha (ou redesenha, no zoom) a página `page` no documento `doc` na escala `zoom`. */
+export async function renderPdfPage(page: PdfPageProxy, doc: Document, zoom: number, pageColors?: unknown) {
+  const pdfjs = await loadPdfjs()
+
+  const generation = (renderGenerations.get(doc) ?? 0) + 1
+  renderGenerations.set(doc, generation)
+
+  const existing = activeRenderTasks.get(doc)
+  if (existing) {
+    existing.cancel()
+    activeRenderTasks.delete(doc)
+  }
+
+  // Renderiza em resolução de tela (zoom × devicePixelRatio) e reduz o documento com transform
+  // para o texto ficar nítido em telas densas.
+  const scale = zoom * devicePixelRatio
+  doc.documentElement.style.transform = `scale(${1 / devicePixelRatio})`
+  doc.documentElement.style.transformOrigin = 'top left'
+  doc.documentElement.style.setProperty('--total-scale-factor', String(scale))
+  doc.documentElement.style.setProperty('--user-unit', '1')
+  doc.documentElement.style.setProperty('--scale-round-x', '1px')
+  doc.documentElement.style.setProperty('--scale-round-y', '1px')
+  const viewport = page.getViewport({ scale })
+
+  // O canvas precisa ser criado no document PAI (onde as fontes do pdf.js são carregadas).
+  const canvas = document.createElement('canvas')
+  canvas.height = viewport.height
+  canvas.width = viewport.width
+  const canvasContext = canvas.getContext('2d')
+  if (!canvasContext) return
+  const renderTask = page.render({ canvasContext, viewport, pageColors })
+  activeRenderTasks.set(doc, renderTask)
+
+  // Liberar o bitmap de um canvas descartado: canvas grande segura memória até o GC.
+  const release = (c: HTMLCanvasElement) => {
+    c.width = 0
+    c.height = 0
+  }
+
+  try {
+    await renderTask.promise
+  } catch {
+    release(canvas) // cancelado ou falhou
+    return
+  } finally {
+    if (activeRenderTasks.get(doc) === renderTask) activeRenderTasks.delete(doc)
+  }
+
+  // Outro render começou, ou o iframe saiu da tela, durante o await.
+  if (renderGenerations.get(doc) !== generation || !doc.defaultView) {
+    release(canvas)
+    return
+  }
+
+  const canvasHolder = doc.querySelector('#canvas')
+  if (!canvasHolder) {
+    release(canvas)
+    return
+  }
+  const oldCanvas = canvasHolder.querySelector('canvas')
+  if (oldCanvas) release(oldCanvas)
+  canvasHolder.replaceChildren(doc.adoptNode(canvas))
+
+  // Camada de texto (seleção, Word Lens, highlights): limpa antes de refazer para não acumular DOM.
+  const textContainer = doc.querySelector<HTMLElement>('.textLayer')
+  if (!textContainer) return
+  textContainer.replaceChildren()
+  const textLayer = new pdfjs.TextLayer({
+    textContentSource: page.streamTextContent(),
+    container: textContainer,
+    viewport,
+  })
+  await textLayer.render()
+  if (renderGenerations.get(doc) !== generation) return
+
+  // O TextLayer cria canvases auxiliares no document pai; esconde para não vazarem para a tela.
+  for (const hidden of document.querySelectorAll<HTMLElement>('.hiddenCanvasElement')) {
+    Object.assign(hidden.style, { position: 'absolute', top: '0', left: '0', width: '0', height: '0', display: 'none' })
+  }
+
+  // Correção de seleção de texto recomendada pelo pdf.js (text_layer_builder.js).
+  const endOfContent = document.createElement('div')
+  endOfContent.className = 'endOfContent'
+  textContainer.append(endOfContent)
+
+  setupPanningEvents(doc)
+
+  const annotationDiv = doc.querySelector<HTMLElement>('.annotationLayer')
+  if (!annotationDiv) return
+  annotationDiv.replaceChildren()
+  const linkService = {
+    goToDestination: () => {},
+    getDestinationHash: (dest: unknown) => JSON.stringify(dest),
+    addLinkAttributes: (link: HTMLAnchorElement, url: string) => {
+      link.href = url
+    },
+  }
+  await new pdfjs.AnnotationLayer({ page, viewport, div: annotationDiv, linkService }).render({
+    annotations: await page.getAnnotations(),
+  })
+}
+
+let textLayerCss: string | null = null
+let annotationLayerCss: string | null = null
+const fetchText = async (url: string) => (await fetch(url)).text()
+
+export interface PdfPageSource {
+  src: string // blob: URL do HTML base da página
+  data: string
+  onZoom: (args: { doc: Document; scale: number; pageColors?: unknown }) => Promise<void>
+}
+
+/** HTML-base de uma página (canvas + camadas vazias) e o callback de zoom. */
+export async function buildPdfPageSource(page: PdfPageProxy): Promise<PdfPageSource> {
+  const viewport = page.getViewport({ scale: 1 })
+  textLayerCss ??= await fetchText(pdfjsPath('text_layer_builder.css'))
+  annotationLayerCss ??= await fetchText(pdfjsPath('annotation_layer_builder.css'))
+  const data = `
+    <!DOCTYPE html>
+    <html lang="en">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=${viewport.width}, height=${viewport.height}">
+    <style>
+    html, body { margin: 0; padding: 0; }
+    ${textLayerCss}
+    ${annotationLayerCss}
+    </style>
+    <div id="canvas"></div>
+    <div class="textLayer"></div>
+    <div class="annotationLayer"></div>
+  `
+  const src = URL.createObjectURL(new Blob([data], { type: 'text/html' }))
+  const onZoom = ({ doc, scale, pageColors }: { doc: Document; scale: number; pageColors?: unknown }) =>
+    renderPdfPage(page, doc, scale, pageColors)
+  return { src, data, onZoom }
+}
+
+/** Renderiza a página inteira num Blob de imagem (capa, e placeholder de figura no modo texto). */
+export async function renderPdfPageToBlob(page: PdfPageProxy, scale = 1): Promise<Blob | null> {
+  const viewport = page.getViewport({ scale })
+  const canvas = document.createElement('canvas')
+  canvas.height = viewport.height
+  canvas.width = viewport.width
+  const canvasContext = canvas.getContext('2d')
+  if (!canvasContext) return null
+  await page.render({ canvasContext, viewport }).promise
+  return new Promise((resolve) =>
+    canvas.toBlob((blob) => {
+      // Libera o bitmap assim que o Blob existe.
+      canvas.width = 0
+      canvas.height = 0
+      resolve(blob)
+    }),
+  )
+}

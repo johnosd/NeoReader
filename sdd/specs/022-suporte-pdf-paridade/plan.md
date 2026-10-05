@@ -197,11 +197,12 @@ npm run android:run
 
 | Área | Estado |
 | --- | --- |
-| Fase 1 — Setup | Concluída (2026-10-05): dev server serve `/vendor/pdfjs`; corpus PDF sintético e fixtures prontos; baseline EPUB registrada e inalterada |
-| Fase 2 — Foundational | Não iniciada (próxima: T007–T010a testes, T011–T017 implementação) |
-| Fases 3–9 | Não iniciadas |
-| Código de app para PDF | Nenhum ainda — única mudança em arquivo existente: `vite.config.ts` (plugin só de dev) |
-| Regressão EPUB | Baseline = 1094 testes passando + 2 skipped (121 arquivos) · corpus EPUB 71 · lint/build ok; gate da Fase 1 idêntico |
+| Fase 1 — Setup | Concluída (2026-10-05) |
+| Fase 2 — Foundational | Concluída (2026-10-05): tipos, `bookFormat`, `pdfLocator`, `pdfChunks`, `textLanguage`, `isbn`, `pdfParagraphs`, `pdfjs`/`pdfPageRender`/`PdfBookFactory`, `PdfTextExtractor`; SC-003 medido; factory validado em Chromium |
+| Fase 3 — US1 (import + página fiel) | Não iniciada (próxima: T019–T027 testes, T028–T038 implementação, começando pelos spikes de device T026) |
+| Fases 4–9 | Não iniciadas |
+| Código de app para PDF | Só fundação (nenhuma tela/serviço de import usa PDF ainda); arquivos existentes tocados: `vite.config.ts` (plugin de dev), `vitest.config.ts` (alias), `types/book.ts`, `types/bookInfo.ts`, `types/foliate.d.ts`, `BookDetailsScreen.tsx` (1 rótulo) |
+| Regressão EPUB | 1226 testes passando + 2 skipped (baseline 1094 inalterados) · corpus EPUB 71 · lint/build ok |
 
 ## Riscos e Decisões
 
@@ -226,6 +227,9 @@ npm run android:run
 | R-012 | PDF raramente traz idioma nos metadados; Word Lens, tradução e TTS dependem dele (Analyze A3) | Médio — tradução/TTS no idioma errado em silêncio | DI-012: metadados → detecção por stopwords no import → indefinido com aviso único; nunca `'en'` silencioso para PDF. |
 | R-013 | Ficha de PDF sem enriquecimento: provedor local só lê EPUB e Open Library exige ISBN (Analyze A2) | Baixo/Médio — ficha pobre em PDF | DI-013: `PdfBookInfoProvider` com ISBN extraído do texto; falha em achar ISBN é aceitável (Google Books ainda busca por título/autor). |
 | R-014 | Corpus PDF é sintético (Chromium/Skia como único produtor): a heurística pode passar nele e falhar em PDFs de LaTeX/InDesign/Word (itens de texto agrupados de outro jeito) | Médio — SC-003 medido num corpus otimista | T015 deve incluir 2–3 PDFs reais do usuário em `debug-books/pdf/`; a extração de fixtures (`scripts/extract-pdf-text-fixtures.mjs`) funciona com qualquer PDF, mas só versionar fixture cujo texto possa ser versionado. |
+| R-015 | A heurística de parágrafos foi calibrada em 11 livros reais (T015) e tem limites conhecidos: bloco de código (1 linha = 1 parágrafo), subtítulo em negrito do mesmo tamanho colado ao parágrafo, letras espaçadas, nota de rodapé como bloco solto, rótulo de figura/fórmula como parágrafo curto | Baixo/Médio — qualidade do modo texto, TTS e tradução em livros técnicos/acadêmicos | Funções puras com constantes nomeadas (`pdfParagraphs.ts`); quebra falsa medida 0–1,3% em prosa e 6,8% em livro técnico. Novos casos reais entram como teste sintético + ajuste de constante. Decisão sobre nota de rodapé fica para US2/US4 (modo texto/TTS). |
+| R-016 | PDFs reais imprimem o texto N× com deslocamento < 1pt (negrito falso por sobreposição; ex.: "Os Noturnos" 4×) e o texto bruto do localizador (DI-005) contém todas as cópias | Médio — sem dedupe os parágrafos saíam misturados | Resolvido em `pdfParagraphs.ts` (dedupe por string+posição; índices das cópias continuam nos `ranges`). O localizador não muda (conta as cópias), consistente com a camada de texto do pdf.js usada na página fiel. |
+| R-017 | O tamanho de corpo varia por página no mesmo PDF (9pt/7pt em "Do Mil ao Milhão") | Médio — métricas globais deixavam páginas "sem corpo" e quebravam cada linha | Resolvido: tamanho de corpo por página (com o do documento como reserva abaixo de 300 caracteres). |
 
 ## Execution Notes
 
@@ -237,20 +241,22 @@ npm run android:run
 
 | Data | Fase/Story | Resumo | Pendência Principal |
 | --- | --- | --- | --- |
+| 2026-10-05 | Fase 2 (Foundational) | T007–T018: tipos, utilitários puros, `pdfParagraphs` calibrado em 11 PDFs reais (SC-003 ≥ 95% em prosa), `PdfBookFactory`/`PdfTextExtractor` validados em Chromium (grande.pdf abre em 0,65 s); 135 testes novos; gate EPUB verde (1226 + 71) | `PdfService` deve normalizar `author` (array) e `language`; device só na Fase 3 |
 | 2026-10-05 | Fase 1 (Setup) | T001–T006: baseline EPUB registrada; plugin dev `/vendor/pdfjs`; corpus sintético (12 PDFs, `grande` = 1000 pág./188 MB) + extrator de fixtures; gate EPUB idêntico à baseline (1094 testes + 71 corpus) | Corpus sintético: incluir PDFs reais na calibragem do T015 (R-014) |
 
-**PRÓXIMO**: Fase 2 (Foundational) — começar pelos testes T007–T010a e tipos T011; depois utilitários T012–T014a, spike T015, `PdfBookFactory` T016 e `PdfTextExtractor` T017; fechar com gate T018.
+**PRÓXIMO**: Fase 3 (US1) — spikes de device T026 no começo (faixas/memória com `grande.pdf`, pinça/zoom, capa nativa), depois T028 `PdfService` → T029–T033b import/idioma/ficha → T034–T037 sessão + `PdfPageViewer` + `ReaderScreen`; testes T019–T025 junto de cada peça.
 
 ## Arquivos Principais
 
 <!-- Sobrescrita a cada checkpoint — foco da etapa atual, não a árvore inteira. -->
 
-Foco da Fase 2 (Foundational) — tipos, localizador, trechos, reconstrução de parágrafos, `PdfBookFactory`:
+Foco da Fase 3 (US1 — import + leitura em página fiel):
 
-- `src/types/book.ts`, `src/types/bookInfo.ts` — `BookFormat`, campos PDF, `'pdf-metadata'` (T011)
-- `src/utils/bookFormat.ts`, `pdfLocator.ts`, `pdfChunks.ts`, `pdfParagraphs.ts`, `textLanguage.ts`, `isbn.ts` — funções puras novas (T012–T015)
-- `src/services/pdf/PdfBookFactory.ts`, `PdfTextExtractor.ts` — a partir de `node_modules/foliate-js/pdf.js` (T016–T017)
-- Insumos prontos da Fase 1: `src/__tests__/fixtures/pdf/*.json` (itens reais do pdf.js), `debug-books/pdf/` (corpus), `scripts/extract-pdf-text-fixtures.mjs`, `scripts/pdf-corpus/`
+- `src/services/pdf/PdfService.ts` (novo, T028) — metadados/capa/`pdfTextLayer`/idioma no import, sobre `createPdfBook`
+- `src/services/BookImportService.ts`, `NativeLibraryImportService.ts`, `BookFileResolver.ts` — despacho por formato (T029–T030)
+- `android/.../NeoReaderLibraryPlugin.java`, `ExternalEpubIntentStore.java`, `AndroidManifest.xml` — picker/pasta/"abrir com" de PDF (T032)
+- `src/hooks/usePdfReaderSession.ts`, `src/components/reader/PdfPageViewer.tsx` + `pdfPage/` (novos, T034–T035) e `ReaderScreen.tsx` (T037)
+- Prontos da Fase 2 para reuso: `services/pdf/PdfBookFactory.ts` (`createPdfBook`, `outlineEntriesFromToc`), `PdfTextExtractor.ts`, `pdfPageRender.ts` (`renderPdfPageToBlob`, `buildPdfPageSource`), `utils/pdf*.ts`, `utils/bookFormat.ts`, `textLanguage.ts`, `isbn.ts`
 
 ## Cuidados para Retomada
 

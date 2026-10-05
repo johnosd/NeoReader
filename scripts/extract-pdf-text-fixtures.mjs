@@ -13,6 +13,7 @@
 //   node scripts/extract-pdf-text-fixtures.mjs --only 1col,2col # só estes
 //   node scripts/extract-pdf-text-fixtures.mjs --pages 3-14     # outro intervalo (1-based)
 //   node scripts/extract-pdf-text-fixtures.mjs --in <dir>       # outro diretório de PDFs
+//   node scripts/extract-pdf-text-fixtures.mjs --only "Livro" --out <dir>  # grava fora do repo (PDFs reais: só para medir, nunca versionar)
 //
 // Só gere fixtures de PDFs que possam ser versionados (corpus sintético ou
 // texto de domínio público): o JSON contém o texto das páginas.
@@ -32,7 +33,7 @@ const opt = (name, fallback) => {
   return i >= 0 ? args[i + 1] : fallback
 }
 const inDir = resolve(opt('--in', join(root, 'debug-books/pdf')))
-const outDir = join(root, 'src/__tests__/fixtures/pdf')
+const outDir = resolve(opt('--out', join(root, 'src/__tests__/fixtures/pdf')))
 const only = opt('--only') ? new Set(opt('--only').split(',')) : null
 const [firstPage, lastPage] = opt('--pages', '1-12').split('-').map(Number)
 
