@@ -7,6 +7,7 @@ import { BookInfoService } from './BookInfoService'
 import { EpubBookInfoProvider } from './EpubBookInfoProvider'
 import { GoogleBooksProvider } from './GoogleBooksProvider'
 import { OpenLibraryProvider } from './OpenLibraryProvider'
+import { PdfBookInfoProvider } from './PdfBookInfoProvider'
 import { YouTubeReviewsProvider } from './YouTubeReviewsProvider'
 
 interface RefreshBookInfoOptions {
@@ -26,7 +27,8 @@ export class BookInfoRefreshService {
 
     let youtubeAttemptFailed = false
     const collected = await new BookInfoService([
-      new EpubBookInfoProvider({ bookId: book.id }),
+      // PDF troca só o provedor local (DI-013); a lista do EPUB é a de sempre.
+      book.format === 'PDF' ? new PdfBookInfoProvider() : new EpubBookInfoProvider({ bookId: book.id }),
       new GoogleBooksProvider(),
       new OpenLibraryProvider(),
       new YouTubeReviewsProvider({ apiKey: youtubeApiKey }),

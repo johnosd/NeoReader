@@ -270,6 +270,14 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
   }, [book.id, storedBookSettingsRow?.updatedAt])
 
   useEffect(() => {
+    // PDF não tem OPF/sumário para extrair: o idioma já foi resolvido no import (DI-012) e não há o que
+    // ler do arquivo. EPUB segue o caminho de sempre logo abaixo.
+    if (liveBook.format === 'PDF') {
+      setExtras({ description: null, language: liveBook.detectedLanguage ?? null, toc: [], previewText: null, styleDiagnostics: [] })
+      setExtrasLoading(false)
+      return
+    }
+
     let cancelled = false
     let timeoutId: ReturnType<typeof setTimeout> | null = null
     setExtrasLoading(true)
@@ -299,7 +307,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
       cancelled = true
       if (timeoutId) clearTimeout(timeoutId)
     }
-  }, [liveBook, liveBook.fileBlob, liveBook.id, liveBook.storageMode, liveBook.uri, t])
+  }, [liveBook, liveBook.fileBlob, liveBook.id, liveBook.storageMode, liveBook.uri, liveBook.format, liveBook.detectedLanguage, t])
 
   useEffect(() => {
     // Troca de aba sempre reseta a navegação interna da aba Configurações

@@ -12,6 +12,7 @@ import { addVocabItem } from '@/db/vocabulary'
 import { deleteBook } from '@/db/books'
 import { setReaderImmersiveMode, setSelectionMenuSuppressed } from '@/services/NativeSystemUiService'
 import { addHighlight, updateHighlightAppearance } from '@/db/highlights'
+import { addBookmark } from '@/db/bookmarks'
 
 type MockTtsOptions = {
   provider?: TtsProvider
@@ -47,6 +48,10 @@ const mocks = vi.hoisted(() => {
   return {
     viewerHandle,
     epubViewerProps: null as Record<string, unknown> | null,
+    // Feature 022 (PDF): props capturadas do PdfPageViewer e estado controlável da sessão do PDF.
+    pdfViewerProps: null as Record<string, unknown> | null,
+    pdfSessionState: { status: 'idle' } as { status: string; session?: unknown; error?: Error },
+    pdfSessionArgs: null as { enabled: boolean; onError?: (error: Error) => void } | null,
     tocDrawerProps: null as Record<string, unknown> | null,
     readerProgress: {
       savedCfi: null as string | null,
@@ -289,6 +294,27 @@ vi.mock('@/components/reader/EpubViewer', async () => {
 
   return { EpubViewer }
 })
+
+vi.mock('@/components/reader/PdfPageViewer', async () => {
+  const React = await import('react')
+
+  const PdfPageViewer = React.forwardRef((props: Record<string, unknown>, ref) => {
+    React.useEffect(() => {
+      mocks.pdfViewerProps = props
+    }, [props])
+    React.useImperativeHandle(ref, () => mocks.viewerHandle)
+    return <div data-testid="pdf-page-viewer" />
+  })
+
+  return { PdfPageViewer }
+})
+
+vi.mock('@/hooks/usePdfReaderSession', () => ({
+  usePdfReaderSession: vi.fn((_book: unknown, enabled: boolean, onError?: (error: Error) => void) => {
+    mocks.pdfSessionArgs = { enabled, onError }
+    return enabled ? mocks.pdfSessionState : { status: 'idle' }
+  }),
+}))
 
 vi.mock('@/components/reader/ReaderChrome', () => ({
   ReaderChrome: ({ onTtsToggle, onBack }: { onTtsToggle: () => void; onBack: () => void }) => (
@@ -2545,6 +2571,262 @@ describe('ReaderScreen', () => {
 
       expect(mocks.ttsOptions?.language).toBe('pt-BR')
       expect(mocks.ttsOptions?.voiceSelections?.speechify?.id).toBe('original-voice-en')
+    })
+  })
+})
+
+// Feature 022 — PDF no leitor. EPUB segue pelo EpubViewer exatamente como antes (casos acima não mudaram).
+describe('ReaderScreen — PDF (feature 022)', () => {
+  const pdfBook: Book = {
+    ...book,
+    format: 'PDF',
+    fileBlob: new Blob(['%PDF-1.7'], { type: 'application/pdf' }),
+    pdfTextLayer: 'full',
+    pageCount: 120,
+    detectedLanguage: 'pt-BR',
+  }
+  const readySession = { status: 'ready', session: { pageCount: 120, chunks: [], pdfBook: { toc: [] }, extractor: {} } }
+
+  beforeEach(() => {
+    mocks.epubViewerProps = null
+    mocks.pdfViewerProps = null
+    mocks.pdfSessionArgs = null
+    mocks.pdfSessionState = readySession
+    mocks.bookmarks = []
+    mocks.liveQueryIndex = 0
+    mocks.readerProgress.savedCfi = null
+    mocks.readerProgress.savedProgress = null
+    mocks.readerProgress.initialLoadDone = true
+    mocks.readerProgress.saveProgress.mockClear()
+    mocks.readerStore.setCfi.mockClear()
+    mocks.viewerHandle.goTo.mockClear()
+    vi.mocked(addBookmark).mockReset()
+    vi.mocked(addBookmark).mockResolvedValue(1)
+    vi.mocked(updateBookSettings).mockClear()
+    vi.mocked(getSettings).mockResolvedValue(makeSettings())
+    vi.mocked(getBookSettings).mockResolvedValue({})
+  })
+
+  const renderReader = async (overrides: Partial<Book> = {}, props: { startHref?: string | null } = {}) => {
+    const utils = render(
+      <ReaderScreen book={{ ...pdfBook, ...overrides }} onBack={vi.fn()} onOpenVocabulary={vi.fn()} {...props} />,
+    )
+    await flushAsyncWork()
+    await flushAsyncWork()
+    return utils
+  }
+
+  it('livro PDF monta o PdfPageViewer (e não o EpubViewer) e abre a sessão do PDF', async () => {
+    await renderReader()
+
+    expect(screen.getByTestId('pdf-page-viewer')).toBeTruthy()
+    expect(screen.queryByTestId('epub-viewer')).toBeNull()
+    expect(mocks.pdfSessionArgs?.enabled).toBe(true)
+  })
+
+  it('livro EPUB (com e sem format) monta o EpubViewer com exatamente as mesmas props de antes', async () => {
+    for (const format of [undefined, 'EPUB' as const]) {
+      mocks.epubViewerProps = null
+      const { unmount } = render(
+        <ReaderScreen book={{ ...book, format }} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />,
+      )
+      await flushAsyncWork()
+      await flushAsyncWork()
+
+      expect(screen.getByTestId('epub-viewer')).toBeTruthy()
+      expect(screen.queryByTestId('pdf-page-viewer')).toBeNull()
+      expect(mocks.pdfSessionArgs?.enabled).toBe(false)
+      expect(Object.keys(mocks.epubViewerProps ?? {}).sort()).toEqual([
+        'book', 'bookmarks', 'chromeVisible', 'fontFamily', 'fontSize', 'focusLineEnabled', 'highlights', 'initialTarget',
+        'lineHeight', 'onBookmarkParagraph', 'onBookmarkTap', 'onCenterTap', 'onDeleteHighlight', 'onEditHighlight',
+        'onError', 'onLoad', 'onOpenImage', 'onOpenToc', 'onParagraphTapForTts', 'onRelocate', 'onRequestCreateHighlight',
+        'onSaveVocab', 'onSectionReady', 'onSpeakOne', 'onTocReady', 'onTranslate', 'onTtsUserScrollAway',
+        'onWordLensDefinition', 'overrideBookColors', 'overrideBookFont', 'readerTheme', 'savedCfi', 'ttsGlobalActive',
+        'vocabWords', 'wordLensData', 'wordLensEnabled', 'wordLensLevel',
+      ].sort())
+      // nenhuma prop nova do PDF vaza para o EpubViewer
+      expect(mocks.epubViewerProps).not.toHaveProperty('session')
+      expect(mocks.epubViewerProps).not.toHaveProperty('openBook')
+      unmount()
+    }
+  })
+
+  it('enquanto a sessão do PDF abre, nenhum viewer é montado (skeleton)', async () => {
+    mocks.pdfSessionState = { status: 'loading' }
+    await renderReader()
+    expect(screen.queryByTestId('pdf-page-viewer')).toBeNull()
+    expect(screen.queryByTestId('epub-viewer')).toBeNull()
+  })
+
+  it('erro ao abrir o PDF mostra a mensagem; arquivo movido cai na tela de arquivo ausente', async () => {
+    mocks.pdfSessionState = { status: 'error', error: new Error('PDF quebrado') }
+    const first = await renderReader()
+    expect(screen.getByText('PDF quebrado')).toBeTruthy()
+    first.unmount()
+
+    mocks.pdfSessionState = { status: 'error', error: new Error('Este livro foi movido, apagado ou perdeu a permissao de acesso.') }
+    await renderReader()
+    expect(screen.getByText(/Arquivo|arquivo/)).toBeTruthy()
+  })
+
+  it('o erro da sessão chega ao leitor pelo callback (encerra o carregando como no EPUB)', async () => {
+    await renderReader()
+    expect(typeof mocks.pdfSessionArgs?.onError).toBe('function')
+  })
+
+  it('progresso salvo como localizador neopdf é entregue ao viewer; startHref tem prioridade', async () => {
+    mocks.readerProgress.savedCfi = 'neopdf:v1;p=12;o=40'
+    const first = await renderReader()
+    expect(mocks.pdfViewerProps?.savedLocator).toBe('neopdf:v1;p=12;o=40')
+    expect(mocks.pdfViewerProps?.initialTarget).toBeNull()
+    first.unmount()
+
+    mocks.pdfViewerProps = null
+    await renderReader({}, { startHref: 'neopdf:v1;p=30;o=0' })
+    expect(mocks.pdfViewerProps?.savedLocator).toBeNull()
+    expect(mocks.pdfViewerProps?.initialTarget).toBe('neopdf:v1;p=30;o=0')
+  })
+
+  it('um CFI de EPUB salvo não vira localizador de PDF', async () => {
+    mocks.readerProgress.savedCfi = 'epubcfi(/6/4!/4/2/1:0)'
+    await renderReader()
+    expect(mocks.pdfViewerProps?.savedLocator).toBeNull()
+  })
+
+  it('relocate do PDF grava o progresso como localizador neopdf com o capítulo', async () => {
+    await renderReader()
+    const onRelocate = mocks.pdfViewerProps?.onRelocate as (p: unknown) => void
+
+    act(() => onRelocate({
+      cfi: 'neopdf:v1;p=5;o=120',
+      fraction: 0.05,
+      percentage: 4.9,
+      sectionIndex: 1,
+      tocLabel: 'Capítulo 1',
+      sectionHref: 'neopdf:v1;p=4;o=0',
+    }))
+
+    expect(mocks.readerStore.setCfi).toHaveBeenCalledWith('neopdf:v1;p=5;o=120', 4.9, 'Capítulo 1')
+    expect(mocks.readerProgress.saveProgress).toHaveBeenCalledWith({
+      cfi: 'neopdf:v1;p=5;o=120',
+      percentage: 4.9,
+      fraction: 0.05,
+      sectionHref: 'neopdf:v1;p=4;o=0',
+      sectionLabel: 'Capítulo 1',
+    })
+  })
+
+  it('relocate inicial na página do alvo libera a navegação por startHref neopdf', async () => {
+    await renderReader({}, { startHref: 'neopdf:v1;p=7;o=0' })
+    const onRelocate = mocks.pdfViewerProps?.onRelocate as (p: unknown) => void
+
+    // página errada: ignorado (não grava progresso)
+    act(() => onRelocate({ cfi: 'neopdf:v1;p=0;o=0', fraction: 0, percentage: 0, sectionIndex: 0 }))
+    expect(mocks.readerProgress.saveProgress).not.toHaveBeenCalled()
+
+    // página do alvo: aceito
+    act(() => onRelocate({ cfi: 'neopdf:v1;p=7;o=55', fraction: 0.06, percentage: 5.8, sectionIndex: 0 }))
+    expect(mocks.readerProgress.saveProgress).toHaveBeenCalled()
+  })
+
+  it('marcador de parágrafo do PDF grava o localizador de início do parágrafo', async () => {
+    await renderReader()
+    const onBookmarkParagraph = mocks.pdfViewerProps?.onBookmarkParagraph as (p: unknown) => void
+
+    act(() => onBookmarkParagraph({ cfi: 'neopdf:v1;p=4;o=254', label: 'Capítulo 1', percentage: 3.3, snippet: 'The traveller' }))
+
+    expect(addBookmark).toHaveBeenCalledWith(1, 'neopdf:v1;p=4;o=254', 'Capítulo 1', 3.3, { snippet: 'The traveller', color: 'indigo' })
+  })
+
+  it('marcar duas vezes o mesmo parágrafo de PDF remove em vez de duplicar', async () => {
+    mocks.bookmarks = [{ id: 9, syncedAt: null, cfi: 'neopdf:v1;p=4;o=254' }] as never
+    await renderReader()
+    const onBookmarkParagraph = mocks.pdfViewerProps?.onBookmarkParagraph as (p: unknown) => void
+
+    act(() => onBookmarkParagraph({ cfi: 'neopdf:v1;p=4;o=254', label: 'x', percentage: 3, snippet: '' }))
+
+    expect(addBookmark).not.toHaveBeenCalled()
+  })
+
+  it('o sumário do PDF navega por viewer.goTo(localizador de página)', async () => {
+    await renderReader()
+    const onSelect = (mocks.tocDrawerProps as { onSelect?: (href: string) => void } | null)?.onSelect
+    expect(onSelect).toBeTypeOf('function')
+    act(() => onSelect!('neopdf:v1;p=9;o=0'))
+    expect(mocks.viewerHandle.goTo).toHaveBeenCalledWith('neopdf:v1;p=9;o=0')
+  })
+
+  describe('avisos', () => {
+    const finishLoading = async () => {
+      const onLoad = mocks.pdfViewerProps?.onLoad as () => void
+      act(() => onLoad())
+      await flushAsyncWork()
+    }
+
+    it('PDF sem camada de texto mostra o aviso (SC-007) e ele pode ser dispensado', async () => {
+      await renderReader({ pdfTextLayer: 'none', detectedLanguage: null })
+      await finishLoading()
+
+      expect(screen.getByTestId('pdf-notice-noText')).toBeTruthy()
+      fireEvent.click(within(screen.getByTestId('pdf-notice-noText')).getByRole('button'))
+      expect(screen.queryByTestId('pdf-notice-noText')).toBeNull()
+    })
+
+    it('PDF com texto parcial e PDF grande têm avisos próprios', async () => {
+      const partial = await renderReader({ pdfTextLayer: 'partial' })
+      await finishLoading()
+      expect(screen.getByTestId('pdf-notice-partialText')).toBeTruthy()
+      partial.unmount()
+
+      await renderReader({ pageCount: 1500 })
+      await finishLoading()
+      expect(screen.getByTestId('pdf-notice-large')).toBeTruthy()
+    })
+
+    it('PDF normal (com texto, até 1000 páginas, idioma conhecido) não mostra aviso nenhum', async () => {
+      await renderReader()
+      await finishLoading()
+      expect(screen.queryByTestId('pdf-notice-noText')).toBeNull()
+      expect(screen.queryByTestId('pdf-notice-partialText')).toBeNull()
+      expect(screen.queryByTestId('pdf-notice-large')).toBeNull()
+      expect(screen.queryByTestId('pdf-language-notice')).toBeNull()
+    })
+
+    it('idioma indefinido: aviso único com atalho para escolher o idioma (FR-020)', async () => {
+      await renderReader({ detectedLanguage: null })
+      await finishLoading()
+
+      const notice = screen.getByTestId('pdf-language-notice')
+      fireEvent.click(within(notice).getByText('Escolher idioma'))
+      fireEvent.click(await screen.findByText('Espanhol'))
+
+      expect(updateBookSettings).toHaveBeenCalledWith(1, { bookLanguage: 'es' })
+      await flushAsyncWork()
+      expect(screen.queryByTestId('pdf-language-notice')).toBeNull()
+    })
+
+    it('dispensar o aviso de idioma grava a dispensa por livro', async () => {
+      await renderReader({ detectedLanguage: null })
+      await finishLoading()
+
+      fireEvent.click(within(screen.getByTestId('pdf-language-notice')).getByText('Agora não'))
+
+      expect(updateBookSettings).toHaveBeenCalledWith(1, { pdfLanguageWarningDismissed: true })
+      expect(screen.queryByTestId('pdf-language-notice')).toBeNull()
+    })
+
+    it('com dispensa já gravada o aviso de idioma não reaparece', async () => {
+      vi.mocked(getBookSettings).mockResolvedValue({ bookId: 1, pdfLanguageWarningDismissed: true })
+      await renderReader({ detectedLanguage: null })
+      await finishLoading()
+      expect(screen.queryByTestId('pdf-language-notice')).toBeNull()
+    })
+
+    it('PDF sem texto não pede idioma (não há o que traduzir/narrar) — só o aviso de falta de texto', async () => {
+      await renderReader({ pdfTextLayer: 'none', detectedLanguage: null })
+      await finishLoading()
+      expect(screen.getByTestId('pdf-notice-noText')).toBeTruthy()
+      expect(screen.queryByTestId('pdf-language-notice')).toBeNull()
     })
   })
 })

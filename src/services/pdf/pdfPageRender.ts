@@ -7,6 +7,10 @@
 
 import { loadPdfjs, pdfjsPath, type PdfPageProxy } from './pdfjs'
 
+// Disparado no documento da página quando um render termina (a camada de texto foi refeita). Quem desenha
+// overlays dentro da página (balão, marcadores) redesenha ao ouvi-lo, porque o pdf.js limpa a camada a cada zoom.
+export const PDF_PAGE_RENDERED_EVENT = 'nr-pdf-rendered'
+
 // Render em andamento por documento: um zoom novo cancela o render anterior.
 const activeRenderTasks = new WeakMap<Document, { cancel(): void }>()
 // "Geração" por documento: detecta render obsoleto depois de cada await.
@@ -131,6 +135,11 @@ export async function renderPdfPage(page: PdfPageProxy, doc: Document, zoom: num
   doc.documentElement.style.transform = `scale(${1 / devicePixelRatio})`
   doc.documentElement.style.transformOrigin = 'top left'
   doc.documentElement.style.setProperty('--total-scale-factor', String(scale))
+  // O TextLayer/AnnotationLayer do pdf.js dimensionam a camada com `calc(var(--scale-factor) * <largura da página>)`.
+  // O foliate só define --total-scale-factor; sem esta variável a largura/altura ficavam inválidas, a camada caía
+  // em `inset: 0` do viewport do iframe e, em telas densas (documento reduzido por transform 1/dpr), ficava com
+  // 1/dpr do tamanho da página — texto selecionável desalinhado do texto desenhado.
+  doc.documentElement.style.setProperty('--scale-factor', String(scale))
   doc.documentElement.style.setProperty('--user-unit', '1')
   doc.documentElement.style.setProperty('--scale-round-x', '1px')
   doc.documentElement.style.setProperty('--scale-round-y', '1px')
@@ -187,6 +196,12 @@ export async function renderPdfPage(page: PdfPageProxy, doc: Document, zoom: num
   await textLayer.render()
   if (renderGenerations.get(doc) !== generation) return
 
+  // Marca cada span com o índice do TextItem de origem: é a ponte entre um toque/seleção na página e o
+  // texto bruto do localizador (pdfLocator.buildRawPage.itemStarts), sem depender de heurística de texto.
+  textLayer.textDivs.forEach((div, i) => {
+    div.dataset.nrItem = String(i)
+  })
+
   // O TextLayer cria canvases auxiliares no document pai; esconde para não vazarem para a tela.
   for (const hidden of document.querySelectorAll<HTMLElement>('.hiddenCanvasElement')) {
     Object.assign(hidden.style, { position: 'absolute', top: '0', left: '0', width: '0', height: '0', display: 'none' })
@@ -200,7 +215,10 @@ export async function renderPdfPage(page: PdfPageProxy, doc: Document, zoom: num
   setupPanningEvents(doc)
 
   const annotationDiv = doc.querySelector<HTMLElement>('.annotationLayer')
-  if (!annotationDiv) return
+  if (!annotationDiv) {
+    doc.dispatchEvent(new CustomEvent(PDF_PAGE_RENDERED_EVENT))
+    return
+  }
   annotationDiv.replaceChildren()
   const linkService = {
     goToDestination: () => {},
@@ -212,6 +230,7 @@ export async function renderPdfPage(page: PdfPageProxy, doc: Document, zoom: num
   await new pdfjs.AnnotationLayer({ page, viewport, div: annotationDiv, linkService }).render({
     annotations: await page.getAnnotations(),
   })
+  if (renderGenerations.get(doc) === generation) doc.dispatchEvent(new CustomEvent(PDF_PAGE_RENDERED_EVENT))
 }
 
 let textLayerCss: string | null = null

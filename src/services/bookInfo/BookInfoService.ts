@@ -1,8 +1,10 @@
 import { BOOK_INFO_SCHEMA_VERSION, type BookInfoProvider, type BookInfoProviderAttemptDiagnostic, type ResolvedBookInfo } from '../../types/bookInfo'
+import type { Book } from '../../types/book'
 import { createFlowId, getDiagnosticsNowMs, logError, logEvent } from '../DiagnosticsLogger'
 import { EpubBookInfoProvider } from './EpubBookInfoProvider'
 import { GoogleBooksProvider } from './GoogleBooksProvider'
 import { OpenLibraryProvider } from './OpenLibraryProvider'
+import { PdfBookInfoProvider } from './PdfBookInfoProvider'
 import { YouTubeReviewsProvider } from './YouTubeReviewsProvider'
 
 interface BookInfoServiceOptions {
@@ -38,12 +40,17 @@ export class BookInfoService {
   private readonly providers: BookInfoProvider[]
   private readonly options: BookInfoServiceOptions
 
-  constructor(providers: BookInfoProvider[] = [
-    new EpubBookInfoProvider(),
-    new GoogleBooksProvider(),
-    new OpenLibraryProvider(),
-    new YouTubeReviewsProvider(),
-  ], options: BookInfoServiceOptions = {}) {
+  // Lista padrão por formato (DI-013): PDF troca só o provedor local; os online ficam iguais.
+  static defaultProviders(format?: Book['format']): BookInfoProvider[] {
+    return [
+      format === 'PDF' ? new PdfBookInfoProvider() : new EpubBookInfoProvider(),
+      new GoogleBooksProvider(),
+      new OpenLibraryProvider(),
+      new YouTubeReviewsProvider(),
+    ]
+  }
+
+  constructor(providers: BookInfoProvider[] = BookInfoService.defaultProviders(), options: BookInfoServiceOptions = {}) {
     this.providers = providers
     this.options = options
   }

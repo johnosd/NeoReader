@@ -1868,6 +1868,47 @@ describe('BookDetailsScreen chapters', () => {
     const toggle = await screen.findByRole('switch', { name: 'Ouvir traduzido' }) as HTMLButtonElement
     expect(toggle.disabled).toBe(true)
   })
+
+  // Feature 022 (DI-012): idioma de PDF = manual > detectado no import > indefinido (nunca 'en' em silêncio).
+  describe('livro PDF', () => {
+    const openNarration = async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+      fireEvent.click(await screen.findByText('Narracao'))
+      return await screen.findByRole('switch', { name: 'Ouvir traduzido' }) as HTMLButtonElement
+    }
+
+    it('usa o idioma detectado no import e não tenta abrir o arquivo como EPUB', async () => {
+      mocks.appSettings.translationTargetLang = 'en'
+      mocks.parseExtras.mockClear()
+      const pdfBook: Book = { ...book, format: 'PDF', detectedLanguage: 'pt-BR', pdfTextLayer: 'full', pageCount: 120 }
+
+      render(<BookDetailsScreen book={pdfBook} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} />)
+
+      const toggle = await openNarration()
+      expect(toggle.disabled).toBe(false) // pt-BR detectado ≠ alvo 'en'
+      expect(mocks.parseExtras).not.toHaveBeenCalled()
+    })
+
+    it('sem idioma detectado nem manual, o idioma fica indefinido (toggle desabilitado, sem cair em "en")', async () => {
+      mocks.appSettings.translationTargetLang = 'pt-BR'
+      const pdfBook: Book = { ...book, format: 'PDF', detectedLanguage: null }
+
+      render(<BookDetailsScreen book={pdfBook} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} />)
+
+      // Se caísse em 'en' em silêncio, o alvo pt-BR deixaria o toggle habilitado.
+      const toggle = await openNarration()
+      expect(toggle.disabled).toBe(true)
+    })
+
+    it('EPUB continua lendo o idioma do arquivo (parseExtras é chamado)', async () => {
+      mocks.parseExtras.mockClear()
+      mocks.parseExtras.mockResolvedValue({ description: null, language: 'pt-BR', toc: [] } as never)
+
+      render(<BookDetailsScreen book={book} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} />)
+
+      await waitFor(() => expect(mocks.parseExtras).toHaveBeenCalled())
+    })
+  })
 })
 
 describe('BookDetailsScreen voice settings', () => {

@@ -18,6 +18,8 @@ final class ExternalEpubIntentStore {
     private static final String PREFS_NAME = "NeoReaderLibraryPlugin";
     private static final String PENDING_EXTERNAL_EPUB_INTENT_KEY = "pendingExternalEpubIntent";
     private static final String EPUB_MIME_TYPE = "application/epub+zip";
+    // Feature 022: "abrir com" também aceita PDF (o nome "Epub" da classe é histórico).
+    private static final String PDF_MIME_TYPE = "application/pdf";
 
     private ExternalEpubIntentStore() {}
 
@@ -108,7 +110,14 @@ final class ExternalEpubIntentStore {
     }
 
     private static boolean isSupportedEpub(String mimeType, String name) {
-        return EPUB_MIME_TYPE.equalsIgnoreCase(mimeType) || hasEpubExtension(name);
+        return EPUB_MIME_TYPE.equalsIgnoreCase(mimeType)
+            || PDF_MIME_TYPE.equalsIgnoreCase(mimeType)
+            || hasEpubExtension(name)
+            || hasPdfExtension(name);
+    }
+
+    private static boolean hasPdfExtension(String name) {
+        return name != null && name.toLowerCase(Locale.US).endsWith(".pdf");
     }
 
     private static boolean hasEpubExtension(String name) {

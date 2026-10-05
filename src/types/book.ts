@@ -7,7 +7,7 @@ export type BookFormat = 'EPUB' | 'PDF'
 // Camada de texto do PDF, medida por amostragem no import (feature 022, R-009).
 export type PdfTextLayer = 'full' | 'partial' | 'none'
 export type PdfReadingMode = 'page' | 'text'
-export type BookCoverSource = 'epub-extracted' | 'manual-upload' | 'legacy-inline'
+export type BookCoverSource = 'epub-extracted' | 'pdf-rendered' | 'manual-upload' | 'legacy-inline'
 export type BookStorageMode = 'embedded' | 'external' | 'local'
 export type BookImportSource = 'local' | 'drive' | 'public-domain' | 'opds'
 

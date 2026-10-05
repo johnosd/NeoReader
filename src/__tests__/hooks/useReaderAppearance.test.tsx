@@ -318,3 +318,75 @@ describe('useReaderAppearance', () => {
     })
   })
 })
+
+// Feature 022 (DI-012): idioma de PDF. EPUB não muda — os casos acima seguem valendo.
+describe('useReaderAppearance — PDF', () => {
+  const pdfBook: Book = { ...book, format: 'PDF', detectedLanguage: 'pt-BR' }
+  // Objeto estável: o hook depende da identidade de `book`, e um objeto novo a cada render reexecutaria o efeito sem parar.
+  const pdfNoLanguage: Book = { ...pdfBook, detectedLanguage: null }
+
+  it('usa o idioma detectado no import e não lê o arquivo como EPUB', async () => {
+    const { result } = renderHook(() => useReaderAppearance(pdfBook))
+    await act(async () => { await Promise.resolve() })
+
+    expect(result.current.bookLanguage).toBe('pt-BR')
+    expect(result.current.bookLanguageUndefined).toBe(false)
+    expect(result.current.ttsConfig.language).toBe('pt-BR')
+    expect(mocks.parseExtras).not.toHaveBeenCalled()
+  })
+
+  it('idioma manual do livro vence o detectado', async () => {
+    mocks.getBookSettings.mockResolvedValue({ bookLanguage: 'es' })
+    const { result } = renderHook(() => useReaderAppearance(pdfBook))
+    await act(async () => { await Promise.resolve() })
+
+    expect(result.current.bookLanguage).toBe('es')
+    expect(result.current.bookLanguageUndefined).toBe(false)
+  })
+
+  it('sem idioma manual nem detectado: fica indefinido (sem aviso silencioso de "en")', async () => {
+    const { result } = renderHook(() => useReaderAppearance(pdfNoLanguage))
+    await act(async () => { await Promise.resolve() })
+
+    expect(result.current.bookLanguageUndefined).toBe(true)
+    expect(result.current.pdfLanguageWarningDismissed).toBe(false)
+  })
+
+  it('aviso de idioma dispensado fica gravado por livro e não reaparece', async () => {
+    const first = renderHook(() => useReaderAppearance(pdfNoLanguage))
+    await act(async () => { await Promise.resolve() })
+
+    act(() => first.result.current.dismissPdfLanguageWarning())
+    expect(first.result.current.pdfLanguageWarningDismissed).toBe(true)
+    expect(mocks.updateBookSettings).toHaveBeenCalledWith(42, { pdfLanguageWarningDismissed: true })
+
+    // Reabrir o livro: a dispensa vem do BookSettings gravado.
+    mocks.getBookSettings.mockResolvedValue({ pdfLanguageWarningDismissed: true })
+    const second = renderHook(() => useReaderAppearance(pdfNoLanguage))
+    await act(async () => { await Promise.resolve() })
+    expect(second.result.current.pdfLanguageWarningDismissed).toBe(true)
+  })
+
+  it('escolher o idioma pelo aviso passa a valer em tradução/TTS e tira o estado indefinido', async () => {
+    const { result } = renderHook(() => useReaderAppearance(pdfNoLanguage))
+    await act(async () => { await Promise.resolve() })
+    expect(result.current.bookLanguageUndefined).toBe(true)
+
+    act(() => result.current.applyBookLanguage('fr'))
+
+    expect(result.current.bookLanguage).toBe('fr')
+    expect(result.current.ttsConfig.language).toBe('fr')
+    expect(result.current.bookLanguageUndefined).toBe(false)
+    expect(mocks.updateBookSettings).toHaveBeenCalledWith(42, { bookLanguage: 'fr' })
+  })
+
+  it('EPUB: bookLanguageUndefined é sempre false e o fallback para "en" continua', async () => {
+    mocks.parseExtras.mockResolvedValue({ language: null, toc: [], description: null })
+    const { result } = renderHook(() => useReaderAppearance(book))
+    await act(async () => { await Promise.resolve() })
+
+    expect(result.current.bookLanguage).toBe('en')
+    expect(result.current.bookLanguageUndefined).toBe(false)
+    expect(mocks.parseExtras).toHaveBeenCalled()
+  })
+})

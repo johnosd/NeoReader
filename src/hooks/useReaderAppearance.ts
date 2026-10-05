@@ -47,6 +47,10 @@ export interface UseReaderAppearanceResult {
   wordLensEnabled: boolean
   wordLensLevel: CefrLevel
   bookLanguage: string
+  // Só PDF (DI-012): idioma não definido (nem manual, nem dos metadados, nem detectado no import).
+  // Em EPUB é sempre false — lá o fallback para 'en' continua como sempre foi.
+  bookLanguageUndefined: boolean
+  pdfLanguageWarningDismissed: boolean
   translationTargetLang: string
   ttsConfig: TtsPlaybackConfig
   ttsEngine: TtsProvider
@@ -58,6 +62,9 @@ export interface UseReaderAppearanceResult {
   audiobookTranslationEnabled: boolean
   applyAppearancePatch: (patch: AppearancePatch) => void
   applyTtsConfigPatch: (patch: TtsConfigPatch) => void
+  // Escolha manual do idioma (null = voltar a detectar automaticamente) e dispensa do aviso de PDF.
+  applyBookLanguage: (code: string | null) => void
+  dismissPdfLanguageWarning: () => void
   switchToNativeTts: () => void
   handleReaderStyleModeChange: (mode: ReaderStyleMode) => void
 }
@@ -96,6 +103,8 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
   const [wordLensEnabled, setWordLensEnabled] = useState(false)
   const [wordLensLevel, setWordLensLevel] = useState<CefrLevel>('B1')
   const [bookLanguage, setBookLanguage] = useState('en')
+  const [bookLanguageUndefined, setBookLanguageUndefined] = useState(false)
+  const [pdfLanguageWarningDismissed, setPdfLanguageWarningDismissed] = useState(false)
   const [translationTargetLang, setTranslationTargetLang] = useState('pt-BR')
   const [ttsConfig, setTtsConfig] = useState<TtsPlaybackConfig>({
     provider: 'native',
@@ -123,15 +132,23 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
     let cancelled = false
 
     const source = resolveBookSourceKey(book)
+    const isPdf = book.format === 'PDF'
 
     void Promise.all([
       getSettings(),
       getBookSettings(book.id!),
-      BookFileResolver.resolveFile(book).then((file) => EpubService.parseExtras(file, book.id)),
+      // PDF não tem OPF para ler: o idioma detectado no import já está no livro (DI-012).
+      isPdf
+        ? Promise.resolve({ language: book.detectedLanguage ?? null })
+        : BookFileResolver.resolveFile(book).then((file) => EpubService.parseExtras(file, book.id)),
     ]).then(([s, bs, extras]) => {
       if (cancelled) return
 
-      const resolvedBookLanguage = resolveBookLanguage(bs.bookLanguage ?? extras.language)
+      const candidateLanguage = bs.bookLanguage ?? extras.language
+      const resolvedBookLanguage = resolveBookLanguage(candidateLanguage)
+      // Em PDF, ausência de idioma NÃO vira 'en' em silêncio: o leitor avisa uma vez (FR-020).
+      setBookLanguageUndefined(isPdf && !candidateLanguage)
+      setPdfLanguageWarningDismissed(bs.pdfLanguageWarningDismissed ?? false)
       const selectedProvider = bs.ttsProvider ?? 'speechify'
       const resolvedFontFamily = bs.fontFamily ?? s.readerDefaults.fontFamily
       const providerAvailability = getTtsProviderAvailability(s.appSettings)
@@ -172,7 +189,7 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
     return () => {
       cancelled = true
     }
-  }, [book, book.fileBlob, book.id, book.storageMode, book.uri])
+  }, [book, book.fileBlob, book.id, book.storageMode, book.uri, book.format, book.detectedLanguage])
 
   const isReady = readySource?.bookId === book.id && readySource?.source === resolveBookSourceKey(book)
 
@@ -228,6 +245,19 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
     void updateBookSettings(book.id!, settingsPatch)
   }
 
+  function applyBookLanguage(code: string | null) {
+    const next = resolveBookLanguage(code)
+    setBookLanguage(next)
+    setBookLanguageUndefined(book.format === 'PDF' && !code)
+    setTtsConfig((current) => ({ ...current, language: next }))
+    void updateBookSettings(book.id!, { bookLanguage: code })
+  }
+
+  function dismissPdfLanguageWarning() {
+    setPdfLanguageWarningDismissed(true)
+    void updateBookSettings(book.id!, { pdfLanguageWarningDismissed: true })
+  }
+
   function switchToNativeTts() {
     setTtsConfig((current) => ({ ...current, provider: 'native' }))
     setTtsEngine('native')
@@ -257,6 +287,8 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
     wordLensEnabled,
     wordLensLevel,
     bookLanguage,
+    bookLanguageUndefined,
+    pdfLanguageWarningDismissed,
     translationTargetLang,
     ttsConfig,
     ttsEngine,
@@ -266,6 +298,8 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
     audiobookTranslationEnabled,
     applyAppearancePatch,
     applyTtsConfigPatch,
+    applyBookLanguage,
+    dismissPdfLanguageWarning,
     switchToNativeTts,
     handleReaderStyleModeChange,
   }

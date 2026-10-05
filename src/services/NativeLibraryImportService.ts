@@ -7,6 +7,7 @@ import {
   withImportTimeout,
   type ImportDiagnosticContext,
 } from './ImportDiagnostics'
+import { PdfImportError, isPdfImportErrorCode } from './pdf/PdfImportError'
 import type { BookIdentifier } from '../types/bookInfo'
 
 export interface NativeFolderFile {
@@ -48,6 +49,9 @@ interface NativeFileReadSession {
 
 export interface NativePreparedEpub {
   importId: string
+  // Feature 022: o plugin detecta o formato pelos bytes; ausente = 'EPUB' (builds antigos do plugin).
+  format?: 'EPUB' | 'PDF'
+  pageCount?: number
   name: string
   path?: string
   size: number
@@ -287,6 +291,9 @@ export async function prepareLocalEpubImport(
       reportedSize: file.size,
       elapsedMs: Math.round(performance.now() - startedAt),
     })
+    // O plugin recusa PDF com senha/inválido com um código; vira o erro tipado do app (FR-015).
+    const code = (error as { code?: unknown } | null)?.code
+    if (isPdfImportErrorCode(code)) throw new PdfImportError(code)
     throw error
   } finally {
     if (timeoutId !== undefined) clearTimeout(timeoutId)
@@ -794,7 +801,8 @@ function nativeChunkDiagnostics(chunk: NativeFileChunk): Record<string, unknown>
 }
 
 function fileFromChunks(chunks: ArrayBuffer[], fileName: string, relativePath?: string): File {
-  const file = new File(chunks, fileName, { type: 'application/epub+zip' })
+  // O nome "Epub" é histórico: o MIME segue o formato do arquivo (PDF ou EPUB).
+  const file = new File(chunks, fileName, { type: /\.pdf$/i.test(fileName) ? 'application/pdf' : 'application/epub+zip' })
   if (relativePath) {
     Object.defineProperty(file, 'webkitRelativePath', {
       configurable: true,

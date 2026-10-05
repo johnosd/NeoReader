@@ -198,11 +198,12 @@ npm run android:run
 | Área | Estado |
 | --- | --- |
 | Fase 1 — Setup | Concluída (2026-10-05) |
-| Fase 2 — Foundational | Concluída (2026-10-05): tipos, `bookFormat`, `pdfLocator`, `pdfChunks`, `textLanguage`, `isbn`, `pdfParagraphs`, `pdfjs`/`pdfPageRender`/`PdfBookFactory`, `PdfTextExtractor`; SC-003 medido; factory validado em Chromium |
-| Fase 3 — US1 (import + página fiel) | Não iniciada (próxima: T019–T027 testes, T028–T038 implementação, começando pelos spikes de device T026) |
-| Fases 4–9 | Não iniciadas |
-| Código de app para PDF | Só fundação (nenhuma tela/serviço de import usa PDF ainda); arquivos existentes tocados: `vite.config.ts` (plugin de dev), `vitest.config.ts` (alias), `types/book.ts`, `types/bookInfo.ts`, `types/foliate.d.ts`, `BookDetailsScreen.tsx` (1 rótulo) |
-| Regressão EPUB | 1226 testes passando + 2 skipped (baseline 1094 inalterados) · corpus EPUB 71 · lint/build ok |
+| Fase 2 — Foundational | Concluída (2026-10-05) |
+| Fase 3 — US1 (import + página fiel) | Implementada e validada em Chromium (E2E T025); **device pendente** (T026 spikes + T027 regressão EPUB no celular — aparelho com PIN) |
+| Fase 4 — US2 (modo texto) | Não iniciada |
+| Fases 5–9 | Não iniciadas |
+| Código de app para PDF | Import (web + Android), `PdfService`, ficha (`PdfBookInfoProvider`), idioma, `usePdfReaderSession`, `PdfPageViewer` (página fiel), avisos, `ReaderScreen` por formato, plugin Java. Tradução/Word Lens/TTS/highlights/modo texto/OPDS ainda não |
+| Regressão EPUB | 1354 testes passando + 2 skipped (base 1094 inalterada) · corpus EPUB 71 · lint/build ok. Checklist no device pendente |
 
 ## Riscos e Decisões
 
@@ -230,6 +231,9 @@ npm run android:run
 | R-015 | A heurística de parágrafos foi calibrada em 11 livros reais (T015) e tem limites conhecidos: bloco de código (1 linha = 1 parágrafo), subtítulo em negrito do mesmo tamanho colado ao parágrafo, letras espaçadas, nota de rodapé como bloco solto, rótulo de figura/fórmula como parágrafo curto | Baixo/Médio — qualidade do modo texto, TTS e tradução em livros técnicos/acadêmicos | Funções puras com constantes nomeadas (`pdfParagraphs.ts`); quebra falsa medida 0–1,3% em prosa e 6,8% em livro técnico. Novos casos reais entram como teste sintético + ajuste de constante. Decisão sobre nota de rodapé fica para US2/US4 (modo texto/TTS). |
 | R-016 | PDFs reais imprimem o texto N× com deslocamento < 1pt (negrito falso por sobreposição; ex.: "Os Noturnos" 4×) e o texto bruto do localizador (DI-005) contém todas as cópias | Médio — sem dedupe os parágrafos saíam misturados | Resolvido em `pdfParagraphs.ts` (dedupe por string+posição; índices das cópias continuam nos `ranges`). O localizador não muda (conta as cópias), consistente com a camada de texto do pdf.js usada na página fiel. |
 | R-017 | O tamanho de corpo varia por página no mesmo PDF (9pt/7pt em "Do Mil ao Milhão") | Médio — métricas globais deixavam páginas "sem corpo" e quebravam cada linha | Resolvido: tamanho de corpo por página (com o do documento como reserva abaixo de 300 caracteres). |
+| R-018 | O foliate-fxl não define `--scale-factor` no documento da página: o `TextLayer` do pdf.js dimensiona a camada com `var(--scale-factor)` e, sem ela, a camada ficava com 1/dpr do tamanho da página em telas densas (seleção/toque desalinhados do texto desenhado) | Alto — quebraria tradução/Word Lens/highlights em celulares | Resolvido em `pdfPageRender.ts` (define `--scale-factor` = zoom × dpr); verificado em DPR 1/2/3 no Chromium. Revalidar no WebView do Android (T026). |
+| R-019 | Ao entrar em modo scroll o foliate calcula o "índice atual" com as páginas ainda sem altura e rola para uma página do meio do livro | Alto — o leitor abria na página errada e podia sobrescrever o progresso salvo | Resolvido: `PdfPageViewer` navega SEMPRE ao ponto inicial (página 0 se não há progresso) e só emite `onRelocate` depois disso (`readyRef`). |
+| R-020 | Sem o celular desbloqueado não dá para validar no WebView do Android: pinça/pan, memória com PDF grande, capa nativa, import de pasta | Médio — comportamento só confirmado em Chromium | T026/T027 abertas; APK de debug já instalado. O harness de Chromium (`harness/pdf.*`, `harness/e2e.*`) foi removido do repositório e guardado fora dele (scratchpad); para refazer, recriar a partir do plan. |
 
 ## Execution Notes
 
@@ -241,22 +245,23 @@ npm run android:run
 
 | Data | Fase/Story | Resumo | Pendência Principal |
 | --- | --- | --- | --- |
+| 2026-10-05 | Fase 3 (US1) | T019–T025, T028–T038: import (web/nativo) e ficha de PDF, idioma, sessão, `PdfPageViewer`, avisos, `ReaderScreen` por formato, plugin Java; E2E em Chromium com 12 PDFs; gate EPUB verde (1354 + 71) | **Device (T026/T027)**: celular com PIN; APK de debug já instalado |
 | 2026-10-05 | Fase 2 (Foundational) | T007–T018: tipos, utilitários puros, `pdfParagraphs` calibrado em 11 PDFs reais (SC-003 ≥ 95% em prosa), `PdfBookFactory`/`PdfTextExtractor` validados em Chromium (grande.pdf abre em 0,65 s); 135 testes novos; gate EPUB verde (1226 + 71) | `PdfService` deve normalizar `author` (array) e `language`; device só na Fase 3 |
 | 2026-10-05 | Fase 1 (Setup) | T001–T006: baseline EPUB registrada; plugin dev `/vendor/pdfjs`; corpus sintético (12 PDFs, `grande` = 1000 pág./188 MB) + extrator de fixtures; gate EPUB idêntico à baseline (1094 testes + 71 corpus) | Corpus sintético: incluir PDFs reais na calibragem do T015 (R-014) |
 
-**PRÓXIMO**: Fase 3 (US1) — spikes de device T026 no começo (faixas/memória com `grande.pdf`, pinça/zoom, capa nativa), depois T028 `PdfService` → T029–T033b import/idioma/ficha → T034–T037 sessão + `PdfPageViewer` + `ReaderScreen`; testes T019–T025 junto de cada peça.
+**PRÓXIMO**: desbloquear o celular → T026 (spikes de memória/pinça/capa nativa no WebView; medir SC-001/SC-002/SC-007) e T027 (quickstart § Regressão EPUB + § Import/Página fiel no device); depois fechar a Fase 3 e seguir para a Fase 4 (US2, modo texto).
 
 ## Arquivos Principais
 
 <!-- Sobrescrita a cada checkpoint — foco da etapa atual, não a árvore inteira. -->
 
-Foco da Fase 3 (US1 — import + leitura em página fiel):
+Foco da Fase 4 (US2 — modo texto) — só depois do device da Fase 3 (ou em paralelo, sem tocar nada do viewer):
 
-- `src/services/pdf/PdfService.ts` (novo, T028) — metadados/capa/`pdfTextLayer`/idioma no import, sobre `createPdfBook`
-- `src/services/BookImportService.ts`, `NativeLibraryImportService.ts`, `BookFileResolver.ts` — despacho por formato (T029–T030)
-- `android/.../NeoReaderLibraryPlugin.java`, `ExternalEpubIntentStore.java`, `AndroidManifest.xml` — picker/pasta/"abrir com" de PDF (T032)
-- `src/hooks/usePdfReaderSession.ts`, `src/components/reader/PdfPageViewer.tsx` + `pdfPage/` (novos, T034–T035) e `ReaderScreen.tsx` (T037)
-- Prontos da Fase 2 para reuso: `services/pdf/PdfBookFactory.ts` (`createPdfBook`, `outlineEntriesFromToc`), `PdfTextExtractor.ts`, `pdfPageRender.ts` (`renderPdfPageToBlob`, `buildPdfPageSource`), `utils/pdf*.ts`, `utils/bookFormat.ts`, `textLanguage.ts`, `isbn.ts`
+- `src/services/pdf/PdfTextBookBuilder.ts` (novo, T045): livro sintético reflowable, uma seção por trecho; `data-type="chapter"` na raiz, sem `transformTarget`/`entries`/`resources` (R-011)
+- `src/services/pdf/PdfLocatorResolver.ts` (novo, T047): localizador ↔ CFI do livro sintético e ↔ Range na camada de texto
+- `src/components/reader/EpubViewer.tsx` (T046): ÚNICA mudança permitida — prop opcional `openBook`
+- `src/components/reader/PdfReadingModeToggle.tsx` (novo) e `ReaderScreen.tsx` (T048: remontar o viewer por modo, converter localizador ↔ CFI)
+- Já prontos: `utils/pdfParagraphs.ts` + `PdfTextExtractor.reconstructChunk` (blocos com `ranges`/`figure`+`region`), `PdfPageViewer` (`pdfPage/pdfPageMapping.ts`: item ↔ offset ↔ bloco), `BookSettings.pdfReadingMode`
 
 ## Cuidados para Retomada
 
@@ -266,5 +271,8 @@ Foco da Fase 3 (US1 — import + leitura em página fiel):
 - **Playwright MCP não esteve disponível** na sessão da Fase 1. Os scripts `scripts/extract-pdf-text-fixtures.mjs` e `scripts/pdf-corpus/generate-corpus.mjs` usam o pacote `playwright` que já está em `node_modules` (marcado "extraneous": não está no `package.json`; se sumir, `npm i --no-save playwright`). Nunca adicioná-lo ao `package.json` sem perguntar (constituição V).
 - **Corpus é sintético** (gerado pelo Chromium com texto próprio): não substitui PDFs reais (LaTeX/InDesign/Word). Para calibrar T015 com mais fidelidade, copiar 2–3 PDFs reais do usuário para `debug-books/pdf/` e rodar `node scripts/extract-pdf-text-fixtures.mjs --only <nome>` (só versionar fixture de PDF cujo texto possa ser versionado).
 - **Forma dos itens do pdf.js neste corpus** (relevante para `pdfParagraphs`): a palavra pode vir **quebrada em vários itens sem espaço entre eles** (soft hyphen, kerning); hifenização de fim de linha vem como um item `"-"` **isolado**; há itens `{ str: '', hasEOL: true }` vazios; espaços entre itens devem ser inferidos pelo gap em x.
+- **Celular com PIN**: `adb shell input keyevent KEYCODE_WAKEUP` acorda, mas só o usuário destrava (Bouncer). Depois de destravado: `adb shell svc power stayon true` mantém a tela ligada. Device: SM-S911B (Android 16), 1080×2340, 480 dpi. APK: `npm run build; npx cap sync android; cd android; .\gradlew.bat assembleDebug; adb install -r app\build\outputs\apk\debug\app-debug.apk`.
+- **Validar o viewer em Chromium**: `npx vite --port 5199 --strictPort` + página de harness que monte `PdfPageViewer` (via `usePdfReaderSession`) e/ou chame `BookImportService.importEpub` + `ReaderScreen` (o app real exige login Google). Contexto do Playwright com `deviceScaleFactor` 2 e `hasTouch` para ver o problema de DPR; pinça via CDP `Input.dispatchTouchEvent` com 2 pontos.
+- **jsdom × PDF**: nos testes do viewer o `scrollIntoView` precisa ser stubado no realm do iframe (`doc.defaultView.Element.prototype`), e `beforeEach(() => mock.mockReset())` com arrow que devolve o mock é executado como teardown pelo Vitest — usar chaves.
 - **Senha do `senha.pdf`**: `neoreader` (só para teste manual; o app deve recusar o arquivo, FR-015).
 - `grande.pdf` = 1000 páginas / 188,4 MB (abaixo do teto de 200 MB, de propósito: representa o caso "sem aviso"). Para testar o aviso de FR-016, gerar um maior à parte.

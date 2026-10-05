@@ -127,3 +127,13 @@ describe('HomeScreen Pro badge', () => {
     expect(container.querySelector('[aria-label="NeoReader"]')).toBeTruthy()
   })
 })
+
+describe('HomeScreen — seletor de arquivo (feature 022)', () => {
+  it('aceita EPUB e PDF', () => {
+    renderHome(false)
+    const accept = document.querySelector<HTMLInputElement>('input[type="file"]')!.accept
+    expect(accept).toContain('.epub')
+    expect(accept).toContain('.pdf')
+    expect(accept).toContain('application/pdf')
+  })
+})

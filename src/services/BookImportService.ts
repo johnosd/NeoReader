@@ -6,6 +6,8 @@ import { saveSourceFolder } from '../db/sourceFolders'
 import { EpubService, type EpubMetadata } from './EpubService'
 import { BookInfoService } from './bookInfo'
 import { BookFileResolver } from './BookFileResolver'
+import { PdfImportError } from './pdf/PdfImportError'
+import { PdfService } from './pdf/PdfService'
 import {
   deleteLocalBookFile,
   prepareLocalEpubImport,
@@ -27,7 +29,8 @@ import {
 } from './ImportCoordinator'
 import { restoreBookBookmarksFromDrive } from './BookmarkDriveRestoreService'
 import { resizeCoverBlob } from '@/utils/imageResize'
-import type { Book, BookImportSource, BookStorageMode, SourceFolder } from '../types/book'
+import { detectBookFormat } from '@/utils/bookFormat'
+import type { Book, BookImportSource, BookStorageMode, PdfTextLayer, SourceFolder } from '../types/book'
 import type { BookIdentifier, ResolvedBookInfo } from '../types/bookInfo'
 
 // Teto de dimensão pra capas salvas — cobre a maior exibição real de capa
@@ -49,7 +52,7 @@ export interface ImportPreviewItem {
   nativeFile?: NativeFolderFile
   fileName: string
   fileSize: number
-  format: 'EPUB' | 'UNSUPPORTED'
+  format: 'EPUB' | 'PDF' | 'UNSUPPORTED'
   supported: boolean
   duplicate: boolean
   selected: boolean
@@ -85,8 +88,19 @@ export interface ImportBookOptions {
   tags?: number[]
 }
 
+// Metadados lidos no import. `pdf` só existe em livros PDF (feature 022) e nunca é preenchido para EPUB.
+interface ParsedBookMetadata extends EpubMetadata {
+  pdf?: {
+    pageCount: number
+    pdfTextLayer: PdfTextLayer
+    detectedLanguage: string | null
+  }
+}
+
 interface ImportSingleEpubOptions {
-  metadata?: EpubMetadata
+  metadata?: ParsedBookMetadata
+  // Arquivo para a ficha quando não há `file` (import nativo de PDF: cópia local já aberta no JS).
+  bookInfoBlob?: Blob
   fileHash?: string
   fileName?: string
   fileSize?: number
@@ -288,7 +302,7 @@ export class BookImportService {
         file,
         fileName: file.name,
         fileSize: file.size,
-        format: supported ? 'EPUB' : 'UNSUPPORTED',
+        format: supported ? this.formatFromName(file.name) : 'UNSUPPORTED',
         supported,
         duplicate,
         selected: supported && !duplicate,
@@ -308,7 +322,7 @@ export class BookImportService {
     const duplicateIndex = await this.buildDuplicateIndex()
 
     return files.map((file) => {
-      const supported = /\.epub$/i.test(file.name)
+      const supported = /\.(epub|pdf)$/i.test(file.name)
       const candidate = {
         fileName: file.name,
         fileSize: file.size,
@@ -325,7 +339,7 @@ export class BookImportService {
         nativeFile: file,
         fileName: file.name,
         fileSize: file.size,
-        format: supported ? 'EPUB' : 'UNSUPPORTED',
+        format: supported ? this.formatFromName(file.name) : 'UNSUPPORTED',
         supported,
         duplicate,
         selected: supported && !duplicate,
@@ -611,11 +625,16 @@ export class BookImportService {
       diagnostic: ImportDiagnosticContext
     },
   ): Promise<number> {
-    const metadata = this.metadataFromPreparedNativeEpub(prepared)
-    const bookInfoContext = this.bookInfoContextFromPreparedNativeEpub(prepared)
+    const isPdf = prepared.format === 'PDF'
+    const pdfBlob = isPdf ? await this.openPreparedNativePdf(prepared) : null
+    const metadata = pdfBlob ? await this.metadataFromPreparedNativePdf(prepared, pdfBlob) : this.metadataFromPreparedNativeEpub(prepared)
+    const bookInfoContext = isPdf
+      ? this.bookInfoContextFromParsedPdf(metadata)
+      : this.bookInfoContextFromPreparedNativeEpub(prepared)
 
     return this.importSingleEpubRecord(null, {
       metadata,
+      bookInfoBlob: pdfBlob ?? undefined,
       fileHash: prepared.sha256,
       fileName: prepared.name,
       fileSize: prepared.size,
@@ -635,13 +654,15 @@ export class BookImportService {
   static async reextractCover(book: Book): Promise<boolean> {
     if (book.id === undefined) throw new Error('Livro sem id para reextrair capa.')
 
-    const metadata = await EpubService.parseMetadata(await BookFileResolver.resolveEpubFile(book))
+    const isPdf = book.format === 'PDF'
+    const file = await BookFileResolver.resolveEpubFile(book)
+    const metadata = isPdf ? await PdfService.parseMetadata(file, file.name) : await EpubService.parseMetadata(file)
     if (!metadata.coverBlob) return false
 
     const resizedCover = await resizeCoverBlob(metadata.coverBlob, MAX_COVER_DIMENSION_PX)
-    await saveBookCover(book.id, resizedCover, 'epub-extracted')
+    await saveBookCover(book.id, resizedCover, isPdf ? 'pdf-rendered' : 'epub-extracted')
     // Invalida cache de extras para refletir possíveis mudanças no EPUB
-    EpubService.invalidateExtrasCache(book.id)
+    if (!isPdf) EpubService.invalidateExtrasCache(book.id)
     return true
   }
 
@@ -652,23 +673,27 @@ export class BookImportService {
 
   private static async collectAndSaveBookInfo(
     bookId: number,
-    file: File | null,
+    file: File | Blob | null,
     title: string,
     author: string,
     diagnostic?: ImportDiagnosticContext,
     context: Partial<ResolvedBookInfo> = {},
+    format: 'EPUB' | 'PDF' = 'EPUB',
   ): Promise<void> {
+    // PDF nativo passa um Blob (cópia local), sem nome; só File tem `name`.
+    const fileName = file instanceof File ? file.name : undefined
     try {
       if (diagnostic) {
         logImportDiagnostic(diagnostic, 'book-info-enrichment-start', {
           bookId,
-          fileName: file?.name,
+          fileName,
           title,
           author,
           hasFile: Boolean(file),
         })
       }
-      const info = await new BookInfoService(undefined, {
+      // EPUB: lista padrão de sempre (`undefined`); PDF: provedor local próprio (DI-013).
+      const info = await new BookInfoService(format === 'PDF' ? BookInfoService.defaultProviders('PDF') : undefined, {
         flowId: diagnostic?.importId,
         screen: 'import',
       }).collect(file, {
@@ -684,14 +709,14 @@ export class BookImportService {
       if (diagnostic) {
         logImportDiagnostic(diagnostic, 'book-info-enrichment-finished', {
           bookId,
-          fileName: file?.name,
+          fileName,
         })
       }
     } catch (error) {
       if (diagnostic) {
         errorImportDiagnostic(diagnostic, 'book-info-enrichment-failed', error, {
           bookId,
-          fileName: file?.name,
+          fileName,
         })
       } else {
         console.warn('Book info enrichment failed during import.', error)
@@ -708,7 +733,8 @@ export class BookImportService {
     const metadata = options.metadata ?? await this.parseMetadataWithDiagnostics(file!, diagnostic, 'record')
     const fileHash = options.fileHash ?? (file ? await this.hashFileWithDiagnostics(file, diagnostic, 'record') : undefined)
     const now = new Date()
-    const fileName = options.fileName ?? file?.name ?? 'book.epub'
+    const isPdf = Boolean(metadata.pdf)
+    const fileName = options.fileName ?? file?.name ?? (isPdf ? 'book.pdf' : 'book.epub')
     const fileSize = options.fileSize ?? file?.size ?? 0
     const storageMode = options.storageMode ?? 'embedded'
 
@@ -739,7 +765,15 @@ export class BookImportService {
         filePath: options.filePath,
         fileSize,
         fileHash,
-        format: 'EPUB',
+        format: isPdf ? 'PDF' : 'EPUB',
+        // Campos só de PDF (não indexados): EPUB não ganha nenhuma chave nova.
+        ...(metadata.pdf
+          ? {
+            pdfTextLayer: metadata.pdf.pdfTextLayer,
+            pageCount: metadata.pdf.pageCount,
+            detectedLanguage: metadata.pdf.detectedLanguage,
+          }
+          : {}),
         addedAt: now,
         importedAt: now,
         lastOpenedAt: null,
@@ -762,7 +796,7 @@ export class BookImportService {
             coverSize: resizedCoverBlob.size,
           })
         }
-        await saveBookCover(bookId, resizedCoverBlob, 'epub-extracted')
+        await saveBookCover(bookId, resizedCoverBlob, isPdf ? 'pdf-rendered' : 'epub-extracted')
         if (diagnostic) {
           logImportDiagnostic(diagnostic, 'cover-save-finished', {
             bookId,
@@ -799,9 +833,9 @@ export class BookImportService {
           fileName,
         })
       }
-      void this.collectAndSaveBookInfo(bookId, file, metadata.title, metadata.author, diagnostic, options.bookInfoContext)
+      void this.collectAndSaveBookInfo(bookId, file ?? options.bookInfoBlob ?? null, metadata.title, metadata.author, diagnostic, options.bookInfoContext, isPdf ? 'PDF' : 'EPUB')
     } else {
-      await this.collectAndSaveBookInfo(bookId, file, metadata.title, metadata.author, diagnostic, options.bookInfoContext)
+      await this.collectAndSaveBookInfo(bookId, file ?? options.bookInfoBlob ?? null, metadata.title, metadata.author, diagnostic, options.bookInfoContext, isPdf ? 'PDF' : 'EPUB')
     }
     return bookId
   }
@@ -910,8 +944,14 @@ export class BookImportService {
     }
   }
 
+  // O nome "Epub" é histórico (DI-001): também aceita PDF. A extensão só filtra candidatos; o formato
+  // real é confirmado pelo conteúdo (detectBookFormat) ao ler os metadados.
   private static isSupportedEpub(file: File): boolean {
-    return /\.epub$/i.test(file.name)
+    return /\.(epub|pdf)$/i.test(file.name)
+  }
+
+  private static formatFromName(name: string): 'EPUB' | 'PDF' {
+    return /\.pdf$/i.test(name) ? 'PDF' : 'EPUB'
   }
 
   private static duplicateCandidateFromPrepared(prepared: NativePreparedEpub): DuplicateCandidate {
@@ -929,6 +969,40 @@ export class BookImportService {
   private static async cleanupPreparedDuplicate(prepared: NativePreparedEpub): Promise<void> {
     if (prepared.diagnostics.localFileExisted) return
     await deleteLocalBookFile(prepared.localUri).catch(() => false)
+  }
+
+  // O plugin Android só copia o arquivo e (opcionalmente) rende a capa; título, autor, camada de texto
+  // e idioma de PDF saem do pdf.js no JS, sobre a cópia local recém-criada.
+  private static async openPreparedNativePdf(prepared: NativePreparedEpub): Promise<Blob> {
+    try {
+      return await BookFileResolver.fetchLocalFile(prepared.localUri)
+    } catch (error) {
+      await this.cleanupPreparedDuplicate(prepared)
+      throw error
+    }
+  }
+
+  private static async metadataFromPreparedNativePdf(prepared: NativePreparedEpub, blob: Blob): Promise<ParsedBookMetadata> {
+    try {
+      const pdf = await PdfService.parseMetadata(blob, prepared.name)
+      return {
+        title: pdf.title,
+        author: pdf.author,
+        // Capa nativa (PdfRenderer) tem prioridade: já veio pronta, sem renderizar canvas no WebView.
+        coverBlob: prepared.cover ? this.base64ToBlob(prepared.cover.base64, prepared.cover.mimeType) : pdf.coverBlob,
+        pdf: { pageCount: pdf.pageCount, pdfTextLayer: pdf.pdfTextLayer, detectedLanguage: pdf.detectedLanguage },
+      }
+    } catch (error) {
+      // PDF recusado (senha/inválido): a cópia local não vira livro, então não pode ficar órfã no disco.
+      await this.cleanupPreparedDuplicate(prepared)
+      throw error
+    }
+  }
+
+  private static bookInfoContextFromParsedPdf(metadata: ParsedBookMetadata): Partial<ResolvedBookInfo> {
+    return {
+      lookupHints: { title: metadata.title, author: metadata.author, identifiers: [] },
+    }
   }
 
   private static metadataFromPreparedNativeEpub(prepared: NativePreparedEpub): EpubMetadata {
@@ -1004,11 +1078,28 @@ export class BookImportService {
     return `${title.trim().toLowerCase()}::${author.trim().toLowerCase()}`
   }
 
+  // Formato pelo conteúdo (DI-011). Só PDF desvia; todo o resto segue o caminho EPUB de sempre.
+  private static async parseMetadataByFormat(file: File): Promise<ParsedBookMetadata> {
+    const format = await detectBookFormat(file)
+    // Extensão .pdf mas conteúdo que não é PDF (nem ZIP): mensagem clara (FR-015) em vez do erro do parser de ZIP.
+    if (format === null && /\.pdf$/i.test(file.name)) throw new PdfImportError('PDF_INVALID')
+    if (format === 'PDF') {
+      const pdf = await PdfService.parseMetadata(file, file.name)
+      return {
+        title: pdf.title,
+        author: pdf.author,
+        coverBlob: pdf.coverBlob,
+        pdf: { pageCount: pdf.pageCount, pdfTextLayer: pdf.pdfTextLayer, detectedLanguage: pdf.detectedLanguage },
+      }
+    }
+    return EpubService.parseMetadata(file)
+  }
+
   private static async parseMetadataWithDiagnostics(
     file: File,
     diagnostic: ImportDiagnosticContext | undefined,
     stagePrefix: string,
-  ): Promise<EpubMetadata> {
+  ): Promise<ParsedBookMetadata> {
     if (diagnostic) {
       logImportDiagnostic(diagnostic, `${stagePrefix}-metadata-start`, {
         fileName: file.name,
@@ -1016,7 +1107,7 @@ export class BookImportService {
       })
     }
 
-    const metadataTask = EpubService.parseMetadata(file)
+    const metadataTask = this.parseMetadataByFormat(file)
     const metadata = diagnostic
       ? await withImportTimeout(metadataTask, {
         context: diagnostic,

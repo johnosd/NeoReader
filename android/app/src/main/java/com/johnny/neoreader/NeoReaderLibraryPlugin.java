@@ -183,8 +183,10 @@ public class NeoReaderLibraryPlugin extends Plugin {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("*/*");
+        // O nome "Epub" é histórico: o seletor também oferece PDF (feature 022).
         intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[] {
             "application/epub+zip",
+            "application/pdf",
             "application/octet-stream"
         });
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
@@ -414,7 +416,9 @@ public class NeoReaderLibraryPlugin extends Plugin {
                 CopyResult copyResult = copyToTempAndHash(importId, uri, tmpFile);
                 checkImportCanceled(importId);
 
-                localFile = new File(booksDir, copyResult.sha256 + ".epub");
+                // Feature 022: o formato vem dos bytes (%PDF-), não da extensão. Todo o resto segue o caminho EPUB.
+                boolean isPdf = PdfImportHelper.isPdf(tmpFile);
+                localFile = new File(booksDir, copyResult.sha256 + (isPdf ? ".pdf" : ".epub"));
                 boolean localFileExisted = localFile.exists();
                 if (localFileExisted) {
                     deleteQuietly(tmpFile);
@@ -425,19 +429,41 @@ public class NeoReaderLibraryPlugin extends Plugin {
 
                 long copyMs = System.currentTimeMillis() - copyStartedAt;
                 long inspectStartedAt = System.currentTimeMillis();
-                EpubInspection inspection = inspectEpub(localFile, name);
+                JSObject metadata;
+                JSObject cover = null;
+                int pdfPageCount = 0;
+                if (isPdf) {
+                    // PDF: valida (senha/ilegível rejeitam com código), conta páginas e rende a capa. Título,
+                    // autor, camada de texto e idioma saem do pdf.js no JS (PdfService).
+                    PdfImportHelper.PdfInfo pdfInfo = PdfImportHelper.inspect(localFile);
+                    pdfPageCount = pdfInfo.pageCount;
+                    metadata = new JSObject();
+                    metadata.put("title", name.replaceAll("(?i)\\.pdf$", ""));
+                    metadata.put("author", "");
+                    if (pdfInfo.coverJpeg != null) {
+                        cover = new JSObject();
+                        cover.put("base64", Base64.encodeToString(pdfInfo.coverJpeg, Base64.NO_WRAP));
+                        cover.put("mimeType", "image/jpeg");
+                    }
+                } else {
+                    EpubInspection inspection = inspectEpub(localFile, name);
+                    metadata = inspection.metadata;
+                    cover = inspection.cover;
+                }
                 long inspectMs = System.currentTimeMillis() - inspectStartedAt;
 
                 JSObject response = new JSObject();
                 response.put("importId", importId);
+                response.put("format", isPdf ? "PDF" : "EPUB");
+                if (isPdf) response.put("pageCount", pdfPageCount);
                 response.put("name", name);
                 response.put("path", path);
                 response.put("size", copyResult.bytesCopied > 0L ? copyResult.bytesCopied : reportedSize);
                 response.put("sha256", copyResult.sha256);
                 response.put("localUri", Uri.fromFile(localFile).toString());
                 response.put("originalUri", uriValue);
-                response.put("metadata", inspection.metadata);
-                if (inspection.cover != null) response.put("cover", inspection.cover);
+                response.put("metadata", metadata);
+                if (cover != null) response.put("cover", cover);
 
                 JSObject diagnostics = new JSObject();
                 diagnostics.put("copyMs", copyMs);
@@ -459,6 +485,12 @@ public class NeoReaderLibraryPlugin extends Plugin {
                 if (createdLocalFile) deleteQuietly(localFile);
                 Log.w(TAG, "prepareLocalEpubImport canceled. importId=" + importId);
                 call.reject("Importacao cancelada.", canceled);
+            } catch (PdfImportHelper.PdfImportException pdfError) {
+                // PDF com senha ou ilegível (FR-015): nada entra na biblioteca e a cópia local é removida.
+                deleteQuietly(tmpFile);
+                if (createdLocalFile) deleteQuietly(localFile);
+                Log.w(TAG, "prepareLocalEpubImport pdf rejected. importId=" + importId + " code=" + pdfError.code);
+                call.reject(pdfError.getMessage(), pdfError.code, pdfError);
             } catch (Exception error) {
                 deleteQuietly(tmpFile);
                 if (createdLocalFile) deleteQuietly(localFile);
@@ -629,6 +661,13 @@ public class NeoReaderLibraryPlugin extends Plugin {
         });
     }
 
+    // O nome "Epub" é histórico: a listagem de pasta também aceita PDF (feature 022). A extensão só filtra
+    // candidatos; o formato real é detectado pelos bytes em prepareLocalEpubImport.
+    private static boolean isSupportedBookFileName(String name) {
+        String lower = name.toLowerCase(Locale.US);
+        return lower.endsWith(".epub") || lower.endsWith(".pdf");
+    }
+
     private void collectEpubFiles(Uri treeUri, DocumentFile root, JSArray files) throws Exception {
         try {
             String rootDocumentId = DocumentsContract.getTreeDocumentId(treeUri);
@@ -692,7 +731,7 @@ public class NeoReaderLibraryPlugin extends Plugin {
                     continue;
                 }
 
-                if (name == null || !name.toLowerCase().endsWith(".epub")) continue;
+                if (name == null || !isSupportedBookFileName(name)) continue;
 
                 JSObject file = new JSObject();
                 file.put("name", name);
@@ -715,7 +754,7 @@ public class NeoReaderLibraryPlugin extends Plugin {
                 continue;
             }
 
-            if (name == null || !name.toLowerCase().endsWith(".epub")) continue;
+            if (name == null || !isSupportedBookFileName(name)) continue;
 
             JSObject file = new JSObject();
             file.put("name", name);

@@ -52,6 +52,7 @@ import {
   readNativeFolderFile,
   type NativeFolderFile,
 } from '@/services/NativeLibraryImportService'
+import { PdfImportError } from '@/services/pdf/PdfImportError'
 
 const CHUNK_SIZE = NATIVE_FILE_CHUNK_SIZE
 
@@ -416,3 +417,49 @@ function bytesToBase64(bytes: Uint8Array): string {
   }
   return btoa(binary)
 }
+
+// Feature 022: PDF pelo mesmo plugin. Os casos de EPUB acima não mudaram.
+describe('NativeLibraryImportService — PDF', () => {
+  const nativeFile = (name: string): NativeFolderFile => ({ name, uri: `content://x/${name}`, path: name, size: 10 })
+  const prepared = (overrides: Record<string, unknown> = {}) => ({
+    importId: 'i1',
+    name: 'a.pdf',
+    size: 10,
+    sha256: 'abcdef0123456789abcdef',
+    localUri: 'file:///books/h.pdf',
+    originalUri: 'content://x/a.pdf',
+    metadata: { title: 'a', author: '' },
+    diagnostics: { copyMs: 1, inspectMs: 0, bytesCopied: 10 },
+    ...overrides,
+  })
+
+  beforeEach(() => {
+    mocks.prepareLocalEpubImport.mockReset()
+    mocks.isNativePlatform.mockReturnValue(true)
+  })
+
+  it('o File lido do plugin recebe o MIME do formato pela extensão', async () => {
+    const pdf = await readNativeFolderFile({ ...nativeFile('livro.PDF'), base64: btoa('%PDF-1.7') })
+    const epub = await readNativeFolderFile({ ...nativeFile('livro.epub'), base64: btoa('PK') })
+    expect(pdf.type).toBe('application/pdf')
+    expect(epub.type).toBe('application/epub+zip')
+  })
+
+  it('prepare devolve o formato informado pelo plugin', async () => {
+    mocks.prepareLocalEpubImport.mockResolvedValue(prepared({ format: 'PDF', pageCount: 321 }))
+    await expect(prepareLocalEpubImport(nativeFile('a.pdf'))).resolves.toMatchObject({ format: 'PDF', pageCount: 321 })
+  })
+
+  it.each(['PDF_PASSWORD_PROTECTED', 'PDF_INVALID'] as const)('código %s do plugin vira PdfImportError', async (code) => {
+    mocks.prepareLocalEpubImport.mockRejectedValue(Object.assign(new Error('native'), { code }))
+    const error = await prepareLocalEpubImport(nativeFile('a.pdf')).catch((e) => e)
+    expect(error).toBeInstanceOf(PdfImportError)
+    expect(error.code).toBe(code)
+  })
+
+  it('outros erros do plugin passam sem tradução (EPUB inalterado)', async () => {
+    const original = Object.assign(new Error('boom'), { code: 'UNAVAILABLE' })
+    mocks.prepareLocalEpubImport.mockRejectedValue(original)
+    await expect(prepareLocalEpubImport(nativeFile('a.epub'))).rejects.toBe(original)
+  })
+})

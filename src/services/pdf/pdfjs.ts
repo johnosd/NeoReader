@@ -72,6 +72,8 @@ export interface PdfJsLib {
   getDocument(options: Record<string, unknown>): { promise: Promise<PdfDocumentProxy> }
   TextLayer: new (options: { textContentSource: ReadableStream; container: HTMLElement; viewport: PdfViewportLike }) => {
     render(): Promise<void>
+    // Um <span> por TextItem (str definido), na mesma ordem de getTextContent().
+    textDivs: HTMLElement[]
   }
   AnnotationLayer: new (options: {
     page: PdfPageProxy

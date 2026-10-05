@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Volume2 } from 'lucide-react'
+import { Check, Volume2 } from 'lucide-react'
 import {
   EpubViewer,
   type EpubViewerHandle,
@@ -12,13 +12,17 @@ import {
   type VisibleReadingLocation,
   type WordLensDefinitionTarget,
 } from '../components/reader/EpubViewer'
+import { PdfPageViewer } from '../components/reader/PdfPageViewer'
+import { PdfLanguageNotice } from '../components/reader/PdfLanguageNotice'
+import { PdfTextLayerNotice, type PdfNoticeVariant } from '../components/reader/PdfTextLayerNotice'
 import { ReaderChrome } from '../components/reader/ReaderChrome'
 import { TocDrawer } from '../components/reader/TocDrawer'
 import { BookmarkSheet } from '../components/reader/BookmarkSheet'
 import { HighlightComposerSheet } from '../components/reader/HighlightComposerSheet'
 import { ImageZoomModal } from '../components/reader/ImageZoomModal'
-import { BottomSheet, Toast } from '../components/ui'
+import { BottomSheet, ListItem, Toast } from '../components/ui'
 import { IntegrationHelpBanner } from '../components/IntegrationHelpBanner'
+import { usePdfReaderSession } from '../hooks/usePdfReaderSession'
 import { useReaderProgress } from '../hooks/useReaderProgress'
 import { useReaderStore } from '../store/readerStore'
 import { useReaderAppearance } from '../hooks/useReaderAppearance'
@@ -61,6 +65,9 @@ import type { Book } from '../types/book'
 import type { Highlight, HighlightStyle } from '../types/highlight'
 import type { TtsProvider } from '../types/tts'
 import { areCfisEquivalent, isCfiInLocation, normalizeCfi } from '../utils/cfi'
+import { TRANSLATION_LANGUAGE_OPTIONS } from '../utils/languageOptions'
+import { isLargePdf } from '../utils/pdfLimits'
+import { getPdfLocatorStart, isPdfLocator } from '../utils/pdfLocator'
 import { areTocHrefDocumentSuffixesEqual, findTopLevelTocLabel } from '../utils/toc'
 import { getReaderThemePalette } from '../utils/readerPreferences'
 import { clampTtsRate } from '../utils/language'
@@ -76,11 +83,19 @@ function normalizeReaderHref(href?: string | null) {
   return withoutQuery || null
 }
 
+// Localizador de PDF (`neopdf:`) é o equivalente do CFI: aponta um ponto, não um href de seção.
 function isReaderCfiTarget(target?: string | null) {
-  return !!target && /^epubcfi\(/i.test(target.trim())
+  return !!target && /^(epubcfi\(|neopdf:)/i.test(target.trim())
 }
 
 function isRelocateAtStartTarget(target: string, location: ReaderRelocatePayload) {
+  // PDF: o relocate inicial "bate" quando cai na mesma página do alvo (o offset fino não é garantido).
+  if (isPdfLocator(target)) {
+    const wanted = getPdfLocatorStart(target)
+    const current = getPdfLocatorStart(location.cfi)
+    return !!wanted && !!current && wanted.pageIndex === current.pageIndex
+  }
+
   if (isReaderCfiTarget(target)) {
     return (
       areCfisEquivalent(location.cfi, target) ||
@@ -227,6 +242,8 @@ export function ReaderScreen({
     wordLensEnabled,
     wordLensLevel,
     bookLanguage,
+    bookLanguageUndefined,
+    pdfLanguageWarningDismissed,
     translationTargetLang,
     ttsConfig,
     ttsEngine,
@@ -235,6 +252,8 @@ export function ReaderScreen({
     audiobookTranslationEnabled,
     applyAppearancePatch,
     applyTtsConfigPatch,
+    applyBookLanguage,
+    dismissPdfLanguageWarning,
     switchToNativeTts,
     handleReaderStyleModeChange,
   } = useReaderAppearance(book)
@@ -402,6 +421,17 @@ export function ReaderScreen({
 
   // Progresso do IndexedDB (async)
   const { savedCfi, savedProgress, initialLoadDone, saveProgress, flushProgress } = useReaderProgress(book.id!)
+
+  // Feature 022: PDF abre numa sessão própria (documento do pdf.js) e usa o PdfPageViewer; EPUB segue como sempre.
+  const isPdf = book.format === 'PDF'
+  // Erro ao abrir o PDF (arquivo ausente, corrompido): mesmo encerramento do "carregando" do onError do EpubViewer.
+  const pdfSession = usePdfReaderSession(book, isPdf, (failure) => {
+    finishReaderOpen('failure', failure)
+    pendingStartHrefRef.current = null
+    releaseInitialLoading()
+  })
+  const [dismissedPdfNotices, setDismissedPdfNotices] = useState<string[]>([])
+  const [pdfLanguageSheetOpen, setPdfLanguageSheetOpen] = useState(false)
   let currentTocHref = currentSectionHref
   if (!currentTocHref && startHref && !isReaderCfiTarget(startHref)) {
     currentTocHref = startHref
@@ -1341,16 +1371,55 @@ export function ReaderScreen({
 
   const readerPalette = getReaderThemePalette(readerTheme)
   const readerStyleMode = !overrideBookFont && !overrideBookColors ? 'original' : 'comfortable'
-  const effectiveMissingFile = book.missingFile || detectedMissingFile
+  // Mensagem e "arquivo ausente" derivados do erro da sessão (sem estado extra).
+  const pdfSessionError = pdfSession.status === 'error' ? pdfSession.error : null
+  const pdfSessionMissingFile =
+    !!pdfSessionError && (pdfSessionError.message.includes('movido') || pdfSessionError.message.includes('permissao de acesso'))
+  const effectiveMissingFile = book.missingFile || detectedMissingFile || pdfSessionMissingFile
   const missingFileMessage = effectiveMissingFile ? t('reader.missingFile.description') : null
-  const visibleError = error ?? missingFileMessage
+  const visibleError = error ?? pdfSessionError?.message ?? missingFileMessage
+
+  // ── PDF (feature 022) ──────────────────────────────────────────────────────
+  const handlePdfViewerLoad = () => {
+    setWordLensInteractiveBookId(book.id)
+    finishReaderOpen('success')
+    if (startHref && !initialStartNavigationTriggeredRef.current) {
+      initialStartNavigationTriggeredRef.current = true
+      scheduleStartNavigationFallback()
+      hideInitialLoading()
+      return
+    }
+    pendingStartHrefRef.current = null
+    releaseInitialLoading()
+  }
+  const handlePdfViewerError = (err: Error) => {
+    finishReaderOpen('failure', err)
+    pendingStartHrefRef.current = null
+    releaseInitialLoading()
+    setError(err.message)
+  }
+
+  // Um aviso por vez: sem texto > texto parcial > PDF grande > idioma indefinido (só se há texto).
+  const pdfNoticeVariant: PdfNoticeVariant | null = !isPdf
+    ? null
+    : book.pdfTextLayer === 'none'
+      ? 'noText'
+      : book.pdfTextLayer === 'partial'
+        ? 'partialText'
+        : isLargePdf(book)
+          ? 'large'
+          : null
+  const pdfNoticeKey = `${book.id}:${pdfNoticeVariant}`
+  const showPdfTextNotice = pdfNoticeVariant !== null && !dismissedPdfNotices.includes(pdfNoticeKey)
+  const showPdfLanguageNotice =
+    isPdf && bookLanguageUndefined && !pdfLanguageWarningDismissed && book.pdfTextLayer !== 'none' && !showPdfTextNotice
 
   return (
     <div className="fixed inset-0" style={{ backgroundColor: readerPalette.background }}>
       {isLoading && !effectiveMissingFile && <ReaderSkeleton />}
 
       <div className="absolute inset-0">
-        {!effectiveMissingFile && (
+        {!effectiveMissingFile && !isPdf && (
           <EpubViewer
           ref={viewerRef}
           book={book}
@@ -1419,7 +1488,38 @@ export function ReaderScreen({
           onEditHighlight={handleEditHighlight}
           />
         )}
+        {!effectiveMissingFile && isPdf && pdfSession.status === 'ready' && (
+          <PdfPageViewer
+            ref={viewerRef}
+            book={book}
+            session={pdfSession.session}
+            bookmarks={activeBookmarks}
+            readerTheme={readerTheme}
+            savedLocator={startHref ? null : (isPdfLocator(savedCfi) ? savedCfi : null)}
+            initialTarget={startHref && isPdfLocator(startHref) ? startHref : null}
+            onRelocate={handleRelocate}
+            onTocReady={setToc}
+            onLoad={handlePdfViewerLoad}
+            onError={handlePdfViewerError}
+            onCenterTap={handleCenterTap}
+            onBookmarkTap={(id) => { void softDeleteBookmark(id) }}
+            onBookmarkParagraph={handleParagraphBookmark}
+          />
+        )}
       </div>
+
+      {isPdf && !isLoading && !effectiveMissingFile && showPdfTextNotice && pdfNoticeVariant && (
+        <PdfTextLayerNotice
+          variant={pdfNoticeVariant}
+          onDismiss={() => setDismissedPdfNotices((current) => [...current, pdfNoticeKey])}
+        />
+      )}
+      {isPdf && !isLoading && !effectiveMissingFile && showPdfLanguageNotice && (
+        <PdfLanguageNotice
+          onChoose={() => setPdfLanguageSheetOpen(true)}
+          onDismiss={dismissPdfLanguageWarning}
+        />
+      )}
 
       {/* Nota: o toggle do chrome é tratado pelo handler de click do próprio iframe via a prop
           chromeVisible. Quando true, qualquer toque no iframe fecha o chrome. Isso é mais
@@ -1559,6 +1659,27 @@ export function ReaderScreen({
         onClose={() => setBookmarkSheetOpen(false)}
       />
 
+      <BottomSheet
+        open={pdfLanguageSheetOpen}
+        onClose={() => setPdfLanguageSheetOpen(false)}
+        title={t('pdf.language.sheet.title')}
+      >
+        <div className="-mx-4">
+          {TRANSLATION_LANGUAGE_OPTIONS.map((option, index) => (
+            <ListItem
+              key={option.code}
+              title={option.label}
+              trailing={bookLanguage === option.code && !bookLanguageUndefined ? <Check size={18} className="text-purple-light" /> : undefined}
+              onClick={() => {
+                applyBookLanguage(option.code)
+                setPdfLanguageSheetOpen(false)
+              }}
+              divider={index < TRANSLATION_LANGUAGE_OPTIONS.length - 1}
+            />
+          ))}
+        </div>
+      </BottomSheet>
+
       <HighlightComposerSheet
         key={highlightComposer?.type === 'edit' ? highlightComposer.highlight.id : (highlightComposer?.type === 'create' ? highlightComposer.draft.cfi : 'closed')}
         open={highlightComposer !== null}
@@ -1585,6 +1706,8 @@ export function ReaderScreen({
             />
           </div>
 
+          {/* Fonte, tamanho, entrelinha, modo e linha de foco são do reflow do EPUB: não valem na página fiel do PDF. */}
+          {!isPdf && (<>
           <div>
             <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-text-muted">
               {t('reader.appearance.font')}
@@ -1642,6 +1765,7 @@ export function ReaderScreen({
               aria-label={t('reader.appearance.focusLine.label')}
             />
           </div>
+          </>)}
         </div>
       </BottomSheet>
 

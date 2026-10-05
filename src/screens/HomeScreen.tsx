@@ -128,7 +128,7 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
 
   return (
     <div className="min-h-screen pb-[90px] bg-bg-base text-text-primary">
-      <input ref={fileInputRef} type="file" accept=".epub" className="hidden" onChange={handleFileChange} />
+      <input ref={fileInputRef} type="file" accept=".epub,.pdf,application/epub+zip,application/pdf" className="hidden" onChange={handleFileChange} />
 
       {importError && <Toast tone="error" onDismiss={() => setImportError(null)}>{importError}</Toast>}
       {restoredBookmarks !== null && (

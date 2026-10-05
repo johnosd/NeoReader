@@ -5,6 +5,7 @@ import {
   EpubBookInfoProvider,
   GoogleBooksProvider,
   OpenLibraryProvider,
+  PdfBookInfoProvider,
   YouTubeReviewsProvider,
 } from '../services/bookInfo'
 import { BookFileResolver } from '../services/BookFileResolver'
@@ -124,7 +125,8 @@ export function useBookInfo({
 
         if (needsBaseCollection) {
           const collected = await new BookInfoService([
-            new EpubBookInfoProvider({ bookId: book.id }),
+            // PDF troca só o provedor local (DI-013); a lista do EPUB é a de sempre.
+            book.format === 'PDF' ? new PdfBookInfoProvider() : new EpubBookInfoProvider({ bookId: book.id }),
             new GoogleBooksProvider(),
             new OpenLibraryProvider(),
             new YouTubeReviewsProvider({ apiKey: youtubeApiKey }),

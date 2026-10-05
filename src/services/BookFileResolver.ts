@@ -41,11 +41,21 @@ export class BookFileResolver {
     }
   }
 
+  // Lê um arquivo já copiado para o armazenamento do app (storageMode 'local') pela URL local do Capacitor.
+  // Usado no import de PDF, onde o JS precisa abrir o arquivo recém-copiado pelo plugin Android.
+  static async fetchLocalFile(uri: string): Promise<Blob> {
+    const response = await fetch(Capacitor.convertFileSrc(uri))
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    return response.blob()
+  }
+
+  // O nome "Epub" é histórico: também resolve PDF (File com o MIME do formato do livro).
   static async resolveEpubFile(book: Book): Promise<File> {
     const blob = await this.resolveFile(book)
     if (blob instanceof File) return blob
-    return new File([blob], book.fileName ?? `${book.title}.epub`, {
-      type: 'application/epub+zip',
+    const isPdf = book.format === 'PDF'
+    return new File([blob], book.fileName ?? `${book.title}.${isPdf ? 'pdf' : 'epub'}`, {
+      type: isPdf ? 'application/pdf' : 'application/epub+zip',
     })
   }
 
@@ -70,9 +80,9 @@ export class BookFileResolver {
 
   private static toNativeFile(book: Book): NativeFolderFile {
     return {
-      name: book.fileName ?? `${book.title}.epub`,
+      name: book.fileName ?? `${book.title}.${book.format === 'PDF' ? 'pdf' : 'epub'}`,
       uri: book.uri!,
-      path: book.filePath ?? book.fileName ?? `${book.title}.epub`,
+      path: book.filePath ?? book.fileName ?? `${book.title}.${book.format === 'PDF' ? 'pdf' : 'epub'}`,
       size: book.fileSize ?? book.fileBlob?.size ?? 0,
     }
   }

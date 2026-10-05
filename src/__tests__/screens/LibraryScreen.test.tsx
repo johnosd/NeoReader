@@ -252,3 +252,22 @@ describe('LibraryScreen (virtualização)', () => {
     }
   })
 })
+
+describe('LibraryScreen — seletores de arquivo e pasta (feature 022)', () => {
+  beforeEach(() => {
+    mocks.useLibraryCatalog.mockReset()
+    mocks.useLibraryCatalog.mockReturnValue(buildCatalogMock([], { search: '#empty-state' }))
+  })
+
+  it('os dois inputs (arquivos e pasta) aceitam EPUB e PDF', () => {
+    const { container } = renderLibraryScreen()
+    // Há também um input de imagem (capa manual): só interessam os de livro.
+    const inputs = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="file"]')).filter((input) => !input.accept.startsWith('image/'))
+    expect(inputs.length).toBeGreaterThanOrEqual(2)
+    for (const input of inputs) {
+      expect(input.accept).toContain('.epub')
+      expect(input.accept).toContain('.pdf')
+      expect(input.accept).toContain('application/pdf')
+    }
+  })
+})

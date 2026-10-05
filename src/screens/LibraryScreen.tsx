@@ -49,7 +49,8 @@ const SORT_OPTIONS: Array<{ id: LibrarySort; labelKey: MessageKey }> = [
   { id: 'fileName', labelKey: 'library.sort.fileName' },
 ]
 
-const EPUB_FILE_PATTERN = /\.epub$/i
+// O nome é histórico (DI-001): a seleção de arquivos/pasta também aceita PDF.
+const EPUB_FILE_PATTERN = /\.(epub|pdf)$/i
 
 export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenProfile, initialFilter }: LibraryScreenProps) {
   const { t } = useI18n()
@@ -374,8 +375,8 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
 
   return (
     <div className="min-h-screen bg-bg-base pb-[90px] text-text-primary">
-      <input ref={folderInputRef} type="file" multiple accept=".epub,application/epub+zip" className="hidden" onChange={handleFolderChange} />
-      <input ref={fileInputRef} type="file" multiple accept=".epub,application/epub+zip" className="hidden" onChange={handleFileChange} />
+      <input ref={folderInputRef} type="file" multiple accept=".epub,.pdf,application/epub+zip,application/pdf" className="hidden" onChange={handleFolderChange} />
+      <input ref={fileInputRef} type="file" multiple accept=".epub,.pdf,application/epub+zip,application/pdf" className="hidden" onChange={handleFileChange} />
 
       {importError && <Toast tone="error" onDismiss={() => setImportError(null)}>{importError}</Toast>}
       {restoredBookmarks !== null && (

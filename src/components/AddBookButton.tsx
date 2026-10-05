@@ -81,7 +81,7 @@ export function AddBookButton() {
       <input
         ref={inputRef}
         type="file"
-        accept=".epub"
+        accept=".epub,.pdf,application/epub+zip,application/pdf"
         className="hidden"
         onChange={handleFileChange}
       />

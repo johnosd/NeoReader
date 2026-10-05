@@ -46,6 +46,11 @@ vi.mock('@/services/bookInfo/YouTubeReviewsProvider', () => ({
 }))
 
 import { BookInfoRefreshService } from '@/services/bookInfo/BookInfoRefreshService'
+import { EpubBookInfoProvider } from '@/services/bookInfo/EpubBookInfoProvider'
+import { GoogleBooksProvider } from '@/services/bookInfo/GoogleBooksProvider'
+import { OpenLibraryProvider } from '@/services/bookInfo/OpenLibraryProvider'
+import { PdfBookInfoProvider } from '@/services/bookInfo/PdfBookInfoProvider'
+import { YouTubeReviewsProvider } from '@/services/bookInfo/YouTubeReviewsProvider'
 
 const book: Book = {
   id: 42,
@@ -110,5 +115,43 @@ describe('BookInfoRefreshService', () => {
       },
     })
     expect(mocks.saveBookInfo).toHaveBeenCalledWith(42, collected)
+  })
+
+  describe('lista de provedores por formato (feature 022, DI-013)', () => {
+    const emptyInfo = { lookupHints: { title: null, author: null, identifiers: [] } }
+
+    beforeEach(() => {
+      mocks.collect.mockResolvedValue(emptyInfo)
+      mocks.saveBookInfo.mockResolvedValue({ ...emptyInfo, bookId: 42 })
+    })
+
+    const providersOfLastCall = () => mocks.bookInfoService.mock.calls.at(-1)![0] as object[]
+
+    it('EPUB usa exatamente a lista de sempre: Epub, Google Books, Open Library, YouTube', async () => {
+      await BookInfoRefreshService.refreshBookInfo(book)
+      const providers = providersOfLastCall()
+      expect(providers).toHaveLength(4)
+      expect(providers[0]).toBeInstanceOf(EpubBookInfoProvider)
+      expect(providers[1]).toBeInstanceOf(GoogleBooksProvider)
+      expect(providers[2]).toBeInstanceOf(OpenLibraryProvider)
+      expect(providers[3]).toBeInstanceOf(YouTubeReviewsProvider)
+      expect(providers.some((p) => p instanceof PdfBookInfoProvider)).toBe(false)
+    })
+
+    it('livro com format EPUB explícito segue a mesma lista', async () => {
+      await BookInfoRefreshService.refreshBookInfo({ ...book, format: 'EPUB' })
+      expect(providersOfLastCall()[0]).toBeInstanceOf(EpubBookInfoProvider)
+    })
+
+    it('PDF troca só o provedor local; os online ficam iguais', async () => {
+      await BookInfoRefreshService.refreshBookInfo({ ...book, format: 'PDF' })
+      const providers = providersOfLastCall()
+      expect(providers).toHaveLength(4)
+      expect(providers[0]).toBeInstanceOf(PdfBookInfoProvider)
+      expect(providers.some((p) => p instanceof EpubBookInfoProvider)).toBe(false)
+      expect(providers[1]).toBeInstanceOf(GoogleBooksProvider)
+      expect(providers[2]).toBeInstanceOf(OpenLibraryProvider)
+      expect(providers[3]).toBeInstanceOf(YouTubeReviewsProvider)
+    })
   })
 })
