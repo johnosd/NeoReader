@@ -13,6 +13,7 @@ import {
   isPdfLocator,
   type PdfPoint,
 } from '@/utils/pdfLocator'
+import { clampPercentage } from '@/utils/progress'
 import { getReaderThemePalette } from '@/utils/readerPreferences'
 import type {
   EpubViewerHandle,
@@ -123,6 +124,29 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
   const hasRenderedText = (doc: Document | undefined): boolean =>
     !!doc && doc.querySelector('.textLayer span[data-nr-item]') !== null
 
+  // Página no TOPO da tela. O foliate-fxl informa (renderer.index) a página que cruza o MEIO da tela; usar
+  // essa salvava a página seguinte à que se lê (o 1º texto dela, offset 0) e, ao reabrir, o parágrafo lido
+  // ficava até meia tela acima. Sem página carregada mensurável (ex.: jsdom), cai no índice do foliate.
+  function getTopVisiblePageIndex(): number {
+    const view = viewRef.current
+    if (!view) return 0
+    const fallback = Math.max(0, view.renderer.index)
+    const hostTop = view.renderer.getBoundingClientRect().top
+    let topIndex: number | null = null
+    let topRectTop = Infinity
+    for (const { doc, index } of view.renderer.getContents()) {
+      const rect = (doc.defaultView?.frameElement as HTMLElement | null | undefined)?.getBoundingClientRect()
+      // Página com alguma parte abaixo do topo do host; das que sobram, a mais alta é a que está no topo
+      // (inclui o caso do vão entre páginas: a próxima página é a do topo).
+      if (!rect || rect.height <= 0 || rect.bottom <= hostTop + 1) continue
+      if (rect.top < topRectTop) {
+        topRectTop = rect.top
+        topIndex = index
+      }
+    }
+    return topIndex ?? fallback
+  }
+
   async function waitForRenderedPage(pageIndex: number): Promise<Document | null> {
     const deadline = Date.now() + WAIT_FOR_PAGE_MS
     while (Date.now() < deadline) {
@@ -192,7 +216,7 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
     if (relocateTimerRef.current) clearTimeout(relocateTimerRef.current)
     relocateTimerRef.current = setTimeout(() => {
       relocateTimerRef.current = null
-      if (viewRef.current) void handleRelocate(Math.max(0, viewRef.current.renderer.index))
+      if (viewRef.current) void handleRelocate(getTopVisiblePageIndex())
     }, 250)
   }
 
@@ -203,12 +227,13 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
     const { offset, fractionInPage } = await readPagePosition(pageIndex)
     if (token !== relocateTokenRef.current) return // chegou outro relocate enquanto lia o texto
 
-    const percentage = progressPercentage(pageIndex, fractionInPage, session.pageCount)
+    const exactPercentage = progressPercentage(pageIndex, fractionInPage, session.pageCount)
     const tocItem = tocItemForPage(session.pdfBook.toc, pageIndex)
     const payload: ReaderRelocatePayload = {
       cfi: formatPdfPoint({ pageIndex, offset }),
-      fraction: percentage / 100,
-      percentage,
+      // Fração precisa (navegação por fração); percentual inteiro como o do EPUB — é o que o chrome exibe.
+      fraction: exactPercentage / 100,
+      percentage: clampPercentage(exactPercentage),
       // "Seção" do PDF = trecho (DI-009).
       sectionIndex: findChunkForPage(session.chunks, pageIndex)?.index ?? 0,
       tocLabel: tocItem?.label,
@@ -243,7 +268,8 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
     const startLocator = formatPdfPoint(start)
     const existing = bookmarks.find((b) => !b.deletedAt && b.cfi === startLocator)
     const palette = getReaderThemePalette(readerTheme)
-    const percentage = progressPercentage(start.pageIndex, 0, session.pageCount)
+    // Inteiro, como no EPUB: a lista de marcadores exibe o valor gravado sem formatar.
+    const percentage = clampPercentage(progressPercentage(start.pageIndex, 0, session.pageCount))
 
     showBubble(doc, {
       xPct,
@@ -295,7 +321,63 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
 
   // ── Documento de cada página ───────────────────────────────────────────────
 
+  // O foliate-fxl descarta as páginas longe da tela removendo o iframe, sem avisar. Sem esta varredura o Map
+  // abaixo segurava o Document de toda página já visitada (camada de texto + closures): ~0,35 MB por página,
+  // que nem o GC recuperava. Iframe fora do DOM (ou janela já fechada) = página descartada.
+  function releaseDiscardedPages() {
+    for (const [doc, cleanup] of pageCleanupsRef.current) {
+      const frame = doc.defaultView?.frameElement
+      if (frame?.isConnected) continue
+      cleanup()
+      pageCleanupsRef.current.delete(doc)
+    }
+  }
+
+  // Handlers da pinça. `toViewport` converte o centro do gesto para coordenadas do documento pai, recebendo a
+  // escala visual já aplicada: no documento da página o centro vem relativo ao iframe; no contêiner do pai já
+  // está nelas. `coordsFollowViewScale`: o feedback visual (`scale()` no foliate-view) escala o próprio iframe,
+  // então dentro dele a distância entre os dedos encolhe na proporção da escala já aplicada — sem compensar,
+  // a razão medida convergia para a raiz da real (pedir ×1,5 dava ×1,22).
+  function makePinchHandlers(
+    toViewport: (point: { x: number; y: number }, appliedScale: number) => { x: number; y: number },
+    options: { coordsFollowViewScale: boolean },
+  ) {
+    let appliedScale = 1
+    const resetVisualScale = () => {
+      appliedScale = 1
+      const view = viewRef.current
+      if (!view) return
+      view.style.transform = ''
+      view.style.transformOrigin = ''
+    }
+    return {
+      onStart: () => {
+        appliedScale = 1
+        return zoomPctRef.current
+      },
+      onChange: (rawRatio: number, center: { x: number; y: number }) => {
+        // Feedback imediato sem re-renderizar: escala visual do host em torno do ponto da pinça.
+        const view = viewRef.current
+        if (!view) return
+        const point = toViewport(center, appliedScale)
+        const ratio = options.coordsFollowViewScale ? rawRatio * appliedScale : rawRatio
+        appliedScale = ratio
+        const viewRect = view.getBoundingClientRect()
+        view.style.transformOrigin = `${point.x - viewRect.left}px ${point.y - viewRect.top}px`
+        view.style.transform = `scale(${ratio})`
+      },
+      onEnd: (rawRatio: number) => {
+        // Com compensação, a razão real já é a última aplicada (a `rawRatio` final é a do último movimento).
+        const ratio = options.coordsFollowViewScale ? appliedScale : rawRatio
+        resetVisualScale()
+        void applyZoom(clampZoomPct(zoomPctRef.current * ratio))
+      },
+      onCancel: resetVisualScale,
+    }
+  }
+
   function setupPageDocument(doc: Document, pageIndex: number) {
+    releaseDiscardedPages()
     if (pageCleanupsRef.current.has(doc)) return
 
     const onClick = (event: MouseEvent) => {
@@ -317,35 +399,17 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
     const onRendered = () => {
       void drawBookmarkMarkers(doc, pageIndex)
       // Zoom/tema refazem a camada de texto: a posição (offset do 1º texto visível) mudou de lugar na tela.
-      if (viewRef.current?.renderer.index === pageIndex) scheduleRelocate()
+      if (viewRef.current && getTopVisiblePageIndex() === pageIndex) scheduleRelocate()
     }
     doc.addEventListener(PDF_PAGE_RENDERED_EVENT, onRendered)
 
-    const detachPinch = attachPinchZoom(doc, {
-      onStart: () => zoomPctRef.current,
-      onChange: (ratio, center) => {
-        // Feedback imediato sem re-renderizar: escala visual do host em torno do ponto da pinça.
-        const view = viewRef.current
-        const frame = doc.defaultView?.frameElement as HTMLElement | null
-        if (!view || !frame) return
-        const frameRect = frame.getBoundingClientRect()
-        const viewRect = view.getBoundingClientRect()
-        view.style.transformOrigin = `${frameRect.left + center.x - viewRect.left}px ${frameRect.top + center.y - viewRect.top}px`
-        view.style.transform = `scale(${ratio})`
-      },
-      onEnd: (ratio) => {
-        const view = viewRef.current
-        if (view) {
-          view.style.transform = ''
-          view.style.transformOrigin = ''
-        }
-        void applyZoom(clampZoomPct(zoomPctRef.current * ratio))
-      },
-      onCancel: () => {
-        const view = viewRef.current
-        if (view) view.style.transform = ''
-      },
-    })
+    // O retângulo do iframe já vem transformado; o centro (coordenadas internas do iframe) escala junto.
+    const detachPinch = attachPinchZoom(doc, makePinchHandlers((center, appliedScale) => {
+      const frameRect = (doc.defaultView?.frameElement as HTMLElement | null)?.getBoundingClientRect()
+      return frameRect
+        ? { x: frameRect.left + center.x * appliedScale, y: frameRect.top + center.y * appliedScale }
+        : center
+    }, { coordsFollowViewScale: true }))
 
     pageCleanupsRef.current.set(doc, () => {
       doc.removeEventListener('click', onClick)
@@ -384,6 +448,8 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
     let cancelled = false
     let view: PdfFoliateView | null = null
     const pageCleanups = pageCleanupsRef.current
+    // Pinça também no contêiner: logo depois de rolar os iframes estão sem pointer-events e o toque cai aqui.
+    const detachHostPinch = attachPinchZoom(container, makePinchHandlers((center) => center, { coordsFollowViewScale: false }))
 
     async function setup() {
       try {
@@ -397,9 +463,9 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
         viewRef.current = view
 
         // O detail do 'relocate' do foliate-view não traz o índice da página (só fração/seção do livro);
-        // no modo scroll o renderer sabe qual página está no centro da tela.
+        // a página é medida aqui (a do topo da tela — ver getTopVisiblePageIndex).
         view.addEventListener<unknown>('relocate', () => {
-          if (viewRef.current) void handleRelocate(Math.max(0, viewRef.current.renderer.index))
+          if (viewRef.current) void handleRelocate(getTopVisiblePageIndex())
         })
         view.addEventListener<{ doc: Document; index: number }>('load', (event) => {
           setupPageDocument(event.detail.doc, event.detail.index)
@@ -424,7 +490,7 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
         readyRef.current = true
         // onLoad depois de posicionar: o ReaderScreen esconde o "carregando" aqui, e a página 0 não pode piscar.
         propsRef.current.onLoad()
-        void handleRelocate(Math.max(0, view.renderer.index))
+        void handleRelocate(getTopVisiblePageIndex())
       } catch (error) {
         if (!cancelled) propsRef.current.onError(error instanceof Error ? error : new Error(String(error)))
       }
@@ -435,6 +501,7 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
       cancelled = true
       readyRef.current = false
       if (relocateTimerRef.current) clearTimeout(relocateTimerRef.current)
+      detachHostPinch()
       for (const cleanup of pageCleanups.values()) cleanup()
       pageCleanups.clear()
       viewRef.current = null

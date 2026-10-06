@@ -1,6 +1,9 @@
-// Pinça (dois dedos) nos documentos das páginas PDF. O iframe da página é do mesmo origin, então o pai
-// registra os listeners direto no `contentDocument` (igual ao EpubViewer) — nenhum script no iframe, o
-// sandbox continua sem allow-scripts (R-005, research.md §2).
+// Pinça (dois dedos) nas páginas PDF. Dois alvos, porque o foliate-fxl desliga `pointer-events` dos iframes
+// durante a rolagem e por ~150 ms depois (fixed-layout.js, `.scroll-page iframe { pointer-events: none }`):
+// - o `contentDocument` de cada página (iframe do mesmo origin: o pai registra os listeners, nenhum script no
+//   iframe, o sandbox continua sem allow-scripts — R-005, research.md §2);
+// - o contêiner do viewer no documento pai, que recebe os toques enquanto os iframes estão desligados.
+// Eventos de toque não atravessam a fronteira do iframe, então um gesto nunca chega aos dois alvos.
 
 export const PDF_ZOOM_MIN_PCT = 100
 export const PDF_ZOOM_MAX_PCT = 400
@@ -25,10 +28,10 @@ export function clampZoomPct(pct: number): number {
 }
 
 /**
- * Registra a pinça em `doc`. Devolve a função que remove os listeners. Um dedo continua rolando de forma
- * nativa; só quando há dois dedos o gesto é capturado (preventDefault) para o navegador não dar zoom na UI.
+ * Registra a pinça em `target` (documento de uma página ou elemento do documento pai). Devolve a função que
+ * remove os listeners. Um dedo continua rolando de forma nativa; com dois dedos o gesto é capturado.
  */
-export function attachPinchZoom(doc: Document, handlers: PinchHandlers): () => void {
+export function attachPinchZoom(target: Document | HTMLElement, handlers: PinchHandlers): () => void {
   let startDistance = 0
   let lastRatio = 1
   let lastCenter = { x: 0, y: 0 }
@@ -36,6 +39,10 @@ export function attachPinchZoom(doc: Document, handlers: PinchHandlers): () => v
 
   const onTouchStart = (event: TouchEvent) => {
     if (event.touches.length !== 2) return
+    // Cancelar já no touchstart do 2º dedo impede o navegador de transformar o gesto em rolagem com dois
+    // dedos. Se só cancelássemos no touchmove seria tarde: com a rolagem iniciada o touchmove vem
+    // `cancelable=false`, o preventDefault é ignorado e parte do movimento vira rolagem (zoom fraco/ignorado).
+    if (event.cancelable) event.preventDefault()
     active = true
     startDistance = distance(event.touches[0], event.touches[1])
     lastRatio = 1
@@ -45,7 +52,8 @@ export function attachPinchZoom(doc: Document, handlers: PinchHandlers): () => v
 
   const onTouchMove = (event: TouchEvent) => {
     if (!active || event.touches.length !== 2 || startDistance === 0) return
-    event.preventDefault()
+    // Evento não cancelável (rolagem já em curso): chamar preventDefault só geraria erro no console.
+    if (event.cancelable) event.preventDefault()
     lastRatio = distance(event.touches[0], event.touches[1]) / startDistance
     lastCenter = midpoint(event.touches[0], event.touches[1])
     handlers.onChange(lastRatio, lastCenter)
@@ -64,18 +72,22 @@ export function attachPinchZoom(doc: Document, handlers: PinchHandlers): () => v
   }
   const onTouchCancel = () => finish(true)
 
-  // passive:false em touchmove: sem isso preventDefault é ignorado e o navegador faz o próprio zoom.
-  doc.addEventListener('touchstart', onTouchStart, { passive: true })
-  doc.addEventListener('touchmove', onTouchMove, { passive: false })
-  doc.addEventListener('touchend', onTouchEnd, { passive: true })
-  doc.addEventListener('touchcancel', onTouchCancel, { passive: true })
-  // Desliga o zoom nativo da página mantendo a rolagem em x/y.
-  doc.documentElement.style.touchAction = 'pan-x pan-y'
+  // passive:false em touchstart/touchmove: listener passivo não pode chamar preventDefault, e o navegador
+  // faria a própria rolagem/zoom com os dois dedos.
+  // Cast: TouchEvent em Document e em HTMLElement têm assinaturas de addEventListener diferentes no TS.
+  const eventTarget = target as unknown as EventTarget
+  eventTarget.addEventListener('touchstart', onTouchStart as EventListener, { passive: false })
+  eventTarget.addEventListener('touchmove', onTouchMove as EventListener, { passive: false })
+  eventTarget.addEventListener('touchend', onTouchEnd as EventListener, { passive: true })
+  eventTarget.addEventListener('touchcancel', onTouchCancel as EventListener, { passive: true })
+  // Desliga o zoom nativo (do navegador, que ampliaria a UI inteira) mantendo a rolagem em x/y.
+  const styled = 'documentElement' in target ? target.documentElement : target
+  styled.style.touchAction = 'pan-x pan-y'
 
   return () => {
-    doc.removeEventListener('touchstart', onTouchStart)
-    doc.removeEventListener('touchmove', onTouchMove)
-    doc.removeEventListener('touchend', onTouchEnd)
-    doc.removeEventListener('touchcancel', onTouchCancel)
+    eventTarget.removeEventListener('touchstart', onTouchStart as EventListener)
+    eventTarget.removeEventListener('touchmove', onTouchMove as EventListener)
+    eventTarget.removeEventListener('touchend', onTouchEnd as EventListener)
+    eventTarget.removeEventListener('touchcancel', onTouchCancel as EventListener)
   }
 }

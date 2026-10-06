@@ -199,11 +199,11 @@ npm run android:run
 | --- | --- |
 | Fase 1 — Setup | Concluída (2026-10-05) |
 | Fase 2 — Foundational | Concluída (2026-10-05) |
-| Fase 3 — US1 (import + página fiel) | Implementada e validada em Chromium (E2E T025); **device pendente** (T026 spikes + T027 regressão EPUB no celular — aparelho com PIN) |
+| Fase 3 — US1 (import + página fiel) | Implementada e validada em Chromium (E2E T025 + rodada de 2026-10-05 com 4 bugs corrigidos, T038a); pendentes T038b–T038e (ficha/título/iframes/UI) e **device** (T026 spikes + T027 regressão EPUB no celular — aparelho com PIN) |
 | Fase 4 — US2 (modo texto) | Não iniciada |
 | Fases 5–9 | Não iniciadas |
 | Código de app para PDF | Import (web + Android), `PdfService`, ficha (`PdfBookInfoProvider`), idioma, `usePdfReaderSession`, `PdfPageViewer` (página fiel), avisos, `ReaderScreen` por formato, plugin Java. Tradução/Word Lens/TTS/highlights/modo texto/OPDS ainda não |
-| Regressão EPUB | 1354 testes passando + 2 skipped (base 1094 inalterada) · corpus EPUB 71 · lint/build ok. Checklist no device pendente |
+| Regressão EPUB | 1363 testes passando + 2 skipped (base 1094 inalterada) · corpus EPUB 71 · lint/build ok · EPUB conferido no dev (import, abrir, rolar, CFI, tradução inline). Checklist no device pendente |
 
 ## Riscos e Decisões
 
@@ -234,6 +234,15 @@ npm run android:run
 | R-018 | O foliate-fxl não define `--scale-factor` no documento da página: o `TextLayer` do pdf.js dimensiona a camada com `var(--scale-factor)` e, sem ela, a camada ficava com 1/dpr do tamanho da página em telas densas (seleção/toque desalinhados do texto desenhado) | Alto — quebraria tradução/Word Lens/highlights em celulares | Resolvido em `pdfPageRender.ts` (define `--scale-factor` = zoom × dpr); verificado em DPR 1/2/3 no Chromium. Revalidar no WebView do Android (T026). |
 | R-019 | Ao entrar em modo scroll o foliate calcula o "índice atual" com as páginas ainda sem altura e rola para uma página do meio do livro | Alto — o leitor abria na página errada e podia sobrescrever o progresso salvo | Resolvido: `PdfPageViewer` navega SEMPRE ao ponto inicial (página 0 se não há progresso) e só emite `onRelocate` depois disso (`readyRef`). |
 | R-020 | Sem o celular desbloqueado não dá para validar no WebView do Android: pinça/pan, memória com PDF grande, capa nativa, import de pasta | Médio — comportamento só confirmado em Chromium | T026/T027 abertas; APK de debug já instalado. O harness de Chromium (`harness/pdf.*`, `harness/e2e.*`) foi removido do repositório e guardado fora dele (scratchpad); para refazer, recriar a partir do plan. |
+| R-021 | Vazamento: `pageCleanupsRef` (Map<Document, cleanup>) do `PdfPageViewer` só era esvaziado ao desmontar; o foliate descarta páginas removendo o iframe sem avisar → ~0,35 MB por página lida preso, imune a GC | Alto — leitura longa estouraria a memória (SC-002, histórico de alerta no Play Console) | Resolvido (T038a): `releaseDiscardedPages()` a cada página nova solta documentos cujo iframe saiu do DOM. Chromium: heap estável em 300 páginas; teste de regressão no contrato do viewer. |
+| R-022 | Pinça: (a) o foliate-fxl desliga `pointer-events` dos iframes durante a rolagem (+150 ms) e o toque caía no host sem listener; (b) `preventDefault` só no `touchmove` chegava tarde (evento já não cancelável); (c) o feedback `scale()` encolhia as coordenadas dentro do iframe (razão convergia para a raiz); (d) gesto perdido virava zoom nativo do navegador | Alto — zoom é critério da US1 | Resolvido (T038a): `touchstart` não passivo cancelando com 2 dedos, pinça também no contêiner do pai com `touch-action: pan-x pan-y`, compensação da escala aplicada para toques vindos do iframe. Revalidar no WebView do Android (T026). |
+| R-023 | Progresso usava `renderer.index` (página no MEIO da tela) com offset 0 | Médio — ao reabrir, o leitor perdia até meia tela | Resolvido (T038a): `getTopVisiblePageIndex()` mede a página no topo (fallback `renderer.index` sem layout). |
+| R-024 | Percentual de PDF era float cru no chrome e nos marcadores | Baixo — visível ao usuário | Resolvido (T038a): `clampPercentage` (inteiro, como o EPUB) no relocate e no marcador; fração continua precisa. |
+| R-025 | `PdfBookInfoProvider` pega o 1º ISBN do texto: na página de copyright de traduções aparece antes o ISBN do original (e o da edição anterior); nas últimas páginas, ISBNs de outros livros | Médio — ficha com identidade de outra edição | T038b. |
+| R-026 | Metadados-lixo de exportação do Word ("(Microsoft Word - …)", autor "A") viram título/autor | Baixo — título feio e sem enriquecimento | T038c. |
+| R-027 | Rolagem rápida deixa 16–28 iframes de página carregados (teto do foliate = 8); não cresce sem limite | Baixo/Médio — memória de canvas no celular (DPR 3) | T038d (medir no device). |
+| R-028 | Detalhes de UI: aviso de PDF sem texto cobre o chrome; sumário vazio cita "EPUB"; chrome não fecha após escolher capítulo | Baixo | T038e. |
+| R-029 | No `npm run dev` o `hardenFoliateIframeSandbox` não se aplica (iframes do EPUB e do PDF com `allow-scripts`); no build/APK está correto | Baixo — testes no dev rodam com sandbox mais frouxo que produção | Registrado em Cuidados para Retomada; não corrigido (toca `vite.config.ts`, afeta o EPUB). |
 
 ## Execution Notes
 
@@ -245,6 +254,7 @@ npm run android:run
 
 | Data | Fase/Story | Resumo | Pendência Principal |
 | --- | --- | --- | --- |
+| 2026-10-05 | Fase 3 (US1) — testes E2E | Playwright MCP + `npm run dev` (harness temporário) com 15 arquivos do corpus: 4 bugs corrigidos (vazamento por página, pinça, posição salva, percentual — R-021..R-024, T038a), 9 testes novos; EPUB conferido; gate verde (1363 + 71) | T038b–T038e (R-025..R-028) e device (T026/T027) |
 | 2026-10-05 | Fase 3 (US1) | T019–T025, T028–T038: import (web/nativo) e ficha de PDF, idioma, sessão, `PdfPageViewer`, avisos, `ReaderScreen` por formato, plugin Java; E2E em Chromium com 12 PDFs; gate EPUB verde (1354 + 71) | **Device (T026/T027)**: celular com PIN; APK de debug já instalado |
 | 2026-10-05 | Fase 2 (Foundational) | T007–T018: tipos, utilitários puros, `pdfParagraphs` calibrado em 11 PDFs reais (SC-003 ≥ 95% em prosa), `PdfBookFactory`/`PdfTextExtractor` validados em Chromium (grande.pdf abre em 0,65 s); 135 testes novos; gate EPUB verde (1226 + 71) | `PdfService` deve normalizar `author` (array) e `language`; device só na Fase 3 |
 | 2026-10-05 | Fase 1 (Setup) | T001–T006: baseline EPUB registrada; plugin dev `/vendor/pdfjs`; corpus sintético (12 PDFs, `grande` = 1000 pág./188 MB) + extrator de fixtures; gate EPUB idêntico à baseline (1094 testes + 71 corpus) | Corpus sintético: incluir PDFs reais na calibragem do T015 (R-014) |
@@ -275,4 +285,7 @@ Foco da Fase 4 (US2 — modo texto) — só depois do device da Fase 3 (ou em pa
 - **Validar o viewer em Chromium**: `npx vite --port 5199 --strictPort` + página de harness que monte `PdfPageViewer` (via `usePdfReaderSession`) e/ou chame `BookImportService.importEpub` + `ReaderScreen` (o app real exige login Google). Contexto do Playwright com `deviceScaleFactor` 2 e `hasTouch` para ver o problema de DPR; pinça via CDP `Input.dispatchTouchEvent` com 2 pontos.
 - **jsdom × PDF**: nos testes do viewer o `scrollIntoView` precisa ser stubado no realm do iframe (`doc.defaultView.Element.prototype`), e `beforeEach(() => mock.mockReset())` com arrow que devolve o mock é executado como teardown pelo Vitest — usar chaves.
 - **Senha do `senha.pdf`**: `neoreader` (só para teste manual; o app deve recusar o arquivo, FR-015).
+- **Sandbox no dev (R-029)**: no `npm run dev` os iframes do foliate (EPUB e PDF) saem com `allow-scripts` — o `hardenFoliateIframeSandbox` só pega no build. Algo que funcione no dev pode quebrar no APK; conferir o sandbox no build (`dist/assets/fixed-layout-*.js`/`paginator-*.js` devem ter só `allow-same-origin`).
+- **Testes de pinça no Chromium deixam estado na aba**: um gesto não capturado aplica zoom nativo (`visualViewport.scale` > 1) que sobrevive a reload e desalinha cliques seguintes (parecia "EPUB não abre a tradução"). Zerar com CDP `Emulation.setPageScaleFactor({ pageScaleFactor: 1 })` ou fechar a aba. O backup do harness E2E está no scratchpad da sessão `ba83c421-…` (`harness-backup/e2e.*`).
+- **Medir vazamento no Chromium**: `HeapProfiler.collectGarbage` (2×) antes de ler `performance.memory.usedJSHeapSize`; o tamanho do `pageCleanupsRef` dá para ler pela fiber do React (`__reactFiber$…` → `PdfPageViewer` → hook com `Map` de `Document`).
 - `grande.pdf` = 1000 páginas / 188,4 MB (abaixo do teto de 200 MB, de propósito: representa o caso "sem aviso"). Para testar o aviso de FR-016, gerar um maior à parte.

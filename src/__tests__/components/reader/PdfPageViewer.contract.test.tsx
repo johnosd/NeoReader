@@ -214,8 +214,9 @@ describe('PdfPageViewer — contrato EpubViewerHandle', () => {
     await waitFor(() => expect(props.onRelocate).toHaveBeenCalled())
     const payload = vi.mocked(props.onRelocate).mock.calls.at(-1)![0]
     expect(payload.cfi).toBe('neopdf:v1;p=5;o=0')
-    expect(payload.percentage).toBeCloseTo((5 / 30) * 100, 1)
-    expect(payload.fraction).toBeCloseTo(5 / 30 / 1, 2)
+    // Percentual inteiro como no EPUB (é o que o chrome exibe); a fração continua precisa.
+    expect(payload.percentage).toBe(17)
+    expect(payload.fraction).toBeCloseTo(5 / 30, 4)
     expect(payload.tocLabel).toBe('Capítulo 1')
     expect(payload.sectionHref).toBe('neopdf:v1;p=4;o=0')
     // "seção" do PDF = trecho (DI-009): página 5 está no 2º trecho (capítulo 1)
@@ -268,6 +269,96 @@ describe('PdfPageViewer — contrato EpubViewerHandle', () => {
     const { props } = setup()
     await waitFor(() => expect(props.onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'pdf quebrado' })))
     expect(props.onLoad).not.toHaveBeenCalled()
+  })
+
+  it('solta o documento das páginas que o foliate descartou (sem vazar memória por página lida)', async () => {
+    const onCenterTap = vi.fn()
+    const { props } = setup({ onCenterTap })
+    await waitFor(() => expect(props.onLoad).toHaveBeenCalled())
+
+    const discarded = makePageDocument()
+    const kept = makePageDocument()
+    const discardedFrame = discarded.defaultView!.frameElement!
+    await act(async () => {
+      view!.fireFoliate('load', { doc: discarded, index: 1 })
+      view!.fireFoliate('load', { doc: kept, index: 2 })
+    })
+    const discardedRemove = vi.spyOn(discarded, 'removeEventListener')
+    const keptRemove = vi.spyOn(kept, 'removeEventListener')
+
+    // O foliate descarta a página 1 (remove o iframe) e carrega outra: a varredura roda nesse 'load'.
+    discardedFrame.remove()
+    await act(async () => { view!.fireFoliate('load', { doc: makePageDocument(), index: 3 }) })
+
+    // Página descartada: o cleanup rodou (listeners removidos, Document solto do Map).
+    expect(discardedRemove).toHaveBeenCalledWith('click', expect.any(Function))
+    // Página ainda na tela: intacta, e continua respondendo ao toque.
+    expect(keptRemove).not.toHaveBeenCalled()
+    kept.body.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(onCenterTap).toHaveBeenCalledTimes(1)
+  })
+
+  it('salva a posição do TOPO da tela (não a página do meio), com o offset do 1º texto visível', async () => {
+    const session = makeSession(60)
+    vi.mocked(session.extractor.getPage).mockImplementation(async () => ({
+      itemStarts: [0, 120],
+      items: [{ str: 'Primeira linha' }, { str: 'Segunda linha' }],
+      rawText: '',
+    }) as unknown as Awaited<ReturnType<PdfReaderSession['extractor']['getPage']>>)
+    const { props } = setup({ session })
+    await waitFor(() => expect(props.onLoad).toHaveBeenCalled())
+    vi.mocked(props.onRelocate).mockClear()
+
+    const rect = (top: number, height: number) =>
+      ({ top, bottom: top + height, height, left: 0, right: 400, width: 400, x: 0, y: top, toJSON: () => ({}) }) as DOMRect
+    // Página 40 começa 300 px acima do topo do host e termina 280 px abaixo; a 41 vem logo depois e é a que
+    // cruza o MEIO da tela (renderer.index). Quem está sendo lido é o 2º item da página 40.
+    const pageWithLines = (frameTop: number, frameHeight: number) => {
+      const doc = makePageDocument()
+      doc.body.innerHTML = '<div id="canvas"><canvas></canvas></div><div class="textLayer">'
+        + '<span data-nr-item="0">Primeira linha</span><span data-nr-item="1">Segunda linha</span></div>'
+      ;(doc.defaultView!.frameElement as HTMLElement).getBoundingClientRect = () => rect(frameTop, frameHeight)
+      const spans = doc.querySelectorAll<HTMLElement>('span')
+      spans[0].getBoundingClientRect = () => rect(80, 20) // base em -200 no host: já passou do topo
+      spans[1].getBoundingClientRect = () => rect(380, 20) // base em +100 no host: 1º texto visível
+      return doc
+    }
+    const page40 = pageWithLines(-300, 580)
+    const page41 = pageWithLines(284, 580)
+    ;(view!.renderer as unknown as { getContents: () => unknown }).getContents = () => [
+      { doc: page40, index: 40 },
+      { doc: page41, index: 41 },
+    ]
+    primaryIndex = 41
+
+    await act(async () => { view!.fireFoliate('relocate', {}) })
+    await waitFor(() => expect(props.onRelocate).toHaveBeenCalled())
+    const payload = vi.mocked(props.onRelocate).mock.calls.at(-1)![0]
+    expect(payload.cfi).toBe('neopdf:v1;p=40;o=120')
+    expect(Number.isInteger(payload.percentage)).toBe(true)
+    expect(payload.fraction).toBeCloseTo((40 + 300 / 580) / 60, 4)
+  })
+
+  it('marcador de parágrafo grava percentual inteiro (a lista de marcadores exibe o valor sem formatar)', async () => {
+    const session = makeSession(30)
+    vi.mocked(session.extractor.reconstructChunk).mockResolvedValue([
+      { kind: 'paragraph', text: 'Olá mundo', pageIndex: 7, ranges: [{ pageIndex: 7, start: 0, end: 9 }] },
+    ])
+    const onBookmarkParagraph = vi.fn()
+    const { props } = setup({ session, onBookmarkParagraph })
+    await waitFor(() => expect(props.onLoad).toHaveBeenCalled())
+
+    const doc = makePageDocument()
+    await act(async () => { view!.fireFoliate('load', { doc, index: 7 }) })
+    await act(async () => { doc.querySelector('span')!.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    const button = await waitFor(() => {
+      const found = doc.querySelector<HTMLButtonElement>('.nr-pdf-bubble button')
+      expect(found).not.toBeNull()
+      return found!
+    })
+    await act(async () => { button.click() })
+
+    expect(onBookmarkParagraph).toHaveBeenCalledWith(expect.objectContaining({ cfi: 'neopdf:v1;p=7;o=0', percentage: 23 }))
   })
 
   it('não emite onRelocate antes da navegação inicial terminar (não sobrescreve o progresso salvo)', async () => {
