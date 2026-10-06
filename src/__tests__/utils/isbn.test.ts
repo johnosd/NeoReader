@@ -1,6 +1,40 @@
 import { describe, expect, it } from 'vitest'
 
-import { findIsbns, isValidIsbn10, isValidIsbn13 } from '@/utils/isbn'
+import { classifyIsbnLine, findIsbns, findIsbnsWithContext, isValidIsbn10, isValidIsbn13 } from '@/utils/isbn'
+
+describe('classifyIsbnLine / findIsbnsWithContext (R-025)', () => {
+  it('linha do original de uma tradução é outra obra', () => {
+    expect(classifyIsbnLine('ISBN 9781491985571 © 2018 Ryan Mitchell. This translation is published and sold by permission'))
+      .toBe('other-work')
+    expect(classifyIsbnLine('ISBN 9781491985571 © 2018 Ryan Mitchell. Esta tradução é publicada e vendida com a permissão'))
+      .toBe('other-work')
+    expect(classifyIsbnLine('Título original: Web Scraping with Python — ISBN 978-1-4919-8557-1')).toBe('other-work')
+  })
+
+  it('histórico de edições', () => {
+    expect(classifyIsbnLine('Agosto/2015 Primeira edição (ISBN: 978-85-7522-447-2)')).toBe('edition-history')
+    expect(classifyIsbnLine('Previous edition ISBN 978-0-306-40615-7')).toBe('edition-history')
+  })
+
+  it('linha comum (inclusive com ©) é limpa', () => {
+    expect(classifyIsbnLine('ISBN: 978-85-7522-734-3')).toBe('clean')
+    expect(classifyIsbnLine('Copyright © 2026 NeoReader test corpus. ISBN 978-0-306-40615-7.')).toBe('clean')
+  })
+
+  it('classifica cada ISBN pela própria linha, sem repetir', () => {
+    const text = [
+      'ISBN 9781491985571 © 2018 Ryan Mitchell. This translation is published and sold by permission',
+      'ISBN: 978-85-7522-734-3',
+      'Agosto/2015 Primeira edição (ISBN: 978-85-7522-447-2)',
+      'ISBN: 978-85-7522-734-3',
+    ].join('\n')
+    expect(findIsbnsWithContext(text)).toEqual([
+      { isbn: '9781491985571', context: 'other-work' },
+      { isbn: '9788575227343', context: 'clean' },
+      { isbn: '9788575224472', context: 'edition-history' },
+    ])
+  })
+})
 
 describe('validação de dígito verificador', () => {
   it('ISBN-13', () => {

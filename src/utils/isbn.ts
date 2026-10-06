@@ -65,3 +65,37 @@ export function findIsbns(text: string): string[] {
 
   return found
 }
+
+/**
+ * Contexto da linha onde o ISBN aparece, para separar o ISBN DESTA edição de outros que a página de copyright
+ * também traz (feature 022, R-025):
+ * - `other-work`: outra obra — o original de uma tradução ("This translation is published by permission",
+ *   "Título original", "tradução de"). Nunca é desta edição.
+ * - `edition-history`: histórico de edições ("Primeira edição (ISBN …)", "previous edition").
+ * - `clean`: linha sem esses sinais.
+ * O "©" não entra como sinal: a linha certa muitas vezes é "Copyright © 2026 … ISBN 978-…".
+ */
+export type IsbnContext = 'clean' | 'edition-history' | 'other-work'
+
+const OTHER_WORK_PATTERN =
+  /\btranslat|tradu[cç][aã]o|traduzid|t[ií]tulo original|original title|title of the original|by permission|com a permiss[aã]o|sob licen[cç]a|publicad[ao] (?:com|sob)/i
+const EDITION_HISTORY_PATTERN =
+  /\b(?:primeira|segunda|terceira|1ª|2ª|3ª)\s+edi[cç][aã]o|edi[cç][aã]o anterior|\b(?:first|second|third|previous|earlier)\s+edition/i
+
+export function classifyIsbnLine(line: string): IsbnContext {
+  if (OTHER_WORK_PATTERN.test(line)) return 'other-work'
+  if (EDITION_HISTORY_PATTERN.test(line)) return 'edition-history'
+  return 'clean'
+}
+
+/** Como `findIsbns`, mas devolve também o contexto da linha de cada ISBN (1ª ocorrência vale). */
+export function findIsbnsWithContext(text: string): Array<{ isbn: string; context: IsbnContext }> {
+  const found: Array<{ isbn: string; context: IsbnContext }> = []
+  for (const line of text.split('\n')) {
+    for (const isbn of findIsbns(line)) {
+      if (found.some((entry) => entry.isbn === isbn)) continue
+      found.push({ isbn, context: classifyIsbnLine(line) })
+    }
+  }
+  return found
+}

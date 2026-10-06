@@ -84,6 +84,44 @@ describe('PdfBookInfoProvider', () => {
     expect(requested.sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 47, 48, 49])
   })
 
+  it('tradução: fica só com o ISBN desta edição (não o do original, nem o da edição anterior, nem o de anúncio no fim)', async () => {
+    // Linhas reais da página 3 (copyright) e da 324 (anúncio de outro livro) de "Web Scraping com Python".
+    const pages = blank(325)
+    pages[2] = [
+      'ISBN 9781491985571 © 2018 Ryan Mitchell. This translation is published and sold by permission',
+      'ISBN 9781491985571 © 2018 Ryan Mitchell. Esta tradução é publicada e vendida com a permissão',
+      'ISBN: 978-85-7522-734-3',
+      'Agosto/2015 Primeira edição (ISBN: 978-85-7522-447-2)',
+    ].join('\n')
+    pages[323] = '9788575227022'
+    const { handle } = fakeHandle(pages, { title: 'Web Scraping com Python' })
+    createPdfBookMock.mockResolvedValue(handle)
+
+    const info = await new PdfBookInfoProvider().collect(new Blob(['x']))
+
+    const expected = { kind: 'ISBN_13', value: '9788575227343', raw: '9788575227343' }
+    expect(info.lookupHints?.identifiers).toEqual([expected])
+    expect(info.isbn13?.value).toEqual(expected)
+    expect(info.universalIdentifier?.value).toEqual(expected)
+  })
+
+  it('só o ISBN do original (tradução sem ISBN próprio): nenhum identificador, em vez do de outro livro', async () => {
+    const pages = blank(20)
+    pages[3] = 'Título original: Some Book. ISBN 978-0-306-40615-7. Tradução de Fulano.'
+    const { handle } = fakeHandle(pages)
+    createPdfBookMock.mockResolvedValue(handle)
+    expect((await new PdfBookInfoProvider().collect(new Blob(['x']))).lookupHints?.identifiers).toEqual([])
+  })
+
+  it('só histórico de edição: usa (é o melhor disponível)', async () => {
+    const pages = blank(20)
+    pages[2] = '1ª edição, 2026 — ISBN 978-0-306-40615-7'
+    const { handle } = fakeHandle(pages)
+    createPdfBookMock.mockResolvedValue(handle)
+    expect((await new PdfBookInfoProvider().collect(new Blob(['x']))).lookupHints?.identifiers?.map((i) => i.value))
+      .toEqual(['9780306406157'])
+  })
+
   it('sem ISBN: identificadores vazios, sem erro', async () => {
     const { handle } = fakeHandle(['Capítulo 1. Nada de ISBN aqui.', 'Mais texto.'], { title: 'T' })
     createPdfBookMock.mockResolvedValue(handle)

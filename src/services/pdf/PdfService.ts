@@ -1,6 +1,6 @@
 import { createPdfBook } from './PdfBookFactory'
 import { PdfImportError } from './PdfImportError'
-import { pdfMetadataLanguage, pdfMetadataText } from './pdfMetadata'
+import { pdfMetadataAuthor, pdfMetadataLanguage, pdfMetadataTitle } from './pdfMetadata'
 import { PdfTextExtractor } from './PdfTextExtractor'
 import type { PdfTextLayer } from '@/types/book'
 import { detectTextLanguage } from '@/utils/textLanguage'
@@ -88,8 +88,8 @@ export class PdfService {
       const coverBlob = await book.getCover().catch(() => null)
 
       return {
-        title: pdfMetadataText(book.metadata.title, ' ') ?? (fileName.replace(/\.pdf$/i, '').trim() || 'Sem título'),
-        author: pdfMetadataText(book.metadata.author) ?? 'Autor desconhecido',
+        title: pdfMetadataTitle(book.metadata.title) ?? (fileName.replace(/\.pdf$/i, '').trim() || 'Sem título'),
+        author: pdfMetadataAuthor(book.metadata.author) ?? 'Autor desconhecido',
         coverBlob,
         pageCount: pdf.numPages,
         pdfTextLayer,

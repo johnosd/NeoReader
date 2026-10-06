@@ -86,6 +86,17 @@ describe('PdfService.parseMetadata — metadados', () => {
     expect(meta.author).toBe('Autor desconhecido')
   })
 
+  it('título/autor-lixo do Word caem no nome do arquivo e em "Autor desconhecido" (R-026, "Os Noturnos")', async () => {
+    const { handle } = fakeHandle({
+      pageText: lorem,
+      metadata: { title: '(Microsoft Word - Fl\\341via Muniz - Noturnos _Rev_)', author: 'A' },
+    })
+    createPdfBookMock.mockResolvedValue(handle)
+    const meta = await PdfService.parseMetadata(new Blob(['x']), 'Os Noturnos - Flávia Muniz.pdf')
+    expect(meta.title).toBe('Os Noturnos - Flávia Muniz')
+    expect(meta.author).toBe('Autor desconhecido')
+  })
+
   it('falha ao gerar a capa não derruba o import', async () => {
     const { handle } = fakeHandle({ pageText: lorem, metadata: { title: 'T' } })
     handle.book.getCover = async () => {

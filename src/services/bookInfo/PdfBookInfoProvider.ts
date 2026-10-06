@@ -1,7 +1,7 @@
 import type { BookIdentifier, BookInfoProvider, BookInfoValue, ResolvedBookInfo } from '../../types/bookInfo'
-import { findIsbns } from '../../utils/isbn'
+import { findIsbnsWithContext, type IsbnContext } from '../../utils/isbn'
 import { createPdfBook } from '../pdf/PdfBookFactory'
-import { pdfMetadataLanguage, pdfMetadataText } from '../pdf/pdfMetadata'
+import { pdfMetadataAuthor, pdfMetadataLanguage, pdfMetadataText, pdfMetadataTitle } from '../pdf/pdfMetadata'
 import { PdfTextExtractor } from '../pdf/PdfTextExtractor'
 
 const EMPTY_LOOKUP_HINTS = { title: null, author: null, identifiers: [] }
@@ -31,8 +31,9 @@ export class PdfBookInfoProvider implements BookInfoProvider {
 
     const { book, pdf } = handle
     try {
-      const title = pdfMetadataText(book.metadata.title, ' ')
-      const author = pdfMetadataText(book.metadata.author)
+      // Título/autor-lixo (R-026) viram null: o enriquecimento busca pelo título/autor do registro do livro.
+      const title = pdfMetadataTitle(book.metadata.title)
+      const author = pdfMetadataAuthor(book.metadata.author)
       const language = pdfMetadataLanguage(book.metadata.language)
       const synopsis = pdfMetadataText(book.metadata.description, ' ')
       const publisher = pdfMetadataText(book.metadata.publisher)
@@ -57,22 +58,35 @@ export class PdfBookInfoProvider implements BookInfoProvider {
     }
   }
 
+  // Escolhe os ISBNs DESTA edição (R-025). A página de copyright de uma tradução traz antes o ISBN do original
+  // e o da edição anterior, e as últimas páginas costumam anunciar outros livros da editora — pegar o primeiro
+  // da ordem gravava a identidade de outra edição (e o Open Library achava a obra errada). Camadas, a primeira
+  // não vazia vence, sem misturar: limpo das primeiras páginas > limpo das últimas > histórico de edição.
+  // ISBN de "outra obra" (original da tradução) nunca entra: melhor sem ISBN que com o de outro livro.
   private async findIdentifiers(extractor: PdfTextExtractor): Promise<BookIdentifier[]> {
     const pageCount = extractor.pageCount
+    const firstPages = Math.min(ISBN_SCAN_FIRST_PAGES, pageCount)
     const indexes = new Set<number>()
-    for (let i = 0; i < Math.min(ISBN_SCAN_FIRST_PAGES, pageCount); i++) indexes.add(i)
+    for (let i = 0; i < firstPages; i++) indexes.add(i)
     for (let i = Math.max(0, pageCount - ISBN_SCAN_LAST_PAGES); i < pageCount; i++) indexes.add(i)
 
-    const identifiers: BookIdentifier[] = []
+    const candidates: Array<{ isbn: string; context: IsbnContext; fromFirstPages: boolean }> = []
     for (const pageIndex of [...indexes].sort((a, b) => a - b)) {
       // Página que falha ao ler não impede a busca nas outras.
       const text = await extractor.getRawText(pageIndex).catch(() => '')
-      for (const isbn of findIsbns(text)) {
-        if (identifiers.some((identifier) => identifier.value === isbn)) continue
-        identifiers.push({ kind: isbn.length === 13 ? 'ISBN_13' : 'ISBN_10', value: isbn, raw: isbn })
+      for (const { isbn, context } of findIsbnsWithContext(text)) {
+        if (candidates.some((candidate) => candidate.isbn === isbn)) continue
+        candidates.push({ isbn, context, fromFirstPages: pageIndex < firstPages })
       }
     }
-    return identifiers
+
+    const tiers = [
+      candidates.filter((c) => c.context === 'clean' && c.fromFirstPages),
+      candidates.filter((c) => c.context === 'clean' && !c.fromFirstPages),
+      candidates.filter((c) => c.context === 'edition-history'),
+    ]
+    const chosen = tiers.find((tier) => tier.length > 0) ?? []
+    return chosen.map(({ isbn }): BookIdentifier => ({ kind: isbn.length === 13 ? 'ISBN_13' : 'ISBN_10', value: isbn, raw: isbn }))
   }
 
   private value<T>(value: T, confidence: BookInfoValue<T>['confidence']): BookInfoValue<T> {
