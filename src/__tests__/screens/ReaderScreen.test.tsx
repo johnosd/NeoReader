@@ -53,6 +53,7 @@ const mocks = vi.hoisted(() => {
     pdfSessionState: { status: 'idle' } as { status: string; session?: unknown; error?: Error },
     pdfSessionArgs: null as { enabled: boolean; onError?: (error: Error) => void } | null,
     tocDrawerProps: null as Record<string, unknown> | null,
+    bookmarkSheetProps: null as Record<string, unknown> | null,
     readerProgress: {
       savedCfi: null as string | null,
       savedProgress: null as {
@@ -317,15 +318,15 @@ vi.mock('@/hooks/usePdfReaderSession', () => ({
 }))
 
 vi.mock('@/components/reader/ReaderChrome', () => ({
-  ReaderChrome: ({ onTtsToggle, onBack }: { onTtsToggle: () => void; onBack: () => void }) => (
-    <>
+  ReaderChrome: ({ onTtsToggle, onBack, visible }: { onTtsToggle: () => void; onBack: () => void; visible: boolean }) => (
+    <div data-testid="reader-chrome" data-visible={String(visible)}>
       <button type="button" onClick={onTtsToggle}>
         toggle-tts
       </button>
       <button type="button" onClick={onBack}>
         go-back
       </button>
-    </>
+    </div>
   ),
 }))
 
@@ -395,7 +396,10 @@ vi.mock('@/components/reader/TocDrawer', () => ({
 }))
 
 vi.mock('@/components/reader/BookmarkSheet', () => ({
-  BookmarkSheet: () => null,
+  BookmarkSheet: (props: Record<string, unknown>) => {
+    mocks.bookmarkSheetProps = props
+    return null
+  },
 }))
 
 const book: Book = {
@@ -2756,6 +2760,40 @@ describe('ReaderScreen — PDF (feature 022)', () => {
     expect(mocks.viewerHandle.goTo).toHaveBeenCalledWith('neopdf:v1;p=9;o=0')
   })
 
+  it('PDF: escolher item do sumário ou marcador fecha o chrome (o topo da página ficava sob ele — R-028)', async () => {
+    await renderReader()
+    const chrome = () => screen.getByTestId('reader-chrome').dataset.visible
+    expect(chrome()).toBe('true')
+
+    act(() => (mocks.tocDrawerProps as { onSelect: (href: string) => void }).onSelect('neopdf:v1;p=9;o=0'))
+    expect(chrome()).toBe('false')
+    expect(mocks.viewerHandle.goTo).toHaveBeenCalledWith('neopdf:v1;p=9;o=0')
+  })
+
+  it('PDF: marcador escolhido na lista também fecha o chrome', async () => {
+    await renderReader()
+    act(() => (mocks.bookmarkSheetProps as { onSelect: (cfi: string) => void }).onSelect('neopdf:v1;p=4;o=254'))
+    expect(screen.getByTestId('reader-chrome').dataset.visible).toBe('false')
+    expect(mocks.viewerHandle.goTo).toHaveBeenCalledWith('neopdf:v1;p=4;o=254')
+  })
+
+  it('EPUB: sumário e marcador continuam sem mexer no chrome, e o sumário vazio usa o texto de sempre (DI-001)', async () => {
+    render(<ReaderScreen book={book} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />)
+    await flushAsyncWork()
+    await flushAsyncWork()
+
+    expect(mocks.tocDrawerProps?.emptyDescription).toBeUndefined()
+    act(() => (mocks.tocDrawerProps as { onSelect: (href: string) => void }).onSelect('chapter-2.xhtml'))
+    act(() => (mocks.bookmarkSheetProps as { onSelect: (cfi: string) => void }).onSelect('epubcfi(/6/4!/4/2)'))
+    expect(screen.getByTestId('reader-chrome').dataset.visible).toBe('true')
+  })
+
+  it('PDF: sumário vazio explica que o PDF não tem sumário (sem citar EPUB)', async () => {
+    await renderReader()
+    expect(mocks.tocDrawerProps?.emptyDescription).toMatch(/PDF/)
+    expect(mocks.tocDrawerProps?.emptyDescription).not.toMatch(/EPUB/)
+  })
+
   describe('avisos', () => {
     const finishLoading = async () => {
       const onLoad = mocks.pdfViewerProps?.onLoad as () => void
@@ -2770,6 +2808,19 @@ describe('ReaderScreen — PDF (feature 022)', () => {
       expect(screen.getByTestId('pdf-notice-noText')).toBeTruthy()
       fireEvent.click(within(screen.getByTestId('pdf-notice-noText')).getByRole('button'))
       expect(screen.queryByTestId('pdf-notice-noText')).toBeNull()
+    })
+
+    it('os avisos ficam abaixo do cabeçalho do chrome enquanto ele está visível e sobem quando some (R-028)', async () => {
+      await renderReader({ pdfTextLayer: 'partial' })
+      await finishLoading()
+      const container = () => screen.getByTestId('pdf-notices')
+      // O valor de `top` em si não dá para conferir: o parser de CSS do jsdom rejeita `max(…, env(…))`.
+      expect(container().dataset.position).toBe('below-chrome')
+      expect(container().style.top).toContain('7.5rem')
+
+      act(() => (mocks.tocDrawerProps as { onSelect: (href: string) => void }).onSelect('neopdf:v1;p=1;o=0'))
+      expect(container().dataset.position).toBe('top')
+      expect(within(container()).getByTestId('pdf-notice-partialText')).toBeTruthy()
     })
 
     it('PDF com texto parcial e PDF grande têm avisos próprios', async () => {

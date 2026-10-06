@@ -76,6 +76,11 @@ import { useI18n } from '../i18n'
 import { loadWordLensData, loadWordLensDefinition } from '../services/WordLensDataService'
 import type { WordLensData } from '../types/wordLens'
 
+// Topo dos avisos de PDF. Com o chrome visível, desce a altura do cabeçalho do ReaderChrome (padding
+// `max(1rem, safe-area)` + ~7 rem de conteúdo: botões, título e indicadores) — acompanhar se o cabeçalho mudar.
+const PDF_NOTICES_TOP = 'max(1rem, env(safe-area-inset-top))'
+const PDF_NOTICES_TOP_WITH_CHROME = 'calc(max(1rem, env(safe-area-inset-top)) + 7.5rem)'
+
 function normalizeReaderHref(href?: string | null) {
   if (!href) return null
   const [withoutHash] = href.split('#')
@@ -1508,17 +1513,28 @@ export function ReaderScreen({
         )}
       </div>
 
-      {isPdf && !isLoading && !effectiveMissingFile && showPdfTextNotice && pdfNoticeVariant && (
-        <PdfTextLayerNotice
-          variant={pdfNoticeVariant}
-          onDismiss={() => setDismissedPdfNotices((current) => [...current, pdfNoticeKey])}
-        />
-      )}
-      {isPdf && !isLoading && !effectiveMissingFile && showPdfLanguageNotice && (
-        <PdfLanguageNotice
-          onChoose={() => setPdfLanguageSheetOpen(true)}
-          onDismiss={dismissPdfLanguageWarning}
-        />
+      {isPdf && !isLoading && !effectiveMissingFile && ((showPdfTextNotice && pdfNoticeVariant) || showPdfLanguageNotice) && (
+        // Avisos do PDF ficam abaixo do cabeçalho do chrome quando ele está visível e sobem quando some — antes
+        // ficavam fixos a 64 px e cobriam título/progresso/botão de voltar (R-028).
+        <div
+          data-testid="pdf-notices"
+          data-position={chromeVisible ? 'below-chrome' : 'top'}
+          className="pointer-events-none fixed left-3 right-3 z-[1400] flex flex-col gap-2 transition-[top] duration-300"
+          style={{ top: chromeVisible ? PDF_NOTICES_TOP_WITH_CHROME : PDF_NOTICES_TOP }}
+        >
+          {showPdfTextNotice && pdfNoticeVariant && (
+            <PdfTextLayerNotice
+              variant={pdfNoticeVariant}
+              onDismiss={() => setDismissedPdfNotices((current) => [...current, pdfNoticeKey])}
+            />
+          )}
+          {showPdfLanguageNotice && (
+            <PdfLanguageNotice
+              onChoose={() => setPdfLanguageSheetOpen(true)}
+              onDismiss={dismissPdfLanguageWarning}
+            />
+          )}
+        </div>
       )}
 
       {/* Nota: o toggle do chrome é tratado pelo handler de click do próprio iframe via a prop
@@ -1640,9 +1656,13 @@ export function ReaderScreen({
         toc={toc}
         currentHref={currentTocHref}
         currentLabel={currentTocLabel}
+        emptyDescription={isPdf ? t('toc.empty.descriptionPdf') : undefined}
         onSelect={(href) => {
           viewerRef.current?.goTo(href)
           setTocOpen(false)
+          // PDF: a página de destino começa colada no topo da tela e o título do capítulo ficava sob o
+          // cabeçalho do chrome (o EPUB tem margem superior). Só no PDF, para não mudar o EPUB (DI-001).
+          if (isPdf) setChromeVisible(false)
         }}
         onClose={() => setTocOpen(false)}
       />
@@ -1653,6 +1673,8 @@ export function ReaderScreen({
         onSelect={(bookmarkCfi) => {
           viewerRef.current?.goTo(bookmarkCfi)
           setBookmarkSheetOpen(false)
+          // Mesmo motivo do sumário: no PDF o parágrafo marcado vai para o topo da tela, sob o chrome.
+          if (isPdf) setChromeVisible(false)
         }}
         onDelete={(id) => void softDeleteBookmark(id)}
         onColorChange={(id, color) => { void updateBookmarkColor(id, color) }}

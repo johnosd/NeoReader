@@ -84,16 +84,36 @@ const serveFoliatePdfjsAssets = () => ({
   },
 })
 
+// Hooks na forma clássica `transform(code, id)`: a forma `{ filter, handler }` só era aplicada no build — no
+// `npm run dev` os iframes do foliate saíam com allow-scripts e os testes rodavam com sandbox mais frouxo que
+// o APK (feature 022, R-029). A regex aceita a query `?v=` que o dev server põe nos módulos do node_modules.
+const FOLIATE_RENDERER_ID = /[\\/]node_modules[\\/]foliate-js[\\/](?:paginator|fixed-layout)\.js(?:\?.*)?$/
+const FOLIATE_FIXED_LAYOUT_ID = /[\\/]node_modules[\\/]foliate-js[\\/]fixed-layout\.js(?:\?.*)?$/
+
 const hardenFoliateIframeSandbox = () => ({
   name: 'harden-foliate-iframe-sandbox',
-  transform: {
-    filter: {
-      id: /[\\/]node_modules[\\/]foliate-js[\\/](?:paginator|fixed-layout)\.js$/,
-    },
-    handler(code: string) {
-      const nextCode = code.replaceAll('allow-same-origin allow-scripts', 'allow-same-origin')
-      return nextCode === code ? null : { code: nextCode, map: null }
-    },
+  transform(code: string, id: string) {
+    if (!FOLIATE_RENDERER_ID.test(id)) return null
+    const nextCode = code.replaceAll('allow-same-origin allow-scripts', 'allow-same-origin')
+    return nextCode === code ? null : { code: nextCode, map: null }
+  },
+})
+
+// foliate-fxl em modo scroll (PDF em página fiel, feature 022 — R-027): o descarte das páginas longe da tela
+// (#evictScrollPages, teto de 8) só roda no callback do IntersectionObserver. Numa rolagem rápida, as páginas
+// cujo carregamento começou terminam DEPOIS desse callback e ficam vivas (16–28 iframes com canvas) até a
+// próxima mudança de interseção. Este patch roda o mesmo descarte também ao fim de cada carregamento.
+// Âncora: o fim do try de #loadScrollPage. Se o foliate mudar e a âncora sumir, o build falha (não some calado).
+const SCROLL_LOAD_END_ANCHOR = /\n[ \t]*\}\s*catch\s*\(e\)\s*\{\s*console\.warn\('Failed to load scroll page'/
+
+const evictFoliateScrollPagesAfterLoad = () => ({
+  name: 'evict-foliate-scroll-pages-after-load',
+  transform(code: string, id: string) {
+    if (!FOLIATE_FIXED_LAYOUT_ID.test(id)) return null
+    if (!SCROLL_LOAD_END_ANCHOR.test(code)) {
+      throw new Error('[evict-foliate-scroll-pages-after-load] âncora não encontrada em foliate-js/fixed-layout.js — revisar o patch (R-027).')
+    }
+    return { code: code.replace(SCROLL_LOAD_END_ANCHOR, (anchor) => `\n            this.#evictScrollPages()${anchor}`), map: null }
   },
 })
 
@@ -102,6 +122,7 @@ export default defineConfig({
     react(),
     tailwindcss(),
     hardenFoliateIframeSandbox(),
+    evictFoliateScrollPagesAfterLoad(),
     copyFoliatePdfjsAssets(),
     serveFoliatePdfjsAssets(),
   ],

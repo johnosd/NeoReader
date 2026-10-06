@@ -26,7 +26,8 @@ export function PdfTextLayerNotice({ variant, onDismiss }: PdfTextLayerNoticePro
     <div
       role="status"
       data-testid={`pdf-notice-${variant}`}
-      className="fixed left-3 right-3 top-16 z-[1400] flex items-start gap-3 rounded-md border border-border bg-bg-surface p-3 shadow-card"
+      // Sem posição própria: o ReaderScreen empilha os avisos de PDF abaixo do cabeçalho do chrome (R-028).
+      className="pointer-events-auto flex items-start gap-3 rounded-md border border-border bg-bg-surface p-3 shadow-card"
     >
       <Icon size={20} className="mt-0.5 shrink-0 text-warning" />
       <div className="min-w-0 flex-1">

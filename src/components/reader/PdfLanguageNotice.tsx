@@ -17,7 +17,8 @@ export function PdfLanguageNotice({ onChoose, onDismiss }: PdfLanguageNoticeProp
     <div
       role="status"
       data-testid="pdf-language-notice"
-      className="fixed left-3 right-3 top-16 z-[1400] flex items-start gap-3 rounded-md border border-border bg-bg-surface p-3 shadow-card"
+      // Sem posição própria: o ReaderScreen empilha os avisos de PDF abaixo do cabeçalho do chrome (R-028).
+      className="pointer-events-auto flex items-start gap-3 rounded-md border border-border bg-bg-surface p-3 shadow-card"
     >
       <Languages size={20} className="mt-0.5 shrink-0 text-purple-light" />
       <div className="min-w-0 flex-1">

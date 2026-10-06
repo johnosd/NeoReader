@@ -1,5 +1,5 @@
-// Renderização de uma página PDF dentro do documento (iframe) do foliate-fxl: canvas + camada de
-// texto + camada de anotações (links).
+// Renderização de uma página PDF dentro do documento (iframe) do foliate-fxl: imagem da página (desenhada
+// num canvas do documento pai) + camada de texto + camada de anotações (links).
 //
 // Adaptado de foliate-js/pdf.js (MIT, Copyright (c) 2022 John Factotum), conforme o pacote
 // vendorizado em node_modules/foliate-js (fork readest/foliate-js, licença MIT do próprio repositório).
@@ -13,6 +13,13 @@ export const PDF_PAGE_RENDERED_EVENT = 'nr-pdf-rendered'
 
 // Render em andamento por documento: um zoom novo cancela o render anterior.
 const activeRenderTasks = new WeakMap<Document, { cancel(): void }>()
+
+// A página é EXIBIDA como <img>, não como <canvas> (R-030): o iframe da página roda com sandbox sem
+// allow-scripts (vite.config.ts → hardenFoliateIframeSandbox), e num documento com scripts desabilitados o
+// <canvas> mostra só o conteúdo de fallback — a página saía em branco no APK. O desenho continua num canvas do
+// documento pai; o resultado vira PNG (blob: URL) para o <img>.
+const canvasToPngBlob = (canvas: HTMLCanvasElement) =>
+  new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
 // "Geração" por documento: detecta render obsoleto depois de cada await.
 const renderGenerations = new WeakMap<Document, number>()
 
@@ -180,9 +187,26 @@ export async function renderPdfPage(page: PdfPageProxy, doc: Document, zoom: num
     release(canvas)
     return
   }
-  const oldCanvas = canvasHolder.querySelector('canvas')
-  if (oldCanvas) release(oldCanvas)
-  canvasHolder.replaceChildren(doc.adoptNode(canvas))
+
+  // Canvas → PNG → <img> (ver pageImageUrls). toBlob é assíncrono: não trava a rolagem enquanto codifica.
+  const { width, height } = canvas
+  const blob = await canvasToPngBlob(canvas)
+  release(canvas)
+  if (!blob || renderGenerations.get(doc) !== generation || !doc.defaultView) return
+  const url = URL.createObjectURL(blob)
+  const img = doc.createElement('img')
+  img.alt = ''
+  img.draggable = false
+  // Tamanho em pixels do bitmap: o documento inteiro já é reduzido por transform 1/dpr (acima).
+  Object.assign(img.style, { display: 'block', width: `${width}px`, height: `${height}px`, userSelect: 'none' })
+  img.src = url
+  // Decodifica antes de trocar: no zoom, a página antiga continua na tela até a nova estar pronta (sem piscar).
+  const decoded = await img.decode().then(() => true, () => false)
+  // Imagem já carregada e decodificada: revogar a URL não a apaga da tela (o navegador guarda os bytes), e
+  // assim nenhuma URL de blob fica viva por página — nem quando o foliate descarta o iframe sem avisar.
+  URL.revokeObjectURL(url)
+  if (!decoded || renderGenerations.get(doc) !== generation || !doc.defaultView) return
+  canvasHolder.replaceChildren(img)
 
   // Camada de texto (seleção, Word Lens, highlights): limpa antes de refazer para não acumular DOM.
   const textContainer = doc.querySelector<HTMLElement>('.textLayer')

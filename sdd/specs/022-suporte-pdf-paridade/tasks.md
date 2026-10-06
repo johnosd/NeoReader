@@ -149,10 +149,12 @@ description: "Tasks da feature 022 — suporte a PDF com paridade de recursos do
 - [X] T037 [US1] `src/screens/ReaderScreen.tsx`: se `book.format === 'PDF'` monta `PdfPageViewer` via `usePdfReaderSession`; senão, o bloco `<EpubViewer ... />` atual sem alteração; marcadores de PDF gravam localizador (DI-006); tratamento de arquivo ausente igual ao EPUB
 - [X] T038 [P] [US1] Textos novos (aviso sem texto, PDF grande, senha, inválido, rótulo PDF, aviso de idioma indefinido) em `src/i18n/messages.ts` (pt-BR/en/es); revisar `quickActions.reextractCover.description` para não citar só EPUB
 - [X] T038a [US1] Bugs achados no E2E de 2026-10-05 (Chromium, Playwright MCP) e corrigidos em `src/components/reader/PdfPageViewer.tsx` e `src/components/reader/pdfPage/pdfPageGestures.ts` (R-021..R-024): vazamento de `Document` por página lida; pinça ignorada/fraca e zoom nativo do navegador; posição salva da página do meio da tela; percentual sem arredondar
-- [ ] T038b [P] [US1] Ficha de PDF com ISBN da edição errada (R-025): priorizar o ISBN da própria edição na página de copyright (ignorar linhas com "©"/"translation"/"Primeira edição"/edição anterior e ISBNs das últimas páginas quando houver um da edição) em `src/services/bookInfo/PdfBookInfoProvider.ts`; caso de teste com o texto real da pág. 3 do "Web Scraping com Python"
-- [ ] T038c [P] [US1] Título-lixo nos metadados (R-026): título que começa com "Microsoft Word -", termina em `.doc[x]` ou contém escapes `\ddd`, e autor com 1 caractere → usar o nome do arquivo / "Autor desconhecido" em `src/services/pdf/PdfService.ts` (ex.: "Os Noturnos")
-- [ ] T038d [US1] Rolagem rápida deixa 16–28 iframes de página carregados (teto do foliate = 8) (R-027): investigar se é o `foliate-fxl` (páginas em `loading` cancelado) ou o viewer; medir no device antes de decidir
-- [ ] T038e [P] [US1] Detalhes de UI (R-028): aviso de PDF sem texto cobre o cabeçalho do chrome; folha de sumário vazia diz "This EPUB did not provide…" em PDF; chrome continua aberto depois de escolher um item do sumário
+- [X] T038b [P] [US1] Ficha de PDF com ISBN da edição errada (R-025): priorizar o ISBN da própria edição na página de copyright (ignorar linhas com "©"/"translation"/"Primeira edição"/edição anterior e ISBNs das últimas páginas quando houver um da edição) em `src/services/bookInfo/PdfBookInfoProvider.ts`; caso de teste com o texto real da pág. 3 do "Web Scraping com Python"
+- [X] T038c [P] [US1] Título-lixo nos metadados (R-026): título que começa com "Microsoft Word -", termina em `.doc[x]` ou contém escapes `\ddd`, e autor com 1 caractere → usar o nome do arquivo / "Autor desconhecido" em `src/services/pdf/PdfService.ts` (ex.: "Os Noturnos")
+- [X] T038d [US1] Rolagem rápida deixa 16–28 iframes de página carregados (teto do foliate = 8) (R-027): investigar se é o `foliate-fxl` (páginas em `loading` cancelado) ou o viewer; medir no device antes de decidir
+- [X] T038e [P] [US1] Detalhes de UI (R-028): aviso de PDF sem texto cobre o cabeçalho do chrome; folha de sumário vazia diz "This EPUB did not provide…" em PDF; chrome continua aberto depois de escolher um item do sumário
+- [X] T038f [US1] **Página em branco com o sandbox de produção (R-030, crítico)**: com o iframe sem `allow-scripts` o `<canvas>` da página mostra só o fallback — PDF em branco no APK. Página passa a ser exibida como `<img>` (PNG do canvas desenhado no documento pai) em `src/services/pdf/pdfPageRender.ts`; e o dev server passa a aplicar o mesmo sandbox (R-029, `vite.config.ts`)
+- [ ] T038g [US1] Busca do Google Books usa o texto de reserva "Autor desconhecido" como termo (R-031) — afeta PDF e EPUB; decidir junto com o dono do produto se muda o caminho compartilhado
 
 **Critério de Conclusão**: os 3 caminhos de import aceitam PDF; um PDF nascido digital abre em página fiel em ≤ 3 s no device, com zoom nítido, tema, sumário, progresso restaurado e marcador (com sync Pro); escaneado mostra aviso; senha/corrompido recusados; idioma do PDF resolvido pela ordem de DI-012 (SC-009 medido no corpus) e ficha enriquecida pelas fontes online (ISBN do texto quando houver); SC-001/SC-002/SC-007 medidos; e o checklist de regressão EPUB passou sem diferença.
 
@@ -187,10 +189,18 @@ description: "Tasks da feature 022 — suporte a PDF com paridade de recursos do
     - Percentual (R-024): "49.12355731625653%" no chrome e na lista de marcadores → inteiro, como no EPUB (a fração continua precisa).
   - Gate após as correções: lint ok · **1363 testes passando + 2 skipped** · build ok · `test:debug-epubs` 71.
   - Achados não corrigidos nesta rodada → T038b–T038e (R-025..R-028).
+- **Rodada 2026-10-06 (T038b–T038f, validada em Chromium com o sandbox de produção):**
+  - T038b: ISBN escolhido por camadas e contexto da linha ("Web Scraping com Python" → 978-85-7522-734-3, não o do original em inglês). T038c: título/autor-lixo de exportação → nome do arquivo / "Autor desconhecido" ("Os Noturnos"). (Commit `6122d20`.)
+  - T038d: patch `evictFoliateScrollPagesAfterLoad` (`vite.config.ts`) → **8 iframes** após cada rolagem rápida (antes 16–28), sem página em branco ao voltar; `paginator.js` (EPUB) sem mudança — hash do chunk de build idêntico.
+  - R-029: hooks do Vite na forma clássica → o dev aplica o sandbox endurecido (antes só o build); os 70+ warnings de sandbox sumiram.
+  - **T038f / R-030 (crítico)**: com o sandbox de produção a página PDF saía em branco (canvas em documento sem scripts mostra só o fallback). Isso estava escondido porque toda validação anterior rodou no dev sem o sandbox. Agora `<img>` (PNG): texto, escaneado e zoom aparecem; DPR 3: 1ª página 0,47 s, render por página mediana 64 ms / máx. 319 ms (desktop), imagem em 3× (nítida), zoom 200% redesenha em 2472 px. **O APK de debug instalado no celular foi gerado antes desta correção — gerar outro antes do T026/T027.**
+  - T038e: avisos de PDF empilhados abaixo do cabeçalho do chrome (y=136 com chrome, y=16 sem); sumário vazio em PDF com texto próprio; sumário/marcador em PDF fecham o chrome (EPUB inalterado).
+  - Gate: lint ok · **1381 testes passando + 2 skipped** · build ok (sem `allow-scripts`, patch presente) · `test:debug-epubs` 71.
 - Pendências:
   - **T026 (device)**: spikes de research.md §1 (memória/tempo com `grande.pdf` no aparelho), §2 (pinça no WebView do Android — validado só em Chromium) e §5 (capa nativa `PdfRenderer` vs pdf.js, import de pasta com 20 PDFs); medir SC-001/SC-002/SC-007 no device.
   - **T027 (device)**: `quickstart.md` § Regressão EPUB no celular (9 passos) e § Import/§ Página fiel.
-  - Para destravar: desbloquear o celular e deixar a tela ligada (`adb shell svc power stayon true`); o APK de debug com esta fase já está instalado.
+  - Para destravar: desbloquear o celular e deixar a tela ligada (`adb shell svc power stayon true`). **Reinstalar o APK**: o instalado é anterior ao R-030 e mostraria as páginas PDF em branco.
+  - T038g (R-031): termo de reserva "Autor desconhecido" na busca do Google Books.
   - `PdfPageViewer` ainda não implementa TTS/tradução/Word Lens/highlights (fases 4–7): no PDF o botão de TTS existe mas não há parágrafos para ler.
 
 ---

@@ -151,8 +151,8 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
     const deadline = Date.now() + WAIT_FOR_PAGE_MS
     while (Date.now() < deadline) {
       const doc = getLoadedDoc(pageIndex)
-      // Página sem texto (escaneada) nunca terá spans: basta o canvas existir.
-      if (hasRenderedText(doc) || doc?.querySelector('#canvas canvas')) return doc ?? null
+      // Página sem texto (escaneada) nunca terá spans: basta a imagem da página existir (R-030: <img>, não canvas).
+      if (hasRenderedText(doc) || doc?.querySelector('#canvas img, #canvas canvas')) return doc ?? null
       await sleep(WAIT_POLL_MS)
     }
     return getLoadedDoc(pageIndex) ?? null

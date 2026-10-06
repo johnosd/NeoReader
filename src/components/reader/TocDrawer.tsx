@@ -17,6 +17,8 @@ interface TocDrawerProps {
   currentLabel?: string | null
   onSelect: (href: string) => void
   onClose: () => void
+  // Texto do sumário vazio; ausente = o texto padrão (que fala de EPUB).
+  emptyDescription?: string
 }
 
 interface TocNavigatorProps {
@@ -26,6 +28,7 @@ interface TocNavigatorProps {
   onSelect: (href: string) => void
   className?: string
   defaultExpanded?: boolean
+  emptyDescription?: string
 }
 
 const EMPTY_TOGGLED_PATHS = new Set<string>()
@@ -34,7 +37,7 @@ function getDefaultExpandedPaths(currentPath?: string | null): Set<string> {
   return new Set(getTocAncestorPaths(currentPath))
 }
 
-export function TocDrawer({ open, toc, currentHref, currentLabel, onSelect, onClose }: TocDrawerProps) {
+export function TocDrawer({ open, toc, currentHref, currentLabel, onSelect, onClose, emptyDescription }: TocDrawerProps) {
   const { t } = useI18n()
 
   return (
@@ -49,6 +52,7 @@ export function TocDrawer({ open, toc, currentHref, currentLabel, onSelect, onCl
         currentHref={currentHref}
         currentLabel={currentLabel}
         onSelect={onSelect}
+        emptyDescription={emptyDescription}
       />
     </BottomSheet>
   )
@@ -61,6 +65,7 @@ export function TocNavigator({
   onSelect,
   className,
   defaultExpanded: defaultExpandedEnabled = true,
+  emptyDescription,
 }: TocNavigatorProps) {
   const { t } = useI18n()
   const [toggledState, setToggledState] = useState<{
@@ -102,7 +107,7 @@ export function TocNavigator({
       {toc.length === 0 ? (
         <EmptyState
           title={t('toc.empty.title')}
-          description={t('toc.empty.description')}
+          description={emptyDescription ?? t('toc.empty.description')}
         />
       ) : (
         <div className="space-y-4">
