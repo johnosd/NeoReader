@@ -252,6 +252,8 @@ npm run android:run
 | R-037 | Pinça instável no device: origem do zoom escorregava para fora da tela; pan por pointer events (mouse) reagia a cada dedo e movia a página no zoom out | Alto — zoom inutilizável no celular | Resolvido (T038n). Chromium desktop passou 4/4 sem pegar o pan dos dedos — gestos se medem no device via CDP. |
 | R-038 | Depois do zoom a imagem ficava no tamanho antigo até o novo render (página "pulando", texto turvo, app travado ~2 s) | Médio — qualidade percebida ruim | Resolvido (T038o): imagem esticada no frame do zoom, render da página visível primeiro, teto de 2^24 px. |
 | R-039 | Zoom ≥ 300% leva ~2 s até a nitidez final (página inteira em ~15 Mpx) | Baixo — aceito como está | T038p (opcional): render por tiles da área visível. |
+| R-040 | Código compartilhado EPUB/PDF com ramificações por formato espalhadas (`BookImportService` 15, `ReaderScreen` 18); um bug no caminho comum afeta os dois (ex.: regressão do "abrir com", 19eae7b) | Médio — risco de regressão do EPUB a cada mudança de PDF, e a Fase 4 mexe muito na `ReaderScreen` | T038q: separar por formato atrás de interfaces comuns antes da Fase 4. |
+| R-041 | EPUB de layout fixo não abre (timeout de 8 s no `EpubViewer`); não havia nenhum no corpus, nunca foi testado | Médio — afeta quadrinhos e livros ilustrados; **não é regressão da 022** (igual no `main`) | T038r: decidir com o dono do produto. Verificação pronta (`epub-fxl.check.js`); o patch de descarte de páginas não muda o resultado e reduz iframes vivos (11 → 8). |
 | R-031 | A busca do Google Books inclui o texto de reserva "Autor desconhecido" como termo quando o livro não tem autor | Baixo/Médio — piora o enriquecimento (PDF e EPUB) | T038g (caminho compartilhado com o EPUB: decidir antes de mudar). |
 
 ## Execution Notes
@@ -271,7 +273,7 @@ npm run android:run
 | 2026-10-05 | Fase 2 (Foundational) | T007–T018: tipos, utilitários puros, `pdfParagraphs` calibrado em 11 PDFs reais (SC-003 ≥ 95% em prosa), `PdfBookFactory`/`PdfTextExtractor` validados em Chromium (grande.pdf abre em 0,65 s); 135 testes novos; gate EPUB verde (1226 + 71) | `PdfService` deve normalizar `author` (array) e `language`; device só na Fase 3 |
 | 2026-10-05 | Fase 1 (Setup) | T001–T006: baseline EPUB registrada; plugin dev `/vendor/pdfjs`; corpus sintético (12 PDFs, `grande` = 1000 pág./188 MB) + extrator de fixtures; gate EPUB idêntico à baseline (1094 testes + 71 corpus) | Corpus sintético: incluir PDFs reais na calibragem do T015 (R-014) |
 
-**PRÓXIMO**: T027 — `quickstart.md` § Regressão EPUB no device (tradução, TTS com tela apagada, marcador com sync); depois fechar a Fase 3 (pendentes não bloqueantes: T038g, T038i, T038j, T038l, T038p) e seguir para a Fase 4 (US2, modo texto).
+**PRÓXIMO**: T027 — `quickstart.md` § Regressão EPUB no device (tradução, TTS com tela apagada, marcador com sync); depois fechar a Fase 3 (pendentes não bloqueantes: T038g, T038i, T038j, T038l, T038p, T038r), fazer o T038q (isolar o código por formato) e seguir para a Fase 4 (US2, modo texto).
 
 ## Arquivos Principais
 
