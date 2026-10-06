@@ -42,6 +42,16 @@ describe('attachPinchZoom', () => {
     expect(handlers.onEnd).toHaveBeenCalledWith(1.5, { x: 200, y: 300 })
   })
 
+  it('informa o ponto inicial entre os dedos no onStart (âncora fixa do zoom)', () => {
+    const el = document.createElement('div')
+    const handlers = makeHandlers()
+    attachPinchZoom(el, handlers)
+
+    el.dispatchEvent(touchEvent('touchstart', [{ x: 100, y: 400 }, { x: 300, y: 500 }]))
+
+    expect(handlers.onStart).toHaveBeenCalledWith({ x: 200, y: 450 })
+  })
+
   it('não chama preventDefault em touchmove não cancelável (evita o erro "Ignored attempt to cancel")', () => {
     const el = document.createElement('div')
     const handlers = makeHandlers()

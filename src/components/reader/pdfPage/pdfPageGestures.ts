@@ -9,8 +9,8 @@ export const PDF_ZOOM_MIN_PCT = 100
 export const PDF_ZOOM_MAX_PCT = 400
 
 export interface PinchHandlers {
-  /** Chamado no começo da pinça; devolve o zoom atual em % (100 = largura da tela). */
-  onStart: () => number
+  /** Chamado no começo da pinça com o centro inicial (coordenadas do alvo); devolve o zoom atual em %. */
+  onStart: (center: { x: number; y: number }) => number
   /** Feedback visual durante o gesto: razão atual (1 = sem mudança) e centro em coordenadas do iframe. */
   onChange: (ratio: number, center: { x: number; y: number }) => void
   /** Soltou os dedos: razão final e centro. Quem recebe aplica o zoom e limpa o feedback. */
@@ -47,7 +47,7 @@ export function attachPinchZoom(target: Document | HTMLElement, handlers: PinchH
     startDistance = distance(event.touches[0], event.touches[1])
     lastRatio = 1
     lastCenter = midpoint(event.touches[0], event.touches[1])
-    handlers.onStart()
+    handlers.onStart(lastCenter)
   }
 
   const onTouchMove = (event: TouchEvent) => {

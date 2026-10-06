@@ -21,7 +21,7 @@ import type {
   ReaderRelocatePayload,
   TtsChunk,
 } from './EpubViewer'
-import { attachPinchZoom, clampZoomPct, PDF_ZOOM_MIN_PCT } from './pdfPage/pdfPageGestures'
+import { attachPinchZoom, clampZoomPct, PDF_ZOOM_MAX_PCT, PDF_ZOOM_MIN_PCT } from './pdfPage/pdfPageGestures'
 import {
   blockStartPoint,
   findBlockAtPoint,
@@ -343,6 +343,10 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
     options: { coordsFollowViewScale: boolean },
   ) {
     let appliedScale = 1
+    // Ponto da tela entre os dedos no início do gesto: âncora fixa do zoom. Antes a origem era recalculada a cada
+    // movimento a partir do retângulo JÁ escalado; o erro se acumulava, a origem ia parar fora da tela e o texto
+    // "sumia" durante a pinça (bug do device, O Milagre da Manhã).
+    let focal: { x: number; y: number } | null = null
     const resetVisualScale = () => {
       appliedScale = 1
       const view = viewRef.current
@@ -351,28 +355,38 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
       view.style.transformOrigin = ''
     }
     return {
-      onStart: () => {
-        appliedScale = 1
+      onStart: (center: { x: number; y: number }) => {
+        resetVisualScale()
+        // Sem escala aplicada ainda: a conversão para coordenadas do documento pai é exata aqui.
+        focal = toViewport(center, 1)
+        const view = viewRef.current
+        if (view) {
+          const viewRect = view.getBoundingClientRect()
+          view.style.transformOrigin = `${focal.x - viewRect.left}px ${focal.y - viewRect.top}px`
+        }
         return zoomPctRef.current
       },
-      onChange: (rawRatio: number, center: { x: number; y: number }) => {
-        // Feedback imediato sem re-renderizar: escala visual do host em torno do ponto da pinça.
+      onChange: (rawRatio: number) => {
+        // Feedback imediato sem re-renderizar: escala visual do host em torno do ponto fixo da pinça.
         const view = viewRef.current
         if (!view) return
-        const point = toViewport(center, appliedScale)
         const ratio = options.coordsFollowViewScale ? rawRatio * appliedScale : rawRatio
-        appliedScale = ratio
-        const viewRect = view.getBoundingClientRect()
-        view.style.transformOrigin = `${point.x - viewRect.left}px ${point.y - viewRect.top}px`
-        view.style.transform = `scale(${ratio})`
+        // Limita o feedback ao zoom permitido (100–400%): a prévia não promete o que o soltar não entrega.
+        const base = zoomPctRef.current
+        appliedScale = Math.min(PDF_ZOOM_MAX_PCT / base, Math.max(PDF_ZOOM_MIN_PCT / base, ratio))
+        view.style.transform = `scale(${appliedScale})`
       },
       onEnd: (rawRatio: number) => {
         // Com compensação, a razão real já é a última aplicada (a `rawRatio` final é a do último movimento).
         const ratio = options.coordsFollowViewScale ? appliedScale : rawRatio
         resetVisualScale()
-        void applyZoom(clampZoomPct(zoomPctRef.current * ratio))
+        applyZoom(clampZoomPct(zoomPctRef.current * ratio), focal)
+        focal = null
       },
-      onCancel: resetVisualScale,
+      onCancel: () => {
+        resetVisualScale()
+        focal = null
+      },
     }
   }
 
@@ -421,21 +435,45 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
     if (hasRenderedText(doc)) onRendered()
   }
 
-  // Zoom em %: 100 = página na largura da tela. O foliate refaz o layout e volta para o topo da página atual,
-  // então reancora no mesmo ponto do texto que estava visível antes.
-  async function applyZoom(nextPct: number) {
+  // Zoom em %: 100 = página na largura da tela. O foliate redimensiona as páginas na hora (render síncrono) e
+  // rola para o topo da página do meio; aqui a rolagem é corrigida para o MESMO ponto da página continuar sob os
+  // dedos (`focal`, coordenadas da tela) — como no zoom de qualquer leitor de PDF.
+  function applyZoom(nextPct: number, focal: { x: number; y: number } | null) {
     const view = viewRef.current
     if (!view || nextPct === zoomPctRef.current) return
-    const anchor = lastLocationRef.current ? getPdfLocatorStart(lastLocationRef.current.cfi) : null
+    const renderer = view.renderer
+    // Antes do zoom: qual página está sob o ponto e em que fração dela (0–1 na largura e na altura).
+    const target = focal ? pageUnderPoint(renderer, focal) : null
+    const fx = target ? (focal!.x - target.rect.left) / target.rect.width : 0
+    const fy = target ? (focal!.y - target.rect.top) / target.rect.height : 0
+
     zoomPctRef.current = nextPct
-    view.renderer.setAttribute('scale-factor', String(nextPct))
     // Com zoom > 100% a página passa da largura da tela: libera a rolagem horizontal do host (estilo inline
-    // vence a regra :host([flow="scrolled"]) { overflow-x: hidden } do foliate).
-    view.renderer.style.overflowX = nextPct > PDF_ZOOM_MIN_PCT ? 'auto' : 'hidden'
-    if (anchor) {
-      await sleep(WAIT_POLL_MS)
-      await navigateToPoint(anchor)
+    // vence a regra :host([flow="scrolled"]) { overflow-x: hidden } do foliate). Antes do scale-factor, para o
+    // scrollLeft abaixo já valer.
+    renderer.style.overflowX = nextPct > PDF_ZOOM_MIN_PCT ? 'auto' : 'hidden'
+    renderer.setAttribute('scale-factor', String(nextPct))
+
+    if (target && focal) {
+      // Depois do zoom: leva o mesmo ponto da página de volta para baixo dos dedos.
+      const rect = target.el.getBoundingClientRect()
+      renderer.scrollTop += rect.top + fy * rect.height - focal.y
+      renderer.scrollLeft += rect.left + fx * rect.width - focal.x
     }
+  }
+
+  function pageUnderPoint(renderer: FxlRenderer, point: { x: number; y: number }) {
+    const pages = [...renderer.shadowRoot.querySelectorAll<HTMLElement>('.scroll-page')]
+    let best: { el: HTMLElement; rect: DOMRect } | null = null
+    for (const el of pages) {
+      const rect = el.getBoundingClientRect()
+      if (rect.height <= 0) continue
+      if (point.y >= rect.top && point.y <= rect.bottom) return { el, rect }
+      // Ponto no vão entre páginas: fica com a mais próxima na vertical.
+      const dist = Math.min(Math.abs(rect.top - point.y), Math.abs(rect.bottom - point.y))
+      if (!best || dist < Math.min(Math.abs(best.rect.top - point.y), Math.abs(best.rect.bottom - point.y))) best = { el, rect }
+    }
+    return best
   }
 
   // ── Montagem do foliate-view ───────────────────────────────────────────────
