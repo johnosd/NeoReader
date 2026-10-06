@@ -288,12 +288,17 @@ export async function renderPdfPage(page: PdfPageProxy, doc: Document, zoom: num
   const linkService = {
     goToDestination: () => {},
     getDestinationHash: (dest: unknown) => JSON.stringify(dest),
+    getAnchorUrl: () => '',
+    executeNamedAction: () => {},
     addLinkAttributes: (link: HTMLAnchorElement, url: string) => {
       link.href = url
     },
   }
-  await new pdfjs.AnnotationLayer({ page, viewport, div: annotationDiv, linkService }).render({
+  // pdf.js lê linkService em render(), não no constructor. O adapter antigo do foliate passava
+  // no constructor e links internos disparavam getDestinationHash de undefined (R-042).
+  await new pdfjs.AnnotationLayer({ page, viewport, div: annotationDiv }).render({
     annotations: await page.getAnnotations(),
+    linkService,
   })
   if (renderGenerations.get(doc) === generation) doc.dispatchEvent(new CustomEvent(PDF_PAGE_RENDERED_EVENT))
 }

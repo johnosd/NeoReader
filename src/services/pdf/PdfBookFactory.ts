@@ -59,6 +59,39 @@ export interface PdfBookHandle {
   pdf: PdfDocumentProxy
 }
 
+export interface PdfRangeSource {
+  url: string
+  length: number
+}
+
+async function readHttpRange(source: PdfRangeSource, begin: number, end: number, signal: AbortSignal): Promise<ArrayBuffer> {
+  const response = await fetch(source.url, {
+    headers: { Range: `bytes=${begin}-${end - 1}` },
+    signal,
+  })
+  if (response.status !== 206 || !response.headers.get('content-range')?.startsWith(`bytes ${begin}-${end - 1}/`)) {
+    throw new Error(`PDF range HTTP ${response.status}`)
+  }
+
+  const reader = response.body?.getReader()
+  if (!reader) throw new Error('PDF range response has no body')
+  const bytes = new Uint8Array(end - begin)
+  let offset = 0
+  try {
+    while (offset < bytes.length) {
+      const { value, done } = await reader.read()
+      if (done || !value) throw new Error('PDF range response ended early')
+      const count = Math.min(value.byteLength, bytes.length - offset)
+      bytes.set(value.subarray(0, count), offset)
+      offset += count
+    }
+    return bytes.buffer
+  } finally {
+    // O servidor local pode continuar enviando atÃ© o EOF apesar de responder 206.
+    await reader.cancel().catch(() => undefined)
+  }
+}
+
 async function resolveDestinationPage(pdf: PdfDocumentProxy, dest: string | unknown[] | null | undefined): Promise<number | undefined> {
   if (!dest) return undefined
   const resolved = typeof dest === 'string' ? await pdf.getDestination(dest) : dest
@@ -87,18 +120,21 @@ export function outlineEntriesFromToc(toc: readonly PdfTocItem[] | null | undefi
   return (toc ?? []).flatMap((item) => (item.index === undefined ? [] : [{ title: item.label, pageIndex: item.index }]))
 }
 
-export async function createPdfBook(file: Blob): Promise<PdfBookHandle> {
+export async function createPdfBook(file: Blob | PdfRangeSource): Promise<PdfBookHandle> {
   const pdfjs = await loadPdfjs()
 
-  // Leitura por faixas: o pdf.js pede [begin, end) e respondemos com um slice do Blob. Num Blob vindo de
-  // fetch() o navegador mantém os bytes em disco, então só as faixas pedidas viram memória do JS.
-  const transport = new pdfjs.PDFDataRangeTransport(file.size, [])
+  // O pdf.js pede [begin, end): arquivos locais vêm por HTTP Range e Blobs usam slice().
+  const transport = new pdfjs.PDFDataRangeTransport(file instanceof Blob ? file.size : file.length, [])
+  const rangeRequests = new AbortController()
   transport.requestDataRange = (begin, end) => {
-    file
-      .slice(begin, end)
-      .arrayBuffer()
+    const read = file instanceof Blob
+      ? file.slice(begin, end).arrayBuffer()
+      : readHttpRange(file, begin, end, rangeRequests.signal)
+    read
       .then((chunk) => transport.onDataRange(begin, chunk))
-      .catch((error) => console.warn('PDF range read failed:', begin, end, error))
+      .catch((error) => {
+        if (!rangeRequests.signal.aborted) console.warn('PDF range read failed:', begin, end, error)
+      })
   }
 
   const pdf = await pdfjs.getDocument({
@@ -235,6 +271,7 @@ export async function createPdfBook(file: Blob): Promise<PdfBookHandle> {
       getTOCFragment: (doc) => doc.documentElement,
       getCover: async () => renderPdfPageToBlob(await pdf.getPage(1)),
       destroy: () => {
+        rangeRequests.abort()
         for (const entry of renderCache.values()) if (entry?.src) URL.revokeObjectURL(entry.src)
         renderCache.clear()
         for (const page of pageCache.values()) page?.cleanup()

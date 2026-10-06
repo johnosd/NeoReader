@@ -30,6 +30,8 @@ const mocks = vi.hoisted(() => ({
   updateBookSettings: vi.fn(),
   listSpeechifyVoices: vi.fn(),
   parseExtras: vi.fn(),
+  createPdfBook: vi.fn(),
+  pdfBookDestroy: vi.fn(),
   getStoredBookInfo: vi.fn(),
   saveBookInfo: vi.fn(),
   patchBookInfo: vi.fn(),
@@ -44,6 +46,12 @@ const mocks = vi.hoisted(() => ({
   },
   isNativePlatform: vi.fn(() => true),
 }))
+
+beforeEach(() => {
+  mocks.createPdfBook.mockReset()
+  mocks.pdfBookDestroy.mockReset()
+  mocks.createPdfBook.mockResolvedValue({ book: { toc: null, destroy: mocks.pdfBookDestroy } })
+})
 
 // Default: Android (nativo) — DeepL bloqueia CORS fora do Android (R-006);
 // os testes de "banner Android apenas" abaixo mockam `false` explicitamente.
@@ -146,6 +154,10 @@ vi.mock('@/services/EpubService', () => ({
   EpubService: {
     parseExtras: mocks.parseExtras,
   },
+}))
+
+vi.mock('@/services/pdf/PdfBookFactory', () => ({
+  createPdfBook: mocks.createPdfBook,
 }))
 
 vi.mock('@/services/bookInfo', () => ({
@@ -652,6 +664,34 @@ describe('BookDetailsScreen chapters', () => {
         fontFamily: 'publisher',
         overrideBookFont: false,
       })
+    })
+  })
+
+  it('modo Original do PDF desativa so as cores forçadas e mostra a descrição correta', async () => {
+    mocks.bookSettings = {
+      ...mocks.bookSettings,
+      readerTheme: 'black',
+      overrideBookFont: true,
+      overrideBookColors: true,
+    }
+    const pdfBook: Book = { ...book, format: 'PDF', pageCount: 10, pdfTextLayer: 'full' }
+
+    render(
+      <BookDetailsScreen
+        book={pdfBook}
+        onBack={vi.fn()}
+        onRead={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+    fireEvent.click(await screen.findByText('Aparencia do Leitor'))
+    await screen.findByText('Preserva as cores originais do PDF')
+    fireEvent.click(screen.getByText('Original'))
+
+    await waitFor(() => {
+      expect(mocks.updateBookSettings).toHaveBeenCalledWith(1, { overrideBookColors: false })
     })
   })
 
@@ -1900,13 +1940,33 @@ describe('BookDetailsScreen chapters', () => {
       expect(toggle.disabled).toBe(true)
     })
 
-    it('aba de capítulos de PDF manda abrir o livro para ver o sumário (sem citar EPUB)', async () => {
+    it('PDF sem outline mostra a descrição de sumário vazio, sem citar EPUB', async () => {
       const pdfBook: Book = { ...book, format: 'PDF', detectedLanguage: 'pt-BR', pdfTextLayer: 'full', pageCount: 120 }
 
       render(<BookDetailsScreen book={pdfBook} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} />)
 
-      expect(await screen.findByText('Abra o livro para ver o sumário deste PDF.')).toBeTruthy()
+      expect(await screen.findByText('Este PDF não tem sumário. Role as páginas ou use os marcadores para navegar.')).toBeTruthy()
       expect(screen.queryByText(/Este EPUB nao forneceu/)).toBeNull()
+      expect(mocks.pdfBookDestroy).toHaveBeenCalledOnce()
+    })
+
+    it('mostra o outline do PDF e abre o capítulo pelo localizador da página', async () => {
+      const pdfBook: Book = { ...book, format: 'PDF', detectedLanguage: 'pt-BR', pdfTextLayer: 'full', pageCount: 120 }
+      const onRead = vi.fn()
+      mocks.parseExtras.mockClear()
+      mocks.createPdfBook.mockResolvedValue({
+        book: {
+          toc: [{ label: 'Capítulo 5', index: 4, href: '[]', subitems: null }],
+          destroy: mocks.pdfBookDestroy,
+        },
+      })
+
+      render(<BookDetailsScreen book={pdfBook} onBack={vi.fn()} onRead={onRead} onOpenSettings={vi.fn()} />)
+
+      fireEvent.click(await screen.findByText('Capítulo 5'))
+      await waitFor(() => expect(onRead).toHaveBeenCalledWith(pdfBook, 'neopdf:v1;p=4;o=0'))
+      expect(mocks.pdfBookDestroy).toHaveBeenCalledOnce()
+      expect(mocks.parseExtras).not.toHaveBeenCalled()
     })
 
     it('EPUB sem sumário continua com o texto de sempre', async () => {

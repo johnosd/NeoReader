@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, beforeEach, vi } from 'vitest'
 import { ReaderScreen } from '@/screens/ReaderScreen'
 import type { Book } from '@/types/book'
@@ -10,6 +10,7 @@ import { getSettings, updateReaderDefaults } from '@/db/settings'
 import { translate } from '@/services/TranslationService'
 import { addVocabItem } from '@/db/vocabulary'
 import { deleteBook } from '@/db/books'
+import { getBookCover } from '@/db/bookCovers'
 import { setReaderImmersiveMode, setSelectionMenuSuppressed } from '@/services/NativeSystemUiService'
 import { addHighlight, updateHighlightAppearance } from '@/db/highlights'
 import { addBookmark } from '@/db/bookmarks'
@@ -318,13 +319,16 @@ vi.mock('@/hooks/usePdfReaderSession', () => ({
 }))
 
 vi.mock('@/components/reader/ReaderChrome', () => ({
-  ReaderChrome: ({ onTtsToggle, onBack, visible }: { onTtsToggle: () => void; onBack: () => void; visible: boolean }) => (
+  ReaderChrome: ({ onTtsToggle, onBack, onAppearanceOpen, visible }: { onTtsToggle: () => void; onBack: () => void; onAppearanceOpen: () => void; visible: boolean }) => (
     <div data-testid="reader-chrome" data-visible={String(visible)}>
       <button type="button" onClick={onTtsToggle}>
         toggle-tts
       </button>
       <button type="button" onClick={onBack}>
         go-back
+      </button>
+      <button type="button" onClick={onAppearanceOpen}>
+        open-appearance
       </button>
     </div>
   ),
@@ -2628,6 +2632,28 @@ describe('ReaderScreen — PDF (feature 022)', () => {
     expect(mocks.pdfSessionArgs?.enabled).toBe(true)
   })
 
+  it('livro PDF repassa o modo Original salvo ao viewer mesmo com tema AMOLED selecionado', async () => {
+    vi.mocked(getBookSettings).mockResolvedValue({ readerTheme: 'black', overrideBookColors: false })
+    await renderReader()
+
+    expect(mocks.pdfViewerProps?.readerTheme).toBe('black')
+    expect(mocks.pdfViewerProps?.overrideBookColors).toBe(false)
+  })
+
+  it('aparência do PDF permite alternar de AMOLED para Original no próprio leitor', async () => {
+    vi.mocked(getBookSettings).mockResolvedValue({ readerTheme: 'black', overrideBookColors: true })
+    await renderReader()
+
+    fireEvent.click(screen.getByRole('button', { name: 'open-appearance' }))
+    expect(screen.getByText('Preserva as cores originais do PDF')).toBeTruthy()
+    fireEvent.click(screen.getByText('Original'))
+
+    await waitFor(() => {
+      expect(mocks.pdfViewerProps?.overrideBookColors).toBe(false)
+      expect(updateBookSettings).toHaveBeenCalledWith(1, { overrideBookColors: false })
+    })
+  })
+
   it('livro EPUB (com e sem format) monta o EpubViewer com exatamente as mesmas props de antes', async () => {
     for (const format of [undefined, 'EPUB' as const]) {
       mocks.epubViewerProps = null
@@ -2660,6 +2686,40 @@ describe('ReaderScreen — PDF (feature 022)', () => {
     await renderReader()
     expect(screen.queryByTestId('pdf-page-viewer')).toBeNull()
     expect(screen.queryByTestId('epub-viewer')).toBeNull()
+  })
+
+  it('shows the first PDF page cover while loading only when opening on page one', async () => {
+    mocks.pdfSessionState = { status: 'loading' }
+    const originalCreateObjectURL = URL.createObjectURL
+    const originalRevokeObjectURL = URL.revokeObjectURL
+    URL.createObjectURL = vi.fn(() => 'blob:pdf-preview')
+    URL.revokeObjectURL = vi.fn()
+    vi.mocked(getBookCover).mockResolvedValue({
+      bookId: 1,
+      blob: new Blob(['cover'], { type: 'image/jpeg' }),
+      source: 'pdf-rendered',
+      updatedAt: new Date(),
+    })
+
+    try {
+      const first = await renderReader()
+      await waitFor(() => expect(screen.getByTestId('reader-pdf-first-page-preview')).toHaveProperty('src', 'blob:pdf-preview'))
+      expect((screen.getByTestId('reader-pdf-first-page-preview') as HTMLImageElement).style.filter).toBe('invert(1) grayscale(1)')
+      first.unmount()
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:pdf-preview')
+
+      vi.mocked(getBookCover).mockClear()
+      mocks.readerProgress.savedCfi = 'neopdf:v1;p=12;o=0'
+      const later = await renderReader()
+      expect(screen.queryByTestId('reader-pdf-first-page-preview')).toBeNull()
+      expect(getBookCover).not.toHaveBeenCalled()
+      later.unmount()
+    } finally {
+      URL.createObjectURL = originalCreateObjectURL
+      URL.revokeObjectURL = originalRevokeObjectURL
+      vi.mocked(getBookCover).mockReset()
+      vi.mocked(getBookCover).mockResolvedValue(undefined)
+    }
   })
 
   it('erro ao abrir o PDF mostra a mensagem; arquivo movido cai na tela de arquivo ausente', async () => {

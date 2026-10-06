@@ -230,7 +230,7 @@ describe('importação nativa de PDF', () => {
     await expect(BookImportService.importNativeEpub(nativeFile)).resolves.toBe(77)
 
     expect(mocks.fetchLocalFile).toHaveBeenCalledWith('file:///data/books/abc123.pdf')
-    expect(mocks.pdfParseMetadata).toHaveBeenCalledWith(expect.any(Blob), 'nativo.pdf')
+    expect(mocks.pdfParseMetadata).toHaveBeenCalledWith(expect.any(Blob), 'nativo.pdf', { skipCover: false })
     expect(mocks.addBook).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Livro PDF',
       author: 'Autora',

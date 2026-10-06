@@ -17,6 +17,9 @@ export const READER_THEME_OPTIONS: Array<{ value: ReaderTheme; label: string; de
   { value: 'contrast', label: 'Alto contraste', description: 'Maxima legibilidade' },
 ]
 
+// Sem recoloração, o pdf.js preserva as cores do arquivo e usa branco como fundo padrão da página.
+export const PDF_ORIGINAL_BACKGROUND = '#ffffff'
+
 export const READER_FONT_FAMILY_OPTIONS: Array<{ value: ReaderFontFamily; label: string; description: string }> = [
   { value: 'publisher', label: 'Original do livro', description: 'Preserva a fonte definida no EPUB' },
   { value: 'classic', label: 'Classica', description: 'Serifada tradicional para leitura' },

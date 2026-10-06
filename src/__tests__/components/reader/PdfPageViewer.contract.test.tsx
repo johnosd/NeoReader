@@ -97,6 +97,7 @@ function setup(overrides: Partial<PdfPageViewerProps> = {}) {
     session,
     bookmarks: [],
     readerTheme: 'dark',
+    overrideBookColors: true,
     savedLocator: null,
     onRelocate: vi.fn(),
     onTocReady: vi.fn(),
@@ -153,6 +154,27 @@ describe('PdfPageViewer — contrato EpubViewerHandle', () => {
     )
     const paper = (view!.renderer as unknown as { pageColors: { background: string } }).pageColors
     expect(paper.background).not.toBe(dark.background)
+  })
+
+  it('modo Original remove as cores forçadas do PDF e restaura o tema ao sair dele', async () => {
+    const { props, rerender } = setup({ readerTheme: 'black' })
+    await waitFor(() => expect(props.onLoad).toHaveBeenCalled())
+    expect((view!.renderer as unknown as { pageColors: { background: string } }).pageColors.background).toBe('#000000')
+
+    rerender(
+      <I18nProvider>
+        <PdfPageViewer {...props} overrideBookColors={false} />
+      </I18nProvider>,
+    )
+    expect((view!.renderer as unknown as { pageColors: object }).pageColors).toEqual({})
+    expect(view!.renderer.style.getPropertyValue('--scroll-bg-color')).toBe('#ffffff')
+
+    rerender(
+      <I18nProvider>
+        <PdfPageViewer {...props} overrideBookColors={true} />
+      </I18nProvider>,
+    )
+    expect((view!.renderer as unknown as { pageColors: { background: string } }).pageColors.background).toBe('#000000')
   })
 
   it('posiciona ANTES de avisar onLoad: começa na página 0 sem progresso salvo', async () => {

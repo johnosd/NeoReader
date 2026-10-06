@@ -13,6 +13,7 @@ import {
   type WordLensDefinitionTarget,
 } from '../components/reader/EpubViewer'
 import { PdfPageViewer } from '../components/reader/PdfPageViewer'
+import { readerCapabilitiesForFormat } from '../components/reader/readerCapabilities'
 import { PdfLanguageNotice } from '../components/reader/PdfLanguageNotice'
 import { PdfTextLayerNotice, type PdfNoticeVariant } from '../components/reader/PdfTextLayerNotice'
 import { ReaderChrome } from '../components/reader/ReaderChrome'
@@ -69,7 +70,7 @@ import { TRANSLATION_LANGUAGE_OPTIONS } from '../utils/languageOptions'
 import { isLargePdf } from '../utils/pdfLimits'
 import { getPdfLocatorStart, isPdfLocator } from '../utils/pdfLocator'
 import { areTocHrefDocumentSuffixesEqual, findTopLevelTocLabel } from '../utils/toc'
-import { getReaderThemePalette } from '../utils/readerPreferences'
+import { getReaderThemePalette, PDF_ORIGINAL_BACKGROUND } from '../utils/readerPreferences'
 import { clampTtsRate } from '../utils/language'
 import { getPlaybackTtsVoiceId } from '../utils/ttsVoiceSelection'
 import { useI18n } from '../i18n'
@@ -427,10 +428,10 @@ export function ReaderScreen({
   // Progresso do IndexedDB (async)
   const { savedCfi, savedProgress, initialLoadDone, saveProgress, flushProgress } = useReaderProgress(book.id!)
 
-  // Feature 022: PDF abre numa sessão própria (documento do pdf.js) e usa o PdfPageViewer; EPUB segue como sempre.
-  const isPdf = book.format === 'PDF'
+  // A superfície montada declara as capacidades usadas pelo chrome e pela sessão.
+  const readerCapabilities = readerCapabilitiesForFormat(book.format)
   // Erro ao abrir o PDF (arquivo ausente, corrompido): mesmo encerramento do "carregando" do onError do EpubViewer.
-  const pdfSession = usePdfReaderSession(book, isPdf, (failure) => {
+  const pdfSession = usePdfReaderSession(book, readerCapabilities.usesPdfSession, (failure) => {
     finishReaderOpen('failure', failure)
     pendingStartHrefRef.current = null
     releaseInitialLoading()
@@ -1375,7 +1376,12 @@ export function ReaderScreen({
   if (!initialLoadDone || !readerAppearanceReady) return <ReaderSkeleton />
 
   const readerPalette = getReaderThemePalette(readerTheme)
-  const readerStyleMode = !overrideBookFont && !overrideBookColors ? 'original' : 'comfortable'
+  const readerBackground = readerCapabilities.viewer === 'pdf-page' && !overrideBookColors
+    ? PDF_ORIGINAL_BACKGROUND
+    : readerPalette.background
+  const readerStyleMode = readerCapabilities.viewer === 'pdf-page'
+    ? (overrideBookColors ? 'comfortable' : 'original')
+    : (!overrideBookFont && !overrideBookColors ? 'original' : 'comfortable')
   // Mensagem e "arquivo ausente" derivados do erro da sessão (sem estado extra).
   const pdfSessionError = pdfSession.status === 'error' ? pdfSession.error : null
   const pdfSessionMissingFile =
@@ -1383,6 +1389,10 @@ export function ReaderScreen({
   const effectiveMissingFile = book.missingFile || detectedMissingFile || pdfSessionMissingFile
   const missingFileMessage = effectiveMissingFile ? t('reader.missingFile.description') : null
   const visibleError = error ?? pdfSessionError?.message ?? missingFileMessage
+  const pdfFirstPagePreviewBookId = readerCapabilities.viewer === 'pdf-page' && initialLoadDone && !startHref &&
+    (!savedCfi || getPdfLocatorStart(savedCfi)?.pageIndex === 0)
+    ? book.id
+    : undefined
 
   // ── PDF (feature 022) ──────────────────────────────────────────────────────
   const handlePdfViewerLoad = () => {
@@ -1405,7 +1415,7 @@ export function ReaderScreen({
   }
 
   // Um aviso por vez: sem texto > texto parcial > PDF grande > idioma indefinido (só se há texto).
-  const pdfNoticeVariant: PdfNoticeVariant | null = !isPdf
+  const pdfNoticeVariant: PdfNoticeVariant | null = !readerCapabilities.showsPdfNotices
     ? null
     : book.pdfTextLayer === 'none'
       ? 'noText'
@@ -1417,14 +1427,20 @@ export function ReaderScreen({
   const pdfNoticeKey = `${book.id}:${pdfNoticeVariant}`
   const showPdfTextNotice = pdfNoticeVariant !== null && !dismissedPdfNotices.includes(pdfNoticeKey)
   const showPdfLanguageNotice =
-    isPdf && bookLanguageUndefined && !pdfLanguageWarningDismissed && book.pdfTextLayer !== 'none' && !showPdfTextNotice
+    readerCapabilities.showsPdfNotices && bookLanguageUndefined && !pdfLanguageWarningDismissed && book.pdfTextLayer !== 'none' && !showPdfTextNotice
 
   return (
-    <div className="fixed inset-0" style={{ backgroundColor: readerPalette.background }}>
-      {isLoading && !effectiveMissingFile && <ReaderSkeleton />}
+    <div className="fixed inset-0" style={{ backgroundColor: readerBackground }}>
+      {isLoading && !effectiveMissingFile && (
+        <ReaderSkeleton
+          pdfPreviewBookId={pdfFirstPagePreviewBookId}
+          backgroundColor={readerCapabilities.viewer === 'pdf-page' ? readerBackground : undefined}
+          previewTone={!overrideBookColors ? 'original' : readerPalette.isDark ? 'dark' : 'light'}
+        />
+      )}
 
       <div className="absolute inset-0">
-        {!effectiveMissingFile && !isPdf && (
+        {!effectiveMissingFile && readerCapabilities.viewer === 'epub' && (
           <EpubViewer
           ref={viewerRef}
           book={book}
@@ -1493,13 +1509,14 @@ export function ReaderScreen({
           onEditHighlight={handleEditHighlight}
           />
         )}
-        {!effectiveMissingFile && isPdf && pdfSession.status === 'ready' && (
+        {!effectiveMissingFile && readerCapabilities.viewer === 'pdf-page' && pdfSession.status === 'ready' && (
           <PdfPageViewer
             ref={viewerRef}
             book={book}
             session={pdfSession.session}
             bookmarks={activeBookmarks}
             readerTheme={readerTheme}
+            overrideBookColors={overrideBookColors}
             savedLocator={startHref ? null : (isPdfLocator(savedCfi) ? savedCfi : null)}
             initialTarget={startHref && isPdfLocator(startHref) ? startHref : null}
             onRelocate={handleRelocate}
@@ -1513,7 +1530,7 @@ export function ReaderScreen({
         )}
       </div>
 
-      {isPdf && !isLoading && !effectiveMissingFile && ((showPdfTextNotice && pdfNoticeVariant) || showPdfLanguageNotice) && (
+      {readerCapabilities.showsPdfNotices && !isLoading && !effectiveMissingFile && ((showPdfTextNotice && pdfNoticeVariant) || showPdfLanguageNotice) && (
         // Avisos do PDF ficam abaixo do cabeçalho do chrome quando ele está visível e sobem quando some — antes
         // ficavam fixos a 64 px e cobriam título/progresso/botão de voltar (R-028).
         <div
@@ -1656,13 +1673,13 @@ export function ReaderScreen({
         toc={toc}
         currentHref={currentTocHref}
         currentLabel={currentTocLabel}
-        emptyDescription={isPdf ? t('toc.empty.descriptionPdf') : undefined}
+        emptyDescription={readerCapabilities.hasPdfTocCopy ? t('toc.empty.descriptionPdf') : undefined}
         onSelect={(href) => {
           viewerRef.current?.goTo(href)
           setTocOpen(false)
           // PDF: a página de destino começa colada no topo da tela e o título do capítulo ficava sob o
           // cabeçalho do chrome (o EPUB tem margem superior). Só no PDF, para não mudar o EPUB (DI-001).
-          if (isPdf) setChromeVisible(false)
+          if (readerCapabilities.closesChromeAfterNavigation) setChromeVisible(false)
         }}
         onClose={() => setTocOpen(false)}
       />
@@ -1674,7 +1691,7 @@ export function ReaderScreen({
           viewerRef.current?.goTo(bookmarkCfi)
           setBookmarkSheetOpen(false)
           // Mesmo motivo do sumário: no PDF o parágrafo marcado vai para o topo da tela, sob o chrome.
-          if (isPdf) setChromeVisible(false)
+          if (readerCapabilities.closesChromeAfterNavigation) setChromeVisible(false)
         }}
         onDelete={(id) => void softDeleteBookmark(id)}
         onColorChange={(id, color) => { void updateBookmarkColor(id, color) }}
@@ -1728,8 +1745,21 @@ export function ReaderScreen({
             />
           </div>
 
-          {/* Fonte, tamanho, entrelinha, modo e linha de foco são do reflow do EPUB: não valem na página fiel do PDF. */}
-          {!isPdf && (<>
+          {/* Fonte, tamanho, entrelinha e linha de foco são do reflow do EPUB: não valem na página fiel do PDF. */}
+          {readerCapabilities.viewer === 'pdf-page' && (
+            <div>
+              <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-text-muted">
+                {t('reader.appearance.mode')}
+              </p>
+              <ReaderModeControl
+                value={readerStyleMode}
+                onChange={(mode) => applyAppearancePatch({ overrideBookColors: mode !== 'original' })}
+                format="PDF"
+              />
+            </div>
+          )}
+
+          {readerCapabilities.supportsTypography && (<>
           <div>
             <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-text-muted">
               {t('reader.appearance.font')}
@@ -1867,10 +1897,59 @@ function TtsFallbackToast({
   )
 }
 
-function ReaderSkeleton() {
+function ReaderSkeleton({
+  pdfPreviewBookId,
+  backgroundColor,
+  previewTone = 'original',
+}: {
+  pdfPreviewBookId?: number
+  backgroundColor?: string
+  previewTone?: 'original' | 'dark' | 'light'
+}) {
+  const [coverState, setCoverState] = useState<{ bookId: number; url: string } | null>(null)
+
+  useEffect(() => {
+    let active = true
+    let url: string | null = null
+    if (pdfPreviewBookId !== undefined) {
+      void getBookCover(pdfPreviewBookId).then((cover) => {
+        if (!active || cover?.source !== 'pdf-rendered') return
+        url = URL.createObjectURL(cover.blob)
+        setCoverState({ bookId: pdfPreviewBookId, url })
+      }).catch(() => undefined)
+    }
+    return () => {
+      active = false
+      if (url) URL.revokeObjectURL(url)
+    }
+  }, [pdfPreviewBookId])
+
+  const coverUrl = coverState?.bookId === pdfPreviewBookId ? coverState.url : null
+
   return (
-    <div data-testid="reader-loading" className="fixed inset-0 z-50 bg-bg-reader flex items-center justify-center">
-      <div className="w-8 h-8 border-2 border-indigo-primary border-t-transparent rounded-full animate-spin" />
+    <div
+      data-testid="reader-loading"
+      className={`fixed inset-0 z-50 bg-bg-reader flex justify-center ${coverUrl ? 'items-start' : 'items-center'}`}
+      style={backgroundColor ? { backgroundColor } : undefined}
+    >
+      {coverUrl ? (
+        <>
+          <img
+            data-testid="reader-pdf-first-page-preview"
+            src={coverUrl}
+            alt=""
+            className="max-h-full w-full object-contain object-top"
+            style={previewTone === 'dark'
+              ? { filter: 'invert(1) grayscale(1)' }
+              : previewTone === 'light'
+                ? { mixBlendMode: 'multiply' }
+                : undefined}
+          />
+          <div className="absolute bottom-6 right-6 h-6 w-6 animate-spin rounded-full border-2 border-indigo-primary border-t-transparent" />
+        </>
+      ) : (
+        <div className="w-8 h-8 border-2 border-indigo-primary border-t-transparent rounded-full animate-spin" />
+      )}
     </div>
   )
 }

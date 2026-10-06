@@ -14,7 +14,7 @@ import {
   type PdfPoint,
 } from '@/utils/pdfLocator'
 import { clampPercentage } from '@/utils/progress'
-import { getReaderThemePalette } from '@/utils/readerPreferences'
+import { getReaderThemePalette, PDF_ORIGINAL_BACKGROUND } from '@/utils/readerPreferences'
 import type {
   EpubViewerHandle,
   ParagraphBookmarkPayload,
@@ -49,6 +49,7 @@ export interface PdfPageViewerProps {
   session: PdfReaderSession
   bookmarks: Bookmark[]
   readerTheme: ReaderTheme
+  overrideBookColors: boolean
   // Localizador `neopdf:` salvo (progresso) e alvo inicial (ex.: vindo da lista de destaques/sumário).
   savedLocator: string | null
   initialTarget?: string | null
@@ -65,7 +66,7 @@ export interface PdfPageViewerProps {
 // Subconjunto do renderer foliate-fxl que usamos (não há .d.ts do fixed-layout).
 interface FxlRenderer extends HTMLElement {
   readonly index: number // página no centro da tela (modo scroll)
-  pageColors: { background: string; foreground: string }
+  pageColors: { background?: string; foreground?: string }
   getContents(): Array<{ doc: Document; index: number }>
   goTo(target: { index: number }): Promise<void>
   next(distance?: number): Promise<void>
@@ -515,7 +516,7 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
         // Rolagem contínua de páginas (foliate-fxl em flow=scrolled).
         view.renderer.setAttribute('flow', 'scrolled')
         view.renderer.shadowRoot.append(Object.assign(document.createElement('style'), { textContent: FXL_EXTRA_CSS }))
-        applyTheme(propsRef.current.readerTheme)
+        applyTheme(propsRef.current.readerTheme, propsRef.current.overrideBookColors)
 
         propsRef.current.onTocReady(tocForViewer(session.pdfBook.toc))
 
@@ -557,19 +558,23 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
 
   // ── Tema ───────────────────────────────────────────────────────────────────
 
-  function applyTheme(theme: ReaderTheme) {
+  function applyTheme(theme: ReaderTheme, overrideBookColors: boolean) {
     const view = viewRef.current
     if (!view) return
     const palette = getReaderThemePalette(theme)
-    // pdf.js recolore o texto/fundo da página (pageColors) e o foliate pinta o fundo entre as páginas.
-    view.renderer.pageColors = { background: palette.background, foreground: palette.text }
-    view.renderer.style.setProperty('--scroll-bg-color', palette.background)
-    view.style.backgroundColor = palette.background
+    // Original: objeto vazio devolve ao pdf.js as cores do próprio PDF; o setter do foliate redesenha páginas
+    // já abertas. O tema escolhido continua salvo para quando o usuário voltar ao modo confortável.
+    const background = overrideBookColors ? palette.background : PDF_ORIGINAL_BACKGROUND
+    view.renderer.pageColors = overrideBookColors
+      ? { background: palette.background, foreground: palette.text }
+      : {}
+    view.renderer.style.setProperty('--scroll-bg-color', background)
+    view.style.backgroundColor = background
   }
 
   const themeAppliedRef = useRef(false)
   useEffect(() => {
-    applyTheme(props.readerTheme)
+    applyTheme(props.readerTheme, props.overrideBookColors)
     // Trocar pageColors refaz o layout e o foliate volta ao topo da página atual: reancora no texto visível.
     // Na montagem inicial quem posiciona é o setup (acima), não este efeito.
     if (themeAppliedRef.current) {
@@ -578,7 +583,7 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
     }
     themeAppliedRef.current = true
     // eslint-disable-next-line react-hooks/exhaustive-deps -- applyTheme/navigateToPoint só leem refs
-  }, [props.readerTheme])
+  }, [props.readerTheme, props.overrideBookColors])
 
   // Marcadores: redesenha nas páginas carregadas quando a lista muda (criar/remover/sincronizar).
   useEffect(() => {

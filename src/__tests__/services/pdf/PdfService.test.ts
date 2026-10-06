@@ -105,6 +105,17 @@ describe('PdfService.parseMetadata — metadados', () => {
     createPdfBookMock.mockResolvedValue(handle)
     expect((await PdfService.parseMetadata(new Blob(['x']))).coverBlob).toBeNull()
   })
+
+  it('pula o render da capa JS quando o import nativo já a forneceu', async () => {
+    const { handle } = fakeHandle({ pageText: lorem, metadata: { title: 'T' } })
+    const getCover = vi.spyOn(handle.book, 'getCover')
+    createPdfBookMock.mockResolvedValue(handle)
+
+    const meta = await PdfService.parseMetadata(new Blob(['x']), 'native.pdf', { skipCover: true })
+
+    expect(meta.coverBlob).toBeNull()
+    expect(getCover).not.toHaveBeenCalled()
+  })
 })
 
 describe('PdfService.parseMetadata — camada de texto', () => {

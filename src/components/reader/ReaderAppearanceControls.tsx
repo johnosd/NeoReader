@@ -1,5 +1,6 @@
 import { Check, Minus, Plus } from 'lucide-react'
 import type { ReactNode } from 'react'
+import type { BookFormat } from '../../types/book'
 import type { FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from '../../types/settings'
 import { useI18n, type MessageKey } from '../../i18n'
 import {
@@ -111,10 +112,12 @@ export function ReaderModeControl({
   value,
   onChange,
   surface = 'surface',
+  format,
 }: {
   value: ReaderStyleMode
   onChange: (value: ReaderStyleMode) => void
   surface?: ControlSurface
+  format?: BookFormat
 }) {
   const { t } = useI18n()
 
@@ -123,7 +126,12 @@ export function ReaderModeControl({
       {READER_STYLE_MODE_OPTIONS.map((option) => {
         const active = value === option.value
         const label = t(option.labelKey)
-        const description = t(option.descriptionKey)
+        const descriptionKey = format === 'PDF'
+          ? option.value === 'original'
+            ? 'reader.mode.original.descriptionPdf'
+            : 'reader.mode.comfortable.descriptionPdf'
+          : option.descriptionKey
+        const description = t(descriptionKey)
 
         return (
           <button

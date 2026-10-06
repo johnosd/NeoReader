@@ -79,8 +79,7 @@ export interface PdfJsLib {
     page: PdfPageProxy
     viewport: PdfViewportLike
     div: HTMLElement
-    linkService: unknown
-  }) => { render(options: { annotations: unknown[] }): Promise<void> }
+  }) => { render(options: { annotations: unknown[]; linkService: unknown }): Promise<void> }
   // Erros tipados do pdf.js (senha / arquivo inválido) — o PdfService traduz para erros do app.
   PasswordException: new (...args: unknown[]) => Error
   InvalidPDFException: new (...args: unknown[]) => Error

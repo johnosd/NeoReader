@@ -24,6 +24,7 @@ import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
 import { useBookInfo } from '../hooks/useBookInfo'
 import { BookFileResolver } from '../services/BookFileResolver'
 import { EpubService, type EpubExtras } from '../services/EpubService'
+import { createPdfBook, type PdfTocItem } from '../services/pdf/PdfBookFactory'
 import { NativeTtsService } from '../services/NativeTtsService'
 import {
   TTS_PROVIDER_ORDER,
@@ -68,6 +69,7 @@ import { clampTtsRate, getBaseLanguage, normalizeLanguageTag } from '../utils/la
 import { estimateTranslatedCharCount } from '../services/TranslatedAudiobookService'
 import { BOOK_LANGUAGE_OPTIONS, getLanguageLabel, TRANSLATION_LANGUAGE_OPTIONS } from '../utils/languageOptions'
 import { resolveReadingState } from '../utils/readingState'
+import { formatPdfPoint } from '../utils/pdfLocator'
 import {
   buildBookTtsVoiceSelectionPatch,
   getBookTtsVoiceSelection,
@@ -108,6 +110,14 @@ const SETTINGS_CATEGORY_TITLE_KEY: Record<BookSettingsCategory, MessageKey> = {
 const EXTRAS_LOAD_TIMEOUT_MS = 10_000
 const TTS_RATE_OPTIONS = [0.8, 0.9, 1, 1.1, 1.2]
 const BOOKMARKS_INITIAL_COUNT = 5
+
+function pdfTocToChapterItems(items: PdfTocItem[] | null): TocItem[] {
+  return (items ?? []).map((item) => ({
+    label: item.label,
+    href: item.index === undefined ? '' : formatPdfPoint({ pageIndex: item.index, offset: 0 }),
+    subitems: item.subitems ? pdfTocToChapterItems(item.subitems) : undefined,
+  }))
+}
 
 function resolveEffectiveTtsProvider(provider: TtsProvider, settings: AppSettings): TtsProvider {
   return resolveTtsProviderFromAvailability(provider, getTtsProviderAvailability(settings))
@@ -234,7 +244,9 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
   const fontFamily: ReaderFontFamily = bookSettingsRow?.fontFamily ?? defaultFontFamily
   const overrideBookFont = bookSettingsRow?.overrideBookFont ?? (bookSettingsRow?.fontFamily ? fontFamily !== 'publisher' : defaultOverrideBookFont)
   const overrideBookColors = bookSettingsRow?.overrideBookColors ?? defaultOverrideBookColors
-  const readerStyleMode = !overrideBookFont && !overrideBookColors ? 'original' : 'comfortable'
+  const readerStyleMode = liveBook.format === 'PDF'
+    ? (overrideBookColors ? 'comfortable' : 'original')
+    : (!overrideBookFont && !overrideBookColors ? 'original' : 'comfortable')
   const tocItems = extras?.toc ?? []
   const selectedTtsProvider: TtsProvider = bookSettingsRow?.ttsProvider ?? 'speechify'
   const effectiveTtsProvider = resolveEffectiveTtsProvider(selectedTtsProvider, appSettings)
@@ -270,12 +282,33 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
   }, [book.id, storedBookSettingsRow?.updatedAt])
 
   useEffect(() => {
-    // PDF não tem OPF/sumário para extrair: o idioma já foi resolvido no import (DI-012) e não há o que
-    // ler do arquivo. EPUB segue o caminho de sempre logo abaixo.
+    // O PDF não tem OPF; o outline do pdf.js alimenta a mesma navegação de capítulos.
+    // O idioma já foi resolvido no import (DI-012). EPUB segue o caminho de sempre abaixo.
     if (liveBook.format === 'PDF') {
-      setExtras({ description: null, language: liveBook.detectedLanguage ?? null, toc: [], previewText: null, styleDiagnostics: [] })
-      setExtrasLoading(false)
-      return
+      let cancelled = false
+      setExtrasLoading(true)
+      void (async () => {
+        const file = await BookFileResolver.resolveFile(liveBook)
+        const { book: pdfBook } = await createPdfBook(file)
+        try {
+          if (!cancelled) {
+            setExtras({
+              description: null,
+              language: liveBook.detectedLanguage ?? null,
+              toc: pdfTocToChapterItems(pdfBook.toc),
+              previewText: null,
+              styleDiagnostics: [],
+            })
+          }
+        } finally {
+          pdfBook.destroy()
+        }
+      })().catch(() => {
+        if (!cancelled) setExtras(null)
+      }).finally(() => {
+        if (!cancelled) setExtrasLoading(false)
+      })
+      return () => { cancelled = true }
     }
 
     let cancelled = false
@@ -460,6 +493,11 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
   }
 
   function handleReaderStyleModeChange(mode: ReaderStyleMode) {
+    if (liveBook.format === 'PDF') {
+      applyBookSettingsPatch({ overrideBookColors: mode !== 'original' })
+      return
+    }
+
     if (mode === 'original') {
       applyBookSettingsPatch({
         fontFamily: 'publisher',
@@ -822,8 +860,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
                   onSelect={(href) => openReader(href)}
                   className="pb-4"
                   defaultExpanded={false}
-                  // PDF: os capítulos ainda não são lidos nesta tela (só no leitor) — o texto padrão citaria EPUB.
-                  emptyDescription={liveBook.format === 'PDF' ? t('bookDetails.pdfChaptersInReader') : undefined}
+                  emptyDescription={liveBook.format === 'PDF' ? t('toc.empty.descriptionPdf') : undefined}
                 />
               )
             )}
@@ -1109,6 +1146,7 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
                     value={readerStyleMode}
                     onChange={handleReaderStyleModeChange}
                     surface="base"
+                    format={liveBook.format}
                   />
                 </div>
               </div>

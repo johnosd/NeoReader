@@ -93,5 +93,44 @@ describe('BookFileResolver', () => {
       vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 404 })))
       await expect(BookFileResolver.fetchLocalFile('file:///x.pdf')).rejects.toThrow('HTTP 404')
     })
+
+    it('returns a range source for a local PDF without reading the full file', async () => {
+      const fetchMock = vi.fn(async () => new Response('x', {
+        status: 206,
+        headers: { 'Content-Range': 'bytes 0-0/197518784' },
+      }))
+      vi.stubGlobal('fetch', fetchMock)
+      const book: Book = { ...base, id: 77, format: 'PDF', storageMode: 'local', uri: 'file:///books/large.pdf' }
+
+      await expect(BookFileResolver.resolvePdfReaderSource(book)).resolves.toEqual({
+        url: 'capacitor://file:///books/large.pdf',
+        length: 197518784,
+      })
+      expect(fetchMock).toHaveBeenCalledWith('capacitor://file:///books/large.pdf', {
+        headers: { Range: 'bytes=0-0' },
+      })
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('falls back to a Blob when the local server does not support ranges', async () => {
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce(new Response('%PDF', { status: 200 }))
+        .mockResolvedValueOnce(new Response('%PDF', { status: 200 }))
+      vi.stubGlobal('fetch', fetchMock)
+      const book: Book = { ...base, id: 78, format: 'PDF', storageMode: 'local', uri: 'file:///books/small.pdf' }
+
+      const source = await BookFileResolver.resolvePdfReaderSource(book)
+      expect(source).toHaveProperty('size', 4)
+      expect(await (source as Blob).text()).toBe('%PDF')
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    })
+
+    it('marks a missing local PDF when the range probe fails', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 404 })))
+      const book: Book = { ...base, id: 79, format: 'PDF', storageMode: 'local', uri: 'file:///books/missing.pdf' }
+
+      await expect(BookFileResolver.resolvePdfReaderSource(book)).rejects.toThrow('movido')
+      expect(db.books.update).toHaveBeenCalledWith(79, { missingFile: true })
+    })
   })
 })

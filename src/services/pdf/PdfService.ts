@@ -59,7 +59,7 @@ export class PdfService {
    * e idioma. Abre o documento, amostra algumas páginas e destrói tudo antes de devolver.
    * `fileName` entra só como título de reserva quando o PDF não traz metadados.
    */
-  static async parseMetadata(file: Blob, fileName = ''): Promise<PdfMetadata> {
+  static async parseMetadata(file: Blob, fileName = '', options: { skipCover?: boolean } = {}): Promise<PdfMetadata> {
     let handle: Awaited<ReturnType<typeof createPdfBook>>
     try {
       handle = await createPdfBook(file)
@@ -85,7 +85,8 @@ export class PdfService {
       const detectedLanguage =
         pdfMetadataLanguage(book.metadata.language) ?? (usable.length ? detectTextLanguage(usable.join('\n')) : null)
 
-      const coverBlob = await book.getCover().catch(() => null)
+      // O Android já renderizou a capa com PdfRenderer; repetir no WebView desperdiça tempo e memória.
+      const coverBlob = options.skipCover ? null : await book.getCover().catch(() => null)
 
       return {
         title: pdfMetadataTitle(book.metadata.title) ?? (fileName.replace(/\.pdf$/i, '').trim() || 'Sem título'),

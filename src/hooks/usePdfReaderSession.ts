@@ -51,8 +51,8 @@ export function usePdfReaderSession(
     setState({ status: 'loading' })
     void (async () => {
       try {
-        const blob = await BookFileResolver.resolveFile(book)
-        const { book: pdfBook, pdf } = await createPdfBook(blob)
+        const source = await BookFileResolver.resolvePdfReaderSource(book)
+        const { book: pdfBook, pdf } = await createPdfBook(source)
         const session: PdfReaderSession = {
           pdfBook,
           pdf,

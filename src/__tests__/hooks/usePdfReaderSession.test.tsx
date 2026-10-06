@@ -2,11 +2,11 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
-  resolveFile: vi.fn(),
+  resolvePdfReaderSource: vi.fn(),
   createPdfBook: vi.fn(),
 }))
 
-vi.mock('@/services/BookFileResolver', () => ({ BookFileResolver: { resolveFile: mocks.resolveFile } }))
+vi.mock('@/services/BookFileResolver', () => ({ BookFileResolver: { resolvePdfReaderSource: mocks.resolvePdfReaderSource } }))
 vi.mock('@/services/pdf/PdfBookFactory', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/services/pdf/PdfBookFactory')>()
   return { ...actual, createPdfBook: mocks.createPdfBook }
@@ -38,16 +38,16 @@ function fakeOpen(numPages = 45, toc: unknown = null) {
 }
 
 beforeEach(() => {
-  mocks.resolveFile.mockReset()
+  mocks.resolvePdfReaderSource.mockReset()
   mocks.createPdfBook.mockReset()
-  mocks.resolveFile.mockResolvedValue(pdfBlob)
+  mocks.resolvePdfReaderSource.mockResolvedValue(pdfBlob)
 })
 
 describe('usePdfReaderSession', () => {
   it('livro EPUB (enabled=false) não abre nada', () => {
     const { result } = renderHook(() => usePdfReaderSession(book, false))
     expect(result.current).toEqual({ status: 'idle' })
-    expect(mocks.resolveFile).not.toHaveBeenCalled()
+    expect(mocks.resolvePdfReaderSource).not.toHaveBeenCalled()
     expect(mocks.createPdfBook).not.toHaveBeenCalled()
   })
 
@@ -57,7 +57,7 @@ describe('usePdfReaderSession', () => {
 
     await waitFor(() => expect(result.current.status).toBe('ready'))
 
-    expect(mocks.resolveFile).toHaveBeenCalledWith(book)
+    expect(mocks.resolvePdfReaderSource).toHaveBeenCalledWith(book)
     expect(mocks.createPdfBook).toHaveBeenCalledWith(pdfBlob)
     if (result.current.status !== 'ready') throw new Error('esperava ready')
     const { session } = result.current
@@ -65,6 +65,17 @@ describe('usePdfReaderSession', () => {
     // sem sumário: blocos de 20 páginas (DI-009)
     expect(session.chunks.map((c) => [c.startPage, c.endPage])).toEqual([[0, 19], [20, 39], [40, 44]])
     expect(session.extractor.pageCount).toBe(45)
+  })
+
+  it('passes the local PDF range source through without materializing a Blob', async () => {
+    fakeOpen()
+    const source = { url: 'https://localhost/_capacitor_file_/large.pdf', length: 200_000_000 }
+    mocks.resolvePdfReaderSource.mockResolvedValue(source)
+
+    const { result } = renderHook(() => usePdfReaderSession({ ...book, storageMode: 'local', uri: 'file:///large.pdf' }, true))
+    await waitFor(() => expect(result.current.status).toBe('ready'))
+
+    expect(mocks.createPdfBook).toHaveBeenCalledWith(source)
   })
 
   it('usa o sumário do PDF para dividir os trechos', async () => {
@@ -91,7 +102,7 @@ describe('usePdfReaderSession', () => {
   it('se sair antes de abrir terminar, destrói o documento recém-aberto (sem vazar)', async () => {
     const { destroy } = fakeOpen()
     let release!: () => void
-    mocks.resolveFile.mockReturnValue(new Promise((resolve) => { release = () => resolve(pdfBlob) }))
+    mocks.resolvePdfReaderSource.mockReturnValue(new Promise((resolve) => { release = () => resolve(pdfBlob) }))
 
     const { unmount } = renderHook(() => usePdfReaderSession(book, true))
     unmount()
@@ -105,7 +116,7 @@ describe('usePdfReaderSession', () => {
   })
 
   it('erro ao resolver o arquivo vira status error (mensagem preservada para a tela de arquivo ausente)', async () => {
-    mocks.resolveFile.mockRejectedValue(new Error('Este livro foi movido, apagado ou perdeu a permissao de acesso.'))
+    mocks.resolvePdfReaderSource.mockRejectedValue(new Error('Este livro foi movido, apagado ou perdeu a permissao de acesso.'))
     const { result } = renderHook(() => usePdfReaderSession(book, true))
 
     await waitFor(() => expect(result.current.status).toBe('error'))
