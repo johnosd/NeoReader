@@ -1900,6 +1900,23 @@ describe('BookDetailsScreen chapters', () => {
       expect(toggle.disabled).toBe(true)
     })
 
+    it('aba de capítulos de PDF manda abrir o livro para ver o sumário (sem citar EPUB)', async () => {
+      const pdfBook: Book = { ...book, format: 'PDF', detectedLanguage: 'pt-BR', pdfTextLayer: 'full', pageCount: 120 }
+
+      render(<BookDetailsScreen book={pdfBook} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} />)
+
+      expect(await screen.findByText('Abra o livro para ver o sumário deste PDF.')).toBeTruthy()
+      expect(screen.queryByText(/Este EPUB nao forneceu/)).toBeNull()
+    })
+
+    it('EPUB sem sumário continua com o texto de sempre', async () => {
+      mocks.parseExtras.mockResolvedValue({ description: null, language: 'pt-BR', toc: [] } as never)
+
+      render(<BookDetailsScreen book={book} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} />)
+
+      expect(await screen.findByText(/Este EPUB nao forneceu/)).toBeTruthy()
+    })
+
     it('EPUB continua lendo o idioma do arquivo (parseExtras é chamado)', async () => {
       mocks.parseExtras.mockClear()
       mocks.parseExtras.mockResolvedValue({ description: null, language: 'pt-BR', toc: [] } as never)

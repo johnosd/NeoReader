@@ -97,7 +97,10 @@ export function HighlightComposerSheet({
           maxLength={NOTE_MAX_LENGTH}
           placeholder={t('highlightNote.placeholder')}
           rows={4}
-          autoFocus
+          // Só foca quando a caixa está aberta: o BottomSheet mantém o conteúdo montado mesmo fechado, e um
+          // autoFocus incondicional focava este textarea ao abrir o LEITOR — no PDF (que não toma o foco como o
+          // EpubViewer) isso subia o teclado do Android. Abrir de verdade remonta (key do chamador) e foca.
+          autoFocus={open}
           className="w-full resize-none rounded-md border border-border bg-white/5 p-4 text-base text-text-primary outline-none transition-colors duration-150 placeholder:text-text-muted focus:border-purple-primary focus:bg-white/10"
         />
         <p className="text-right text-xs tabular-nums text-text-muted">

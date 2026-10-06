@@ -20,6 +20,18 @@ function makeHighlight(overrides: Partial<Highlight> = {}): Highlight {
 }
 
 describe('HighlightComposerSheet', () => {
+  it('fechada não pega o foco (abria o teclado ao entrar no leitor de PDF); aberta foca a nota', () => {
+    const { rerender } = render(
+      <HighlightComposerSheet key="closed" open={false} onSave={vi.fn()} onClose={vi.fn()} />,
+    )
+    const closedTextarea = screen.getByPlaceholderText('Escreva sua anotacao...')
+    expect(document.activeElement).not.toBe(closedTextarea)
+
+    // Abrir de verdade troca o key (como no ReaderScreen) e remonta a caixa.
+    rerender(<HighlightComposerSheet key="draft-1" open onSave={vi.fn()} onClose={vi.fn()} />)
+    expect(document.activeElement).toBe(screen.getByPlaceholderText('Escreva sua anotacao...'))
+  })
+
   it('modo criacao: cor/estilo default vem das props, nota comeca vazia', () => {
     render(
       <HighlightComposerSheet

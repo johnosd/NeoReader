@@ -822,6 +822,8 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
                   onSelect={(href) => openReader(href)}
                   className="pb-4"
                   defaultExpanded={false}
+                  // PDF: os capítulos ainda não são lidos nesta tela (só no leitor) — o texto padrão citaria EPUB.
+                  emptyDescription={liveBook.format === 'PDF' ? t('bookDetails.pdfChaptersInReader') : undefined}
                 />
               )
             )}

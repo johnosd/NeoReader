@@ -106,6 +106,12 @@ async (page) => {
         }, [r.id, cfg.theme])
         await p.evaluate((id) => window.__open(id), r.id)
         await waitVisibleImg(p)
+        // Ao abrir o leitor nenhum campo de texto pode ter foco: no Android isso sobe o teclado (a caixa de
+        // highlight fechada com autoFocus fazia isso no PDF).
+        const focusedField = await p.evaluate(() => {
+          const el = document.activeElement
+          return el && /^(TEXTAREA|INPUT)$/.test(el.tagName) ? (el.getAttribute('placeholder') ?? el.tagName) : null
+        })
         // vai para o meio do livro também (página de miolo, não só a capa)
         const shots = []
         for (const where of ['inicio', 'meio']) {
@@ -124,7 +130,7 @@ async (page) => {
           const dom = await visiblePagesDom(p)
           shots.push({ where, ink: +(ink * 100).toFixed(1), domPages: dom.map((d) => d.page), allImg: dom.length > 0 && dom.every((d) => d.img && !d.canvas), sandboxOk: dom.every((d) => d.sandbox === 'allow-same-origin'), file })
         }
-        results.push({ cfg: cfg.name, file: f, ok: shots.every((s) => s.ink >= MIN_INK * 100 && s.allImg && s.sandboxOk), shots })
+        results.push({ cfg: cfg.name, file: f, ok: !focusedField && shots.every((s) => s.ink >= MIN_INK * 100 && s.allImg && s.sandboxOk), focusedField, shots })
       }
     } finally {
       await ctx.close()
@@ -137,7 +143,7 @@ async (page) => {
     rows: results.map((r) => {
       if (r.skipped) return `PULADO | ${r.cfg} | ${r.file} | não está em debug-books/pdf/`
       if (r.error) return `FALHOU | ${r.cfg} | ${r.file} | ERRO ${r.error}`
-      return `${r.ok ? 'OK ' : 'FALHOU'} | ${r.cfg} | ${r.file.slice(0, 34)} | tinta ${r.shots.map((s) => s.where + '=' + s.ink + '%').join(' ')} | <img> ${r.shots.every((s) => s.allImg)} | sandbox ${r.shots.every((s) => s.sandboxOk)}`
+      return `${r.ok ? 'OK ' : 'FALHOU'} | ${r.cfg} | ${r.file.slice(0, 34)} | tinta ${r.shots.map((s) => s.where + '=' + s.ink + '%').join(' ')} | <img> ${r.shots.every((s) => s.allImg)} | sandbox ${r.shots.every((s) => s.sandboxOk)} | foco em campo: ${r.focusedField ?? 'nenhum'}`
     }),
   }
 }
