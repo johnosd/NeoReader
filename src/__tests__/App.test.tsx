@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { FeatureQuotaService } from '@/services/FeatureQuotaService'
 import type { Book } from '@/types/book'
@@ -535,7 +535,7 @@ describe('App navigation and auth gate', () => {
       uri: 'file:///data/books/externo.epub',
     }
     mocks.isNativePlatform.mockReturnValue(true)
-    mocks.consumePendingExternalEpubIntent.mockResolvedValue(nativeFile)
+    mocks.consumePendingExternalEpubIntent.mockResolvedValueOnce(nativeFile)
     mocks.importNativeEpub.mockResolvedValue(42)
     mocks.getBookById.mockResolvedValue(importedBook)
 
@@ -561,7 +561,7 @@ describe('App navigation and auth gate', () => {
 
   it('mostra erro quando EPUB externo ja existe na biblioteca', async () => {
     mocks.isNativePlatform.mockReturnValue(true)
-    mocks.consumePendingExternalEpubIntent.mockResolvedValue({
+    mocks.consumePendingExternalEpubIntent.mockResolvedValueOnce({
       name: 'duplicado.epub',
       uri: 'content://downloads/duplicado',
       path: 'duplicado.epub',
@@ -582,7 +582,7 @@ describe('App navigation and auth gate', () => {
     let releaseLock: () => void = () => undefined
     mocks.isNativePlatform.mockReturnValue(true)
     mocks.waitForImportIdle.mockImplementationOnce(() => new Promise<void>((resolve) => { releaseLock = resolve }))
-    mocks.consumePendingExternalEpubIntent.mockResolvedValue(nativeFile)
+    mocks.consumePendingExternalEpubIntent.mockResolvedValueOnce(nativeFile)
     mocks.importNativeEpub.mockResolvedValue(42)
     mocks.getBookById.mockResolvedValue({ ...testBook, id: 42 })
 
@@ -600,7 +600,7 @@ describe('App navigation and auth gate', () => {
   it('arquivo recebido tenta de novo se outra importacao pegar a trava no meio do caminho', async () => {
     const nativeFile = { name: 'GTD.pdf', uri: 'content://downloads/gtd', path: 'GTD.pdf', size: 1234 }
     mocks.isNativePlatform.mockReturnValue(true)
-    mocks.consumePendingExternalEpubIntent.mockResolvedValue(nativeFile)
+    mocks.consumePendingExternalEpubIntent.mockResolvedValueOnce(nativeFile)
     mocks.importNativeEpub
       .mockRejectedValueOnce(new Error('Ja existe uma importacao em andamento. Aguarde a conclusao antes de iniciar outra.'))
       .mockResolvedValueOnce(42)
@@ -610,7 +610,34 @@ describe('App navigation and auth gate', () => {
 
     await waitFor(() => assertScreen('reader'))
     expect(mocks.importNativeEpub).toHaveBeenCalledTimes(2)
-    expect(mocks.consumePendingExternalEpubIntent).toHaveBeenCalledTimes(1)
+    expect(mocks.importNativeEpub).toHaveBeenNthCalledWith(2, nativeFile, { importSource: 'local' })
+  })
+
+  it('arquivo recebido nao se perde quando o efeito roda de novo durante o consumo (bug do device)', async () => {
+    // No device, o listener nativo dispara logo ao ser registrado: o efeito re-executa enquanto a primeira
+    // execução ainda está consumindo. Antes, o cleanup "cancelava" a primeira e o arquivo consumido era descartado.
+    const nativeFile = { name: 'GTD.pdf', uri: 'content://downloads/gtd', path: 'GTD.pdf', size: 1234 }
+    let deliverFile: (file: typeof nativeFile) => void = () => undefined
+    let fireIntent: () => void = () => undefined
+    mocks.isNativePlatform.mockReturnValue(true)
+    mocks.addExternalEpubIntentListener.mockImplementationOnce(async (onIntent: () => void) => {
+      fireIntent = onIntent
+      return { remove: vi.fn() }
+    })
+    mocks.consumePendingExternalEpubIntent.mockImplementationOnce(() => new Promise((resolve) => { deliverFile = resolve }))
+    mocks.importNativeEpub.mockResolvedValue(42)
+    mocks.getBookById.mockResolvedValue({ ...testBook, id: 42 })
+
+    render(<App />)
+
+    await waitFor(() => expect(mocks.consumePendingExternalEpubIntent).toHaveBeenCalledTimes(1))
+    // Sinal chega com o consumo em andamento → o efeito re-executa.
+    act(() => fireIntent())
+    deliverFile(nativeFile)
+
+    await waitFor(() => assertScreen('reader'))
+    expect(mocks.importNativeEpub).toHaveBeenCalledTimes(1)
+    expect(mocks.importNativeEpub).toHaveBeenCalledWith(nativeFile, { importSource: 'local' })
   })
 
   it('mostra Welcome antes do Login quando nao autenticado', () => {

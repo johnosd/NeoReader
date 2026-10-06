@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { App as CapApp } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
 import { HomeScreen } from './screens/HomeScreen'
@@ -93,6 +93,9 @@ function App() {
   const [externalImporting, setExternalImporting] = useState(false)
   const [externalImportError, setExternalImportError] = useState<string | null>(null)
   const [externalIntentSignal, setExternalIntentSignal] = useState(0)
+  // Controle do laço que drena o "abrir com" (ver efeito abaixo). useRef = valor mutável que não dispara render.
+  const externalIntentDrainingRef = useRef(false)
+  const externalIntentRerunRef = useRef(false)
   const current = stack[stack.length - 1]
 
   const push = (route: Route) => setStack((prev) => [...prev, route])
@@ -202,52 +205,64 @@ function App() {
   useEffect(() => {
     if (!Capacitor.isNativePlatform() || authStatus !== 'signed-in') return
 
-    let active = true
+    // O efeito roda mais de uma vez em sequência (montagem + sinal do listener). Antes, cada execução consumia a
+    // pendência e a anterior era "cancelada" pelo cleanup — o arquivo já consumido era descartado sem importar.
+    // Agora só existe um laço por vez (ref sobrevive entre execuções, como um atributo de instância); novas
+    // execuções apenas pedem mais uma volta, e o laço drena todas as pendências até não sobrar nenhuma.
+    externalIntentRerunRef.current = true
+    if (externalIntentDrainingRef.current) return
+    externalIntentDrainingRef.current = true
+
     void (async () => {
-      // Arquivo recebido por "abrir com" não pode ser recusado por haver outra importação em andamento: antes ele
-      // era consumido e o import falhava com IMPORT_IN_PROGRESS_MESSAGE, e o arquivo se perdia. Espera a trava
-      // liberar ANTES de consumir, e tenta de novo se outra importação pegar a trava nesse meio-tempo.
-      await waitForImportIdle()
-      if (!active) return
-
-      const nativeFile = await consumePendingExternalEpubIntent()
-      if (!active || !nativeFile) return
-
-      setExternalImporting(true)
-      setExternalImportError(null)
       try {
-        const bookId = await importReceivedFile(nativeFile)
-        const book = await getBookById(bookId)
-        if (!active) return
-        if (!book) throw new Error('Livro importado nao encontrado.')
-
-        const flowId = createFlowId('reader-open')
-        const startedAt = getDiagnosticsNowMs()
-        logEvent('reader.open.start', {
-          flowId,
-          screen: 'external-epub-intent',
-          status: 'start',
-          details: {
-            bookId: book.id,
-            storageMode: book.storageMode,
-            hasStartHref: false,
-            targetType: 'saved-progress',
-          },
-        })
-        setStack((prev) => [...prev, { name: 'reader', book, readerOpenFlowId: flowId, readerOpenStartedAt: startedAt }])
-      } catch (error) {
-        if (active) setExternalImportError(externalImportErrorMessage(error))
+        while (externalIntentRerunRef.current) {
+          externalIntentRerunRef.current = false
+          // Espera outra importação terminar ANTES de consumir: se consumisse e a trava estivesse ocupada,
+          // o import falhava com IMPORT_IN_PROGRESS_MESSAGE e o arquivo se perdia.
+          await waitForImportIdle()
+          const nativeFile = await consumePendingExternalEpubIntent().catch((error: unknown) => {
+            setExternalImportError(externalImportErrorMessage(error))
+            return null
+          })
+          if (!nativeFile) continue
+          // Consumido = responsabilidade nossa: importa até o fim, sem checar cancelamento.
+          externalIntentRerunRef.current = true
+          await importExternalFile(nativeFile)
+        }
       } finally {
-        if (active) setExternalImporting(false)
+        externalIntentDrainingRef.current = false
       }
-    })().catch((error) => {
-      if (active) setExternalImportError(externalImportErrorMessage(error))
-    })
-
-    return () => {
-      active = false
-    }
+    })()
   }, [authStatus, externalIntentSignal])
+
+  async function importExternalFile(nativeFile: NativeFolderFile) {
+    setExternalImporting(true)
+    setExternalImportError(null)
+    try {
+      const bookId = await importReceivedFile(nativeFile)
+      const book = await getBookById(bookId)
+      if (!book) throw new Error('Livro importado nao encontrado.')
+
+      const flowId = createFlowId('reader-open')
+      const startedAt = getDiagnosticsNowMs()
+      logEvent('reader.open.start', {
+        flowId,
+        screen: 'external-epub-intent',
+        status: 'start',
+        details: {
+          bookId: book.id,
+          storageMode: book.storageMode,
+          hasStartHref: false,
+          targetType: 'saved-progress',
+        },
+      })
+      setStack((prev) => [...prev, { name: 'reader', book, readerOpenFlowId: flowId, readerOpenStartedAt: startedAt }])
+    } catch (error) {
+      setExternalImportError(externalImportErrorMessage(error))
+    } finally {
+      setExternalImporting(false)
+    }
+  }
 
   function completeWelcome() {
     setWelcomeSeen()
