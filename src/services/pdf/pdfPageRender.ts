@@ -30,7 +30,7 @@ const renderGenerations = new WeakMap<Document, number>()
 // Pan por arraste e seleção de texto, instalados uma vez por documento de página.
 const panInitialized = new WeakSet<Document>()
 
-function setupPanningEvents(doc: Document) {
+export function setupPanningEvents(doc: Document) {
   if (panInitialized.has(doc)) return
   panInitialized.add(doc)
 
@@ -70,6 +70,10 @@ function setupPanningEvents(doc: Document) {
   }
 
   container.onpointerdown = (e) => {
+    // Só mouse: no toque a rolagem já é nativa. Com dedos este pan era instalado por ponteiro — na pinça cada
+    // dedo virava um "arrasto" que gravava scrollLeft/scrollTop com o próprio deslocamento, e a página fugia
+    // de baixo dos dedos (zoom out "se perdia" no device).
+    if (e.pointerType !== 'mouse') return
     const selection = doc.getSelection()
     const hasTextSelection = !!selection && selection.toString().length > 0
     const under = doc.elementFromPoint(e.clientX, e.clientY)
