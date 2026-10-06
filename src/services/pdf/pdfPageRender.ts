@@ -17,9 +17,13 @@ const activeRenderTasks = new WeakMap<Document, { cancel(): void }>()
 // A página é EXIBIDA como <img>, não como <canvas> (R-030): o iframe da página roda com sandbox sem
 // allow-scripts (vite.config.ts → hardenFoliateIframeSandbox), e num documento com scripts desabilitados o
 // <canvas> mostra só o conteúdo de fallback — a página saía em branco no APK. O desenho continua num canvas do
-// documento pai; o resultado vira PNG (blob: URL) para o <img>.
-const canvasToPngBlob = (canvas: HTMLCanvasElement) =>
-  new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
+// documento pai; o resultado vira PNG (data: URL) para o <img>.
+//
+// Por que toDataURL e não toBlob (R-034): no WebView do Android o toBlob (PNG/JPEG, e também o
+// OffscreenCanvas.convertToBlob) só codifica em "tempo ocioso" da thread principal e levava 4–13 s por página
+// no celular (medido num SM-S911B, 1080×1532); o toDataURL é síncrono e levou 30–42 ms para a mesma página, sem
+// perda. Bônus: data: URL não precisa ser revogada.
+const canvasToPngDataUrl = (canvas: HTMLCanvasElement) => canvas.toDataURL('image/png')
 // "Geração" por documento: detecta render obsoleto depois de cada await.
 const renderGenerations = new WeakMap<Document, number>()
 
@@ -188,23 +192,18 @@ export async function renderPdfPage(page: PdfPageProxy, doc: Document, zoom: num
     return
   }
 
-  // Canvas → PNG → <img> (ver pageImageUrls). toBlob é assíncrono: não trava a rolagem enquanto codifica.
+  // Canvas → PNG (data: URL) → <img> (ver canvasToPngDataUrl).
   const { width, height } = canvas
-  const blob = await canvasToPngBlob(canvas)
+  const dataUrl = canvasToPngDataUrl(canvas)
   release(canvas)
-  if (!blob || renderGenerations.get(doc) !== generation || !doc.defaultView) return
-  const url = URL.createObjectURL(blob)
   const img = doc.createElement('img')
   img.alt = ''
   img.draggable = false
   // Tamanho em pixels do bitmap: o documento inteiro já é reduzido por transform 1/dpr (acima).
   Object.assign(img.style, { display: 'block', width: `${width}px`, height: `${height}px`, userSelect: 'none' })
-  img.src = url
+  img.src = dataUrl
   // Decodifica antes de trocar: no zoom, a página antiga continua na tela até a nova estar pronta (sem piscar).
   const decoded = await img.decode().then(() => true, () => false)
-  // Imagem já carregada e decodificada: revogar a URL não a apaga da tela (o navegador guarda os bytes), e
-  // assim nenhuma URL de blob fica viva por página — nem quando o foliate descarta o iframe sem avisar.
-  URL.revokeObjectURL(url)
   if (!decoded || renderGenerations.get(doc) !== generation || !doc.defaultView) return
   canvasHolder.replaceChildren(img)
 
@@ -301,12 +300,22 @@ export async function renderPdfPageToBlob(page: PdfPageProxy, scale = 1): Promis
   const canvasContext = canvas.getContext('2d')
   if (!canvasContext) return null
   await page.render({ canvasContext, viewport }).promise
-  return new Promise((resolve) =>
-    canvas.toBlob((blob) => {
-      // Libera o bitmap assim que o Blob existe.
-      canvas.width = 0
-      canvas.height = 0
-      resolve(blob)
-    }),
-  )
+  // toDataURL + decodificação do base64, e não toBlob: no WebView do Android o toBlob atrasava cada capa em
+  // 4–13 s (ver canvasToPngDataUrl / R-034).
+  const dataUrl = canvasToPngDataUrl(canvas)
+  // Libera o bitmap assim que o PNG existe.
+  canvas.width = 0
+  canvas.height = 0
+  return dataUrlToBlob(dataUrl)
+}
+
+// "data:image/png;base64,AAAA" → Blob. atob devolve uma string binária (1 char = 1 byte); copiamos para bytes.
+function dataUrlToBlob(dataUrl: string): Blob | null {
+  const comma = dataUrl.indexOf(',')
+  if (comma < 0) return null
+  const mime = /^data:([^;,]+)/.exec(dataUrl)?.[1] ?? 'image/png'
+  const binary = atob(dataUrl.slice(comma + 1))
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return new Blob([bytes], { type: mime })
 }
