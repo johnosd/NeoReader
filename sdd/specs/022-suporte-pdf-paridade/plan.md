@@ -248,6 +248,10 @@ npm run android:run
 | R-034 | `canvas.toBlob` no WebView do Android só codifica em tempo ocioso: 4–13 s por página (toDataURL: 30–42 ms) | Alto — página demorava até 13 s para aparecer no celular | Resolvido (T038k): `toDataURL` no render e na capa. Chromium desktop não mostra o problema — só medição no device pegou. |
 | R-035 | `imageResize.ts` (capa > 2000 px no import, EPUB e PDF) também usa `toBlob` | Médio — import lento no Android | T038l (caminho do EPUB: decidir antes de mudar). |
 | R-033 | Detalhes de um PDF nunca mostram o sumário (outline só é lido no leitor) | Baixo — o leitor tem o sumário | T038i (texto provisório manda abrir o livro). |
+| R-036 | "Abrir com" descartado sem importar (efeito do App roda 2× na abertura; a 1ª execução consumia a pendência e era cancelada) e reimportação fantasma do último arquivo escolhido | Alto — arquivo recebido se perdia; livro reimportado sozinho | Resolvido (T038m): laço único que drena as pendências; seleção nativa limpa a pendência. Validado no device. |
+| R-037 | Pinça instável no device: origem do zoom escorregava para fora da tela; pan por pointer events (mouse) reagia a cada dedo e movia a página no zoom out | Alto — zoom inutilizável no celular | Resolvido (T038n). Chromium desktop passou 4/4 sem pegar o pan dos dedos — gestos se medem no device via CDP. |
+| R-038 | Depois do zoom a imagem ficava no tamanho antigo até o novo render (página "pulando", texto turvo, app travado ~2 s) | Médio — qualidade percebida ruim | Resolvido (T038o): imagem esticada no frame do zoom, render da página visível primeiro, teto de 2^24 px. |
+| R-039 | Zoom ≥ 300% leva ~2 s até a nitidez final (página inteira em ~15 Mpx) | Baixo — aceito como está | T038p (opcional): render por tiles da área visível. |
 | R-031 | A busca do Google Books inclui o texto de reserva "Autor desconhecido" como termo quando o livro não tem autor | Baixo/Médio — piora o enriquecimento (PDF e EPUB) | T038g (caminho compartilhado com o EPUB: decidir antes de mudar). |
 
 ## Execution Notes
@@ -260,13 +264,14 @@ npm run android:run
 
 | Data | Fase/Story | Resumo | Pendência Principal |
 | --- | --- | --- | --- |
+| 2026-10-06 | Fase 3 (US1) — device (T027) | Import por arquivo/pasta/"abrir com" OK depois de T038m (R-036); pinça e nitidez do zoom corrigidas e medidas no device via CDP (T038n/T038o, R-037/R-038), aceitas pelo dono do produto; gate verde (1395 + 2 skipped) | T027: regressão do EPUB no device (tradução, TTS com tela apagada, marcador com sync) |
 | 2026-10-06 | Fase 3 (US1) — achados pendentes | T038b–T038f: ISBN da edição certa, título-lixo, descarte de iframes (patch no foliate via Vite), UI dos avisos/sumário, sandbox no dev (R-029) e **página em branco com o sandbox de produção (R-030, crítico)**; gate verde (1381 + 71) | Reinstalar o APK e rodar T026/T027 no device; T038g (R-031) |
 | 2026-10-05 | Fase 3 (US1) — testes E2E | Playwright MCP + `npm run dev` (harness temporário) com 15 arquivos do corpus: 4 bugs corrigidos (vazamento por página, pinça, posição salva, percentual — R-021..R-024, T038a), 9 testes novos; EPUB conferido; gate verde (1363 + 71) | T038b–T038e (R-025..R-028) e device (T026/T027) |
 | 2026-10-05 | Fase 3 (US1) | T019–T025, T028–T038: import (web/nativo) e ficha de PDF, idioma, sessão, `PdfPageViewer`, avisos, `ReaderScreen` por formato, plugin Java; E2E em Chromium com 12 PDFs; gate EPUB verde (1354 + 71) | **Device (T026/T027)**: celular com PIN; APK de debug já instalado |
 | 2026-10-05 | Fase 2 (Foundational) | T007–T018: tipos, utilitários puros, `pdfParagraphs` calibrado em 11 PDFs reais (SC-003 ≥ 95% em prosa), `PdfBookFactory`/`PdfTextExtractor` validados em Chromium (grande.pdf abre em 0,65 s); 135 testes novos; gate EPUB verde (1226 + 71) | `PdfService` deve normalizar `author` (array) e `language`; device só na Fase 3 |
 | 2026-10-05 | Fase 1 (Setup) | T001–T006: baseline EPUB registrada; plugin dev `/vendor/pdfjs`; corpus sintético (12 PDFs, `grande` = 1000 pág./188 MB) + extrator de fixtures; gate EPUB idêntico à baseline (1094 testes + 71 corpus) | Corpus sintético: incluir PDFs reais na calibragem do T015 (R-014) |
 
-**PRÓXIMO**: desbloquear o celular → T026 (spikes de memória/pinça/capa nativa no WebView; medir SC-001/SC-002/SC-007) e T027 (quickstart § Regressão EPUB + § Import/Página fiel no device); depois fechar a Fase 3 e seguir para a Fase 4 (US2, modo texto).
+**PRÓXIMO**: T027 — `quickstart.md` § Regressão EPUB no device (tradução, TTS com tela apagada, marcador com sync); depois fechar a Fase 3 (pendentes não bloqueantes: T038g, T038i, T038j, T038l, T038p) e seguir para a Fase 4 (US2, modo texto).
 
 ## Arquivos Principais
 
