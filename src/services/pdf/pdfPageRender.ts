@@ -27,6 +27,29 @@ const canvasToPngDataUrl = (canvas: HTMLCanvasElement) => canvas.toDataURL('imag
 // "Geração" por documento: detecta render obsoleto depois de cada await.
 const renderGenerations = new WeakMap<Document, number>()
 
+// Teto do bitmap da página (2^24 px, o mesmo `maxCanvasPixels` do viewer do pdf.js). Em 400% com dpr 3 a página
+// passaria de 24 milhões de px: memória demais para o WebView e segundos de thread principal travada.
+export const MAX_PAGE_BITMAP_PIXELS = 16_777_216
+// Páginas fora da tela esperam este tempo antes de redesenhar no zoom: o desenho do pdf.js roda na thread
+// principal, e redesenhar todas juntas travava o app por ~2,3 s em 290% (medido no device).
+const OFFSCREEN_RENDER_DELAY_MS = 700
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+/** Escala do bitmap: zoom × dpr (nítido em tela densa), reduzida para caber em MAX_PAGE_BITMAP_PIXELS. */
+export function pageBitmapScale(zoom: number, dpr: number, pageWidthPt: number, pageHeightPt: number): number {
+  const scale = zoom * dpr
+  const pixels = pageWidthPt * scale * pageHeightPt * scale
+  return pixels > MAX_PAGE_BITMAP_PIXELS ? scale * Math.sqrt(MAX_PAGE_BITMAP_PIXELS / pixels) : scale
+}
+
+function isFrameOnScreen(doc: Document): boolean {
+  const frame = doc.defaultView?.frameElement
+  if (!frame) return true
+  const rect = frame.getBoundingClientRect()
+  return rect.bottom > 0 && rect.top < window.innerHeight
+}
+
 // Pan por arraste e seleção de texto, instalados uma vez por documento de página.
 const panInitialized = new WeakSet<Document>()
 
@@ -133,8 +156,7 @@ export function setupPanningEvents(doc: Document) {
 
 /** Desenha (ou redesenha, no zoom) a página `page` no documento `doc` na escala `zoom`. */
 export async function renderPdfPage(page: PdfPageProxy, doc: Document, zoom: number, pageColors?: unknown) {
-  const pdfjs = await loadPdfjs()
-
+  // Tudo até o 1º await roda junto com o redimensionamento do foliate (mesmo frame), sem a página "pular".
   const generation = (renderGenerations.get(doc) ?? 0) + 1
   renderGenerations.set(doc, generation)
 
@@ -144,9 +166,26 @@ export async function renderPdfPage(page: PdfPageProxy, doc: Document, zoom: num
     activeRenderTasks.delete(doc)
   }
 
-  // Renderiza em resolução de tela (zoom × devicePixelRatio) e reduz o documento com transform
-  // para o texto ficar nítido em telas densas.
+  // Layout em resolução de tela (zoom × devicePixelRatio) e documento reduzido com transform 1/dpr, para o
+  // texto ficar nítido em telas densas. O bitmap pode ser menor que o layout (teto de pixels): aí é esticado.
   const scale = zoom * devicePixelRatio
+  const viewport = page.getViewport({ scale })
+  const base = page.getViewport({ scale: 1 })
+  const bitmapViewport = page.getViewport({ scale: pageBitmapScale(zoom, devicePixelRatio, base.width, base.height) })
+
+  // A imagem anterior (zoom antigo) passa JÁ para o tamanho novo, esticada: sem isto ela ficava com o tamanho
+  // antigo até o novo render terminar — no device, metade da página por ~2 s no zoom in e cortada/ampliada no
+  // zoom out. Fica um pouco suave até a versão nítida substituí-la.
+  const previous = doc.querySelector<HTMLImageElement>('#canvas img')
+  if (previous) Object.assign(previous.style, { width: `${viewport.width}px`, height: `${viewport.height}px` })
+
+  const pdfjs = await loadPdfjs()
+  // Fora da tela (zoom): deixa a página visível desenhar primeiro; um zoom novo nesse meio-tempo descarta este.
+  if (previous && !isFrameOnScreen(doc)) {
+    await sleep(OFFSCREEN_RENDER_DELAY_MS)
+    if (renderGenerations.get(doc) !== generation || !doc.defaultView) return
+  }
+
   doc.documentElement.style.transform = `scale(${1 / devicePixelRatio})`
   doc.documentElement.style.transformOrigin = 'top left'
   doc.documentElement.style.setProperty('--total-scale-factor', String(scale))
@@ -158,15 +197,14 @@ export async function renderPdfPage(page: PdfPageProxy, doc: Document, zoom: num
   doc.documentElement.style.setProperty('--user-unit', '1')
   doc.documentElement.style.setProperty('--scale-round-x', '1px')
   doc.documentElement.style.setProperty('--scale-round-y', '1px')
-  const viewport = page.getViewport({ scale })
 
   // O canvas precisa ser criado no document PAI (onde as fontes do pdf.js são carregadas).
   const canvas = document.createElement('canvas')
-  canvas.height = viewport.height
-  canvas.width = viewport.width
+  canvas.height = bitmapViewport.height
+  canvas.width = bitmapViewport.width
   const canvasContext = canvas.getContext('2d')
   if (!canvasContext) return
-  const renderTask = page.render({ canvasContext, viewport, pageColors })
+  const renderTask = page.render({ canvasContext, viewport: bitmapViewport, pageColors })
   activeRenderTasks.set(doc, renderTask)
 
   // Liberar o bitmap de um canvas descartado: canvas grande segura memória até o GC.
@@ -197,14 +235,14 @@ export async function renderPdfPage(page: PdfPageProxy, doc: Document, zoom: num
   }
 
   // Canvas → PNG (data: URL) → <img> (ver canvasToPngDataUrl).
-  const { width, height } = canvas
   const dataUrl = canvasToPngDataUrl(canvas)
   release(canvas)
   const img = doc.createElement('img')
   img.alt = ''
   img.draggable = false
-  // Tamanho em pixels do bitmap: o documento inteiro já é reduzido por transform 1/dpr (acima).
-  Object.assign(img.style, { display: 'block', width: `${width}px`, height: `${height}px`, userSelect: 'none' })
+  // Tamanho do LAYOUT (zoom × dpr; o documento inteiro já é reduzido por transform 1/dpr). Igual ao bitmap,
+  // exceto acima do teto de pixels, quando o bitmap menor é esticado.
+  Object.assign(img.style, { display: 'block', width: `${viewport.width}px`, height: `${viewport.height}px`, userSelect: 'none' })
   img.src = dataUrl
   // Decodifica antes de trocar: no zoom, a página antiga continua na tela até a nova estar pronta (sem piscar).
   const decoded = await img.decode().then(() => true, () => false)
