@@ -44,6 +44,21 @@ export function subscribeImportActivity(listener: () => void): () => void {
   return () => listeners.delete(listener)
 }
 
+/**
+ * Resolve quando não houver importação em andamento (na hora, se já estiver livre). Para quem não pode
+ * simplesmente recusar com IMPORT_IN_PROGRESS_MESSAGE — ex.: arquivo recebido por "abrir com", que se perderia.
+ */
+export function waitForImportIdle(): Promise<void> {
+  if (!activeImport) return Promise.resolve()
+  return new Promise((resolve) => {
+    const unsubscribe = subscribeImportActivity(() => {
+      if (activeImport) return
+      unsubscribe()
+      resolve()
+    })
+  })
+}
+
 export async function runExclusiveImport<T>(
   kind: ActiveImportKind,
   label: string | undefined,

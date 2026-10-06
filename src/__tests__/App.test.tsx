@@ -32,6 +32,7 @@ const mocks = vi.hoisted(() => ({
   importNativeEpub: vi.fn(),
   isImportInProgress: vi.fn(() => false),
   cancelActiveImport: vi.fn(),
+  waitForImportIdle: vi.fn(async () => undefined),
   getBookById: vi.fn(),
 }))
 
@@ -233,6 +234,11 @@ vi.mock('@/services/NativeLibraryImportService', () => ({
   consumePendingExternalEpubIntent: mocks.consumePendingExternalEpubIntent,
 }))
 
+vi.mock('@/services/ImportCoordinator', () => ({
+  IMPORT_IN_PROGRESS_MESSAGE: 'Ja existe uma importacao em andamento. Aguarde a conclusao antes de iniciar outra.',
+  waitForImportIdle: mocks.waitForImportIdle,
+}))
+
 vi.mock('@/services/BookImportService', () => ({
   BookImportService: {
     importNativeEpub: mocks.importNativeEpub,
@@ -320,6 +326,8 @@ describe('App navigation and auth gate', () => {
     mocks.isImportInProgress.mockReset()
     mocks.isImportInProgress.mockReturnValue(false)
     mocks.cancelActiveImport.mockReset()
+    mocks.waitForImportIdle.mockReset()
+    mocks.waitForImportIdle.mockResolvedValue(undefined)
     mocks.getBookById.mockReset()
     window.localStorage.clear()
     FeatureQuotaService.reset()
@@ -569,14 +577,40 @@ describe('App navigation and auth gate', () => {
     expect(mocks.getBookById).not.toHaveBeenCalled()
   })
 
-  it('nao consome EPUB externo enquanto outra importacao esta em andamento', () => {
+  it('arquivo recebido espera outra importacao terminar antes de ser consumido (antes se perdia)', async () => {
+    const nativeFile = { name: 'GTD.pdf', uri: 'content://downloads/gtd', path: 'GTD.pdf', size: 1234 }
+    let releaseLock: () => void = () => undefined
     mocks.isNativePlatform.mockReturnValue(true)
-    mocks.isImportInProgress.mockReturnValue(true)
+    mocks.waitForImportIdle.mockImplementationOnce(() => new Promise<void>((resolve) => { releaseLock = resolve }))
+    mocks.consumePendingExternalEpubIntent.mockResolvedValue(nativeFile)
+    mocks.importNativeEpub.mockResolvedValue(42)
+    mocks.getBookById.mockResolvedValue({ ...testBook, id: 42 })
 
     render(<App />)
 
+    // Enquanto a outra importação não termina, o arquivo recebido fica guardado no nativo (não é consumido).
+    await waitFor(() => expect(mocks.waitForImportIdle).toHaveBeenCalled())
     expect(mocks.consumePendingExternalEpubIntent).not.toHaveBeenCalled()
-    expect(mocks.importNativeEpub).not.toHaveBeenCalled()
+
+    releaseLock()
+    await waitFor(() => expect(mocks.importNativeEpub).toHaveBeenCalledWith(nativeFile, { importSource: 'local' }))
+    await waitFor(() => assertScreen('reader'))
+  })
+
+  it('arquivo recebido tenta de novo se outra importacao pegar a trava no meio do caminho', async () => {
+    const nativeFile = { name: 'GTD.pdf', uri: 'content://downloads/gtd', path: 'GTD.pdf', size: 1234 }
+    mocks.isNativePlatform.mockReturnValue(true)
+    mocks.consumePendingExternalEpubIntent.mockResolvedValue(nativeFile)
+    mocks.importNativeEpub
+      .mockRejectedValueOnce(new Error('Ja existe uma importacao em andamento. Aguarde a conclusao antes de iniciar outra.'))
+      .mockResolvedValueOnce(42)
+    mocks.getBookById.mockResolvedValue({ ...testBook, id: 42 })
+
+    render(<App />)
+
+    await waitFor(() => assertScreen('reader'))
+    expect(mocks.importNativeEpub).toHaveBeenCalledTimes(2)
+    expect(mocks.consumePendingExternalEpubIntent).toHaveBeenCalledTimes(1)
   })
 
   it('mostra Welcome antes do Login quando nao autenticado', () => {

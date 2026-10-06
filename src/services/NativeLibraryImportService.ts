@@ -154,12 +154,18 @@ export async function consumePendingNativeFolderSelection(): Promise<{ folderNam
 export async function selectNativeEpubFile(): Promise<NativeFolderFile | null> {
   if (!Capacitor.isNativePlatform()) return null
 
+  let result: NativeFolderFile
   try {
-    return await NeoReaderLibrary.selectEpubFile()
+    result = await NeoReaderLibrary.selectEpubFile()
   } catch (error) {
     if (isFileSelectionCanceled(error)) throw new DOMException('Selecao de arquivo cancelada.', 'AbortError')
     throw error
   }
+  // O plugin também guarda a seleção como "pendente" (para o caso de o Android matar o app durante o seletor).
+  // Recebida normalmente, a pendência tem de ser limpa — como a pasta já faz em selectNativeEpubFolder —, senão
+  // o próximo início do app reimportava o último arquivo escolhido (erro fantasma; afetava EPUB e PDF).
+  await NeoReaderLibrary.consumePendingFileSelection().catch(() => undefined)
+  return result
 }
 
 export async function consumePendingNativeFileSelection(): Promise<NativeFolderFile | null> {

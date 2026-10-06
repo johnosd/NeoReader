@@ -32,7 +32,9 @@ import {
   addExternalEpubIntentListener,
   cleanupNativeImportTemp,
   consumePendingExternalEpubIntent,
+  type NativeFolderFile,
 } from './services/NativeLibraryImportService'
+import { IMPORT_IN_PROGRESS_MESSAGE, waitForImportIdle } from './services/ImportCoordinator'
 import { createFlowId, getDiagnosticsNowMs, logEvent } from './services/DiagnosticsLogger'
 import { cleanupExpiredTtsVoiceCaches } from './db/ttsVoiceCaches'
 import { getBookById } from './db/books'
@@ -202,7 +204,11 @@ function App() {
 
     let active = true
     void (async () => {
-      if (BookImportService.isImportInProgress()) return
+      // Arquivo recebido por "abrir com" não pode ser recusado por haver outra importação em andamento: antes ele
+      // era consumido e o import falhava com IMPORT_IN_PROGRESS_MESSAGE, e o arquivo se perdia. Espera a trava
+      // liberar ANTES de consumir, e tenta de novo se outra importação pegar a trava nesse meio-tempo.
+      await waitForImportIdle()
+      if (!active) return
 
       const nativeFile = await consumePendingExternalEpubIntent()
       if (!active || !nativeFile) return
@@ -210,7 +216,7 @@ function App() {
       setExternalImporting(true)
       setExternalImportError(null)
       try {
-        const bookId = await BookImportService.importNativeEpub(nativeFile, { importSource: 'local' })
+        const bookId = await importReceivedFile(nativeFile)
         const book = await getBookById(bookId)
         if (!active) return
         if (!book) throw new Error('Livro importado nao encontrado.')
@@ -522,12 +528,25 @@ function App() {
   })())
 }
 
+// Importa o arquivo recebido por "abrir com"; se outra importação pegou a trava, espera liberar e tenta de novo.
+async function importReceivedFile(nativeFile: NativeFolderFile): Promise<number> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await BookImportService.importNativeEpub(nativeFile, { importSource: 'local' })
+    } catch (error) {
+      const lockBusy = error instanceof Error && error.message === IMPORT_IN_PROGRESS_MESSAGE
+      if (!lockBusy || attempt >= 3) throw error
+      await waitForImportIdle()
+    }
+  }
+}
+
 function externalImportErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
   if (message.toLowerCase().includes('permission') || message.toLowerCase().includes('permiss')) {
-    return 'Nao foi possivel acessar o EPUB recebido. Abra o arquivo novamente pelo Android.'
+    return 'Nao foi possivel acessar o livro recebido. Abra o arquivo novamente pelo Android.'
   }
-  return message || 'Nao foi possivel importar o EPUB recebido.'
+  return message || 'Nao foi possivel importar o livro recebido.'
 }
 
 export default App

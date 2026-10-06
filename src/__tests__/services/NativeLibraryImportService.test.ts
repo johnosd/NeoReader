@@ -50,6 +50,7 @@ import {
   deleteLocalBookFile,
   prepareLocalEpubImport,
   readNativeFolderFile,
+  selectNativeEpubFile,
   type NativeFolderFile,
 } from '@/services/NativeLibraryImportService'
 import { PdfImportError } from '@/services/pdf/PdfImportError'
@@ -69,6 +70,26 @@ describe('NativeLibraryImportService', () => {
     mocks.cleanupImportTemp.mockReset()
     mocks.consumePendingExternalEpubIntent.mockReset()
     mocks.isNativePlatform.mockReturnValue(true)
+  })
+
+  it('arquivo escolhido normalmente limpa a seleção pendente (senão o próximo início reimportava o arquivo)', async () => {
+    const picked = { name: 'livro.pdf', uri: 'content://downloads/1', path: 'livro.pdf', size: 10 }
+    mocks.selectEpubFile.mockReset()
+    mocks.selectEpubFile.mockResolvedValue(picked)
+    mocks.consumePendingFileSelection.mockReset()
+    mocks.consumePendingFileSelection.mockResolvedValue({})
+
+    await expect(selectNativeEpubFile()).resolves.toEqual(picked)
+    expect(mocks.consumePendingFileSelection).toHaveBeenCalledTimes(1)
+  })
+
+  it('seleção de arquivo cancelada não mexe na pendência', async () => {
+    mocks.selectEpubFile.mockReset()
+    mocks.selectEpubFile.mockRejectedValue(new Error('Selecao de arquivo cancelada.'))
+    mocks.consumePendingFileSelection.mockReset()
+
+    await expect(selectNativeEpubFile()).rejects.toThrow()
+    expect(mocks.consumePendingFileSelection).not.toHaveBeenCalled()
   })
 
   it('consome EPUB externo pendente recebido por intent Android', async () => {
