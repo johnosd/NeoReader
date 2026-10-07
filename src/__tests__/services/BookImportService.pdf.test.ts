@@ -327,6 +327,37 @@ describe('importação nativa de PDF', () => {
     expect(mocks.deleteLocalBookFile).toHaveBeenCalledWith('file:///h3.pdf')
   })
 
+  it('arquivo já baixado pelo plugin (OPDS, T079e): importa com origem e tags, sem preparar de novo', async () => {
+    const bookId = await BookImportService.importPreparedNativeBook(
+      preparedNativePdf({ name: 'opds-livro.pdf' }) as never,
+      { importSource: 'opds', tags: [7] },
+    )
+
+    expect(bookId).toBe(77)
+    expect(mocks.prepareLocalEpubImport).not.toHaveBeenCalled()
+    expect(mocks.addBook).toHaveBeenCalledWith(expect.objectContaining({
+      format: 'PDF', storageMode: 'local', fileName: 'opds-livro.pdf', importSource: 'opds', tags: [7],
+    }))
+  })
+
+  it('arquivo já baixado espera o lock liberar em vez de falhar com "importação em andamento"', async () => {
+    let finishFirst: (value: unknown) => void = () => {}
+    mocks.prepareLocalEpubImport.mockReturnValueOnce(new Promise((resolve) => { finishFirst = resolve }))
+    mocks.addBook.mockResolvedValueOnce(1).mockResolvedValueOnce(2)
+
+    const first = BookImportService.importNativeEpub(nativeFile)
+    await Promise.resolve()
+    const second = BookImportService.importPreparedNativeBook(
+      preparedNativePdf({ name: 'opds.pdf', sha256: 'h-opds', localUri: 'file:///h-opds.pdf' }) as never,
+      { importSource: 'opds' },
+    )
+    finishFirst(preparedNativePdf())
+    mocks.pdfParseMetadata.mockResolvedValueOnce(parsedPdf()).mockResolvedValueOnce(parsedPdf({ title: 'Outro livro' }))
+
+    await expect(first).resolves.toBe(1)
+    await expect(second).resolves.toBe(2)
+  })
+
   it('lote misto: PDF recusado conta como erro e o resto do lote segue', async () => {
     const good = { name: 'ok.pdf', uri: 'content://ok', size: 10 }
     const bad = { name: 'senha.pdf', uri: 'content://senha', size: 10 }

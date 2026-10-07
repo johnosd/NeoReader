@@ -90,6 +90,8 @@ interface NeoReaderLibraryPlugin {
   openFileReadSession?(file: NativeFolderFile): Promise<NativeFileReadSession>
   closeFileReadSession?(options: { sessionId: string }): Promise<{ closed?: boolean }>
   prepareLocalEpubImport?(file: NativeFolderFile & { importId?: string }): Promise<NativePreparedEpub>
+  // Opcional (`?`): APKs antigos não têm o método; o chamador checa antes de usar.
+  downloadBookToLocal?(options: { url: string; name: string; headers: Record<string, string>; importId: string; timeoutMs?: number }): Promise<NativePreparedEpub>
   cancelImport?(options: { importId: string }): Promise<{ canceled?: boolean }>
   deleteLocalBookFile?(options: { uri: string }): Promise<{ deleted?: boolean }>
   cleanupImportTemp?(): Promise<{ deleted?: number }>
@@ -234,10 +236,39 @@ export async function prepareLocalEpubImport(
     reportedSize: file.size,
   })
 
+  const nativeTask = NeoReaderLibrary.prepareLocalEpubImport({ ...file, importId })
+  return awaitNativePrepare(nativeTask, { importId, context, fileName: file.name, reportedSize: file.size, stage: 'native-local-prepare' }, options)
+}
+
+// Download OPDS feito pelo plugin direto para o armazenamento do app (T079e): o arquivo não passa
+// pela ponte do WebView. Devolve o mesmo NativePreparedEpub do import local (hash, formato, capa).
+export async function downloadBookToLocal(
+  // timeoutMs: prazo de cada conexão/leitura no plugin; options.timeoutMs: prazo total do lado JS.
+  download: { url: string; name: string; headers?: Record<string, string>; timeoutMs?: number },
+  options: NativeLocalImportOptions = {},
+): Promise<NativePreparedEpub> {
+  if (typeof NeoReaderLibrary.downloadBookToLocal !== 'function') {
+    throw new Error('Download nativo indisponivel nesta versao do app Android.')
+  }
+  const importId = options.importId ?? `native-download-${Date.now().toString(36)}`
+  const context = createImportDiagnosticContext('native-read', { fileName: download.name, stage: 'native-download-start' })
+  throwIfNativeReadAborted(options.signal, context, { fileName: download.name })
+
+  const nativeTask = NeoReaderLibrary.downloadBookToLocal({ ...download, headers: download.headers ?? {}, importId })
+  return awaitNativePrepare(nativeTask, { importId, context, fileName: download.name, stage: 'native-download' }, options)
+}
+
+// Espera o preparo nativo com prazo, cancelamento e diagnóstico (comum ao import local e ao download).
+async function awaitNativePrepare(
+  nativeTask: Promise<NativePreparedEpub>,
+  info: { importId: string; context: ImportDiagnosticContext; fileName: string; reportedSize?: number; stage: string },
+  options: NativeLocalImportOptions,
+): Promise<NativePreparedEpub> {
+  const { importId, context, stage } = info
+  const file = { name: info.fileName, size: info.reportedSize }
   const startedAt = performance.now()
   let timeoutId: ReturnType<typeof setTimeout> | undefined
   let cleanupAbortListener: (() => void) | undefined
-  const nativeTask = NeoReaderLibrary.prepareLocalEpubImport({ ...file, importId })
 
   const cancelNative = () => {
     if (typeof NeoReaderLibrary.cancelImport === 'function') {
@@ -248,10 +279,10 @@ export async function prepareLocalEpubImport(
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => {
       cancelNative()
-      const error = new Error('Tempo limite excedido durante native-local-prepare.')
+      const error = new Error(`Tempo limite excedido durante ${stage}.`)
       errorImportDiagnostic(context, 'timeout', error, {
         importId,
-        timedOutStage: 'native-local-prepare',
+        timedOutStage: stage,
         timeoutMs: options.timeoutMs ?? NATIVE_LOCAL_IMPORT_TIMEOUT_MS,
         fileName: file.name,
         reportedSize: file.size,
@@ -265,7 +296,7 @@ export async function prepareLocalEpubImport(
     const handleAbort = () => {
       cancelNative()
       const error = nativeReadAbortError(options.signal!)
-      errorImportDiagnostic(context, 'native-local-prepare-aborted', error, {
+      errorImportDiagnostic(context, `${stage}-aborted`, error, {
         importId,
         fileName: file.name,
         reportedSize: file.size,
@@ -278,7 +309,7 @@ export async function prepareLocalEpubImport(
 
   try {
     const prepared = await Promise.race([nativeTask, timeoutPromise, abortPromise])
-    logImportDiagnostic(context, 'native-local-prepare-finished', {
+    logImportDiagnostic(context, `${stage}-finished`, {
       fileName: prepared.name,
       reportedSize: file.size,
       localSize: prepared.size,
@@ -292,7 +323,7 @@ export async function prepareLocalEpubImport(
     })
     return prepared
   } catch (error) {
-    errorImportDiagnostic(context, 'native-local-prepare-failed', error, {
+    errorImportDiagnostic(context, `${stage}-failed`, error, {
       fileName: file.name,
       reportedSize: file.size,
       elapsedMs: Math.round(performance.now() - startedAt),

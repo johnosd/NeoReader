@@ -20,10 +20,12 @@ import {
   type ImportDiagnosticContext,
 } from './ImportDiagnostics'
 import {
+  IMPORT_IN_PROGRESS_MESSAGE,
   cancelActiveImport,
   isImportInProgress,
   runExclusiveImport,
   subscribeImportActivity,
+  waitForImportIdle,
 } from './ImportCoordinator'
 import { restoreBookBookmarksFromDrive } from './BookmarkDriveRestoreService'
 import { resizeCoverBlob } from '@/utils/imageResize'
@@ -136,7 +138,35 @@ export class BookImportService {
   }
 
   static async importNativeEpub(nativeFile: NativeFolderFile, options: ImportBookOptions = {}): Promise<number> {
-    return runExclusiveImport('native-single', nativeFile.name, (signal) => this.importNativeEpubUnlocked(nativeFile, signal, options))
+    return runExclusiveImport('native-single', nativeFile.name, (signal) => this.importNativeEpubUnlocked(
+      { fileName: nativeFile.name, reportedSize: nativeFile.size, hasPath: Boolean(nativeFile.path), hasUri: Boolean(nativeFile.uri) },
+      (diagnostic) => prepareLocalEpubImport(nativeFile, { importId: diagnostic.importId, signal }),
+      signal,
+      options,
+    ))
+  }
+
+  // Arquivo já preparado pelo plugin fora do lock (download OPDS nativo, T079e): só a importação
+  // entra no lock, para um segundo download não falhar com "importação em andamento" enquanto o
+  // primeiro ainda está na rede. Mesma checagem de duplicado e mesmo registro do import nativo.
+  // O arquivo já está baixado: em vez de recusar com "importação em andamento" (e deixar a cópia
+  // órfã), espera o lock liberar — mesmo critério do "abrir com" (waitForImportIdle).
+  static async importPreparedNativeBook(prepared: NativePreparedEpub, options: ImportBookOptions = {}): Promise<number> {
+    for (;;) {
+      await waitForImportIdle()
+      try {
+        return await runExclusiveImport('native-single', prepared.name, (signal) => this.importNativeEpubUnlocked(
+          { fileName: prepared.name, reportedSize: prepared.size, hasPath: false, hasUri: true },
+          async () => prepared,
+          signal,
+          options,
+        ))
+      } catch (error) {
+        // Outro import pegou o lock entre o "livre" e a nossa tentativa: espera de novo.
+        if (error instanceof Error && error.message === IMPORT_IN_PROGRESS_MESSAGE) continue
+        throw error
+      }
+    }
   }
 
   static isImportInProgress(): boolean {
@@ -218,23 +248,25 @@ export class BookImportService {
     }
   }
 
-  private static async importNativeEpubUnlocked(nativeFile: NativeFolderFile, signal: AbortSignal, options: ImportBookOptions): Promise<number> {
+  private static async importNativeEpubUnlocked(
+    source: { fileName: string; reportedSize?: number; hasPath: boolean; hasUri: boolean },
+    obtainPrepared: (diagnostic: ImportDiagnosticContext) => Promise<NativePreparedEpub>,
+    signal: AbortSignal,
+    options: ImportBookOptions,
+  ): Promise<number> {
     const diagnostic = createImportDiagnosticContext('native-single', {
-      fileName: nativeFile.name,
-      reportedSize: nativeFile.size,
-      hasPath: Boolean(nativeFile.path),
-      hasUri: Boolean(nativeFile.uri),
+      fileName: source.fileName,
+      reportedSize: source.reportedSize,
+      hasPath: source.hasPath,
+      hasUri: source.hasUri,
     })
 
     try {
       this.throwIfImportAborted(signal, diagnostic, {
-        fileName: nativeFile.name,
-        reportedSize: nativeFile.size,
+        fileName: source.fileName,
+        reportedSize: source.reportedSize,
       })
-      const prepared = await prepareLocalEpubImport(nativeFile, {
-        importId: diagnostic.importId,
-        signal,
-      })
+      const prepared = await obtainPrepared(diagnostic)
       this.throwIfImportAborted(signal, diagnostic, {
         fileName: prepared.name,
         reportedSize: prepared.size,
@@ -264,7 +296,8 @@ export class BookImportService {
 
       const bookId = await this.importPreparedNativeEpubRecord(prepared, {
         data: nativeData,
-        tags: [],
+        // Antes sempre []: o import nativo de arquivo não recebe tags; o download OPDS manda as do feed.
+        tags: options.tags ?? [],
         sourceFolderId: null,
         importSource: options.importSource,
         diagnostic,
@@ -277,8 +310,8 @@ export class BookImportService {
       return bookId
     } catch (error) {
       errorImportDiagnostic(diagnostic, 'native-import-failed', error, {
-        fileName: nativeFile.name,
-        reportedSize: nativeFile.size,
+        fileName: source.fileName,
+        reportedSize: source.reportedSize,
       })
       throw error
     }

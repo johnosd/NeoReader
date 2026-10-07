@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   openFileReadSession: vi.fn(),
   closeFileReadSession: vi.fn(),
   prepareLocalEpubImport: vi.fn(),
+  downloadBookToLocal: vi.fn(),
   cancelImport: vi.fn(),
   deleteLocalBookFile: vi.fn(),
   cleanupImportTemp: vi.fn(),
@@ -30,6 +31,7 @@ vi.mock('@capacitor/core', () => ({
     openFileReadSession: mocks.openFileReadSession,
     closeFileReadSession: mocks.closeFileReadSession,
     prepareLocalEpubImport: mocks.prepareLocalEpubImport,
+    downloadBookToLocal: mocks.downloadBookToLocal,
     cancelImport: mocks.cancelImport,
     deleteLocalBookFile: mocks.deleteLocalBookFile,
     cleanupImportTemp: mocks.cleanupImportTemp,
@@ -48,6 +50,7 @@ import {
   cleanupNativeImportTemp,
   consumePendingExternalEpubIntent,
   deleteLocalBookFile,
+  downloadBookToLocal,
   prepareLocalEpubImport,
   readNativeFolderFile,
   selectNativeEpubFile,
@@ -65,11 +68,42 @@ describe('NativeLibraryImportService', () => {
     mocks.openFileReadSession.mockReset()
     mocks.closeFileReadSession.mockReset()
     mocks.prepareLocalEpubImport.mockReset()
+    mocks.downloadBookToLocal.mockReset()
     mocks.cancelImport.mockReset()
     mocks.deleteLocalBookFile.mockReset()
     mocks.cleanupImportTemp.mockReset()
     mocks.consumePendingExternalEpubIntent.mockReset()
     mocks.isNativePlatform.mockReturnValue(true)
+  })
+
+  it('downloadBookToLocal: o plugin baixa para o armazenamento do app e devolve o arquivo preparado (T079e)', async () => {
+    const prepared = {
+      importId: 'x', format: 'PDF', name: 'opds-livro.pdf', size: 45_000_000, sha256: 'abcdef0123456789',
+      localUri: 'file:///data/books/abc.pdf', originalUri: 'http://calibre/get/pdf/1',
+      metadata: { title: 'opds-livro', author: '' }, diagnostics: { copyMs: 900, inspectMs: 300 },
+    }
+    mocks.downloadBookToLocal.mockResolvedValue(prepared)
+
+    const result = await downloadBookToLocal(
+      { url: 'http://calibre/get/pdf/1', name: 'opds-livro.pdf', headers: { Authorization: 'Basic eA==' }, timeoutMs: 30_000 },
+      { importId: 'dl-1' },
+    )
+
+    expect(result).toBe(prepared)
+    expect(mocks.downloadBookToLocal).toHaveBeenCalledWith({
+      url: 'http://calibre/get/pdf/1', name: 'opds-livro.pdf', headers: { Authorization: 'Basic eA==' }, timeoutMs: 30_000, importId: 'dl-1',
+    })
+  })
+
+  it('downloadBookToLocal: PDF recusado pelo plugin vira o erro tipado do app; prazo total cancela no plugin', async () => {
+    mocks.downloadBookToLocal.mockRejectedValueOnce(Object.assign(new Error('PDF invalido'), { code: 'PDF_INVALID' }))
+    await expect(downloadBookToLocal({ url: 'http://x/1', name: 'a.pdf' })).rejects.toBeInstanceOf(PdfImportError)
+
+    mocks.downloadBookToLocal.mockReturnValueOnce(new Promise(() => {}))
+    mocks.cancelImport.mockResolvedValue({ canceled: true })
+    await expect(downloadBookToLocal({ url: 'http://x/2', name: 'b.pdf' }, { importId: 'dl-2', timeoutMs: 10 }))
+      .rejects.toThrow('Tempo limite excedido durante native-download.')
+    expect(mocks.cancelImport).toHaveBeenCalledWith({ importId: 'dl-2' })
   })
 
   it('arquivo escolhido normalmente limpa a seleção pendente (senão o próximo início reimportava o arquivo)', async () => {

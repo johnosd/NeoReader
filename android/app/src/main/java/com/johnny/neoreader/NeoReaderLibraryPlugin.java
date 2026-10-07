@@ -37,12 +37,15 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringReader;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
 import java.net.URI;
+import java.net.URL;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.channels.FileChannel;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.UUID;
 import java.util.HashSet;
@@ -80,6 +83,7 @@ public class NeoReaderLibraryPlugin extends Plugin {
     private static final int MAX_FILE_CHUNK_SIZE = 1024 * 1024;
     private static final int COPY_BUFFER_SIZE = 128 * 1024;
     private static final int MAX_COVER_BYTES = 10 * 1024 * 1024;
+    private static final int DOWNLOAD_TIMEOUT_MS = 30_000;
 
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
     private final Map<String, FileReadSession> fileReadSessions = new ConcurrentHashMap<>();
@@ -400,6 +404,74 @@ public class NeoReaderLibraryPlugin extends Plugin {
         String name = call.getString("name", "livro.epub");
         String path = call.getString("path", name);
         long reportedSize = getLongOption(call, "size", 0L);
+        Uri uri = Uri.parse(uriValue);
+        prepareImportFromStream(call, "prepareLocalEpubImport", importId, name, path, uriValue, reportedSize,
+            () -> getContext().getContentResolver().openInputStream(uri));
+    }
+
+    // Download OPDS direto para o armazenamento do app (T079e): o arquivo vai da rede para o disco em
+    // pedaços, sem passar pela ponte do WebView (o CapacitorHttp devolvia o livro inteiro em base64 e
+    // travava com PDFs de dezenas de MB). Depois segue exatamente o mesmo preparo do import local.
+    @PluginMethod
+    public void downloadBookToLocal(PluginCall call) {
+        String url = call.getString("url");
+        if (url == null || !(url.startsWith("http://") || url.startsWith("https://"))) {
+            call.reject("URL de download invalida.");
+            return;
+        }
+        String importId = call.getString("importId", UUID.randomUUID().toString());
+        String name = call.getString("name", "livro.epub");
+        JSObject headers = call.getObject("headers", new JSObject());
+        int timeoutMs = call.getInt("timeoutMs", DOWNLOAD_TIMEOUT_MS);
+        prepareImportFromStream(call, "downloadBookToLocal", importId, name, name, url, 0L,
+            () -> openDownloadStream(url, headers, timeoutMs));
+    }
+
+    // Abre a conexão HTTP e devolve o corpo como stream. Status fora de 2xx vira HttpStatusException
+    // (o JS mostra "Falha ao baixar o livro (401)" etc). Os timeouts valem por conexão e por leitura:
+    // download parado lança SocketTimeoutException em vez de ficar "baixando" para sempre.
+    private InputStream openDownloadStream(String url, JSObject headers, int timeoutMs) throws Exception {
+        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
+        connection.setRequestMethod("GET");
+        connection.setConnectTimeout(timeoutMs);
+        connection.setReadTimeout(timeoutMs);
+        connection.setInstanceFollowRedirects(true);
+        // Sem keep-alive: o Calibre fecha conexão ociosa mandando "408 Request Timeout" nela, e o
+        // próximo download reaproveitava essa conexão e lia o 408 velho (achado no device, T079e).
+        // Download de livro é raro e grande — conexão própria por download não custa nada.
+        connection.setRequestProperty("Connection", "close");
+        Iterator<String> keys = headers.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            String value = headers.getString(key);
+            if (value != null) connection.setRequestProperty(key, value);
+        }
+        int status = connection.getResponseCode();
+        if (status < 200 || status >= 300) {
+            connection.disconnect();
+            throw new HttpStatusException(status);
+        }
+        return connection.getInputStream();
+    }
+
+    // Interface funcional: em Java 8+ um lambda `() -> ...` vira uma implementação dela.
+    private interface StreamOpener {
+        InputStream open() throws Exception;
+    }
+
+    // Preparo comum do import local e do download OPDS: copia para um temporário calculando o SHA-256,
+    // decide o formato pelos bytes, move para books/<sha256>.<ext>, valida o PDF / lê o OPF do EPUB e
+    // devolve o mesmo objeto que o JS já conhece (NativePreparedEpub).
+    private void prepareImportFromStream(
+        PluginCall call,
+        String label,
+        String importId,
+        String name,
+        String path,
+        String originalUri,
+        long reportedSize,
+        StreamOpener opener
+    ) {
         canceledImports.remove(importId);
 
         ioExecutor.execute(() -> {
@@ -408,12 +480,11 @@ public class NeoReaderLibraryPlugin extends Plugin {
             boolean createdLocalFile = false;
             long copyStartedAt = System.currentTimeMillis();
             try {
-                Uri uri = Uri.parse(uriValue);
                 File tmpDir = ensureDirectory("import-tmp");
                 File booksDir = ensureDirectory("books");
                 tmpFile = File.createTempFile(safeFilePrefix(importId), ".epub", tmpDir);
 
-                CopyResult copyResult = copyToTempAndHash(importId, uri, tmpFile);
+                CopyResult copyResult = copyToTempAndHash(importId, opener, tmpFile);
                 checkImportCanceled(importId);
 
                 // Feature 022: o formato vem dos bytes (%PDF-), não da extensão. Todo o resto segue o caminho EPUB.
@@ -461,7 +532,7 @@ public class NeoReaderLibraryPlugin extends Plugin {
                 response.put("size", copyResult.bytesCopied > 0L ? copyResult.bytesCopied : reportedSize);
                 response.put("sha256", copyResult.sha256);
                 response.put("localUri", Uri.fromFile(localFile).toString());
-                response.put("originalUri", uriValue);
+                response.put("originalUri", originalUri);
                 response.put("metadata", metadata);
                 if (cover != null) response.put("cover", cover);
 
@@ -472,7 +543,7 @@ public class NeoReaderLibraryPlugin extends Plugin {
                 diagnostics.put("localFileExisted", localFileExisted);
                 response.put("diagnostics", diagnostics);
 
-                Log.i(TAG, "prepareLocalEpubImport finished. importId=" + importId
+                Log.i(TAG, label + " finished. importId=" + importId
                     + " name=" + name
                     + " bytesCopied=" + copyResult.bytesCopied
                     + " sha256=" + copyResult.sha256.substring(0, Math.min(12, copyResult.sha256.length()))
@@ -483,18 +554,26 @@ public class NeoReaderLibraryPlugin extends Plugin {
             } catch (OperationCanceledException canceled) {
                 deleteQuietly(tmpFile);
                 if (createdLocalFile) deleteQuietly(localFile);
-                Log.w(TAG, "prepareLocalEpubImport canceled. importId=" + importId);
+                Log.w(TAG, label + " canceled. importId=" + importId);
                 call.reject("Importacao cancelada.", canceled);
+            } catch (HttpStatusException httpError) {
+                deleteQuietly(tmpFile);
+                Log.w(TAG, label + " http error. importId=" + importId + " status=" + httpError.status);
+                call.reject("Falha ao baixar o livro (" + httpError.status + ")", "HTTP_" + httpError.status, httpError);
+            } catch (java.net.SocketTimeoutException timeout) {
+                deleteQuietly(tmpFile);
+                Log.w(TAG, label + " timeout. importId=" + importId);
+                call.reject("Tempo esgotado ao baixar o livro.", "DOWNLOAD_TIMEOUT", timeout);
             } catch (PdfImportHelper.PdfImportException pdfError) {
                 // PDF com senha ou ilegível (FR-015): nada entra na biblioteca e a cópia local é removida.
                 deleteQuietly(tmpFile);
                 if (createdLocalFile) deleteQuietly(localFile);
-                Log.w(TAG, "prepareLocalEpubImport pdf rejected. importId=" + importId + " code=" + pdfError.code);
+                Log.w(TAG, label + " pdf rejected. importId=" + importId + " code=" + pdfError.code);
                 call.reject(pdfError.getMessage(), pdfError.code, pdfError);
             } catch (Exception error) {
                 deleteQuietly(tmpFile);
                 if (createdLocalFile) deleteQuietly(localFile);
-                Log.e(TAG, "prepareLocalEpubImport failed. importId=" + importId + " name=" + name, error);
+                Log.e(TAG, label + " failed. importId=" + importId + " name=" + name, error);
                 call.reject("Erro ao preparar importacao local do EPUB: "
                     + error.getClass().getSimpleName()
                     + ": "
@@ -921,11 +1000,11 @@ public class NeoReaderLibraryPlugin extends Plugin {
         return prefix.length() >= 3 ? prefix : "imp" + prefix;
     }
 
-    private CopyResult copyToTempAndHash(String importId, Uri uri, File tmpFile) throws Exception {
+    private CopyResult copyToTempAndHash(String importId, StreamOpener opener, File tmpFile) throws Exception {
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
         long bytesCopied = 0L;
 
-        try (InputStream input = getContext().getContentResolver().openInputStream(uri);
+        try (InputStream input = opener.open();
              OutputStream output = new FileOutputStream(tmpFile)) {
             if (input == null) throw new IllegalStateException("Arquivo inacessivel.");
 
@@ -1469,6 +1548,15 @@ public class NeoReaderLibraryPlugin extends Plugin {
             closeable.close();
         } catch (Exception ignored) {
             // Best effort cleanup.
+        }
+    }
+
+    private static class HttpStatusException extends Exception {
+        private final int status;
+
+        HttpStatusException(int status) {
+            super("HTTP " + status);
+            this.status = status;
         }
     }
 

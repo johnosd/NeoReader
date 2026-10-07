@@ -1,34 +1,19 @@
-import { Capacitor, CapacitorHttp } from '@capacitor/core'
+import { Capacitor } from '@capacitor/core'
 import { BookImportService } from '../BookImportService'
+import { downloadBookToLocal } from '../NativeLibraryImportService'
 import { recordDownload } from '../../db/opdsDownloadedEntries'
 import { createTag } from '../../db/tags'
 import { getLanguageLabel } from '../../utils/languageOptions'
 import { OpdsCredentialStore } from './OpdsCredentialStore'
 import { beginOpdsDownload, completeOpdsDownload, failOpdsDownload } from './OpdsDownloadCoordinator'
-import { detectBookFormat } from '../../utils/bookFormat'
 import type { BookFormat } from '../../types/book'
 import type { OpdsCatalog, OpdsFeedEntry } from '../../types/opds'
 
-const DOWNLOAD_TIMEOUT_MS = 30_000
-const MIME_BY_FORMAT: Record<BookFormat, string> = {
-  EPUB: 'application/epub+zip',
-  PDF: 'application/pdf',
-}
+// Prazo de cada conexão/leitura no plugin (download parado falha em vez de ficar "baixando").
+const DOWNLOAD_STALL_TIMEOUT_MS = 30_000
+// Prazo total do lado JS: PDFs de catálogo chegam a dezenas de MB em rede lenta.
+const DOWNLOAD_TOTAL_TIMEOUT_MS = 10 * 60_000
 const GENERIC_ERROR_MESSAGE = 'Não foi possível baixar o livro. Tente novamente.'
-
-// Duplicado de propósito em vez de reusar o helper de decode de
-// PublicDomainDownloadService.ts/FishAudioService.ts — mesmo precedente já
-// registrado no plan.md da feature 002 (domínios não relacionados, extrair
-// cedo acoplaria sem necessidade real).
-function decodeBase64ToArrayBuffer(base64: string): ArrayBuffer {
-  const binary = atob(base64)
-  const buffer = new ArrayBuffer(binary.length)
-  const bytes = new Uint8Array(buffer)
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index)
-  }
-  return buffer
-}
 
 // Catálogo OPDS não garante um slug/nome de arquivo limpo como o Standard
 // Ebooks curado (feature 002) — deriva um nome seguro a partir do título.
@@ -47,13 +32,6 @@ function buildFileName(entry: OpdsFeedEntry, format: BookFormat): string {
   return `opds-${safeTitle}.${format === 'PDF' ? 'pdf' : 'epub'}`
 }
 
-// O feed pode mentir no `type` (ex: anuncia PDF e entrega EPUB), então o formato
-// vem dos bytes (DI-011). Conteúdo desconhecido segue como EPUB, igual antes da
-// feature 022: o parser de EPUB continua sendo quem recusa arquivo inválido.
-async function detectDownloadedFormat(bytes: ArrayBuffer): Promise<BookFormat> {
-  return (await detectBookFormat(new Blob([bytes]))) ?? 'EPUB'
-}
-
 // research.md #10 / mesmo caso de OpdsCatalogService.ts: servidor real pode
 // anunciar link http:// mesmo servindo HTTPS. Mas NÃO upgrada quando o
 // catálogo em si já é http:// — self-hosted na rede local costuma ser
@@ -63,33 +41,33 @@ function upgradeToHttps(url: string, catalog: OpdsCatalog): string {
   return url.startsWith('http://') ? `https://${url.slice('http://'.length)}` : url
 }
 
-async function fetchBookBytes(catalog: OpdsCatalog, url: string): Promise<ArrayBuffer> {
-  if (!Capacitor.isNativePlatform()) {
-    throw new Error('Download de catálogo OPDS só é suportado no Android nativo.')
-  }
-
+async function authHeaders(catalog: OpdsCatalog): Promise<Record<string, string>> {
   const headers: Record<string, string> = {}
   if (catalog.hasCredential && catalog.id != null) {
     const credential = await OpdsCredentialStore.get(catalog.id)
     if (credential) headers.Authorization = `Basic ${btoa(`${credential.username}:${credential.password}`)}`
   }
+  return headers
+}
 
-  const response = await CapacitorHttp.request({
-    url: upgradeToHttps(url, catalog),
-    method: 'GET',
-    headers,
-    responseType: 'arraybuffer',
-    connectTimeout: DOWNLOAD_TIMEOUT_MS,
-    readTimeout: DOWNLOAD_TIMEOUT_MS,
-  })
-
-  if (response.status < 200 || response.status >= 300) {
-    throw new Error(`Falha ao baixar o livro (${response.status})`)
+// O plugin baixa direto para o armazenamento do app (T079e): antes o CapacitorHttp devolvia o
+// livro inteiro em base64 pela ponte do WebView, o que travava com PDFs de dezenas de MB.
+// O formato vem dos bytes, no plugin (DI-011): o feed pode mentir no `type`.
+async function downloadToLocal(catalog: OpdsCatalog, entry: OpdsFeedEntry, url: string) {
+  if (!Capacitor.isNativePlatform()) {
+    throw new Error('Download de catálogo OPDS só é suportado no Android nativo.')
   }
-
-  // CapacitorHttp devolve corpo binário como string base64 quando
-  // responseType é 'arraybuffer' — decodifica pra bytes reais do livro.
-  return decodeBase64ToArrayBuffer(response.data as string)
+  const prepared = await downloadBookToLocal(
+    {
+      url: upgradeToHttps(url, catalog),
+      // Nome provisório pelo formato anunciado; o definitivo sai do formato real (abaixo).
+      name: buildFileName(entry, entry.acquisitionFormat ?? 'EPUB'),
+      headers: await authHeaders(catalog),
+      timeoutMs: DOWNLOAD_STALL_TIMEOUT_MS,
+    },
+    { timeoutMs: DOWNLOAD_TOTAL_TIMEOUT_MS },
+  )
+  return { ...prepared, name: buildFileName(entry, prepared.format ?? 'EPUB') }
 }
 
 // Assunto/idioma do feed viram tag automática no livro importado —
@@ -112,16 +90,12 @@ export const OpdsDownloadService = {
     if (!beginOpdsDownload(catalog.id, entry.id)) return null
 
     try {
-      const [bookBuffer, tagIds] = await Promise.all([
-        fetchBookBytes(catalog, entry.acquisitionUrl),
+      const [prepared, tagIds] = await Promise.all([
+        downloadToLocal(catalog, entry, entry.acquisitionUrl),
         resolveEntryTags(entry),
       ])
-      const format = await detectDownloadedFormat(bookBuffer)
-      const fileName = buildFileName(entry, format)
-      const file = new File([bookBuffer], fileName, { type: MIME_BY_FORMAT[format] })
-
-      // importEpub aceita PDF também (nome histórico, DI-001): despacha pelo conteúdo.
-      const bookId = await BookImportService.importEpub(file, { importSource: 'opds', tags: tagIds })
+      // Mesmo caminho do import nativo: dedupe (inclusive título/autor do PDF), metadados e capa.
+      const bookId = await BookImportService.importPreparedNativeBook(prepared, { importSource: 'opds', tags: tagIds })
       await recordDownload(catalog.id, entry.id, bookId)
       completeOpdsDownload(catalog.id, entry.id, bookId)
       return bookId

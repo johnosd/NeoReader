@@ -467,6 +467,11 @@ description: "Tasks da feature 022 — suporte a PDF com paridade de recursos do
 - [X] T079b [US2] (descoberta no T079) O modo texto ficava escondido no painel Aparência e o dono do produto não o achou: botão próprio na barra do leitor só para PDF (`ReaderChrome`, prop `pdfReadingMode`; rótulo do modo de destino; PDF sem texto abre o painel com a explicação). EPUB: barra de 4 botões inalterada. Testes no `ReaderChrome`. Device OK.
 - [X] T079c (descoberta no T079) Selo de formato em Detalhes do Livro (`EPUB` / `PDF · N págs`; livro antigo sem `format` = EPUB), pedido do dono do produto depois de baixar do Gutenberg sem saber o formato. Teste no `BookDetailsScreen`. Device OK.
 - [X] T079d [US1] (descoberta no T079, bloco C) Import nativo de PDF não detectava duplicado por título/autor: o plugin só conhece o nome do arquivo (título = nome, autor vazio), então um livro igual em outro arquivo entrava (ex: 2º "O milagre da manhã / Hal Elrod"). Agora, depois do pdf.js ler os metadados, a checagem é repetida com título/autor reais — arquivo único e lote (inclusive duplicado dentro do mesmo lote); a cópia local é apagada. Só PDF; EPUB inalterado (o plugin já lê o OPF). 2 testes (falham no código antigo). Device: cópia com outro hash e mesmo título/autor recusada ("Este livro ja esta na biblioteca.").
+- [X] T079e [US6] (descoberta no T079, Calibre real) Download OPDS de arquivo grande travava: PDFs de 43 MB ficavam em "Baixando" indefinidamente (a requisição `CapacitorHttp` saía e nunca voltava), enquanto o mesmo arquivo baixa em 1,6 s por `curl` no celular; PDF de 1,9 MB funcionava. Causa provável: `responseType: 'arraybuffer'` devolve o arquivo inteiro em base64 pela ponte do WebView. **Decisão do dono do produto: download nativo.**
+  - Plugin: `downloadBookToLocal` baixa em pedaços direto para `books/<sha256>.<ext>` (login, timeout de conexão/leitura de 30 s, `HTTP_<status>`/`DOWNLOAD_TIMEOUT` como erro) e reaproveita o preparo do import local (`prepareImportFromStream`, extraído do `prepareLocalEpubImport` — formato pelos bytes, validação do PDF, capa).
+  - JS: `downloadBookToLocal` em `NativeLibraryImportService` (prazo total de 10 min, cancelamento; espera comum `awaitNativePrepare`), `BookImportService.importPreparedNativeBook` (mesmo import nativo, com dedupe de título/autor; espera o lock em vez de falhar com "importação em andamento") e `OpdsDownloadService` sem `CapacitorHttp`.
+  - Achado durante a verificação: **HTTP 408** no 2º download depois de minutos parado — o Calibre fecha conexão ociosa mandando 408 nela e o Android reaproveitava a conexão. Corrigido com `Connection: close` por download.
+  - Testes: 15 novos/reescritos (falham no código antigo). Device (Calibre real): PDF de 43 MB baixado em 1,4 s + importado em 1 s e aberto (1ª pág. 0,6 s); PDF de 2,4 MB e, depois de 4 min parado, PDF de 4 MB sem 408; EPUB baixado (884 KB) e recusado corretamente como duplicado do livro que o usuário já tinha.
 - [X] T080 Atualizar `docs/features/` com um resumo do suporte a PDF (arquitetura em 1 página, referenciando esta spec)
 
 **Registro da Fase**:
@@ -494,7 +499,7 @@ description: "Tasks da feature 022 — suporte a PDF com paridade de recursos do
     - Achado: T079d (duplicado por título/autor no import nativo de PDF) — corrigido e verificado no device.
     - Limpeza: os 23 livros de teste removidos pelo fluxo do app (Book options → Delete); biblioteca de volta a 146 livros, progresso do usuário intacto; arquivos enviados ao device apagados.
 - Pendências:
-  - Download OPDS de uma entrada só-PDF num catálogo real (Fase 8) — precisa de catálogo com PDF.
+  - Nenhuma da feature. Download OPDS de PDF validado no Calibre real (T079e).
   - Observação de licença para o release: o projeto não tem um arquivo de avisos de terceiros; o texto completo da licença MIT do foliate-js só está em `node_modules`. Não é do escopo desta feature (vale para todas as dependências), mas fica anotado.
 
 ### Checklist de Release
@@ -506,7 +511,7 @@ description: "Tasks da feature 022 — suporte a PDF com paridade de recursos do
 - [X] Fase 5 (US3 — Word Lens + tradução) concluída
 - [X] Fase 6 (US4 — TTS) concluída
 - [X] Fase 7 (US5 — highlights) concluída
-- [ ] Fase 8 (US6 — OPDS) concluída — download de EPUB pelo catálogo OK no device; falta baixar uma entrada só-PDF de um catálogo real (Gutenberg só tem EPUB)
+- [X] Fase 8 (US6 — OPDS) concluída — device 2026-10-07 com Calibre real: selo "PDF" só nas entradas só-PDF (mistas e EPUB sem selo); PDFs de 1,9 a 43 MB baixados e abertos como na US1 (T079e)
 - [X] `npm run lint && npm test && npm run build && npm run test:debug-epubs` verdes, contagem de testes EPUB ≥ linha de base de T001
 - [X] `quickstart.md` § Regressão EPUB executado no device sem diferença (2026-10-07, SM-S911B)
 - [X] SC-001..SC-009 medidos e registrados (ver Registro da Fase 9 — T079)
