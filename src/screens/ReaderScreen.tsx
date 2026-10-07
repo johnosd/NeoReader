@@ -1558,6 +1558,14 @@ export function ReaderScreen({
             onWordLensDefinition={handleWordLensDefinition}
             onSaveVocab={handleSaveVocab}
             onSpeakOne={(text) => void tts.speakOne(text)}
+            onSectionReady={handleReaderSectionReady}
+            onParagraphTapForTts={(idx) => {
+              const chunks = getTtsChunks()
+              const chunkIdx = Math.max(0, chunks.findIndex(c => c.paraIdx >= idx))
+              void tts.stop().then(() => startPlay(chunks, chunkIdx))
+            }}
+            onTtsUserScrollAway={() => setShowBackToTtsLocation(true)}
+            ttsGlobalActive={ttsPlayerVisible}
           />
         )}
         {/* Modo texto do PDF (US2): o EpubViewer sobre o livro sintético, com a conversão de posições

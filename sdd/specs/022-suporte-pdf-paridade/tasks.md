@@ -346,24 +346,33 @@ description: "Tasks da feature 022 — suporte a PDF com paridade de recursos do
 
 ### Testes da Fase
 
-- [ ] T057 [P] [US4] Testes do contrato de TTS do `PdfPageViewer` em `src/__tests__/components/reader/PdfPageViewer.contract.test.tsx`: `getParagraphs`, `getSentenceChunks` (mesmo formato `TtsChunk`), `getFirstVisibleParagraphIndex`, `highlightTts` em parágrafo que cruza página, `goToNextTtsSection` no último trecho
-- [ ] T058 [US4] Casos em `src/__tests__/hooks/useTTS.test.tsx` com viewer PDF mockado: leitura contínua entre trechos sem cortar frase na virada de página; **casos EPUB existentes intactos**
-- [ ] T059 [US4] Device: `quickstart.md` § TTS (tela apagada, segundo plano, TTS traduzido) e SC-004
-- [ ] T060 [US4] Gate EPUB completo (TTS EPUB em segundo plano incluso)
+- [X] T057 [P] [US4] Testes do contrato de TTS do `PdfPageViewer` em `src/__tests__/components/reader/PdfPageViewer.contract.test.tsx`: `getParagraphs`, `getSentenceChunks` (mesmo formato `TtsChunk`), `getFirstVisibleParagraphIndex`, `highlightTts` em parágrafo que cruza página, `goToNextTtsSection` no último trecho
+- [X] T058 [US4] Casos em `src/__tests__/hooks/useTTS.test.tsx` com viewer PDF mockado: leitura contínua entre trechos sem cortar frase na virada de página; **casos EPUB existentes intactos**
+- [ ] T059 [US4] Device: `quickstart.md` § TTS (tela apagada, segundo plano, TTS traduzido) e SC-004 — 2026-10-07: por decisão do dono do produto, fica para a rodada de device do T079
+- [ ] T060 [US4] Gate EPUB completo (TTS EPUB em segundo plano incluso) — 2026-10-07: parte automatizada verde (ver Registro); checklist no device (TTS do EPUB em segundo plano) no T079
 
 ### Implementation
 
-- [ ] T061 [US4] `src/components/reader/PdfPageViewer.tsx` + `src/components/reader/pdfPage/`: métodos de TTS do contrato (parágrafos do trecho ativo, chunks, destaque por retângulos derivados dos spans inclusive entre páginas, rolagem que respeita scroll manual, `onParagraphTapForTts`, `onTtsUserScrollAway`)
-- [ ] T062 [US4] Modo texto: confirmar TTS e TTS traduzido do `EpubViewer` sobre o livro sintético; cabeçalhos/rodapés/números de página nunca lidos (garantido pela reconstrução, ajustes só em `src/utils/pdfParagraphs.ts`)
+- [X] T061 [US4] `src/components/reader/PdfPageViewer.tsx` + `src/components/reader/pdfPage/`: métodos de TTS do contrato (parágrafos do trecho ativo, chunks, destaque por retângulos derivados dos spans inclusive entre páginas, rolagem que respeita scroll manual, `onParagraphTapForTts`, `onTtsUserScrollAway`)
+- [X] T062 [US4] Modo texto: confirmar TTS e TTS traduzido do `EpubViewer` sobre o livro sintético; cabeçalhos/rodapés/números de página nunca lidos (garantido pela reconstrução, ajustes só em `src/utils/pdfParagraphs.ts`)
 
 **Critério de Conclusão**: TTS lê parágrafos inteiros sem pausa em quebras físicas nem viradas de página (SC-004), com destaque e acompanhamento nos dois modos, em segundo plano e traduzido; checklist EPUB sem diferença.
 
 **Registro da Fase**:
 
-- Status:
+- Status: **Implementada e validada em Chromium (2026-10-07); faltam só as partes de device (T059 e o checklist do T060), movidas para o T079 por decisão do dono do produto.** `EpubViewer` e `useTTS` sem nenhuma mudança nesta fase.
 - Feito:
+  - `pdfPage/pdfPageTts.ts` (novo): parágrafos do TTS = blocos reconstruídos com texto (figura fora); posição no texto do bloco ↔ texto bruto (inverso de `approximateBlockOffset`, com a fronteira entre páginas indo para a seguinte); palavra lida → posição exata na página certa, restrita aos intervalos do bloco; destaque do parágrafo nos spans da camada de texto (cor do tema, `palette.ttsHighlight`) e karaokê envolvendo só os caracteres da palavra, inclusive dentro de spans de Word Lens/vocabulário.
+  - `PdfPageViewer` (T061): métodos de TTS do contrato. Seção = trecho (DI-009), com os parágrafos reconstruídos guardados para o acesso síncrono (trecho atual, o que está sendo lido e o próximo) e prontos antes do `onLoad`. Trecho de leitura fixado no `resetTtsScroll` (rolar não troca o que está sendo lido), como no EPUB. Destaque nas duas páginas de um parágrafo que cruza a virada e reaplicado quando a página é redesenhada (zoom/tema/carregamento). Acompanhamento centraliza o parágrafo sem pular para o topo da página carregada. Rolagem do usuário com o TTS ativo para de acompanhar e avisa uma vez (`onTtsUserScrollAway`), com janela de rolagem programática para navegação, salto de seção e zoom. `goToNextTtsSection` vai ao 1º parágrafo do próximo trecho e avisa `onSectionReady` (mesmo protocolo do EPUB); `false` no último. Com a leitura contínua ativa, tocar num parágrafo leva o TTS até ele (`onParagraphTapForTts`) em vez de traduzir.
+  - `ReaderScreen`: o `PdfPageViewer` recebe `onSectionReady`, `onParagraphTapForTts`, `onTtsUserScrollAway` e `ttsGlobalActive` (os mesmos handlers do EPUB e do modo texto).
+  - T062: no modo texto o TTS do `EpubViewer` funcionou sobre o livro sintético sem nenhum ajuste.
 - Testes executados:
+  - Novos: `pdfPageTts.test.ts` 8 (mapeamento + destaque/karaokê no DOM); `PdfPageViewer.contract.test.tsx` +8 de TTS (parágrafos, chunks no formato `TtsChunk`, destaque nas duas páginas e karaokê, reaplicar após redesenho, troca de trecho e último trecho, toque com TTS ativo, rolagem do usuário × programática) e 1 ajustado (o antigo exigia TTS vazio "até a US4"); `ReaderScreen.test.tsx` +5 (T058: callbacks de TTS na página fiel, leitura contínua entre trechos nos dois modos, último trecho termina, toque recomeça a leitura) — 3 falham com a `ReaderScreen` anterior (controle negativo).
+  - **E2E Chromium** com a `ReaderScreen` e os viewers reais e um `speechSynthesis` falso instalado antes do app (versionado: `scripts/verificacao-visual/pdf-tts.check.js`, 7 critérios): página fiel `1col.pdf` 7/7 (107 frases, 0 com quebra/hífen, destaque nas págs. 2–9 sempre dentro da tela, 0 número de página e 0 cabeçalho corrido lidos, 5 seções atravessadas sozinho); página fiel `O Milagre Da Manhã.pdf` 7/7 (131 frases, Rosto → Créditos → Citações → … → Abertura); modo texto `1col.pdf` 7/7 (Chapter 1 → Chapter 2). Regressão das verificações anteriores no mesmo código: marcador 5/5, pinça 4/4, página fiel 6/6.
+  - Gate: `npx tsc --noEmit -p tsconfig.app.json` OK · `npm run lint` OK · `npm test` **1512 passando + 2 skipped** · `npm run build` OK · `npm run test:debug-epubs` **71**.
 - Pendências:
+  - **Device (T079)**: T059 — TTS com tela apagada e em segundo plano, TTS traduzido e SC-004 no SM-S911B; T060 — TTS do EPUB em segundo plano sem diferença.
+  - Limitações conhecidas: karaokê de palavra não aparece quando a palavra não é achada com segurança no texto bruto (hifenizada entre linhas): fica só o destaque do parágrafo. No navegador o plugin de TTS não emite fronteira de palavra, então o karaokê só foi verificado por teste (no device o nativo emite). TTS traduzido usa o mesmo contrato (`getParagraphs` + destaque de parágrafo), validado por teste, não no E2E (exige provedor de tradução real).
 
 ---
 
@@ -433,7 +442,7 @@ description: "Tasks da feature 022 — suporte a PDF com paridade de recursos do
 - [ ] T076 [P] `CLAUDE.md`: schema v19 (hoje diz v16, R-010), menção a `src/services/pdf/` e ao `PdfPageViewer` na seção Arquitetura
 - [ ] T077 [P] Revisar copy de biblioteca vazia/onboarding que já promete "PDFs e EPUBs" (`src/i18n/messages.ts` ~linhas 262/1075/1886) — agora verdadeira; ajustar se o fluxo real divergir
 - [ ] T078 Revisão de licença (R-002): cabeçalho MIT no `PdfBookFactory.ts`; conferir que nenhum arquivo contém código do Readest
-- [ ] T079 Rodar `quickstart.md` inteiro no device e registrar SC-001..SC-009 — inclui o que restou do T026: SC-001 no corpus completo, import/capa nativa de 20 PDFs (comparar com a capa do `PdfRenderer`), smoke de PDF com link interno (T038s) no APK; e o import de EPUB com capa > 2000 px depois do T038l; marcador de PDF abrindo no parágrafo marcado, inclusive voltando a uma página distante (T038v)
+- [ ] T079 Rodar `quickstart.md` inteiro no device e registrar SC-001..SC-009 — inclui o que restou do T026: SC-001 no corpus completo, import/capa nativa de 20 PDFs (comparar com a capa do `PdfRenderer`), smoke de PDF com link interno (T038s) no APK; e o import de EPUB com capa > 2000 px depois do T038l; marcador de PDF abrindo no parágrafo marcado, inclusive voltando a uma página distante (T038v); TTS de PDF nos dois modos com tela apagada, em segundo plano e traduzido + SC-004 (T059) e TTS do EPUB em segundo plano sem diferença (parte de device do T060)
 - [ ] T080 Atualizar `docs/features/` com um resumo do suporte a PDF (arquitetura em 1 página, referenciando esta spec)
 
 ### Checklist de Release

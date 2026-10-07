@@ -3161,4 +3161,77 @@ describe('ReaderScreen — PDF, Word Lens e tradução (feature 022, US3)', () =
     expect(viewerProps.wordLensLevel).toBeDefined()
     expect(viewerProps.vocabWords).toEqual([])
   })
+
+  // ── US4 (T058): TTS com os dois viewers de PDF, pelo mesmo protocolo de seção do EPUB ──
+
+  it('página fiel recebe os mesmos callbacks de TTS do EpubViewer', async () => {
+    const viewerProps = await renderPdf('page')
+    expect(viewerProps.onSectionReady).toBeTypeOf('function')
+    expect(viewerProps.onParagraphTapForTts).toBeTypeOf('function')
+    expect(viewerProps.onTtsUserScrollAway).toBeTypeOf('function')
+    expect(viewerProps.ttsGlobalActive).toBe(false)
+  })
+
+  it.each(['page', 'text'] as const)('modo %s: leitura contínua entre trechos — fim do trecho → próximo trecho → toca do início', async (mode) => {
+    // A frase que cruza a virada de página vem num chunk só (o viewer lê o parágrafo reconstruído).
+    const firstSection = [
+      { text: 'Primeira frase do livro.', paraIdx: 0, offsetInPara: 0 },
+      { text: 'Segunda frase continua aqui.', paraIdx: 0, offsetInPara: 25 },
+    ]
+    const nextSection = [{ text: 'Capítulo um começa aqui.', paraIdx: 0, offsetInPara: 0 }]
+    mocks.viewerHandle.getSentenceChunks.mockReturnValue(firstSection)
+    mocks.viewerHandle.goToNextTtsSection.mockReturnValue(true)
+    const viewerProps = await renderPdf(mode)
+
+    fireEvent.click(screen.getByText('toggle-tts'))
+    expect(mocks.tts.play).toHaveBeenCalledWith(firstSection, 0)
+
+    await act(async () => {
+      mocks.ttsOptions?.onFinished?.()
+      await Promise.resolve()
+    })
+    expect(mocks.viewerHandle.goToNextTtsSection).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('tts-mini-player')).toBeTruthy()
+
+    mocks.viewerHandle.getSentenceChunks.mockReturnValue(nextSection)
+    await act(async () => {
+      ;(viewerProps.onSectionReady as (sectionIndex: number) => void)(1)
+      await Promise.resolve()
+    })
+    expect(mocks.tts.play).toHaveBeenLastCalledWith(nextSection, 0)
+  })
+
+  it('página fiel: último trecho termina a leitura (sem próxima seção)', async () => {
+    mocks.viewerHandle.getSentenceChunks.mockReturnValue([{ text: 'Fim.', paraIdx: 0, offsetInPara: 0 }])
+    mocks.viewerHandle.goToNextTtsSection.mockReturnValue(false)
+    await renderPdf('page')
+
+    fireEvent.click(screen.getByText('toggle-tts'))
+    await act(async () => {
+      mocks.ttsOptions?.onFinished?.()
+      await Promise.resolve()
+    })
+    expect(mocks.tts.resetPosition).toHaveBeenCalled()
+    expect(screen.queryByTestId('tts-mini-player')).toBeNull()
+  })
+
+  it('página fiel: tocar num parágrafo com o TTS ativo recomeça a leitura dele', async () => {
+    const chunks = [
+      { text: 'Parágrafo zero.', paraIdx: 0, offsetInPara: 0 },
+      { text: 'Parágrafo um.', paraIdx: 1, offsetInPara: 0 },
+    ]
+    mocks.viewerHandle.getSentenceChunks.mockReturnValue(chunks)
+    const viewerProps = await renderPdf('page')
+    fireEvent.click(screen.getByText('toggle-tts'))
+    await flushAsyncWork()
+
+    await act(async () => {
+      ;(mocks.pdfViewerProps!.onParagraphTapForTts as (idx: number) => void)(1)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(viewerProps.ttsGlobalActive).toBe(false) // props capturadas antes do play
+    expect(mocks.pdfViewerProps!.ttsGlobalActive).toBe(true)
+    expect(mocks.tts.play).toHaveBeenLastCalledWith(chunks, 1)
+  })
 })

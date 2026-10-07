@@ -202,9 +202,10 @@ npm run android:run
 | Fase 3 — US1 (import + página fiel) | **Concluída (2026-10-06)**. Device: SC-002 (aberturas fria/quente < 3 s), 30 min sem crash, pinça/nitidez, escaneado e marcador com sync. Restante de device (SC-001 no corpus, 20 PDFs/capa nativa, smoke do T038s, capa grande do T038l) movido para o T079 por decisão do dono do produto. |
 | Fase 4 — US2 (modo texto) | **Implementada e validada em Chromium (2026-10-06)**; falta só o device (T044). SC-003 95–100% em 9 livros reais, SC-005 100% no E2E, troca de modo 0,5–1 s. DI-003 confirmado (`EpubViewer` +9 linhas). |
 | Fase 5 — US3 (Word Lens + tradução) | **Implementada e validada em Chromium (2026-10-06)**; faltam T052/T053 no device. Página fiel: o toque traduz a frase num painel na própria página (R-047). Modo texto: bloco inline do `EpubViewer`. |
-| Fases 6–9 | Não iniciadas |
-| Código de app para PDF | Import (web + Android, importadores por formato), `PdfService`, ficha, idioma, `usePdfReaderSession`, página fiel (`PdfPageViewer`), **modo texto** (`PdfTextBookBuilder` + `PdfLocatorResolver` + `PdfTextModeViewer`, alternância no painel de aparência, modo lembrado por livro), avisos, `ReaderScreen` por capacidades, plugin Java. No modo texto, Word Lens/tradução/TTS/highlights já rodam pelo `EpubViewer` (a validar nas fases 5–7); na página fiel ainda não. OPDS ainda não |
-| Regressão EPUB | 1490 testes passando + 2 skipped (base 1094 inalterada) · corpus EPUB 71 · lint/tipos/build ok · EPUB real abre no Chromium após a Fase 5 · `EpubViewer` só com a prop `openBook` · checklist no device pendente (T044/T053) |
+| Fase 6 — US4 (TTS) | **Implementada e validada em Chromium (2026-10-07)**; T059 e o checklist de device do T060 ficam no T079. Página fiel: parágrafos reconstruídos do trecho, destaque nas duas páginas de um parágrafo que cruza a virada, karaokê, acompanhamento e troca de trecho automática. Modo texto: TTS do `EpubViewer` sem ajuste. `pdf-tts.check.js` 7/7 nos dois modos. |
+| Fases 7–9 | Não iniciadas |
+| Código de app para PDF | Import (web + Android, importadores por formato), `PdfService`, ficha, idioma, `usePdfReaderSession`, página fiel (`PdfPageViewer`, com tradução/Word Lens e **TTS**), modo texto (`PdfTextBookBuilder` + `PdfLocatorResolver` + `PdfTextModeViewer`), avisos, `ReaderScreen` por capacidades, plugin Java. Highlights na página fiel (Fase 7) e OPDS (Fase 8) ainda não |
+| Regressão EPUB | 1512 testes passando + 2 skipped (base 1094 inalterada) · corpus EPUB 71 · lint/tipos/build ok · `EpubViewer` e `useTTS` sem mudança na Fase 6 · checklist no device pendente (T044/T053/T060 → T079) |
 
 ## Riscos e Decisões
 
@@ -264,6 +265,8 @@ npm run android:run
 | R-047 | Página fiel: o toque abriria um balão "Traduzir/Marcar" (texto de T054) — um toque a mais que no EPUB | Médio — paridade de uso com o EPUB (pilar de aprendizado) | Decisão: o toque traduz direto a frase tocada, num painel dentro da página com as mesmas ações do bloco inline do EPUB + Fechar; "Marcar parágrafo" virou ação do painel. |
 | R-048 | Livro sintético servido só por `load()` (blob `application/xhtml+xml`): a página do modo texto virava documento XML e o `innerHTML` do bloco de tradução do EpubViewer lançava ("invalid XML") | Alto — tradução/Word Lens quebrados no modo texto | Resolvido no HTML gerado (DI-003): `loadContent()` → `iframe.srcdoc` (HTML, como os EPUBs do foliate); documentos de conversão também parseados como HTML. Teste de regressão no builder. |
 | R-050 | Marcador de PDF abria no topo da página, e não no parágrafo, quando a página tinha saído da memória: a espera aceitava a imagem antes da camada de texto | Médio — marcador "não abre no local correto" (achado no device) | Resolvido (T038v): espera a camada de texto quando há linha a alcançar + rolagem por conta explícita; `pdf-marcador.check.js` 5/5. Confirmar no device (T079). |
+| R-051 | Karaokê de palavra na página fiel depende de achar a palavra lida no texto bruto da página (o TTS fala o texto reconstruído) | Baixo — palavra hifenizada entre linhas fica sem marca de palavra (o parágrafo continua destacado) | Aceito: busca restrita aos intervalos do bloco, fronteira entre páginas indo para a seguinte; sem palavra achada, só o destaque do parágrafo (mesma degradação do TTS traduzido). |
+| R-052 | No navegador o TTS nativo é o `speechSynthesis`, que num teste automatizado não toca nem emite eventos de forma confiável | Médio — o fluxo real de TTS (troca de trecho, acompanhamento) ficaria sem E2E | Resolvido no E2E: `pdf-tts.check.js` troca o `speechSynthesis` por um falso antes do app carregar (registra cada frase e termina em 120 ms); todo o resto é o código real. Áudio, tela apagada e segundo plano só no device (T079). |
 | R-049 | CSS da camada de texto do pdf.js (`.textLayer span { position:absolute; color:transparent }` e `.textLayer > :not(.markedContent) { font-size; transform }`) atinge qualquer coisa desenhada dentro dela | Médio — painel ilegível, sublinhados fora do lugar | Resolvido: seletores mais específicos (`.textLayer > .nr-pdf-translation`, reset de spans) e tamanho do painel pela escala real até a tela (iframe × camada). |
 
 ## Execution Notes
@@ -276,6 +279,7 @@ npm run android:run
 
 | Data | Fase/Story | Resumo | Pendência Principal |
 | --- | --- | --- | --- |
+| 2026-10-07 | Fase 6 (US4) — TTS | T057, T058, T061, T062: TTS da página fiel sobre os parágrafos reconstruídos do trecho (`pdfPageTts.ts` + métodos do contrato no `PdfPageViewer`), destaque nas duas páginas e karaokê (R-051), acompanhamento com rolagem do usuário respeitada, troca de trecho pelo mesmo protocolo do EPUB; modo texto sem ajuste. E2E com `speechSynthesis` falso (R-052): 7/7 em `1col.pdf` (página e texto) e em O Milagre da Manhã. Gate: 1512 + 2 skipped, 71 EPUB; marcador 5/5, pinça 4/4, página fiel 6/6. | Device no T079 (T059, checklist do T060). Próxima: Fase 7 (US5 — highlights). |
 | 2026-10-07 | Fase 3 (US1) — T038v | Marcador de PDF não abria no parágrafo (R-050, achado no device): corrida imagem × camada de texto ao voltar a página descartada. Corrigido e verificado no Chromium (`pdf-marcador.check.js` 5/5, teste de contrato com controle negativo). Gate: tipos, lint, 1491 + 2 skipped, build, 71 EPUB. Por decisão do dono do produto, testes de device ficam para o fim (T079) | Fase 6 (US4 — TTS) |
 | 2026-10-06 | Fase 5 (US3) — Word Lens e tradução | T050, T051, T054–T056: a página fiel traduz a frase tocada num painel na própria página (R-047) com definição, selo do provedor e ações; Word Lens passivo e vocabulário na camada de texto; mesmos handlers do EPUB na ReaderScreen. Modo texto validado sobre o livro sintético após corrigir documento XML → HTML (R-048). CSS do pdf.js contornado (R-049). E2E Chromium com tradução real e vocabulário gravado nos dois modos. Gate: 1490 + 2 skipped, 71 EPUB. | Device: T044, T052, T053 (APK novo). |
 | 2026-10-06 | Fase 4 (US2) — modo texto | T039–T043, T045–T049 (exceto device): livro sintético reflowable no mesmo `EpubViewer` (só prop `openBook`), conversão localizador ↔ CFI imune a elementos injetados (R-045), páginas sem texto/3+ colunas como imagem (R-046), `PdfTextModeViewer`, alternância no painel e modo por livro. E2E Chromium: SC-003 95–100% em 9 livros reais, SC-005 100%, troca 0,5–1 s, zoom de figura OK, EPUB real OK. Gate: lint/tipos/build OK, 1467 + 2 skipped, 71 EPUB. | T044 no device (checklist EPUB + modo texto) com APK novo. |
@@ -292,18 +296,18 @@ npm run android:run
 | 2026-10-05 | Fase 2 (Foundational) | T007–T018: tipos, utilitários puros, `pdfParagraphs` calibrado em 11 PDFs reais (SC-003 ≥ 95% em prosa), `PdfBookFactory`/`PdfTextExtractor` validados em Chromium (grande.pdf abre em 0,65 s); 135 testes novos; gate EPUB verde (1226 + 71) | `PdfService` deve normalizar `author` (array) e `language`; device só na Fase 3 |
 | 2026-10-05 | Fase 1 (Setup) | T001–T006: baseline EPUB registrada; plugin dev `/vendor/pdfjs`; corpus sintético (12 PDFs, `grande` = 1000 pág./188 MB) + extrator de fixtures; gate EPUB idêntico à baseline (1094 testes + 71 corpus) | Corpus sintético: incluir PDFs reais na calibragem do T015 (R-014) |
 
-**PRÓXIMO**: rodada de device acumulada (APK novo; T044, T052, T053 — checklist EPUB + modo texto + Word Lens/tradução nos dois modos). Depois, Fase 6 (US4 — TTS): a página fiel implementa os métodos de TTS do contrato (T061) e o modo texto valida o TTS do `EpubViewer` sobre o livro sintético (T062).
+**PRÓXIMO**: Fase 7 (US5 — highlights e notas): seleção na camada de texto da página fiel → `HighlightDraftPayload` com localizadores, pintura sobre os spans (inclusive entre páginas) e menu de gerenciar (T063, T067); modo texto via `EpubViewer` com conversão localizador ↔ CFI (T068). Testes de device acumulados para o fim (T079: T044, T052, T053, T059, T060).
 
 ## Arquivos Principais
 
 <!-- Sobrescrita a cada checkpoint — foco da etapa atual, não a árvore inteira. -->
 
-Foco atual: fim da Fase 5 (US3) e início da Fase 6 (US4 — TTS):
+Foco atual: fim da Fase 6 (US4 — TTS) e início da Fase 7 (US5 — highlights):
 
-- `src/components/reader/PdfPageViewer.tsx`: toque → tradução/Word Lens (estado `activeTranslationRef`); próximos métodos de TTS do contrato (T061).
-- `src/components/reader/pdfPage/pdfPageWords.ts` e `pdfPageTranslation.ts`: palavra/frase no texto reconstruído e painel dentro da página.
-- `src/services/pdf/PdfTextBookBuilder.ts`: `loadContent()` (documento HTML no modo texto).
-- `src/screens/ReaderScreen.tsx`: mesmos handlers de tradução/Word Lens/vocabulário para os viewers de PDF; TTS na próxima fase.
+- `src/components/reader/PdfPageViewer.tsx`: TTS (seções = trechos em `ttsSectionsRef`, trecho de leitura em `playbackSectionIdxRef`, destaque em `ttsHighlightRef`, rolagem programática × do usuário); tradução/Word Lens (`activeTranslationRef`). A Fase 7 entra aqui (seleção e pintura de highlights).
+- `src/components/reader/pdfPage/pdfPageTts.ts`: mapeamento texto do bloco ↔ texto bruto e destaque/karaokê na camada de texto — base para pintar highlights por intervalo (Fase 7).
+- `src/screens/ReaderScreen.tsx`: mesmos handlers de TTS/tradução para os viewers de PDF; highlights na próxima fase (T064/T068).
+- `scripts/verificacao-visual/pdf-tts.check.js`: E2E do TTS com `speechSynthesis` falso (modos `page`/`text`).
 
 ## Cuidados para Retomada
 
@@ -327,4 +331,5 @@ Foco atual: fim da Fase 5 (US3) e início da Fase 6 (US4 — TTS):
 - **Playwright sem MCP**: roteiros Node no scratchpad carregam o pacote do projeto com `createRequire('<repo>/package.json')('playwright')`; o harness expõe `__import/__open/__progress/__books`, e `page.evaluate(() => import('/src/...'))` dá acesso aos módulos reais (ex.: `PdfBookFactory`) no dev server.
 - **Desenhar dentro da `.textLayer` do pdf.js**: o CSS dele atinge tudo ali — `span` vira `position:absolute; color:transparent`, e filho direto ganha `font-size: calc(var(--text-scale-factor) * var(--font-height))` + `transform` (especificidade 0,2,0). Use seletores `.textLayer > .classe` e resete `span`. Para tamanhos visuais, meça a escala real (iframe da página × transform da camada); não suponha `devicePixelRatio`.
 - **Modo texto = documento HTML**: o paginator usa `section.loadContent()` em `iframe.srcdoc` (HTML). Sem `loadContent` ele carrega o blob XHTML como XML e o EpubViewer quebra ao injetar HTML (R-048). Ao parsear para conversão de CFI, use `text/html` também.
+- **E2E de TTS no navegador**: troque `window.speechSynthesis` por um falso com `page.addInitScript` ANTES de carregar o harness (o plugin web do TTS guarda a referência no construtor). O falso precisa: `speak()` chamar `onend` depois de um tempo, `cancel()` chamar o `onend` da fala interrompida (o plugin cancela antes de cada fala) e `getVoices()` devolver `[]`. Botão de iniciar: `[aria-label="Start reading"]` (clique via DOM — o chrome pode estar recolhido). Ver `scripts/verificacao-visual/pdf-tts.check.js`.
 - **Heredoc no Bash tool**: scripts Python longos em heredoc falharam algumas vezes com "unexpected EOF while looking for matching `''" — grave o script num arquivo do scratchpad e rode com `python arquivo.py`.

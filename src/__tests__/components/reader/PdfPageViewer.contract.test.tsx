@@ -282,15 +282,15 @@ describe('PdfPageViewer — contrato EpubViewerHandle', () => {
     expect(location.percentage).toBeGreaterThan(0)
   })
 
-  it('métodos de TTS são seguros até a US4, e os de tradução não fazem nada sem tradução aberta', async () => {
+  it('métodos de TTS são seguros sem texto no trecho, e os de tradução não fazem nada sem tradução aberta', async () => {
     const { ref, props } = setup()
     await waitFor(() => expect(props.onLoad).toHaveBeenCalled())
     const handle = ref.current!
 
+    // A sessão padrão não tem parágrafos reconstruídos (reconstructChunk → []).
     expect(handle.getParagraphs()).toEqual([])
     expect(handle.getSentenceChunks()).toEqual([])
     expect(handle.getFirstVisibleParagraphIndex()).toBe(0)
-    expect(handle.goToNextTtsSection()).toBe(false)
     expect(handle.showTranslationLoading()).toBeNull()
     expect(() => {
       handle.highlightTts(0, 0, 0)
@@ -567,5 +567,175 @@ describe('PdfPageViewer — Word Lens e tradução (US3)', () => {
     expect([...doc.querySelectorAll('.textLayer .nr-vocab')].map((el) => el.textContent)).toEqual(['the author'])
     // O sublinhado fica DENTRO do span do item: o toque continua achando o item.
     expect(doc.querySelector('.nr-word-lens')!.closest('span[data-nr-item]')).not.toBeNull()
+  })
+})
+
+// ─── US4: TTS na página fiel (T057) ─────────────────────────────────────────
+
+describe('PdfPageViewer — TTS (US4)', () => {
+  // Trecho 0 (págs. 0–3): título + parágrafo que começa na página 0 e continua na 1, e uma figura (não lida).
+  // Trecho 1 (págs. 4–29): um parágrafo. É o último trecho do livro.
+  const PAGES: Record<number, Array<{ str: string; hasEOL: boolean }>> = {
+    0: [{ str: 'Introdução', hasEOL: true }, { str: 'Primeira frase do livro. Segunda', hasEOL: true }],
+    1: [{ str: 'frase continua aqui.', hasEOL: true }],
+    4: [{ str: 'Capítulo um começa aqui.', hasEOL: true }],
+  }
+  const extracted = (pageIndex: number) => {
+    const items = PAGES[pageIndex] ?? []
+    const itemStarts: number[] = []
+    let rawText = ''
+    for (const item of items) {
+      itemStarts.push(rawText.length)
+      rawText += `${item.str}\n`
+    }
+    return { items, itemStarts, rawText }
+  }
+  const HEADING = { kind: 'heading' as const, text: 'Introdução', pageIndex: 0, ranges: [{ pageIndex: 0, start: 0, end: 10 }] }
+  const PARAGRAPH = {
+    kind: 'paragraph' as const,
+    text: 'Primeira frase do livro. Segunda frase continua aqui.',
+    pageIndex: 0,
+    ranges: [{ pageIndex: 0, start: 11, end: 43 }, { pageIndex: 1, start: 0, end: 20 }],
+  }
+  const FIGURE = { kind: 'figure' as const, text: '', pageIndex: 1, ranges: [] }
+  const CHAPTER = { kind: 'paragraph' as const, text: 'Capítulo um começa aqui.', pageIndex: 4, ranges: [{ pageIndex: 4, start: 0, end: 24 }] }
+
+  function makeTtsSession() {
+    const session = makeSession(30)
+    vi.mocked(session.extractor.getPage).mockImplementation(async (pageIndex: number) => extracted(pageIndex) as never)
+    vi.mocked(session.extractor.reconstructChunk).mockImplementation(async (chunk: { index: number }) =>
+      (chunk.index === 0 ? [HEADING, FIGURE, PARAGRAPH] : [CHAPTER]) as never)
+    return session
+  }
+
+  // Documento de página com um span por item, carregado no foliate falso (evento 'load' + getContents).
+  function pageWithText(pageIndex: number): Document {
+    const doc = makePageDocument()
+    doc.querySelector('.textLayer')!.innerHTML = (PAGES[pageIndex] ?? [])
+      .map((item, i) => `<span data-nr-item="${i}">${item.str}</span>`).join('')
+    return doc
+  }
+
+  async function openTts(overrides: Partial<PdfPageViewerProps> = {}) {
+    const utils = setup({
+      session: makeTtsSession(),
+      onSectionReady: vi.fn(),
+      onParagraphTapForTts: vi.fn(),
+      onTtsUserScrollAway: vi.fn(),
+      onTranslate: vi.fn(),
+      ...overrides,
+    })
+    await waitFor(() => expect(utils.props.onLoad).toHaveBeenCalled())
+    const docs = { 0: pageWithText(0), 1: pageWithText(1), 4: pageWithText(4) }
+    ;(view!.renderer as unknown as { getContents: () => unknown }).getContents = () =>
+      Object.entries(docs).map(([index, doc]) => ({ doc, index: Number(index) }))
+    for (const [index, doc] of Object.entries(docs)) {
+      await act(async () => { view!.fireFoliate('load', { doc, index: Number(index) }) })
+    }
+    return { ...utils, docs }
+  }
+
+  it('parágrafos do trecho = blocos reconstruídos com texto (título incluso, figura fora), já no onLoad', async () => {
+    const { ref } = await openTts()
+    expect(ref.current!.getParagraphs()).toEqual([HEADING.text, PARAGRAPH.text])
+  })
+
+  it('getSentenceChunks no mesmo formato TtsChunk do EPUB, com offsets que apontam para o texto do parágrafo', async () => {
+    const { ref } = await openTts()
+    const chunks = ref.current!.getSentenceChunks()
+    expect(new Set(chunks.map((c) => c.paraIdx))).toEqual(new Set([0, 1]))
+    const paragraphs = ref.current!.getParagraphs()
+    for (const chunk of chunks) {
+      expect(paragraphs[chunk.paraIdx].slice(chunk.offsetInPara, chunk.offsetInPara + chunk.text.length)).toBe(chunk.text)
+    }
+    // A frase que cruza a virada de página é lida inteira, num só chunk (sem corte na página).
+    expect(chunks.some((c) => c.text.includes('Segunda frase continua aqui.'))).toBe(true)
+  })
+
+  it('highlightTts destaca o parágrafo nas DUAS páginas e a palavra lida; clearTts limpa', async () => {
+    const { ref, docs } = await openTts()
+    const segunda = PARAGRAPH.text.indexOf('Segunda')
+    act(() => ref.current!.highlightTts(1, segunda, segunda + 'Segunda'.length))
+
+    await waitFor(() => expect(docs[0].querySelector('[data-nr-item="1"]')!.classList.contains('nr-pdf-tts')).toBe(true))
+    expect(docs[0].querySelector('[data-nr-item="0"]')!.classList.contains('nr-pdf-tts')).toBe(false) // título
+    expect(docs[1].querySelector('[data-nr-item="0"]')!.classList.contains('nr-pdf-tts')).toBe(true) // continuação
+    await waitFor(() => expect(docs[0].querySelector('.nr-pdf-tts-word')?.textContent).toBe('Segunda'))
+
+    // Palavra seguinte, já na página 1: a marca anterior some e a nova aparece na página certa.
+    const frase = PARAGRAPH.text.indexOf('frase continua')
+    act(() => ref.current!.highlightTts(1, frase, frase + 'frase'.length))
+    await waitFor(() => expect(docs[1].querySelector('.nr-pdf-tts-word')?.textContent).toBe('frase'))
+    expect(docs[0].querySelector('.nr-pdf-tts-word')).toBeNull()
+
+    act(() => ref.current!.clearTts())
+    expect(docs[0].querySelector('.nr-pdf-tts, .nr-pdf-tts-word')).toBeNull()
+    expect(docs[1].querySelector('.nr-pdf-tts')).toBeNull()
+  })
+
+  it('página do parágrafo redesenhada (zoom/tema) recebe o destaque de novo', async () => {
+    const { ref, docs } = await openTts()
+    act(() => ref.current!.highlightTts(1, 0, 0))
+    await waitFor(() => expect(docs[1].querySelector('.nr-pdf-tts')).not.toBeNull())
+
+    // O pdf.js recria a camada de texto: os spans novos não têm classe.
+    docs[1].querySelector('.textLayer')!.innerHTML = '<span data-nr-item="0">frase continua aqui.</span>'
+    await act(async () => { docs[1].dispatchEvent(new CustomEvent('nr-pdf-rendered')) })
+    await waitFor(() => expect(docs[1].querySelector('.nr-pdf-tts')).not.toBeNull())
+  })
+
+  it('goToNextTtsSection: vai ao 1º parágrafo do próximo trecho e avisa onSectionReady; false no último', async () => {
+    const { ref, props } = await openTts()
+    const goTo = view!.renderer.goTo as ReturnType<typeof vi.fn>
+    goTo.mockClear()
+
+    let moved = false
+    act(() => { moved = ref.current!.goToNextTtsSection() })
+    expect(moved).toBe(true)
+    await waitFor(() => expect(props.onSectionReady).toHaveBeenCalledWith(1, 'neopdf:v1;p=4;o=0'))
+    expect(goTo).toHaveBeenCalledWith({ index: 4 })
+    // A ReaderScreen pede os chunks no onSectionReady: já são os do trecho novo.
+    expect(ref.current!.getParagraphs()).toEqual([CHAPTER.text])
+
+    expect(ref.current!.goToNextTtsSection()).toBe(false)
+  })
+
+  it('com a leitura contínua ativa, tocar num parágrafo leva o TTS até ele (sem abrir tradução)', async () => {
+    const { props, docs } = await openTts({ ttsGlobalActive: true })
+    await act(async () => {
+      docs[1].querySelector('[data-nr-item="0"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    // Continuação do parágrafo 1 na página 1: o índice é o do parágrafo, não o da página.
+    await waitFor(() => expect(props.onParagraphTapForTts).toHaveBeenCalledWith(1))
+    expect(props.onTranslate).not.toHaveBeenCalled()
+  })
+
+  it('rolagem do usuário durante a leitura para de acompanhar (uma vez); rolagem do próprio app não conta', async () => {
+    const { ref, props } = await openTts()
+    act(() => ref.current!.resetTtsScroll())
+
+    // Logo depois da navegação inicial: dentro da janela de rolagem programática.
+    act(() => { view!.fireRenderer('scroll') })
+    expect(props.onTtsUserScrollAway).not.toHaveBeenCalled()
+
+    const later = Date.now() + 10_000
+    const now = vi.spyOn(Date, 'now').mockReturnValue(later)
+    act(() => { view!.fireRenderer('scroll') })
+    act(() => { view!.fireRenderer('scroll') })
+    expect(props.onTtsUserScrollAway).toHaveBeenCalledTimes(1)
+
+    // resetTtsScroll (voltar ao trecho lido / novo play) volta a acompanhar.
+    act(() => ref.current!.resetTtsScroll({ preservePlaybackSection: true }))
+    act(() => { view!.fireRenderer('scroll') })
+    expect(props.onTtsUserScrollAway).toHaveBeenCalledTimes(2)
+    now.mockRestore()
+  })
+
+  it('sem leitura ativa, rolar não dispara nada', async () => {
+    const { props } = await openTts()
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 10_000)
+    act(() => { view!.fireRenderer('scroll') })
+    expect(props.onTtsUserScrollAway).not.toHaveBeenCalled()
+    now.mockRestore()
   })
 })

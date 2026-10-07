@@ -11,6 +11,7 @@ import type { CefrLevel, WordLensData } from '@/types/wordLens'
 import { getTranslationProviderLabel } from '@/services/TranslationProviderRegistry'
 import type { PdfBlock } from '@/utils/pdfParagraphs'
 import { scheduleWordLensDocument, type WordLensDocumentTask } from '@/utils/wordLensDom'
+import { splitParagraphIntoTtsChunks } from '@/utils/ttsChunking'
 import { findChunkForPage } from '@/utils/pdfChunks'
 import {
   formatPdfPoint,
@@ -50,6 +51,16 @@ import {
   type PdfPanelAction,
 } from './pdfPage/pdfPageTranslation'
 import { nextSentenceInBlock, resolveTapInBlock, wordLensTargetAt, type PdfWordLensTarget } from './pdfPage/pdfPageWords'
+import {
+  blockItemIndexes,
+  clearTtsHighlight,
+  firstBlockEndingAfter,
+  highlightTtsItems,
+  markTtsWord,
+  rawWordStart,
+  sameBlockStart,
+  ttsParagraphBlocks,
+} from './pdfPage/pdfPageTts'
 
 // Página fiel de PDF (feature 022, DI-004): foliate-view sobre o renderer de layout fixo (foliate-fxl) em
 // rolagem contínua. Implementa o mesmo contrato EpubViewerHandle do EpubViewer — ReaderScreen, useTTS e
@@ -83,7 +94,16 @@ export interface PdfPageViewerProps {
   onWordLensDefinition?: (target: WordLensDefinitionTarget) => void
   onSaveVocab?: (sourceText: string, translatedText: string) => void
   onSpeakOne?: (text: string) => void
+  // US4 (TTS) — mesmos callbacks/semântica do EpubViewer. "Seção" = trecho (DI-009).
+  onSectionReady?: (sectionIndex: number, sectionHref?: string) => void
+  onParagraphTapForTts?: (idx: number) => void
+  onTtsUserScrollAway?: () => void
+  // Leitura contínua ativa (tocando ou pausada): tocar num parágrafo leva o TTS até ele em vez de traduzir.
+  ttsGlobalActive?: boolean
 }
+
+// Rolagem feita pelo próprio viewer (TTS acompanhando, salto de seção, zoom) não conta como "usuário rolou".
+const PROGRAMMATIC_SCROLL_MS = 1200
 
 // Tradução aberta na página fiel. É estado (não só DOM) porque o pdf.js recria a camada de texto a cada
 // render (zoom/tema) e o painel precisa ser redesenhado igual.
@@ -155,6 +175,20 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
   const translationSeqRef = useRef(0)
   const wordLensTasksRef = useRef(new Map<Document, WordLensDocumentTask>())
 
+  // TTS (US4). Seções = trechos; os parágrafos de cada uma são lidos de forma assíncrona (reconstrução) e
+  // guardados aqui, porque getParagraphs/getSentenceChunks do contrato são síncronos.
+  const ttsSectionsRef = useRef(new Map<number, PdfBlock[]>())
+  // Trecho da página no topo da tela, e trecho que o TTS está lendo (fixado em resetTtsScroll, como no EPUB:
+  // rolar a tela durante a leitura não troca os parágrafos que estão sendo lidos).
+  const currentSectionIdxRef = useRef(0)
+  const playbackSectionIdxRef = useRef<number | null>(null)
+  const ttsActiveRef = useRef(false)
+  const userScrolledRef = useRef(false)
+  const programmaticScrollUntilRef = useRef(0)
+  // Destaque atual (parágrafo + palavra), reaplicado quando uma página do parágrafo é (re)desenhada.
+  const ttsHighlightRef = useRef<{ block: PdfBlock; wordStart: number; wordEnd: number } | null>(null)
+  const ttsHighlightTokenRef = useRef(0)
+
   // ── Localização ────────────────────────────────────────────────────────────
 
   // Página carregada (iframe montado e camada de texto desenhada) — undefined enquanto não houver.
@@ -209,6 +243,8 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
     if (!view) return
     const { session } = propsRef.current
     const pageIndex = Math.min(Math.max(0, point.pageIndex), session.pageCount - 1)
+    // Navegação do app (marcador, sumário, tema, seção do TTS): não é "usuário rolou".
+    programmaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_MS
 
     await view.renderer.goTo({ index: pageIndex })
     // Ir até uma linha (offset > 0) numa página com texto exige a camada de texto, não só a imagem.
@@ -225,7 +261,10 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
     // Rola até a linha do offset salvo: texto bruto da página → item → <span data-nr-item>.
     if (itemIndex < 0) return
     const span = doc.querySelector<HTMLElement>(`.textLayer span[data-nr-item="${itemIndex}"]`)
-    if (span && frame) scrollRendererToSpan(view.renderer, frame, span)
+    if (span && frame) {
+      programmaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_MS
+      scrollRendererToSpan(view.renderer, frame, span)
+    }
   }
 
   // Põe o topo do span no topo do leitor. Conta explícita em vez de `span.scrollIntoView()`: chamado de dentro do
@@ -286,13 +325,16 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
 
     const exactPercentage = progressPercentage(pageIndex, fractionInPage, session.pageCount)
     const tocItem = tocItemForPage(session.pdfBook.toc, pageIndex)
+    // "Seção" do PDF = trecho (DI-009). Já prepara os parágrafos dele para o TTS (acesso síncrono no contrato).
+    const sectionIndex = findChunkForPage(session.chunks, pageIndex)?.index ?? 0
+    currentSectionIdxRef.current = sectionIndex
+    void loadTtsSection(sectionIndex)
     const payload: ReaderRelocatePayload = {
       cfi: formatPdfPoint({ pageIndex, offset }),
       // Fração precisa (navegação por fração); percentual inteiro como o do EPUB — é o que o chrome exibe.
       fraction: exactPercentage / 100,
       percentage: clampPercentage(exactPercentage),
-      // "Seção" do PDF = trecho (DI-009).
-      sectionIndex: findChunkForPage(session.chunks, pageIndex)?.index ?? 0,
+      sectionIndex,
       tocLabel: tocItem?.label,
       // O ReaderScreen marca o capítulo atual comparando este href com os do sumário (já localizadores).
       sectionHref: tocItem?.href,
@@ -322,14 +364,143 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
   // Itens da camada de texto que pertencem ao bloco nesta página (destaque do parágrafo ativo).
   async function blockItemsOnPage(block: PdfBlock, pageIndex: number): Promise<number[]> {
     const extracted = await propsRef.current.session.extractor.getPage(pageIndex)
-    const ranges = block.ranges.filter((r) => r.pageIndex === pageIndex)
-    const items: number[] = []
-    extracted.items.forEach((item, index) => {
-      const start = extracted.itemStarts[index] ?? 0
-      const end = start + item.str.length
-      if (item.str.trim() && ranges.some((r) => start < r.end && end > r.start)) items.push(index)
-    })
-    return items
+    return blockItemIndexes(block, pageIndex, extracted.itemStarts, extracted.items)
+  }
+
+  // ── TTS (US4) ──────────────────────────────────────────────────────────────
+
+  // Parágrafos (blocos com texto) do trecho `index`, reconstruídos uma vez e guardados para o acesso síncrono.
+  async function loadTtsSection(index: number): Promise<PdfBlock[]> {
+    const cached = ttsSectionsRef.current.get(index)
+    if (cached) return cached
+    const { session } = propsRef.current
+    const chunk = session.chunks[index]
+    if (!chunk) return []
+    const blocks = ttsParagraphBlocks(await session.extractor.reconstructChunk(chunk))
+    ttsSectionsRef.current.set(index, blocks)
+    // Guarda só o necessário: o trecho atual, o que está sendo lido e o próximo (livro grande tem centenas).
+    for (const key of ttsSectionsRef.current.keys()) {
+      const keep = key === index || key === currentSectionIdxRef.current || key === playbackSectionIdxRef.current ||
+        key === currentSectionIdxRef.current + 1
+      if (!keep) ttsSectionsRef.current.delete(key)
+    }
+    return blocks
+  }
+
+  function ttsSectionIndex(): number {
+    return ttsActiveRef.current && playbackSectionIdxRef.current !== null
+      ? playbackSectionIdxRef.current
+      : currentSectionIdxRef.current
+  }
+
+  function ttsBlocks(): PdfBlock[] {
+    return ttsSectionsRef.current.get(ttsSectionIndex()) ?? []
+  }
+
+  function clearTtsHighlightEverywhere() {
+    for (const { doc } of viewRef.current?.renderer.getContents() ?? []) clearTtsHighlight(doc)
+  }
+
+  // Desenha o destaque guardado em ttsHighlightRef nas páginas do parágrafo que estão carregadas. Assíncrono
+  // (texto bruto da página); um destaque mais novo descarta este.
+  async function applyTtsHighlight() {
+    const token = ++ttsHighlightTokenRef.current
+    const state = ttsHighlightRef.current
+    clearTtsHighlightEverywhere()
+    if (!state) return
+    const { session, readerTheme } = propsRef.current
+    const background = getReaderThemePalette(readerTheme).ttsHighlight
+    const pages = [...new Set(state.block.ranges.map((r) => r.pageIndex))]
+    for (const pageIndex of pages) {
+      const doc = getLoadedDoc(pageIndex)
+      if (!doc || !hasRenderedText(doc)) continue // ainda não desenhada: onRendered reaplica
+      const extracted = await session.extractor.getPage(pageIndex)
+      if (token !== ttsHighlightTokenRef.current) return
+      highlightTtsItems(doc, blockItemIndexes(state.block, pageIndex, extracted.itemStarts, extracted.items), background)
+      if (state.wordEnd <= state.wordStart) continue
+      // Karaokê: palavra lida → item → caracteres dentro do item.
+      const word = rawWordStart(state.block, state.wordStart, state.wordEnd, extracted.rawText ?? '')
+      if (!word || word.pageIndex !== pageIndex) continue
+      const itemIndex = itemIndexAtOffset(extracted.itemStarts, extracted.items, word.start)
+      if (itemIndex < 0) continue
+      const startInItem = word.start - (extracted.itemStarts[itemIndex] ?? 0)
+      markTtsWord(doc, itemIndex, startInItem, startInItem + word.length)
+    }
+  }
+
+  // Acompanha a leitura: põe o parágrafo no meio da tela (como o EPUB) sem pular para o topo da página quando
+  // ela já está carregada — a página só é trocada (renderer.goTo) se ainda não estiver montada.
+  async function scrollToBlock(block: PdfBlock) {
+    const view = viewRef.current
+    const start = blockStartPoint(block)
+    if (!view || !start) return
+    const { session } = propsRef.current
+    programmaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_MS
+    const extracted = await session.extractor.getPage(start.pageIndex)
+    const itemIndex = itemIndexAtOffset(extracted.itemStarts, extracted.items, start.offset)
+    let doc = getLoadedDoc(start.pageIndex)
+    if (!doc || !hasRenderedText(doc)) {
+      await view.renderer.goTo({ index: start.pageIndex })
+      doc = (await waitForRenderedPage(start.pageIndex, { needText: itemIndex >= 0 })) ?? undefined
+    }
+    const frame = doc?.defaultView?.frameElement as HTMLElement | null | undefined
+    const span = itemIndex >= 0 ? doc?.querySelector<HTMLElement>(`.textLayer span[data-nr-item="${itemIndex}"]`) : null
+    if (!frame || !span) return
+    // Altura do parágrafo nesta página (do 1º ao último item dele) para centralizá-lo; maior que a tela → começo
+    // dele a 15% do topo.
+    const items = blockItemIndexes(block, start.pageIndex, extracted.itemStarts, extracted.items)
+    const lastSpan = doc!.querySelector<HTMLElement>(`.textLayer span[data-nr-item="${items[items.length - 1] ?? itemIndex}"]`) ?? span
+    const frameRect = frame.getBoundingClientRect()
+    const scale = frame.offsetWidth ? frameRect.width / frame.offsetWidth : 1
+    const top = frameRect.top + span.getBoundingClientRect().top * scale
+    const bottom = frameRect.top + lastSpan.getBoundingClientRect().bottom * scale
+    const host = view.renderer.getBoundingClientRect()
+    const height = Math.max(0, bottom - top)
+    const targetTop = height < host.height * 0.7 ? host.top + (host.height - height) / 2 : host.top + host.height * 0.15
+    const delta = top - targetTop
+    if (Math.abs(delta) < 4) return
+    programmaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_MS
+    view.renderer.scrollTop += delta
+  }
+
+  // Rolagem com o TTS ativo e fora da janela de rolagem programática = o usuário rolou: para de acompanhar e
+  // avisa (a ReaderScreen mostra "voltar ao trecho lido"), mesma regra do EpubViewer.
+  function handleRendererScroll() {
+    if (!ttsActiveRef.current || Date.now() <= programmaticScrollUntilRef.current) return
+    const wasFollowing = !userScrolledRef.current
+    userScrolledRef.current = true
+    if (wasFollowing) propsRef.current.onTtsUserScrollAway?.()
+  }
+
+  // Próximo trecho como seção do TTS: carrega os parágrafos, vai até o 1º e avisa onSectionReady — é quando a
+  // ReaderScreen pede os chunks e continua a leitura (mesmo protocolo do EPUB).
+  function goToNextTtsSectionInternal(): boolean {
+    const { session } = propsRef.current
+    const next = ttsSectionIndex() + 1
+    const chunk = session.chunks[next]
+    if (!chunk) return false
+    programmaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_MS
+    void (async () => {
+      const blocks = await loadTtsSection(next)
+      currentSectionIdxRef.current = next
+      const start = blocks[0] ? blockStartPoint(blocks[0]) : null
+      await navigateToPoint(start ?? { pageIndex: chunk.startPage, offset: 0 })
+      programmaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_MS
+      propsRef.current.onSectionReady?.(next, formatPdfPoint({ pageIndex: chunk.startPage, offset: 0 }))
+    })()
+    return true
+  }
+
+  // Toque num parágrafo com a leitura contínua ativa: o TTS passa a ler dele (em vez de abrir a tradução).
+  async function handleTtsTap(block: PdfBlock, pageIndex: number) {
+    const { session } = propsRef.current
+    const chunk = findChunkForPage(session.chunks, block.pageIndex) ?? findChunkForPage(session.chunks, pageIndex)
+    if (!chunk) return
+    const blocks = await loadTtsSection(chunk.index)
+    const idx = blocks.findIndex((candidate) => sameBlockStart(candidate, block))
+    if (idx < 0) return
+    playbackSectionIdxRef.current = chunk.index
+    propsRef.current.onParagraphTapForTts?.(idx)
   }
 
   // Faixa vertical da linha tocada, em % da página (o painel abre colado nela).
@@ -504,6 +675,12 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
     const start = block ? blockStartPoint(block) : null
     if (!block || !start) return
 
+    // Leitura contínua ativa (tocando ou pausada): o toque navega o TTS, não abre tradução — como no EPUB.
+    if (propsRef.current.ttsGlobalActive) {
+      await handleTtsTap(block, pageIndex)
+      return
+    }
+
     const tap = resolveTapInBlock(block, point, extracted.rawText ?? '')
     const target = wordLensEnabled && wordLensLevel
       ? wordLensTargetAt(tap, block.text, wordLensLevel, wordLensData ?? null)
@@ -675,6 +852,10 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
           if (activeTranslationRef.current === active) highlightTextItems(doc, items)
         })
       }
+      // A camada recriada perdeu o destaque do TTS; vale também para a continuação do parágrafo que acabou de
+      // ser carregada na página seguinte.
+      const tts = ttsHighlightRef.current
+      if (tts && tts.block.ranges.some((r) => r.pageIndex === pageIndex)) void applyTtsHighlight()
       // Zoom/tema refazem a camada de texto: a posição (offset do 1º texto visível) mudou de lugar na tela.
       if (viewRef.current && getTopVisiblePageIndex() === pageIndex) scheduleRelocate()
     }
@@ -715,6 +896,8 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
     const fy = target ? (focal!.y - target.rect.top) / target.rect.height : 0
 
     zoomPctRef.current = nextPct
+    // O reposicionamento abaixo não é "usuário rolou" para o acompanhamento do TTS.
+    programmaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_MS
     // Com zoom > 100% a página passa da largura da tela: libera a rolagem horizontal do host (estilo inline
     // vence a regra :host([flow="scrolled"]) { overflow-x: hidden } do foliate). Antes do scale-factor, para o
     // scrollLeft abaixo já valer.
@@ -752,7 +935,9 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
 
     let cancelled = false
     let view: PdfFoliateView | null = null
+    let rendererForCleanup: FxlRenderer | null = null
     const pageCleanups = pageCleanupsRef.current
+    const ttsSections = ttsSectionsRef.current
     // Pinça também no contêiner: logo depois de rolar os iframes estão sem pointer-events e o toque cai aqui.
     const detachHostPinch = attachPinchZoom(container, makePinchHandlers((center) => center, { coordsFollowViewScale: false }))
 
@@ -781,6 +966,8 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
 
         // Rolagem contínua de páginas (foliate-fxl em flow=scrolled).
         view.renderer.setAttribute('flow', 'scrolled')
+        view.renderer.addEventListener('scroll', handleRendererScroll, { passive: true })
+        rendererForCleanup = view.renderer
         view.renderer.shadowRoot.append(Object.assign(document.createElement('style'), { textContent: FXL_EXTRA_CSS }))
         applyTheme(propsRef.current.readerTheme, propsRef.current.overrideBookColors)
 
@@ -791,6 +978,10 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
         // empilhadas no topo) e rola para uma página do meio do livro; este goTo corrige isso.
         const start = getPdfLocatorStart(propsRef.current.initialTarget ?? propsRef.current.savedLocator)
         await navigateToPoint(start ?? { pageIndex: 0, offset: 0 })
+        if (cancelled) return
+        // Parágrafos do trecho inicial prontos antes do onLoad: o botão de TTS já funciona no primeiro toque.
+        currentSectionIdxRef.current = findChunkForPage(session.chunks, start?.pageIndex ?? 0)?.index ?? 0
+        await loadTtsSection(currentSectionIdxRef.current)
         if (cancelled) return
         readyRef.current = true
         // onLoad depois de posicionar: o ReaderScreen esconde o "carregando" aqui, e a página 0 não pode piscar.
@@ -807,8 +998,11 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
       readyRef.current = false
       if (relocateTimerRef.current) clearTimeout(relocateTimerRef.current)
       detachHostPinch()
+      rendererForCleanup?.removeEventListener('scroll', handleRendererScroll)
       for (const cleanup of pageCleanups.values()) cleanup()
       pageCleanups.clear()
+      ttsSections.clear()
+      ttsHighlightRef.current = null
       viewRef.current = null
       try {
         view?.close()
@@ -879,8 +1073,8 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
       const previous = chunk ? session.chunks[chunk.index - 1] : null
       if (previous) void navigateToPoint({ pageIndex: previous.endPage, offset: 0 }, { alignEnd: true })
     },
-    // US4 (TTS): "seção" = trecho. Sem TTS nesta fase, não há próxima seção para a leitura contínua.
-    goToNextTtsSection: () => false,
+    // US4 (TTS): "seção" = trecho (DI-009); false no último, como o EPUB no último capítulo.
+    goToNextTtsSection: () => goToNextTtsSectionInternal(),
     goTo: (target) => {
       const { session } = propsRef.current
       if (typeof target === 'number') {
@@ -899,14 +1093,49 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
         : { cfi: null }
     },
 
-    // ── Fases seguintes: sem implementação ainda (US3 tradução/Word Lens, US4 TTS) ──
-    getParagraphs: () => [],
-    getSentenceChunks: (): TtsChunk[] => [],
-    getFirstVisibleParagraphIndex: () => 0,
-    highlightTts: () => undefined,
-    clearTts: () => undefined,
-    scrollToParagraph: () => undefined,
-    resetTtsScroll: () => undefined,
+    // ── US4: TTS sobre os parágrafos reconstruídos do trecho ──
+    getParagraphs: () => ttsBlocks().map((block) => block.text),
+    // Mesmo chunking do EPUB (frases agrupadas, offsets no parágrafo para o karaokê).
+    getSentenceChunks: (): TtsChunk[] => {
+      const locale = propsRef.current.book.detectedLanguage ?? undefined
+      const chunks: TtsChunk[] = []
+      ttsBlocks().forEach((block, paraIdx) => {
+        for (const { sentence, offset } of splitParagraphIntoTtsChunks(block.text, 40, locale)) {
+          chunks.push({ text: sentence, paraIdx, offsetInPara: offset })
+        }
+      })
+      return chunks
+    },
+    // Parágrafo que o leitor está vendo: o 1º que ainda não terminou no topo da tela (pode ter começado acima).
+    getFirstVisibleParagraphIndex: () => {
+      const { session } = propsRef.current
+      const top = lastLocationRef.current ? getPdfLocatorStart(lastLocationRef.current.cfi) : null
+      if (!top || findChunkForPage(session.chunks, top.pageIndex)?.index !== currentSectionIdxRef.current) return 0
+      return firstBlockEndingAfter(ttsSectionsRef.current.get(currentSectionIdxRef.current) ?? [], top)
+    },
+    highlightTts: (paraIdx, wordStart, wordEnd) => {
+      const block = ttsBlocks()[paraIdx]
+      ttsHighlightRef.current = block ? { block, wordStart, wordEnd } : null
+      void applyTtsHighlight()
+    },
+    clearTts: () => {
+      ttsActiveRef.current = false
+      playbackSectionIdxRef.current = null
+      ttsHighlightRef.current = null
+      ttsHighlightTokenRef.current++
+      clearTtsHighlightEverywhere()
+    },
+    scrollToParagraph: (idx) => {
+      // Usuário rolou durante a leitura: não puxa a tela de volta (ele usa "voltar ao trecho lido").
+      if (userScrolledRef.current) return
+      const block = ttsBlocks()[idx]
+      if (block) void scrollToBlock(block)
+    },
+    resetTtsScroll: (options) => {
+      userScrolledRef.current = false
+      ttsActiveRef.current = true
+      if (!options?.preservePlaybackSection) playbackSectionIdxRef.current = currentSectionIdxRef.current
+    },
 
     // ── US3: tradução e Word Lens no painel da página ──
     showTranslationLoading: () => {
