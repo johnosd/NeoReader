@@ -1733,6 +1733,10 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       for (const index of Array.from(loadedSectionsRef.current.keys())) {
         if (!liveIndices.has(index)) {
           const content = loadedSectionsRef.current.get(index)
+          const frame = content?.doc.defaultView?.frameElement as HTMLIFrameElement | null | undefined
+          // O FXL emite load antes de publicar a página em getContents().
+          // Um iframe ainda conectado com este Document não foi descartado.
+          if (frame?.isConnected && frame.contentDocument === content?.doc) continue
           if (content) {
             wordLensTasksRef.current.get(content.doc)?.cancel()
             wordLensTasksRef.current.delete(content.doc)
@@ -1759,6 +1763,15 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       const content = buildLoadedSectionContent(index, doc)
       loadedSectionsRef.current.set(index, content)
       return content
+    }
+
+    function reconcileLoadedSections(): void {
+      for (const { index, doc } of viewRef.current?.renderer.getContents() ?? []) {
+        if (typeof index === 'number' && loadedSectionsRef.current.get(index)?.doc !== doc) {
+          registerLoadedSection(index, doc)
+        }
+      }
+      pruneLoadedSections()
     }
 
     function getLoadedSection(index = currentSectionIdxRef.current): LoadedSectionContent | null {
@@ -3862,6 +3875,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
             view?.renderer.primaryIndex ??
             currentSectionIdxRef.current
           lastRelocateRef.current = { ...e.detail, index: sIdx }
+          reconcileLoadedSections()
           const activeSection = activateAndPromoteSection(sIdx)
           const sectionHref = tocItem?.href ?? getSectionHref(sIdx)
           const chapterPercentage = view ? getChapterProgressPercentage(view, fraction, sIdx, tocItem) : undefined
@@ -4425,8 +4439,10 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
           }
           if (cancelled) return
 
-          const primaryIndex = view.renderer.primaryIndex
-          if (typeof primaryIndex === 'number' && activateAndPromoteSection(primaryIndex)) {
+          reconcileLoadedSections()
+          // FXL não expõe primaryIndex; relocate já informa a seção navegada.
+          const primaryIndex = view.renderer.primaryIndex ?? lastRelocateRef.current?.index ?? currentSectionIdxRef.current
+          if (activateAndPromoteSection(primaryIndex)) {
             scheduleSectionFinalization('reconcile')
           }
 

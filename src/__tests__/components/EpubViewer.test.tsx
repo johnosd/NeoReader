@@ -293,6 +293,74 @@ function injectFakeWindow(doc: Document, scrollY: number, innerHeight = 800, scr
 // ─── testes ─────────────────────────────────────────────────────────────────
 
 describe('EpubViewer — abertura do livro', () => {
+  it('FXL: preserva a pagina conectada quando load antecede getContents e nao existe primaryIndex', async () => {
+    vi.useFakeTimers()
+    try {
+      const { foliateEl, props, container, viewerRef } = await renderViewer()
+      Object.defineProperty(foliateEl.renderer, 'primaryIndex', { configurable: true, value: undefined })
+      const getContents = foliateEl.renderer.getContents.getMockImplementation()!
+      let pageLoaded = false
+      foliateEl.renderer.getContents.mockImplementation(() => pageLoaded ? getContents() : [])
+      const iframe = document.createElement('iframe')
+      container.appendChild(iframe)
+      const doc = iframe.contentDocument!
+      doc.body.innerHTML = '<p>Fixed layout page.</p>'
+      const frameWindow = injectFakeWindow(doc, 0)
+      Object.defineProperty(frameWindow, 'frameElement', { value: iframe })
+
+      act(() => { foliateEl.fireFoliate('load', { doc, index: 0 }) })
+      expect(props.onLoad).not.toHaveBeenCalled()
+      // O FXL publica a página em getContents só DEPOIS de emitir load.
+      pageLoaded = true
+      await act(async () => { vi.advanceTimersByTime(400) })
+
+      expect(props.onLoad).toHaveBeenCalledOnce()
+      expect(viewerRef.current?.getParagraphs()).toEqual(['Fixed layout page.'])
+      await act(async () => { vi.advanceTimersByTime(8_000) })
+      expect(props.onError).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('FXL: reconcilia a pagina publicada depois do load pelo indice de relocate', async () => {
+    const onSectionReady = vi.fn()
+    const { foliateEl, props, viewerRef } = await renderViewer({ onSectionReady })
+    Object.defineProperty(foliateEl.renderer, 'primaryIndex', { configurable: true, value: undefined })
+    const getContents = foliateEl.renderer.getContents.getMockImplementation()!
+    let pageLoaded = false
+    foliateEl.renderer.getContents.mockImplementation(() => pageLoaded ? getContents() : [])
+    const doc = makeFakeDoc(['Reconciled fixed page.'])
+    injectFakeWindow(doc, 0)
+
+    act(() => { foliateEl.fireFoliate('load', { doc, index: 1 }) })
+    expect(props.onLoad).not.toHaveBeenCalled()
+    pageLoaded = true
+    act(() => {
+      foliateEl.fireFoliate('relocate', {
+        cfi: 'epubcfi(/6/4)', fraction: 0.5, range: null,
+        section: { current: 1, total: 3 },
+      })
+    })
+
+    expect(props.onLoad).toHaveBeenCalledOnce()
+    expect(onSectionReady).toHaveBeenCalledWith(1, 'chapter-2.xhtml')
+    expect(viewerRef.current?.getParagraphs()).toEqual(['Reconciled fixed page.'])
+
+    // Uma página descartada pode voltar com outro Document no mesmo índice.
+    const reloadedDoc = makeFakeDoc(['Reloaded fixed page.'])
+    injectFakeWindow(reloadedDoc, 0)
+    act(() => {
+      foliateEl.fireFoliate('load', { doc: reloadedDoc, index: 1 })
+      foliateEl.fireFoliate('relocate', {
+        cfi: 'epubcfi(/6/4)', fraction: 0.5, range: null,
+        section: { current: 1, total: 3 },
+      })
+    })
+    expect(viewerRef.current?.getParagraphs()).toEqual(['Reloaded fixed page.'])
+    expect(props.onLoad).toHaveBeenCalledOnce()
+  })
+
   it('chama onLoad quando a primeira seção estabiliza', async () => {
     const { props, foliateEl } = await renderViewer()
     const fakeDoc = makeFakeDoc()

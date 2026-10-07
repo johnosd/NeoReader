@@ -20,9 +20,9 @@
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
 
--keep class com.getcapacitor.** { *; }
+# O Capacitor já mantém subclasses de Plugin e callbacks via consumer rules.
+# Preservar só plugins anotados permite ao R8 otimizar o runtime interno.
 -keep @com.getcapacitor.annotation.CapacitorPlugin class * { *; }
--keep class com.getcapacitor.community.tts.** { *; }
 
 # @capacitor-firebase/authentication ships optional provider handlers. We only
 # configure Google, so Facebook SDK classes are intentionally absent.

@@ -6,8 +6,8 @@ async (page) => {
   // COMO RODAR: `python -I scripts/verificacao-visual/gerar-epub-fxl.py debug-books/fxl/layout-fixo.epub 24`,
   // dev server `npx vite --port 5199 --strictPort` e browser_run_code_unsafe com
   // filename = "scripts/verificacao-visual/epub-fxl.check.js".
-  // ESTADO EM 2026-10-06: REPROVA também no `main` (6c1acb9) — EPUB de layout fixo não abre (timeout de 8 s do
-  // EpubViewer, R-041 / T038r). Não é regressão da feature 022; fica como verificação para quando o T038r for feito.
+  // ESTADO EM 2026-10-07: 3/3 aprovados após o bugfix epub-layout-fixo-no-abre. Antes reprovava também no
+  // `main` (6c1acb9): o registro da página era podado durante load, antes de o FXL publicá-la em getContents().
   // Critérios: renderer foliate-fxl; páginas visíveis com tinta na tela e o título "Página N" certo; depois de rolar
   // até o fim e voltar, a página 1 reaparece; iframes vivos ≤ 8 (teto do foliate); nenhum erro de página no console.
   const BASE = 'http://localhost:5199'

@@ -6,7 +6,6 @@ update-bug-status.ps1.
 
 ## Ideias Futuras
 
-- [Bug] EPUB de layout fixo (`rendition:layout = pre-paginated`: quadrinhos, livros ilustrados) não abre: o `EpubViewer` só chama `onLoad` ao finalizar uma seção do renderer de texto; com o `foliate-fxl` isso nunca acontece e o vigia de 8 s (`INITIAL_INTERACTIVE_TIMEOUT_MS`) mostra "Não foi possível abrir este livro". Pré-existente (igual no `main`, 6c1acb9). Reproduzir com `scripts/verificacao-visual/gerar-epub-fxl.py` + `epub-fxl.check.js`. O patch `evictFoliateScrollPagesAfterLoad` (`vite.config.ts`) já vale para esse renderer. Origem: feature 022, T038r/R-041 (2026-10-06). Caminho: `sdd-bugfix`.
 - PDF: zoom ≥ 300% leva ~2 s até a nitidez final (página inteira renderizada em ~15 Mpx na thread principal). Ideia: renderizar só a área visível em alta resolução (tiles). Aceito como está pelo dono do produto. Origem: feature 022, T038p/R-039 (2026-10-06).
 
 
@@ -39,6 +38,19 @@ update-bug-status.ps1.
 
 ## Bugs
 
+Revisão de 2026-10-07: **17 bugs avaliados** — 11 com correção mantida,
+1 com memória mitigada (métrica do Play Console não verificada), 3 com
+validação ainda parcial e 2 problemas ainda presentes (EPUB de layout fixo
+e otimização R8 adiada). Evidências e limites por bug em
+[revisao-backlog-2026-10-07.md](../sdd/bugs/revisao-backlog-2026-10-07.md).
+Os status históricos abaixo foram preservados; o fluxo antigo do bug
+`sync-bookmarks-nao-acontece-ao-fechar` foi substituído pela feature 021.
+
+Atualização após os fixes (2026-10-07): o EPUB de layout fixo passou na
+reprodução original no navegador; as regras R8 amplas foram removidas.
+A validação R8 no aparelho permanece pendente por escolha do usuário.
+Os resultados finais estão nos relatórios `test.md` de cada bug.
+
 | Slug | Título | Fase Atual | Veredito/Status | Próximo Passo | Última Atualização |
 | --- | --- | --- | --- | --- | --- |
 | alerta-play-console-uso-memoria-acima | Uso de memória acima do threshold do Play Console | Test | verified (com ressalva explícita — ver seção Result abaixo) | Concluído | 2026-09-01 |
@@ -47,16 +59,17 @@ update-bug-status.ps1.
 | tela-sincronizacao-na-nuvem-sem-opcao | Sincronização na Nuvem sem opção de conectar/reconectar fora do caso "token expirado" | Test | verified | Concluído | 2026-09-02 |
 | reconectar-google-drive-nao-recupera-bookmarks | Reconectar Google Drive não recupera bookmarks sem tentativa prévia registrada | Test | verified | Concluído | 2026-09-02 |
 | vitestconfigts-usa-pooloptions-depreciado-no-vitest | `vitest.config.ts` usa `test.poolOptions`, removido no Vitest 4 | Test | verified | Concluído | 2026-09-03 |
-| bucket-optimization-0-alerta-play-console | Bucket "Optimization" (0%) do alerta de qualidade técnica do Play Console | Assess | valid, held (low) — impacto real no Play Console é marginal (ver assessment.md) | Nenhum — held por decisão do usuário (ganho pequeno). Reabrir Fix se prioridade mudar | 2026-09-04 |
+| bucket-optimization-0-alerta-play-console | Bucket "Optimization" (0%) do alerta de qualidade técnica do Play Console | Test | partial | Concluído (com ressalva) ou reabrir Assess | 2026-10-07 |
 | app-pedindo-login-google-muita-frequencia | App pede consentimento do Google repetidamente (Drive) | Test | verified | Concluído | 2026-09-07 |
 | entitlement-pro-oscila-sync-vocabulario-sai | Sync sai como `pro-required` para usuário Pro logo após o cold start | Test | verified | Concluído | 2026-09-07 |
-| bookmark-nao-sincroniza-ao-clicar-no | Bookmark não sincroniza ao clicar no ícone (fica vermelho) | Fix | applied | Rodar fase Test | 2026-09-08 |
+| bookmark-nao-sincroniza-ao-clicar-no | Bookmark não sincroniza ao clicar no ícone (fica vermelho) | Test | partial | Concluído (com ressalva) ou reabrir Assess | 2026-10-07 |
 | clique-no-paragrafo-nao-abre-menu | Clique no parágrafo não abre o menu contextual perto do início/fim do capítulo | Test | verified | Concluído | 2026-09-09 |
 | menu-chrome-leitor-some-sozinho-apos | Menu de chrome do leitor some sozinho após ~2.5s | Test | verified | Concluído | 2026-09-10 |
 | sincronizar-bookmarks-automaticamente-ao-fechar-livro | Sincronizar bookmarks automaticamente ao fechar o livro | Test | verified | Concluído | 2026-09-10 |
 | highlight-some-ao-tocar-no-mesmo | Highlight some ao tocar no mesmo parágrafo pra abrir tradução | Test | verified | Concluído | 2026-09-11 |
 | sync-bookmarks-nao-acontece-ao-fechar | Sync de bookmarks não acontece ao fechar a tela de leitura | Test | partial | Concluído (com ressalva) ou reabrir Assess | 2026-09-11 |
 | fallback-silencioso-tts-premium-nativo-android | Fallback silencioso do TTS premium para o nativo Android | Test | verified | Concluído | 2026-09-23 |
+| epub-layout-fixo-no-abre | EPUB de layout fixo não abre | Test | verified | Concluído | 2026-10-07 |
 
 ## Melhorias Ad-hoc
 
