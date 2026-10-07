@@ -53,25 +53,67 @@ const OPENSEARCH_DESCRIPTION = `<?xml version="1.0"?>
 </OpenSearchDescription>`
 
 describe('OpdsAtomParser', () => {
-  it('normaliza navegação e publicação, filtrando pra só o link EPUB (FR-011/FR-012/FR-013)', () => {
+  it('normaliza navegação e publicação, escolhendo o link EPUB quando existe (FR-011/FR-012/FR-013)', () => {
     const page = parseAtomFeed(REAL_STYLE_FEED, BASE_URL)
 
     expect(page.title).toBe('Test Catalog')
-    expect(page.entries).toHaveLength(2) // pasta + Pride and Prejudice — PDF-only fica de fora
+    expect(page.entries).toHaveLength(3) // pasta + Pride and Prejudice + o livro só-PDF (FR-017 da 022)
 
     const folder = page.entries.find((entry) => entry.kind === 'navigation')
     expect(folder).toMatchObject({ title: 'A Folder', navigationUrl: 'https://example.com/catalog/folder-1' })
+    expect(folder?.acquisitionFormat).toBeUndefined()
 
-    const book = page.entries.find((entry) => entry.kind === 'publication')
+    const book = page.entries.find((entry) => entry.title === 'Pride and Prejudice')
     expect(book).toMatchObject({
       title: 'Pride and Prejudice',
       author: 'Jane Austen',
       acquisitionUrl: 'https://example.com/download/1.epub',
+      acquisitionFormat: 'EPUB',
       coverUrl: 'https://example.com/covers/1.jpg', // resolvido contra baseUrl, não cru
       // 4 LCSH no feed, cap em 3; DCMIType ("Text") excluído por não ser assunto/gênero.
       subjects: ['England -- Fiction', 'Love stories', 'Sisters -- Fiction'],
       language: 'en',
     })
+  })
+
+  it('mostra a entrada só-PDF com o link PDF e acquisitionFormat PDF (FR-017 da 022)', () => {
+    const page = parseAtomFeed(REAL_STYLE_FEED, BASE_URL)
+    const pdfOnly = page.entries.find((entry) => entry.title === 'Some PDF-only Book')
+    expect(pdfOnly).toMatchObject({
+      kind: 'publication',
+      acquisitionUrl: 'https://example.com/download/2.pdf',
+      acquisitionFormat: 'PDF',
+    })
+  })
+
+  it('entrada mista prefere EPUB mesmo com o PDF listado antes; sem EPUB/PDF direto, fica de fora', () => {
+    const feed = `<?xml version="1.0"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
+  <id>urn:test:mixed</id>
+  <title>Mixed</title>
+  <entry>
+    <title>Mixed Book</title>
+    <id>urn:test:mixed-1</id>
+    <link rel="http://opds-spec.org/acquisition" href="/m.pdf" type="application/pdf"/>
+    <link rel="http://opds-spec.org/acquisition/open-access" href="/m.epub" type="application/epub+zip"/>
+  </entry>
+  <entry>
+    <title>Mobi Only</title>
+    <id>urn:test:mobi</id>
+    <link rel="http://opds-spec.org/acquisition" href="/x.mobi" type="application/x-mobipocket-ebook"/>
+  </entry>
+  <entry>
+    <title>DRM PDF</title>
+    <id>urn:test:drm</id>
+    <link rel="http://opds-spec.org/acquisition/borrow" href="/x.acsm" type="application/vnd.adobe.adept+xml">
+      <opds:indirectAcquisition type="application/pdf"/>
+    </link>
+  </entry>
+</feed>`
+    const page = parseAtomFeed(feed, BASE_URL)
+
+    expect(page.entries.map((entry) => entry.title)).toEqual(['Mixed Book'])
+    expect(page.entries[0]).toMatchObject({ acquisitionUrl: 'https://example.com/m.epub', acquisitionFormat: 'EPUB' })
   })
 
   it('resolve nextPageUrl como URL absoluta e deixa searchUrl cru (sem resolver ainda)', () => {

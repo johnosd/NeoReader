@@ -89,6 +89,48 @@ describe('OpdsDownloadService', () => {
     expect(getOpdsDownloadState(1, 'urn:book-1')).toEqual({ key: '1:urn:book-1', status: 'success', bookId: 77 })
   })
 
+  it('PDF baixado vira File .pdf com MIME application/pdf e segue pelo mesmo import (FR-017 da 022)', async () => {
+    const pdfBytes = Array.from('%PDF-1.7\n', (char) => char.charCodeAt(0))
+    mocks.request.mockResolvedValue({ status: 200, data: base64Of(pdfBytes) })
+    mocks.importEpub.mockResolvedValue(55)
+
+    const pdfEntry: OpdsFeedEntry = {
+      ...entry,
+      id: 'e-pdf',
+      acquisitionUrl: 'https://example.com/download/1.pdf',
+      acquisitionFormat: 'PDF',
+    }
+    const bookId = await OpdsDownloadService.download(catalog, pdfEntry)
+
+    expect(bookId).toBe(55)
+    const [file, options] = mocks.importEpub.mock.calls[0] as [File, { importSource: string }]
+    expect(file.name).toBe('opds-dune.pdf')
+    expect(file.type).toBe('application/pdf')
+    expect(options.importSource).toBe('opds')
+    expect(mocks.recordDownload).toHaveBeenCalledWith(1, 'e-pdf', 55)
+    expect(getOpdsDownloadState(1, 'e-pdf')).toEqual({ key: '1:e-pdf', status: 'success', bookId: 55 })
+  })
+
+  it('confia nos bytes, não no type do feed: anunciado como PDF mas chegou um ZIP → .epub', async () => {
+    mocks.request.mockResolvedValue({ status: 200, data: base64Of([0x50, 0x4b, 0x03, 0x04]) })
+    mocks.importEpub.mockResolvedValue(56)
+
+    await OpdsDownloadService.download(catalog, { ...entry, id: 'e-liar', acquisitionFormat: 'PDF' })
+
+    const [file] = mocks.importEpub.mock.calls[0] as [File]
+    expect(file.name).toBe('opds-dune.epub')
+    expect(file.type).toBe('application/epub+zip')
+  })
+
+  it('PDF baixado que o import recusa marca erro com a mensagem do import', async () => {
+    mocks.request.mockResolvedValue({ status: 200, data: base64Of(Array.from('%PDF-1.4', (c) => c.charCodeAt(0))) })
+    mocks.importEpub.mockRejectedValue(new Error('Este PDF está protegido por senha.'))
+
+    await expect(OpdsDownloadService.download(catalog, { ...entry, id: 'e-pdf-err', acquisitionFormat: 'PDF' }))
+      .rejects.toThrow('protegido por senha')
+    expect(getOpdsDownloadState(1, 'e-pdf-err')).toMatchObject({ status: 'error', errorMessage: 'Este PDF está protegido por senha.' })
+  })
+
   it('resolve assunto/idioma da entry em tags via createTag e passa pro import (FR de organização/filtro)', async () => {
     mocks.request.mockResolvedValue({ status: 200, data: base64Of([1, 2, 3]) })
     mocks.importEpub.mockResolvedValue(88)

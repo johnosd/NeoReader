@@ -1,3 +1,5 @@
+import type { BookFormat } from './book'
+
 // Catálogo OPDS configurado (padrão pré-instalado ou adicionado pelo usuário).
 // A credencial (usuário/senha) NUNCA fica aqui nem em nenhuma tabela do Dexie —
 // vive só no secure storage nativo (OpdsCredentialStore), referenciada pelo
@@ -40,6 +42,9 @@ export interface OpdsFeedEntry {
   kind: 'publication' | 'navigation'
   navigationUrl?: string
   acquisitionUrl?: string
+  // Formato anunciado pelo feed para o link escolhido (EPUB preferido, PDF só
+  // quando não há EPUB). Serve só para a UI; o download confia nos bytes.
+  acquisitionFormat?: BookFormat
 }
 
 export interface OpdsFeedPage {

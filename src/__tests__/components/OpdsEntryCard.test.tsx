@@ -35,6 +35,16 @@ describe('OpdsEntryCard', () => {
     expect(onDownload).toHaveBeenCalledWith(publicationEntry)
   })
 
+  it('mostra o selo PDF só em entrada PDF; EPUB fica sem selo (FR-017 da 022)', () => {
+    const { rerender } = render(
+      <OpdsEntryCard entry={{ ...publicationEntry, acquisitionFormat: 'PDF' }} state={stateFor('idle')} onDownload={vi.fn()} onOpenDownloaded={vi.fn()} />,
+    )
+    expect(screen.getByTestId('opds-format-badge').textContent).toBe('PDF')
+
+    rerender(<OpdsEntryCard entry={{ ...publicationEntry, acquisitionFormat: 'EPUB' }} state={stateFor('idle')} onDownload={vi.fn()} onOpenDownloaded={vi.fn()} />)
+    expect(screen.queryByTestId('opds-format-badge')).toBeNull()
+  })
+
   it('mostra o spinner de progresso e ignora toque durante o download', () => {
     const onDownload = vi.fn()
     render(<OpdsEntryCard entry={publicationEntry} state={stateFor('downloading')} onDownload={onDownload} onOpenDownloaded={vi.fn()} />)

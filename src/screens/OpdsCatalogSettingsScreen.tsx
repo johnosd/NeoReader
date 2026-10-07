@@ -29,7 +29,7 @@ type ConnectionStatus = 'checking' | 'connected' | 'error'
 // URLs verificadas ao vivo durante o planejamento desta feature — Standard
 // Ebooks exige conta (feed completo restrito a supporters, confirmado 401
 // sem credencial); Internet Archive/Open Library é público, mas mistura
-// formatos com DRM (filtro EPUB-only já cuida de esconder o que não serve).
+// formatos com DRM (o filtro EPUB/PDF sem DRM já cuida de esconder o que não serve).
 // Nenhuma delas entra habilitada por padrão (FR-018) — só pré-preenche.
 const CATALOG_SUGGESTIONS = [
   { name: 'Standard Ebooks', baseUrl: 'https://standardebooks.org/feeds/opds' },

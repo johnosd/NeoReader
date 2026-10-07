@@ -39,12 +39,12 @@ const FEED = {
 }
 
 describe('OpdsJsonParser', () => {
-  it('normaliza navegação e publicação, filtrando pra só o link EPUB (FR-011/FR-012/FR-013)', () => {
+  it('normaliza navegação e publicação, escolhendo o link EPUB quando existe (FR-011/FR-012/FR-013)', () => {
     const page = parseJsonFeed(FEED, BASE_URL)
 
     expect(page.title).toBe('Test JSON Catalog')
-    // 1 pasta + Dune + Vários Autores — PDF Only fica de fora
-    expect(page.entries).toHaveLength(3)
+    // 1 pasta + Dune + PDF Only + Vários Autores (só-PDF entra pela FR-017 da 022)
+    expect(page.entries).toHaveLength(4)
 
     const folder = page.entries.find((entry) => entry.kind === 'navigation')
     expect(folder).toMatchObject({ title: 'A Folder', navigationUrl: 'https://example.com/catalog/folder-1' })
@@ -53,10 +53,41 @@ describe('OpdsJsonParser', () => {
     expect(dune).toMatchObject({
       author: 'Frank Herbert',
       acquisitionUrl: 'https://example.com/download/1.epub',
+      acquisitionFormat: 'EPUB',
       coverUrl: 'https://example.com/covers/1.jpg',
       subjects: ['Science fiction', 'Adventure', 'Desert planets'], // cap em 3
       language: 'en', // primeiro item quando "language" vem como array
     })
+  })
+
+  it('mostra a entrada só-PDF com o link PDF e acquisitionFormat PDF (FR-017 da 022)', () => {
+    const page = parseJsonFeed(FEED, BASE_URL)
+    expect(page.entries.find((entry) => entry.title === 'PDF Only')).toMatchObject({
+      kind: 'publication',
+      acquisitionUrl: 'https://example.com/download/2.pdf',
+      acquisitionFormat: 'PDF',
+    })
+  })
+
+  it('entrada mista prefere EPUB mesmo com o PDF listado antes; sem EPUB/PDF, fica de fora', () => {
+    const page = parseJsonFeed({
+      publications: [
+        {
+          metadata: { title: 'Mixed' },
+          links: [
+            { rel: 'http://opds-spec.org/acquisition', href: '/m.pdf', type: 'application/pdf' },
+            { rel: 'http://opds-spec.org/acquisition/open-access', href: '/m.epub', type: 'application/epub+zip' },
+          ],
+        },
+        {
+          metadata: { title: 'Mobi Only' },
+          links: [{ rel: 'http://opds-spec.org/acquisition', href: '/x.mobi', type: 'application/x-mobipocket-ebook' }],
+        },
+      ],
+    }, BASE_URL)
+
+    expect(page.entries.map((entry) => entry.title)).toEqual(['Mixed'])
+    expect(page.entries[0]).toMatchObject({ acquisitionUrl: 'https://example.com/m.epub', acquisitionFormat: 'EPUB' })
   })
 
   it('aceita rel como string ou array de strings, e author como objeto/array/string', () => {

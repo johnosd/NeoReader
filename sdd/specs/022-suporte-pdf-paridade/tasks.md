@@ -425,24 +425,32 @@ description: "Tasks da feature 022 — suporte a PDF com paridade de recursos do
 
 ### Testes da Fase
 
-- [ ] T069 [P] [US6] Atualizar `src/__tests__/services/opds/OpdsAtomParser.test.ts` e `OpdsJsonParser.test.ts`: os casos que hoje **esperam descartar** entradas só-PDF passam a esperar a entrada com `acquisitionFormat: 'PDF'`; mistas → EPUB; só-EPUB inalterado
-- [ ] T070 [P] [US6] Casos PDF em `src/__tests__/services/opds/OpdsDownloadService.test.ts` e `OpdsDownloadCoordinator.test.ts`
-- [ ] T071 [US6] Gate EPUB completo (download OPDS de EPUB no device)
+- [X] T069 [P] [US6] Atualizar `src/__tests__/services/opds/OpdsAtomParser.test.ts` e `OpdsJsonParser.test.ts`: os casos que hoje **esperam descartar** entradas só-PDF passam a esperar a entrada com `acquisitionFormat: 'PDF'`; mistas → EPUB; só-EPUB inalterado
+- [X] T070 [P] [US6] Casos PDF em `src/__tests__/services/opds/OpdsDownloadService.test.ts` e `OpdsDownloadCoordinator.test.ts` — o coordinator não depende do formato; o estado de um download PDF é conferido no teste do download
+- [ ] T071 [US6] Gate EPUB completo (download OPDS de EPUB no device) — parte automatizada verde; o download no device (EPUB e PDF) fica no T079
 
 ### Implementation
 
-- [ ] T072 [US6] `src/services/opds/OpdsAtomParser.ts` e `src/services/opds/OpdsJsonParser.ts`: `pickAcquisitionUrl` prefere EPUB e aceita PDF; entrada ganha `acquisitionFormat` (atualizar comentário FR-011 da feature 003)
-- [ ] T073 [US6] `src/services/opds/OpdsDownloadService.ts`: `File` com MIME do formato detectado por bytes; import segue o despacho da Fase 3
-- [ ] T074 [P] [US6] Indicador de formato na UI de entrada OPDS (`src/components/OpdsEntryCard.tsx`) se a entrada for PDF
+- [X] T072 [US6] `src/services/opds/OpdsAtomParser.ts` e `src/services/opds/OpdsJsonParser.ts`: `pickAcquisitionUrl` prefere EPUB e aceita PDF; entrada ganha `acquisitionFormat` (atualizar comentário FR-011 da feature 003)
+- [X] T073 [US6] `src/services/opds/OpdsDownloadService.ts`: `File` com MIME do formato detectado por bytes; import segue o despacho da Fase 3
+- [X] T074 [P] [US6] Indicador de formato na UI de entrada OPDS (`src/components/OpdsEntryCard.tsx`) se a entrada for PDF
 
 **Critério de Conclusão**: catálogo com entradas só-PDF/mistas/só-EPUB se comporta como FR-017, PDF baixado abre como na US1; checklist EPUB sem diferença.
 
 **Registro da Fase**:
 
-- Status:
+- Status: Implementada (2026-10-07); falta só o download no device (T071 → T079).
 - Feito:
+  - `OpdsAtomParser`/`OpdsJsonParser`: `pickAcquisition` escolhe EPUB, senão PDF; a entrada ganha `acquisitionFormat`. Só o `type` do próprio link conta, então aquisição com DRM (ACSM com `indirectAcquisition` PDF) continua fora. Só-EPUB e mistas: mesmo link de antes.
+  - `OpdsDownloadService`: formato decidido pelos bytes (`detectBookFormat`, R-056), arquivo `.pdf` com `application/pdf`, mesmo `BookImportService.importEpub` (já despacha por conteúdo desde a Fase 3); conteúdo desconhecido segue como EPUB, igual antes.
+  - `OpdsEntryCard`: selo "PDF" no canto da capa; EPUB sem selo.
 - Testes executados:
+  - `npx vitest run src/__tests__/services/opds src/__tests__/components/OpdsEntryCard.test.tsx src/__tests__/components/OpdsCatalogRow.test.tsx src/__tests__/screens/OpdsCatalogBrowseScreen.test.tsx src/__tests__/hooks/useOpdsCatalogBrowse.test.ts` → 92/92.
+  - Controle negativo (código antigo + testes novos): 8 falhas esperadas; os 2 que passam são guardas (bytes acima do feed, erro do import).
+  - Gate: `npx tsc --noEmit -p tsconfig.app.json`, `npm run lint`, `npm test` (1539 + 2 skipped), `npm run build`, `npm run test:debug-epubs` (71) — todos com saída 0.
+  - Sem E2E no Chromium: o download OPDS exige `CapacitorHttp` nativo.
 - Pendências:
+  - **Device (T079)**: baixar de um catálogo real uma entrada só-PDF (abre como na US1, selo no card) e uma EPUB (sem diferença).
 
 ---
 
@@ -454,7 +462,7 @@ description: "Tasks da feature 022 — suporte a PDF com paridade de recursos do
 - [ ] T076 [P] `CLAUDE.md`: schema v19 (hoje diz v16, R-010), menção a `src/services/pdf/` e ao `PdfPageViewer` na seção Arquitetura
 - [ ] T077 [P] Revisar copy de biblioteca vazia/onboarding que já promete "PDFs e EPUBs" (`src/i18n/messages.ts` ~linhas 262/1075/1886) — agora verdadeira; ajustar se o fluxo real divergir
 - [ ] T078 Revisão de licença (R-002): cabeçalho MIT no `PdfBookFactory.ts`; conferir que nenhum arquivo contém código do Readest
-- [ ] T079 Rodar `quickstart.md` inteiro no device e registrar SC-001..SC-009 — inclui o que restou do T026: SC-001 no corpus completo, import/capa nativa de 20 PDFs (comparar com a capa do `PdfRenderer`), smoke de PDF com link interno (T038s) no APK; e o import de EPUB com capa > 2000 px depois do T038l; marcador de PDF abrindo no parágrafo marcado, inclusive voltando a uma página distante (T038v); TTS de PDF nos dois modos com tela apagada, em segundo plano e traduzido + SC-004 (T059) e TTS do EPUB em segundo plano sem diferença (parte de device do T060); highlights nos dois modos com seleção por toque longo na página fiel (T065) e checklist EPUB (T066)
+- [ ] T079 Rodar `quickstart.md` inteiro no device e registrar SC-001..SC-009 — inclui o que restou do T026: SC-001 no corpus completo, import/capa nativa de 20 PDFs (comparar com a capa do `PdfRenderer`), smoke de PDF com link interno (T038s) no APK; e o import de EPUB com capa > 2000 px depois do T038l; marcador de PDF abrindo no parágrafo marcado, inclusive voltando a uma página distante (T038v); TTS de PDF nos dois modos com tela apagada, em segundo plano e traduzido + SC-004 (T059) e TTS do EPUB em segundo plano sem diferença (parte de device do T060); highlights nos dois modos com seleção por toque longo na página fiel (T065) e checklist EPUB (T066); download OPDS de uma entrada só-PDF e de uma EPUB num catálogo real (T071)
 - [ ] T080 Atualizar `docs/features/` com um resumo do suporte a PDF (arquitetura em 1 página, referenciando esta spec)
 
 ### Checklist de Release

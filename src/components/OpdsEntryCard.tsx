@@ -13,7 +13,7 @@ interface OpdsEntryCardProps {
 }
 
 // Entry de navegação (pasta/seção do catálogo) — sempre passa o filtro
-// EPUB-only (FR-013), então tem visual próprio, sem estado de download.
+// de formato (FR-013), então tem visual próprio, sem estado de download.
 // Sem capa de propósito: catálogos reais que testamos (Gutenberg) mandam um
 // link de imagem na entry de navegação, mas é um ícone genérico idêntico pra
 // toda entry do feed, não uma capa por item — mostrar isso deixa a UI pior,
@@ -129,6 +129,18 @@ export function OpdsEntryCard({ entry, state, onDownload, onOpenDownloaded, onOp
           className="absolute inset-0 pointer-events-none"
           style={{ background: 'linear-gradient(to top, rgba(7,3,12,0.75) 0%, transparent 40%)' }}
         />
+
+        {/* Só PDF ganha selo: EPUB é o formato padrão do catálogo e fica sem
+            marca, para não poluir a grade (FR-017 da feature 022). */}
+        {entry.acquisitionFormat === 'PDF' && (
+          <span
+            data-testid="opds-format-badge"
+            className="absolute top-[6px] right-[6px] rounded-[4px] px-[5px] py-[1px] text-[9px] font-bold tracking-wide"
+            style={{ background: 'rgba(7,3,12,0.8)', color: '#f1f5f9', border: '1px solid rgba(255,255,255,0.18)' }}
+          >
+            PDF
+          </span>
+        )}
 
         {isDownloading && (
           <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(7,3,12,0.55)' }}>

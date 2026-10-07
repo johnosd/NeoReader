@@ -1,7 +1,9 @@
 import { getFeed, getOpenSearch, REL, type OpdsLink, type OpdsSubject } from 'foliate-js/opds.js'
+import type { BookFormat } from '../../types/book'
 import type { OpdsFeedEntry, OpdsFeedPage } from '../../types/opds'
 
 const EPUB_TYPE = 'application/epub+zip'
+const PDF_TYPE = 'application/pdf'
 
 // Servidor self-hosted real às vezes manda `&` cru fora de uma entidade válida
 // (&amp; &lt; etc) — isso quebra o DOMParser. Escapa só o `&` "solto" (não
@@ -27,10 +29,15 @@ function hasAcquisitionRel(link: OpdsLink): boolean {
   return (link.rel ?? []).some((r) => r === REL.ACQ || r.startsWith(`${REL.ACQ}/`))
 }
 
-// FR-011/FR-012: mantém só o link EPUB, mesmo se a entry tiver vários formatos.
-function pickAcquisitionUrl(links: OpdsLink[]): string | undefined {
+// FR-011/FR-012 da feature 003, ampliado pela FR-017 da 022: EPUB tem preferência;
+// sem EPUB, aceita PDF. Só olha o `type` do próprio link — aquisição com DRM
+// (ex: ACSM com indirectAcquisition PDF, comum no Open Library) continua fora.
+function pickAcquisition(links: OpdsLink[]): { href: string; format: BookFormat } | undefined {
   const epubLink = links.find((link) => hasAcquisitionRel(link) && link.type?.includes(EPUB_TYPE))
-  return epubLink?.href
+  if (epubLink?.href) return { href: epubLink.href, format: 'EPUB' }
+  const pdfLink = links.find((link) => hasAcquisitionRel(link) && link.type?.includes(PDF_TYPE))
+  if (pdfLink?.href) return { href: pdfLink.href, format: 'PDF' }
+  return undefined
 }
 
 function pickCoverUrl(images: OpdsLink[], baseUrl: string): string | undefined {
@@ -83,8 +90,9 @@ export function parseAtomFeed(xml: string, baseUrl: string): OpdsFeedPage {
   }
 
   for (const publication of feed.publications ?? []) {
-    const acquisitionUrl = pickAcquisitionUrl(publication.links)
-    if (!acquisitionUrl) continue // FR-011: sem link EPUB, fica oculta da lista
+    const acquisition = pickAcquisition(publication.links)
+    if (!acquisition) continue // sem link EPUB nem PDF, fica oculta da lista
+    const acquisitionUrl = acquisition.href
 
     entries.push({
       id: publication.metadata.id ?? acquisitionUrl,
@@ -95,6 +103,7 @@ export function parseAtomFeed(xml: string, baseUrl: string): OpdsFeedPage {
       language: publication.metadata.language,
       kind: 'publication',
       acquisitionUrl: resolveUrl(acquisitionUrl, baseUrl),
+      acquisitionFormat: acquisition.format,
     })
   }
 

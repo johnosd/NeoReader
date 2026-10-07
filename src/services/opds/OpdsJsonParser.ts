@@ -1,6 +1,8 @@
+import type { BookFormat } from '../../types/book'
 import type { OpdsFeedEntry, OpdsFeedPage } from '../../types/opds'
 
 const EPUB_TYPE = 'application/epub+zip'
+const PDF_TYPE = 'application/pdf'
 const ACQ_REL = 'http://opds-spec.org/acquisition'
 
 interface JsonLink {
@@ -52,9 +54,14 @@ function hasAcquisitionRel(link: JsonLink): boolean {
   return relList(link).some((r) => r === ACQ_REL || r.startsWith(`${ACQ_REL}/`))
 }
 
-// FR-011/FR-012: mantém só o link EPUB, mesmo se a entry tiver vários formatos.
-function pickAcquisitionUrl(links: JsonLink[]): string | undefined {
-  return links.find((link) => hasAcquisitionRel(link) && link.type?.includes(EPUB_TYPE))?.href
+// FR-011/FR-012 da feature 003, ampliado pela FR-017 da 022: EPUB tem preferência;
+// sem EPUB, aceita PDF. Mesma regra do OpdsAtomParser (só o `type` do próprio link).
+function pickAcquisition(links: JsonLink[]): { href: string; format: BookFormat } | undefined {
+  const epubHref = links.find((link) => hasAcquisitionRel(link) && link.type?.includes(EPUB_TYPE))?.href
+  if (epubHref) return { href: epubHref, format: 'EPUB' }
+  const pdfHref = links.find((link) => hasAcquisitionRel(link) && link.type?.includes(PDF_TYPE))?.href
+  if (pdfHref) return { href: pdfHref, format: 'PDF' }
+  return undefined
 }
 
 function pickCoverUrl(images: JsonLink[] | undefined, baseUrl: string): string | undefined {
@@ -110,8 +117,9 @@ export function parseJsonFeed(json: unknown, baseUrl: string): OpdsFeedPage {
   }
 
   for (const publication of feed.publications ?? []) {
-    const acquisitionUrl = pickAcquisitionUrl(publication.links ?? [])
-    if (!acquisitionUrl) continue // FR-011: sem link EPUB, fica oculta da lista
+    const acquisition = pickAcquisition(publication.links ?? [])
+    if (!acquisition) continue // sem link EPUB nem PDF, fica oculta da lista
+    const acquisitionUrl = acquisition.href
 
     entries.push({
       id: acquisitionUrl,
@@ -122,6 +130,7 @@ export function parseJsonFeed(json: unknown, baseUrl: string): OpdsFeedPage {
       language: primaryLanguage(publication.metadata?.language),
       kind: 'publication',
       acquisitionUrl: resolveUrl(acquisitionUrl, baseUrl),
+      acquisitionFormat: acquisition.format,
     })
   }
 
