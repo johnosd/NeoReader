@@ -115,6 +115,10 @@ interface DuplicateCandidate {
   originalUri?: string
 }
 
+// Resultado do prepareNative do importador (metadados + blob/contexto da ficha).
+// `Awaited<ReturnType<...>>` = o tipo que a Promise devolvida resolve (sem equivalente direto em Python).
+type NativeRecordData = Awaited<ReturnType<ReturnType<typeof importerForFormat>['prepareNative']>>
+
 interface DuplicateIndex {
   uris: Set<string>
   fileHashes: Set<string>
@@ -237,7 +241,14 @@ export class BookImportService {
         stage: 'after-native-local-prepare',
       })
       const duplicateIndex = await this.buildDuplicateIndex()
-      const duplicate = this.hasDuplicateBook(this.duplicateCandidateFromPrepared(prepared), duplicateIndex)
+      const candidate = this.duplicateCandidateFromPrepared(prepared)
+      let duplicate = this.hasDuplicateBook(candidate, duplicateIndex)
+      let nativeData: NativeRecordData | undefined
+      if (!duplicate) {
+        const prepareResult = await this.prepareNativeRecordData(prepared, candidate, duplicateIndex)
+        nativeData = prepareResult.data
+        duplicate = prepareResult.duplicate
+      }
 
       if (duplicate) {
         await this.cleanupPreparedDuplicate(prepared)
@@ -252,6 +263,7 @@ export class BookImportService {
       }
 
       const bookId = await this.importPreparedNativeEpubRecord(prepared, {
+        data: nativeData,
         tags: [],
         sourceFolderId: null,
         importSource: options.importSource,
@@ -442,8 +454,15 @@ export class BookImportService {
             total,
             stage: 'after-native-local-prepare',
           })
-          const candidate = this.duplicateCandidateFromPrepared(prepared)
-          const duplicate = this.hasDuplicateBook(candidate, duplicateIndex)
+          let candidate = this.duplicateCandidateFromPrepared(prepared)
+          let duplicate = this.hasDuplicateBook(candidate, duplicateIndex)
+          let nativeData: NativeRecordData | undefined
+          if (!duplicate) {
+            const prepareResult = await this.prepareNativeRecordData(prepared, candidate, duplicateIndex)
+            nativeData = prepareResult.data
+            candidate = prepareResult.candidate
+            duplicate = prepareResult.duplicate
+          }
 
           if (duplicate) {
             await this.cleanupPreparedDuplicate(prepared)
@@ -470,6 +489,7 @@ export class BookImportService {
           }
 
           const bookId = await this.importPreparedNativeEpubRecord(prepared, {
+            data: nativeData,
             tags: params.tagIds,
             sourceFolderId,
             diagnostic,
@@ -605,6 +625,20 @@ export class BookImportService {
     return summary
   }
 
+  // PDF nativo: o plugin só conhece o nome do arquivo (título = nome, autor vazio); título/autor reais
+  // saem do pdf.js aqui no JS. Por isso a checagem de duplicado por título/autor é repetida com eles —
+  // paridade com o EPUB, cujo plugin já lê o OPF (T079d, achado no device). EPUB não passa por aqui.
+  private static async prepareNativeRecordData(
+    prepared: NativePreparedEpub,
+    candidate: DuplicateCandidate,
+    duplicateIndex: DuplicateIndex,
+  ): Promise<{ data: NativeRecordData; candidate: DuplicateCandidate; duplicate: boolean }> {
+    const data = await importerForFormat(prepared.format).prepareNative(prepared)
+    if (prepared.format !== 'PDF') return { data, candidate, duplicate: false }
+    const realCandidate = { ...candidate, title: data.metadata.title, author: data.metadata.author }
+    return { data, candidate: realCandidate, duplicate: this.hasDuplicateBook(realCandidate, duplicateIndex) }
+  }
+
   private static async importPreparedNativeEpubRecord(
     prepared: NativePreparedEpub,
     options: {
@@ -612,9 +646,11 @@ export class BookImportService {
       sourceFolderId: number | null
       importSource?: BookImportSource
       diagnostic: ImportDiagnosticContext
+      // Já preparado por prepareNativeRecordData (evita ler o PDF duas vezes).
+      data?: NativeRecordData
     },
   ): Promise<number> {
-    const { metadata, bookInfoBlob, bookInfoContext } = await importerForFormat(prepared.format).prepareNative(prepared)
+    const { metadata, bookInfoBlob, bookInfoContext } = options.data ?? await importerForFormat(prepared.format).prepareNative(prepared)
 
     return this.importSingleEpubRecord(null, {
       metadata,

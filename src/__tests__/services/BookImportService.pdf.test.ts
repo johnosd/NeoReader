@@ -288,6 +288,45 @@ describe('importação nativa de PDF', () => {
     expect(mocks.deleteLocalBookFile).toHaveBeenCalled()
   })
 
+  it('duplicado por título/autor reais (lidos pelo pdf.js) é recusado e a cópia local é apagada (T079d)', async () => {
+    // O plugin só sabe o nome do arquivo; o livro igual na biblioteca tem outro arquivo/hash.
+    mocks.prepareLocalEpubImport.mockResolvedValue(preparedNativePdf())
+    mocks.booksToArray.mockResolvedValue([{ id: 1, title: 'Livro PDF', author: 'Autora', fileHash: 'outro', fileName: 'outro.pdf', fileSize: 1 }])
+
+    await expect(BookImportService.importNativeEpub(nativeFile)).rejects.toThrow('Este livro ja esta na biblioteca.')
+
+    expect(mocks.addBook).not.toHaveBeenCalled()
+    expect(mocks.deleteLocalBookFile).toHaveBeenCalledWith('file:///data/books/abc123.pdf')
+    expect(mocks.pdfParseMetadata).toHaveBeenCalledTimes(1) // o import não relê o PDF
+  })
+
+  it('lote: duplicado por título/autor conta como duplicado — na biblioteca e dentro do próprio lote', async () => {
+    const a = { name: 'a.pdf', uri: 'content://a', size: 10 }
+    const b = { name: 'b.pdf', uri: 'content://b', size: 10 }
+    const c = { name: 'c.pdf', uri: 'content://c', size: 10 }
+    mocks.booksToArray.mockResolvedValue([{ id: 1, title: 'Já Existe', author: 'Autora', fileHash: 'x' }])
+    mocks.prepareLocalEpubImport
+      .mockResolvedValueOnce(preparedNativePdf({ name: 'a.pdf', sha256: 'h1', localUri: 'file:///h1.pdf' }))
+      .mockResolvedValueOnce(preparedNativePdf({ name: 'b.pdf', sha256: 'h2', localUri: 'file:///h2.pdf' }))
+      .mockResolvedValueOnce(preparedNativePdf({ name: 'c.pdf', sha256: 'h3', localUri: 'file:///h3.pdf' }))
+    mocks.pdfParseMetadata
+      .mockResolvedValueOnce(parsedPdf({ title: 'Já Existe' })) // igual a um livro da biblioteca
+      .mockResolvedValueOnce(parsedPdf({ title: 'Novo' }))
+      .mockResolvedValueOnce(parsedPdf({ title: 'Novo' })) // igual ao anterior do mesmo lote
+
+    const items = await BookImportService.buildNativeImportPreview([a, b, c])
+    const summary = await BookImportService.importSelectedBooks({
+      items,
+      tagIds: [],
+      sourceFolder: { folderName: 'Pasta', folderUri: 'content://pasta', includeSubfolders: false, autoImportEnabled: false },
+    })
+
+    expect(summary).toMatchObject({ imported: 1, duplicate: 2, errors: 0 })
+    expect(mocks.addBook).toHaveBeenCalledTimes(1)
+    expect(mocks.deleteLocalBookFile).toHaveBeenCalledWith('file:///h1.pdf')
+    expect(mocks.deleteLocalBookFile).toHaveBeenCalledWith('file:///h3.pdf')
+  })
+
   it('lote misto: PDF recusado conta como erro e o resto do lote segue', async () => {
     const good = { name: 'ok.pdf', uri: 'content://ok', size: 10 }
     const bad = { name: 'senha.pdf', uri: 'content://senha', size: 10 }

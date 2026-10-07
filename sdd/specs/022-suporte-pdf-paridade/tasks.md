@@ -462,10 +462,11 @@ description: "Tasks da feature 022 — suporte a PDF com paridade de recursos do
 - [X] T076 [P] `CLAUDE.md`: schema v19 (hoje diz v16, R-010), menção a `src/services/pdf/` e ao `PdfPageViewer` na seção Arquitetura
 - [X] T077 [P] Revisar copy de biblioteca vazia/onboarding que já promete "PDFs e EPUBs" (`src/i18n/messages.ts` ~linhas 262/1075/1886) — agora verdadeira; ajustar se o fluxo real divergir
 - [X] T078 Revisão de licença (R-002): cabeçalho MIT no `PdfBookFactory.ts`; conferir que nenhum arquivo contém código do Readest
-- [ ] T079 Rodar `quickstart.md` inteiro no device e registrar SC-001..SC-009 — inclui o que restou do T026: SC-001 no corpus completo, import/capa nativa de 20 PDFs (comparar com a capa do `PdfRenderer`), smoke de PDF com link interno (T038s) no APK; e o import de EPUB com capa > 2000 px depois do T038l; marcador de PDF abrindo no parágrafo marcado, inclusive voltando a uma página distante (T038v); TTS de PDF nos dois modos com tela apagada, em segundo plano e traduzido + SC-004 (T059) e TTS do EPUB em segundo plano sem diferença (parte de device do T060); highlights nos dois modos com seleção por toque longo na página fiel (T065) e checklist EPUB (T066); download OPDS de uma entrada só-PDF e de uma EPUB num catálogo real (T071)
+- [X] T079 Rodar `quickstart.md` inteiro no device e registrar SC-001..SC-009 — inclui o que restou do T026: SC-001 no corpus completo, import/capa nativa de 20 PDFs (comparar com a capa do `PdfRenderer`), smoke de PDF com link interno (T038s) no APK; e o import de EPUB com capa > 2000 px depois do T038l; marcador de PDF abrindo no parágrafo marcado, inclusive voltando a uma página distante (T038v); TTS de PDF nos dois modos com tela apagada, em segundo plano e traduzido + SC-004 (T059) e TTS do EPUB em segundo plano sem diferença (parte de device do T060); highlights nos dois modos com seleção por toque longo na página fiel (T065) e checklist EPUB (T066); download OPDS de uma entrada só-PDF e de uma EPUB num catálogo real (T071)
 - [X] T079a [US2] (descoberta no T079) Modo texto no modo de aparência Original: texto preto sobre o fundo escuro do leitor (o leitor não impõe cores e o livro sintético não tinha nenhuma; medido via CDP no device: `color rgb(0,0,0)`, fundo transparente). Corrigido no `PdfTextBookBuilder` (DI-003): `html { background-color:#fff; color:#000 }`, as cores de um PDF; os temas do NeoReader continuam por cima (`!important`). Teste no builder. Device OK.
 - [X] T079b [US2] (descoberta no T079) O modo texto ficava escondido no painel Aparência e o dono do produto não o achou: botão próprio na barra do leitor só para PDF (`ReaderChrome`, prop `pdfReadingMode`; rótulo do modo de destino; PDF sem texto abre o painel com a explicação). EPUB: barra de 4 botões inalterada. Testes no `ReaderChrome`. Device OK.
 - [X] T079c (descoberta no T079) Selo de formato em Detalhes do Livro (`EPUB` / `PDF · N págs`; livro antigo sem `format` = EPUB), pedido do dono do produto depois de baixar do Gutenberg sem saber o formato. Teste no `BookDetailsScreen`. Device OK.
+- [X] T079d [US1] (descoberta no T079, bloco C) Import nativo de PDF não detectava duplicado por título/autor: o plugin só conhece o nome do arquivo (título = nome, autor vazio), então um livro igual em outro arquivo entrava (ex: 2º "O milagre da manhã / Hal Elrod"). Agora, depois do pdf.js ler os metadados, a checagem é repetida com título/autor reais — arquivo único e lote (inclusive duplicado dentro do mesmo lote); a cópia local é apagada. Só PDF; EPUB inalterado (o plugin já lê o OPF). 2 testes (falham no código antigo). Device: cópia com outro hash e mesmo título/autor recusada ("Este livro ja esta na biblioteca.").
 - [X] T080 Atualizar `docs/features/` com um resumo do suporte a PDF (arquitetura em 1 página, referenciando esta spec)
 
 **Registro da Fase**:
@@ -478,8 +479,22 @@ description: "Tasks da feature 022 — suporte a PDF com paridade de recursos do
   - T078: `PdfBookFactory.ts` e `pdfPageRender.ts` com cabeçalho MIT e copyright do foliate-js; `node_modules/foliate-js` é MIT (LICENSE e package.json). Nenhum import ou código do Readest; as menções são comentários de referência conceitual (`pdfParagraphs.ts` declara implementação própria).
   - T080 `docs/features/suporte-pdf.md`: mapa de uma página, apontando para esta spec.
 - Testes executados: `npx tsc --noEmit -p tsconfig.app.json`, `npm run lint`, `npm test` (1539 + 2 skipped), `npm run build`, `npm run test:debug-epubs` (71) — todos com saída 0.
+- **T079 (device, 2026-10-07, SM-S911B)**:
+  - Blocos A/B (dono do produto): PDF nos dois modos e regressão EPUB OK; achados T079a–c corrigidos.
+  - Bloco C (automatizado via adb/uiautomator/CDP):
+    - **SC-001**: lote de 25 PDFs do corpus (`debug-books/pdf`, cópias com título único) importado por **pasta** em ~54 s: 21/21 válidos importaram (formato, páginas, capa nativa `pdf-rendered`, cópia local) e **abriram sem erro**; `corrompido` e o falso PDF → `PDF_INVALID`, `senha` → recusado, `GTD_Trello_A4` (só restrição de permissões) → duplicado do livro já existente. Import por **arquivo** (seletor) OK com o PDF de link e o EPUB de capa grande; "abrir com" validado no T027.
+    - **SC-002**: 1ª página em 0,3–0,65 s nos livros comuns e ~2,0 s no `grande.pdf` (1000 pág./188 MB). Memória ao percorrer ~450 páginas do `grande.pdf`: PSS 419 → 617 → 624 → 611 MB (platô, sem vazamento); 30 min medidos na Fase 3.
+    - **SC-003/SC-005/SC-006**: medidos no Chromium (Fases 4 e 7) e confirmados pelo dono do produto no device.
+    - **SC-004**: `pdf-tts.check.js` 7/7 e TTS no device OK (tela apagada, traduzido).
+    - **SC-007**: 2/2 escaneados (`escaneado`, "Use a Cabeça JAVA", 491 pág.) com o aviso de texto indisponível.
+    - **SC-008**: 1545 testes + 2 skipped, 71 EPUB.
+    - **SC-009**: 19/19 PDFs com texto com idioma certo (es, pt/pt-BR, en); os 2 escaneados ficam indefinidos — zero idioma errado assumido.
+    - T038s no APK: PDF com link interno renderiza o link (`data-internal-link`) sem erro. T038l: capa 3000×4500 gravada em 1333×2000 (105 KB).
+    - **Release** (assinado com a chave de debug, sem `DEBUGGABLE`): página fiel, modo texto (extração pelo worker do pdf.js) e import nativo de PDF (`inspectMs` 415) OK.
+    - Achado: T079d (duplicado por título/autor no import nativo de PDF) — corrigido e verificado no device.
+    - Limpeza: os 23 livros de teste removidos pelo fluxo do app (Book options → Delete); biblioteca de volta a 146 livros, progresso do usuário intacto; arquivos enviados ao device apagados.
 - Pendências:
-  - T079 no device.
+  - Download OPDS de uma entrada só-PDF num catálogo real (Fase 8) — precisa de catálogo com PDF.
   - Observação de licença para o release: o projeto não tem um arquivo de avisos de terceiros; o texto completo da licença MIT do foliate-js só está em `node_modules`. Não é do escopo desta feature (vale para todas as dependências), mas fica anotado.
 
 ### Checklist de Release
@@ -494,8 +509,8 @@ description: "Tasks da feature 022 — suporte a PDF com paridade de recursos do
 - [ ] Fase 8 (US6 — OPDS) concluída — download de EPUB pelo catálogo OK no device; falta baixar uma entrada só-PDF de um catálogo real (Gutenberg só tem EPUB)
 - [X] `npm run lint && npm test && npm run build && npm run test:debug-epubs` verdes, contagem de testes EPUB ≥ linha de base de T001
 - [X] `quickstart.md` § Regressão EPUB executado no device sem diferença (2026-10-07, SM-S911B)
-- [ ] SC-001..SC-009 medidos e registrados
-- [ ] Validação em build de release no device (minificação não quebra pdf.js/worker)
+- [X] SC-001..SC-009 medidos e registrados (ver Registro da Fase 9 — T079)
+- [X] Validação em build de release no device (minificação não quebra pdf.js/worker) — release assinado com a chave de debug, sem DEBUGGABLE: página fiel, modo texto e import nativo de PDF OK
 - [X] Revisão de licença (T078) feita
 
 ---
