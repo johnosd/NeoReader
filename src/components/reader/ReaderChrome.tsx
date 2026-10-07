@@ -1,4 +1,4 @@
-import { Bookmark, ChevronLeft, GraduationCap, List, Type, Volume2, VolumeX } from 'lucide-react'
+import { Bookmark, ChevronLeft, FileText, GraduationCap, List, ScrollText, Type, Volume2, VolumeX } from 'lucide-react'
 import type { FontSize } from './EpubViewer'
 import { getTtsProviderLabel } from '../../services/TtsProviderRegistry'
 import type { TtsProvider } from '../../types/tts'
@@ -21,6 +21,8 @@ interface ReaderChromeProps {
   onOpenVocabulary: () => void
   onTtsToggle: () => void
   onDismiss: () => void
+  // Só PDF: botão de alternar página fiel ↔ modo texto. Ausente (EPUB) = barra de sempre, 4 botões.
+  pdfReadingMode?: { value: 'page' | 'text'; onToggle: () => void }
 }
 
 const iconCardClass =
@@ -50,6 +52,7 @@ export function ReaderChrome({
   onOpenVocabulary,
   onTtsToggle,
   onDismiss,
+  pdfReadingMode,
 }: ReaderChromeProps) {
   const { t } = useI18n()
 
@@ -118,7 +121,7 @@ export function ReaderChrome({
           style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
         >
           <div className="rounded-[30px] border border-white/8 bg-[rgba(15,7,24,0.82)] p-3 shadow-nav backdrop-blur-xl">
-            <div className="grid grid-cols-4 gap-3">
+            <div className={`grid gap-3 ${pdfReadingMode ? 'grid-cols-5' : 'grid-cols-4'}`}>
               <button
                 onClick={onAppearanceOpen}
                 className={`${iconCardClass} ${fontSize !== 'md' ? iconCardPrimaryClass : ''}`}
@@ -126,6 +129,23 @@ export function ReaderChrome({
               >
                 <Type size={20} strokeWidth={2.1} />
               </button>
+
+              {pdfReadingMode && (
+                // Mostra o modo para onde o toque leva (com rótulo curto): o modo texto
+                // ficava escondido no painel Aparência e o usuário não o achava.
+                <button
+                  onClick={pdfReadingMode.onToggle}
+                  className={`${iconCardClass} flex-col gap-0.5 ${pdfReadingMode.value === 'text' ? iconCardPrimaryClass : ''}`}
+                  aria-label={pdfReadingMode.value === 'text' ? t('readerChrome.pdfMode.toPage') : t('readerChrome.pdfMode.toText')}
+                >
+                  {pdfReadingMode.value === 'text'
+                    ? <FileText size={18} strokeWidth={2.1} />
+                    : <ScrollText size={18} strokeWidth={2.1} />}
+                  <span className="text-[10px] font-semibold leading-none">
+                    {pdfReadingMode.value === 'text' ? t('pdf.readingMode.page') : t('pdf.readingMode.text')}
+                  </span>
+                </button>
+              )}
 
               <button
                 onClick={onBookmarkList}

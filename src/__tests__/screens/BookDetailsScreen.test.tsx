@@ -1963,6 +1963,17 @@ describe('BookDetailsScreen chapters', () => {
       expect(toggle.disabled).toBe(true)
     })
 
+    it('selo de formato no topo: PDF com nº de páginas; EPUB (e livro antigo sem format) como EPUB', async () => {
+      const pdfBook: Book = { ...book, format: 'PDF', detectedLanguage: 'pt-BR', pdfTextLayer: 'full', pageCount: 120 }
+      const { unmount } = render(<BookDetailsScreen book={pdfBook} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} />)
+      expect((await screen.findByTestId('book-format-badge')).textContent).toBe('PDF · 120 págs')
+      unmount()
+
+      const legacyBook = { ...book, format: undefined } as unknown as Book
+      render(<BookDetailsScreen book={legacyBook} onBack={vi.fn()} onRead={vi.fn()} onOpenSettings={vi.fn()} />)
+      expect((await screen.findByTestId('book-format-badge')).textContent).toBe('EPUB')
+    })
+
     it('PDF sem outline mostra a descrição de sumário vazio, sem citar EPUB', async () => {
       const pdfBook: Book = { ...book, format: 'PDF', detectedLanguage: 'pt-BR', pdfTextLayer: 'full', pageCount: 120 }
 

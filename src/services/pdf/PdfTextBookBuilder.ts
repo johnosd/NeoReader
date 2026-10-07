@@ -177,7 +177,11 @@ function blockToHtml(item: PdfTextHtmlBlock, options: PdfTextBookOptions): strin
 }
 
 // CSS neutro: tema, fonte, tamanho e entrelinha vêm do buildReaderCSS do EpubViewer (como no EPUB).
+// Exceção: as cores "originais" de um PDF (papel branco, texto preto). No modo Original o leitor não
+// impõe cores e, sem isto, o texto preto ficava sobre o fundo escuro do leitor (achado no device, T079).
+// Nos temas do NeoReader o buildReaderCSS sobrescreve com !important.
 const SECTION_CSS = `
+html { background-color: #fff; color: #000; }
 figure { margin: 1em 0; text-align: center; }
 figure img { max-width: 100%; height: auto; background: #fff; }
 figcaption { font-size: 0.8em; opacity: 0.7; }

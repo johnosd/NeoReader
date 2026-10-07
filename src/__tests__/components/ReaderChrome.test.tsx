@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { ReaderChrome } from '@/components/reader/ReaderChrome'
 
@@ -39,5 +39,43 @@ describe('ReaderChrome', () => {
 
     expect(screen.getByText('Livro 18%')).toBeTruthy()
     expect(screen.queryByText(/Cap\./)).toBeNull()
+  })
+
+  it('EPUB (sem pdfReadingMode): barra de sempre, sem o botão de modo de leitura', () => {
+    renderChrome()
+
+    expect(screen.queryByRole('button', { name: 'Ler como texto' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Ver página original' })).toBeNull()
+  })
+
+  it('PDF: botão próprio mostra para qual modo o toque leva e chama onToggle', () => {
+    const onToggle = vi.fn()
+    const { rerender } = renderChrome({ pdfReadingMode: { value: 'page', onToggle } })
+
+    const toText = screen.getByRole('button', { name: 'Ler como texto' })
+    expect(toText.textContent).toBe('Texto')
+    fireEvent.click(toText)
+    expect(onToggle).toHaveBeenCalledTimes(1)
+
+    rerender(
+      <ReaderChrome
+        visible
+        title="Test Book"
+        percentage={18}
+        fontSize="md"
+        bookmarkCount={0}
+        ttsIsPlaying={false}
+        ttsEngine="native"
+        onBack={vi.fn()}
+        onAppearanceOpen={vi.fn()}
+        onBookmarkList={vi.fn()}
+        onTocOpen={vi.fn()}
+        onOpenVocabulary={vi.fn()}
+        onTtsToggle={vi.fn()}
+        onDismiss={vi.fn()}
+        pdfReadingMode={{ value: 'text', onToggle }}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Ver página original' }).textContent).toBe('Página')
   })
 })

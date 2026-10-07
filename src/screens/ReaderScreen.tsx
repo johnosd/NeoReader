@@ -1668,6 +1668,20 @@ export function ReaderScreen({
         ttsEngine={ttsEngine}
         onTtsToggle={() => handleTtsToggle()}
         onDismiss={() => setChromeVisible(false)}
+        pdfReadingMode={readerCapabilities.supportsReadingModeToggle
+          ? {
+            value: activePdfMode,
+            // PDF sem texto: abre o painel, que explica por que o modo texto está indisponível.
+            onToggle: () => {
+              if (!pdfTextAvailable) {
+                setAppearanceSheetOpen(true)
+                return
+              }
+              setChromeVisible(false)
+              handlePdfReadingModeChange(activePdfMode === 'text' ? 'page' : 'text')
+            },
+          }
+          : undefined}
       />
 
       <ReaderProgressFooter

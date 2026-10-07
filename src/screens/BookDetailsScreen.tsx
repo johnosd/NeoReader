@@ -755,6 +755,18 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
               }
               <span>{headerRatingLabel}</span>
             </div>
+            {/* Formato à vista: o mesmo catálogo (ex: OPDS) pode entregar EPUB ou PDF.
+                Livro antigo sem `format` gravado é EPUB (era o único formato). */}
+            <div className="mt-2 flex justify-center">
+              <span
+                data-testid="book-format-badge"
+                className="inline-flex items-center rounded-[4px] border border-border px-2 py-[2px] text-[11px] font-bold tracking-wide text-text-secondary"
+              >
+                {(liveBook.format ?? 'EPUB') === 'PDF' && liveBook.pageCount
+                  ? t('bookDetails.formatBadge.pdfPages', { count: liveBook.pageCount })
+                  : (liveBook.format ?? 'EPUB')}
+              </span>
+            </div>
           </div>
         </div>
 

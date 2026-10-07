@@ -258,7 +258,7 @@ description: "Tasks da feature 022 — suporte a PDF com paridade de recursos do
 - [X] T041 [US2] Caso em `src/__tests__/components/EpubViewer.test.tsx`: com `openBook` passa o book recebido a `view.open`; **sem `openBook`, chama `BookFileResolver.resolveReaderSource` exatamente como antes** (todos os testes existentes do arquivo verdes sem alteração)
 - [X] T042 [US2] Casos em `src/__tests__/screens/ReaderScreen.test.tsx`: alternância de modo preserva localizador; `pdfReadingMode` gravado e restaurado; PDF `pdfTextLayer: 'none'` não oferece modo texto
 - [X] T043 [US2] E2E Chromium: `1col.pdf`, `2col.pdf`, `tabelas.pdf` em modo texto; medir SC-003 (quickstart § Medição) e SC-005
-- [ ] T044 [US2] Gate EPUB completo (automatizado + checklist no device) — atenção especial ao `EpubViewer`, único arquivo EPUB tocado nesta fase
+- [X] T044 [US2] Gate EPUB completo (automatizado + checklist no device) — atenção especial ao `EpubViewer`, único arquivo EPUB tocado nesta fase — **device 2026-10-07 OK** (SM-S911B, rodada T079, confirmado pelo dono do produto)
 
 - [X] T045a [US2] **Primeira task da fase (R-011)** — casos em `src/__tests__/services/pdf/PdfTextBookBuilder.test.ts`: toda seção gerada tem `data-type="chapter"` na raiz e nenhum `data-pdf-bookmark`; o livro sintético não tem `transformTarget`, `entries` nem `resources`; cada href do `toc` sintético resolve por `splitTOCHref`/`resolveHref` do próprio livro para o índice de seção certo
 - [X] T045b [US2] **Logo depois de T045a (R-011)** — caso em `src/__tests__/components/EpubViewer.test.tsx` abrindo um livro sintético mínimo via `openBook` com um trecho só com título + 1 linha curta: o trecho **não** é pulado pelo auto-skip de capítulo-stub, `registerUnmanifestedEpubStylesheets` e `installPassiveEpubContentTransform` não têm efeito, e o progresso pelo sumário usa o rótulo do trecho. Se algum desses falhar sem mudar o `EpubViewer` além de T046, **parar e reabrir o design (DI-003)**
@@ -308,8 +308,8 @@ description: "Tasks da feature 022 — suporte a PDF com paridade de recursos do
 
 - [X] T050 [P] [US3] Testes do `PdfPageViewer` em `src/__tests__/components/reader/PdfPageViewer.test.tsx` (entregues em `PdfPageViewer.contract.test.tsx`, que já tem o foliate falso, + `pdfPageWords.test.ts` para as funções puras): toque em palavra resolve a palavra certa (inclusive hifenizada entre linhas) e dispara `onWordLensDefinition`; toque em parágrafo dispara `onTranslate` com o texto reconstruído; `showTranslationLoading`/`injectTranslation`/`clearTranslation` e os métodos de Word Lens do contrato
 - [X] T051 [US3] Casos em `src/__tests__/screens/ReaderScreen.test.tsx`: fluxo de tradução e salvar vocabulário com PDF nos dois modos usa o mesmo provedor/fallback do EPUB
-- [ ] T052 [US3] E2E Chromium + device: `quickstart.md` § Word Lens e tradução — 2026-10-06: Chromium concluído (ver Registro); falta o device
-- [ ] T053 [US3] Gate EPUB completo — 2026-10-06: parte automatizada verde; falta o checklist no device
+- [X] T052 [US3] E2E Chromium + device: `quickstart.md` § Word Lens e tradução — 2026-10-06: Chromium concluído (ver Registro); falta o device — **device 2026-10-07 OK** (SM-S911B, rodada T079, confirmado pelo dono do produto)
+- [X] T053 [US3] Gate EPUB completo — 2026-10-06: parte automatizada verde; falta o checklist no device — **device 2026-10-07 OK** (SM-S911B, rodada T079, confirmado pelo dono do produto)
 
 ### Implementation
 
@@ -348,8 +348,8 @@ description: "Tasks da feature 022 — suporte a PDF com paridade de recursos do
 
 - [X] T057 [P] [US4] Testes do contrato de TTS do `PdfPageViewer` em `src/__tests__/components/reader/PdfPageViewer.contract.test.tsx`: `getParagraphs`, `getSentenceChunks` (mesmo formato `TtsChunk`), `getFirstVisibleParagraphIndex`, `highlightTts` em parágrafo que cruza página, `goToNextTtsSection` no último trecho
 - [X] T058 [US4] Casos em `src/__tests__/hooks/useTTS.test.tsx` com viewer PDF mockado: leitura contínua entre trechos sem cortar frase na virada de página; **casos EPUB existentes intactos**
-- [ ] T059 [US4] Device: `quickstart.md` § TTS (tela apagada, segundo plano, TTS traduzido) e SC-004 — 2026-10-07: por decisão do dono do produto, fica para a rodada de device do T079
-- [ ] T060 [US4] Gate EPUB completo (TTS EPUB em segundo plano incluso) — 2026-10-07: parte automatizada verde (ver Registro); checklist no device (TTS do EPUB em segundo plano) no T079
+- [X] T059 [US4] Device: `quickstart.md` § TTS (tela apagada, segundo plano, TTS traduzido) e SC-004 — 2026-10-07: por decisão do dono do produto, fica para a rodada de device do T079 — **device 2026-10-07 OK** (SM-S911B, rodada T079, confirmado pelo dono do produto)
+- [X] T060 [US4] Gate EPUB completo (TTS EPUB em segundo plano incluso) — 2026-10-07: parte automatizada verde (ver Registro); checklist no device (TTS do EPUB em segundo plano) no T079 — **device 2026-10-07 OK** (SM-S911B, rodada T079, confirmado pelo dono do produto)
 
 ### Implementation
 
@@ -386,8 +386,8 @@ description: "Tasks da feature 022 — suporte a PDF com paridade de recursos do
 
 - [X] T063 [P] [US5] Testes em `src/__tests__/components/reader/PdfPageViewer.test.tsx`: seleção na camada de texto gera `HighlightDraftPayload` com localizadores; seleção entre páginas; highlights existentes pintados; toque em highlight abre menu de gerenciar
 - [X] T064 [US5] Casos em `src/__tests__/screens/ReaderScreen.test.tsx` e `src/__tests__/screens/BookDetailsScreen.test.tsx`: highlight criado num modo aparece no outro; lista de destaques de PDF navega para o ponto; highlights EPUB inalterados
-- [ ] T065 [US5] E2E Chromium + device: `quickstart.md` § Highlights; SC-006 — 2026-10-07: Chromium concluído (`pdf-highlight.check.js` 6/6, ver Registro); device no T079
-- [ ] T066 [US5] Gate EPUB completo — 2026-10-07: parte automatizada verde; checklist no device no T079
+- [X] T065 [US5] E2E Chromium + device: `quickstart.md` § Highlights; SC-006 — 2026-10-07: Chromium concluído (`pdf-highlight.check.js` 6/6, ver Registro); device no T079 — **device 2026-10-07 OK** (SM-S911B, rodada T079, confirmado pelo dono do produto)
+- [X] T066 [US5] Gate EPUB completo — 2026-10-07: parte automatizada verde; checklist no device no T079 — **device 2026-10-07 OK** (SM-S911B, rodada T079, confirmado pelo dono do produto)
 
 ### Implementation
 
@@ -427,7 +427,7 @@ description: "Tasks da feature 022 — suporte a PDF com paridade de recursos do
 
 - [X] T069 [P] [US6] Atualizar `src/__tests__/services/opds/OpdsAtomParser.test.ts` e `OpdsJsonParser.test.ts`: os casos que hoje **esperam descartar** entradas só-PDF passam a esperar a entrada com `acquisitionFormat: 'PDF'`; mistas → EPUB; só-EPUB inalterado
 - [X] T070 [P] [US6] Casos PDF em `src/__tests__/services/opds/OpdsDownloadService.test.ts` e `OpdsDownloadCoordinator.test.ts` — o coordinator não depende do formato; o estado de um download PDF é conferido no teste do download
-- [ ] T071 [US6] Gate EPUB completo (download OPDS de EPUB no device) — parte automatizada verde; o download no device (EPUB e PDF) fica no T079
+- [X] T071 [US6] Gate EPUB completo (download OPDS de EPUB no device) — parte automatizada verde; o download no device (EPUB e PDF) fica no T079 — **device 2026-10-07 OK** (SM-S911B, rodada T079, confirmado pelo dono do produto)
 
 ### Implementation
 
@@ -463,6 +463,9 @@ description: "Tasks da feature 022 — suporte a PDF com paridade de recursos do
 - [X] T077 [P] Revisar copy de biblioteca vazia/onboarding que já promete "PDFs e EPUBs" (`src/i18n/messages.ts` ~linhas 262/1075/1886) — agora verdadeira; ajustar se o fluxo real divergir
 - [X] T078 Revisão de licença (R-002): cabeçalho MIT no `PdfBookFactory.ts`; conferir que nenhum arquivo contém código do Readest
 - [ ] T079 Rodar `quickstart.md` inteiro no device e registrar SC-001..SC-009 — inclui o que restou do T026: SC-001 no corpus completo, import/capa nativa de 20 PDFs (comparar com a capa do `PdfRenderer`), smoke de PDF com link interno (T038s) no APK; e o import de EPUB com capa > 2000 px depois do T038l; marcador de PDF abrindo no parágrafo marcado, inclusive voltando a uma página distante (T038v); TTS de PDF nos dois modos com tela apagada, em segundo plano e traduzido + SC-004 (T059) e TTS do EPUB em segundo plano sem diferença (parte de device do T060); highlights nos dois modos com seleção por toque longo na página fiel (T065) e checklist EPUB (T066); download OPDS de uma entrada só-PDF e de uma EPUB num catálogo real (T071)
+- [X] T079a [US2] (descoberta no T079) Modo texto no modo de aparência Original: texto preto sobre o fundo escuro do leitor (o leitor não impõe cores e o livro sintético não tinha nenhuma; medido via CDP no device: `color rgb(0,0,0)`, fundo transparente). Corrigido no `PdfTextBookBuilder` (DI-003): `html { background-color:#fff; color:#000 }`, as cores de um PDF; os temas do NeoReader continuam por cima (`!important`). Teste no builder. Device OK.
+- [X] T079b [US2] (descoberta no T079) O modo texto ficava escondido no painel Aparência e o dono do produto não o achou: botão próprio na barra do leitor só para PDF (`ReaderChrome`, prop `pdfReadingMode`; rótulo do modo de destino; PDF sem texto abre o painel com a explicação). EPUB: barra de 4 botões inalterada. Testes no `ReaderChrome`. Device OK.
+- [X] T079c (descoberta no T079) Selo de formato em Detalhes do Livro (`EPUB` / `PDF · N págs`; livro antigo sem `format` = EPUB), pedido do dono do produto depois de baixar do Gutenberg sem saber o formato. Teste no `BookDetailsScreen`. Device OK.
 - [X] T080 Atualizar `docs/features/` com um resumo do suporte a PDF (arquitetura em 1 página, referenciando esta spec)
 
 **Registro da Fase**:
@@ -484,13 +487,13 @@ description: "Tasks da feature 022 — suporte a PDF com paridade de recursos do
 - [X] Fase 1 (Setup) concluída
 - [X] Fase 2 (Foundational) concluída
 - [X] Fase 3 (US1 — import + página fiel) concluída
-- [ ] Fase 4 (US2 — modo texto) concluída
-- [ ] Fase 5 (US3 — Word Lens + tradução) concluída
-- [ ] Fase 6 (US4 — TTS) concluída
-- [ ] Fase 7 (US5 — highlights) concluída
-- [ ] Fase 8 (US6 — OPDS) concluída
+- [X] Fase 4 (US2 — modo texto) concluída
+- [X] Fase 5 (US3 — Word Lens + tradução) concluída
+- [X] Fase 6 (US4 — TTS) concluída
+- [X] Fase 7 (US5 — highlights) concluída
+- [ ] Fase 8 (US6 — OPDS) concluída — download de EPUB pelo catálogo OK no device; falta baixar uma entrada só-PDF de um catálogo real (Gutenberg só tem EPUB)
 - [X] `npm run lint && npm test && npm run build && npm run test:debug-epubs` verdes, contagem de testes EPUB ≥ linha de base de T001
-- [ ] `quickstart.md` § Regressão EPUB executado no device sem diferença
+- [X] `quickstart.md` § Regressão EPUB executado no device sem diferença (2026-10-07, SM-S911B)
 - [ ] SC-001..SC-009 medidos e registrados
 - [ ] Validação em build de release no device (minificação não quebra pdf.js/worker)
 - [X] Revisão de licença (T078) feita

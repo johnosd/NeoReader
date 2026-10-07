@@ -220,6 +220,14 @@ describe('PdfTextBookBuilder — conteúdo (T039)', () => {
     expect(page.querySelector('figcaption')?.textContent).toBe('Página 5 como no original')
   })
 
+  it('traz as cores originais de um PDF (papel branco, texto preto) para o modo Original não ficar preto no preto', () => {
+    const chunk: PdfChunk = { index: 0, startPage: 0, endPage: 0, label: 'T' }
+    const block: PdfBlock = { kind: 'paragraph', text: 'a', pageIndex: 0, ranges: [{ pageIndex: 0, start: 0, end: 1 }] }
+    const doc = new DOMParser().parseFromString(buildChunkXhtml(chunk, [{ type: 'block', block }], OPTIONS), 'application/xhtml+xml')
+    const css = doc.querySelector('style')?.textContent ?? ''
+    expect(css).toMatch(/html\s*\{\s*background-color:\s*#fff;\s*color:\s*#000;\s*\}/)
+  })
+
   it('escapa texto e remove caracteres inválidos em XML (o parse da seção não quebra)', () => {
     const chunk: PdfChunk = { index: 0, startPage: 0, endPage: 0, label: 'A & B <c>' }
     const block: PdfBlock = { kind: 'paragraph', text: 'x < y && "z"\u0001\u000B', pageIndex: 0, ranges: [{ pageIndex: 0, start: 0, end: 9 }] }
