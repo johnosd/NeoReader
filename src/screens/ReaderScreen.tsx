@@ -1566,6 +1566,10 @@ export function ReaderScreen({
             }}
             onTtsUserScrollAway={() => setShowBackToTtsLocation(true)}
             ttsGlobalActive={ttsPlayerVisible}
+            highlights={highlights}
+            onRequestCreateHighlight={handleRequestCreateHighlight}
+            onDeleteHighlight={handleDeleteHighlight}
+            onEditHighlight={handleEditHighlight}
           />
         )}
         {/* Modo texto do PDF (US2): o EpubViewer sobre o livro sintético, com a conversão de posições

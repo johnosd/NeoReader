@@ -15,11 +15,11 @@ import {
 } from 'react'
 import { useI18n } from '@/i18n'
 import type { PdfReaderSession } from '@/hooks/usePdfReaderSession'
-import { PdfLocatorResolver } from '@/services/pdf/PdfLocatorResolver'
+import { PdfLocatorResolver, snapRangeToText } from '@/services/pdf/PdfLocatorResolver'
 import { createPdfTextBook, type PdfTextBookSource } from '@/services/pdf/PdfTextBookBuilder'
 import { renderPdfPageRegionToBlob } from '@/services/pdf/pdfPageRender'
 import type { Highlight } from '@/types/highlight'
-import { getPdfLocatorStart, isPdfLocator } from '@/utils/pdfLocator'
+import { formatPdfRange, getPdfLocatorStart, isPdfLocator, parsePdfRange } from '@/utils/pdfLocator'
 import { clampPercentage } from '@/utils/progress'
 import { progressPercentage } from './pdfPage/pdfPageMapping'
 import {
@@ -180,9 +180,22 @@ export const PdfTextModeViewer = forwardRef<EpubViewerHandle, PdfTextModeViewerP
     })
   }
 
+  // A conversão CFI → localizador é proporcional dentro do parágrafo e pode errar por alguns caracteres; num
+  // highlight isso aparece na página fiel (letra a mais/a menos). Ajusta pelo texto bruto da página, quando o
+  // intervalo cabe numa página só (snapRangeToText).
+  const exactHighlightLocator = async (locator: string, text: string): Promise<string> => {
+    const range = parsePdfRange(locator)
+    if (!range || range.start.pageIndex !== range.end.pageIndex) return locator
+    const raw = (await session.extractor.getPage(range.start.pageIndex)).rawText ?? ''
+    const snapped = snapRangeToText(raw, { start: range.start.offset, end: range.end.offset }, text)
+    if (!snapped) return locator
+    const pageIndex = range.start.pageIndex
+    return formatPdfRange({ start: { pageIndex, offset: snapped.start }, end: { pageIndex, offset: snapped.end } })
+  }
+
   const handleRequestCreateHighlight: EpubViewerProps['onRequestCreateHighlight'] = (draft) => {
     void Promise.all([
-      resolver.cfiToLocator(draft.cfi, draft.text),
+      resolver.cfiToLocator(draft.cfi, draft.text).then((locator) => (locator ? exactHighlightLocator(locator, draft.text) : null)),
       resolver.cfiToLocator(draft.paraCfi),
     ]).then(([cfi, paraCfi]) => {
       if (!cfi) return

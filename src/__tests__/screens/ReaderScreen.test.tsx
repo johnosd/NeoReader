@@ -78,9 +78,10 @@ const mocks = vi.hoisted(() => {
     },
     ttsOptions: null as MockTtsOptions | null,
     // Mock posicional do useLiveQuery (ver vi.mock('dexie-react-hooks') abaixo):
-    // só `bookmarks` (1ª chamada em ReaderScreen.tsx) é controlável por teste;
-    // vocabWords/highlights (2ª/3ª) ficam sempre [].
+    // `bookmarks` (1ª chamada em ReaderScreen.tsx) e `highlights` (3ª) são controláveis por teste;
+    // vocabWords (2ª) fica sempre [].
     bookmarks: [] as Array<{ id: number; syncedAt: Date | null }>,
+    highlights: [] as unknown[],
     liveQueryIndex: 0,
     scheduleBookmarkDriveSync: vi.fn(),
     getCachedBookmarkDriveSyncStatus: vi.fn(() => ({ code: 'connected' as string })),
@@ -130,7 +131,7 @@ vi.mock('dexie-react-hooks', () => ({
   // Mock posicional: a ordem espelha os useLiveQuery em ReaderScreen.tsx
   // (bookmarks, vocabWords, highlights). Mexeu na ordem lá, mexe aqui.
   useLiveQuery: vi.fn(() => {
-    const values = [mocks.bookmarks, [], []]
+    const values = [mocks.bookmarks, [], mocks.highlights]
     const value = values[mocks.liveQueryIndex % values.length]
     mocks.liveQueryIndex += 1
     return value
@@ -465,6 +466,7 @@ describe('ReaderScreen', () => {
     mocks.epubViewerProps = null
     mocks.tocDrawerProps = null
     mocks.bookmarks = []
+    mocks.highlights = []
     mocks.liveQueryIndex = 0
     mocks.scheduleBookmarkDriveSync.mockClear()
     mocks.getCachedBookmarkDriveSyncStatus.mockClear()
@@ -3233,5 +3235,47 @@ describe('ReaderScreen — PDF, Word Lens e tradução (feature 022, US3)', () =
     expect(viewerProps.ttsGlobalActive).toBe(false) // props capturadas antes do play
     expect(mocks.pdfViewerProps!.ttsGlobalActive).toBe(true)
     expect(mocks.tts.play).toHaveBeenLastCalledWith(chunks, 1)
+  })
+
+  // ── US5 (T064): highlights de PDF, os mesmos nos dois modos ──
+
+  const pdfHighlight = {
+    id: 7, bookId: pdfBook.id!, cfi: 'neopdf:v1;p=44;o=296,p=45;o=12', paraCfi: 'neopdf:v1;p=44;o=296',
+    text: 'A cada dia', color: 'amber', style: 'background' as const, sectionIndex: 3, percentage: 37, createdAt: new Date(),
+  }
+
+  it.each(['page', 'text'] as const)('modo %s: recebe os highlights do livro e os mesmos callbacks de criar/editar/remover', async (mode) => {
+    mocks.highlights = [pdfHighlight]
+    const viewerProps = await renderPdf(mode)
+    expect(viewerProps.highlights).toEqual([pdfHighlight])
+    expect(viewerProps.onRequestCreateHighlight).toBeTypeOf('function')
+    expect(viewerProps.onEditHighlight).toBeTypeOf('function')
+    expect(viewerProps.onDeleteHighlight).toBeTypeOf('function')
+  })
+
+  it('página fiel: rascunho do viewer (intervalo neopdf) → caixa unificada → highlight gravado com o localizador', async () => {
+    vi.mocked(addHighlight).mockResolvedValueOnce(301)
+    const viewerProps = await renderPdf('page')
+    await act(async () => {
+      (viewerProps.onRequestCreateHighlight as (d: HighlightDraftPayload) => void)({
+        cfi: 'neopdf:v1;p=0;o=20,p=0;o=34',
+        paraCfi: 'neopdf:v1;p=0;o=11',
+        text: 'frase do livro',
+        sectionIndex: 0,
+        percentage: 0,
+      })
+    })
+    const textarea = screen.getByPlaceholderText('Escreva sua anotacao...')
+    fireEvent.change(textarea, { target: { value: 'Nota no PDF' } })
+    fireEvent.click(within(textarea.closest('[role="dialog"]') as HTMLElement).getByText('Salvar'))
+    await flushAsyncWork()
+
+    expect(addHighlight).toHaveBeenCalledWith(expect.objectContaining({
+      bookId: pdfBook.id,
+      cfi: 'neopdf:v1;p=0;o=20,p=0;o=34',
+      paraCfi: 'neopdf:v1;p=0;o=11',
+      text: 'frase do livro',
+      note: 'Nota no PDF',
+    }))
   })
 })

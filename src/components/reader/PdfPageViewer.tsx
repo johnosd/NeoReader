@@ -5,6 +5,8 @@ import { useI18n } from '@/i18n'
 import type { PdfReaderSession } from '@/hooks/usePdfReaderSession'
 import type { PdfTocItem } from '@/services/pdf/PdfBookFactory'
 import type { Book, Bookmark } from '@/types/book'
+import type { Highlight } from '@/types/highlight'
+import { shareText } from '@/services/NativeSystemUiService'
 import type { ReaderTheme } from '@/types/settings'
 import type { TranslationProvider } from '@/types/translation'
 import type { CefrLevel, WordLensData } from '@/types/wordLens'
@@ -15,14 +17,17 @@ import { splitParagraphIntoTtsChunks } from '@/utils/ttsChunking'
 import { findChunkForPage } from '@/utils/pdfChunks'
 import {
   formatPdfPoint,
+  formatPdfRange,
   getPdfLocatorStart,
   isPdfLocator,
+  parsePdfRange,
   type PdfPoint,
 } from '@/utils/pdfLocator'
 import { clampPercentage } from '@/utils/progress'
 import { getReaderThemePalette, PDF_ORIGINAL_BACKGROUND } from '@/utils/readerPreferences'
 import type {
   EpubViewerHandle,
+  HighlightDraftPayload,
   ParagraphBookmarkPayload,
   ReaderRelocatePayload,
   TtsChunk,
@@ -61,6 +66,18 @@ import {
   sameBlockStart,
   ttsParagraphBlocks,
 } from './pdfPage/pdfPageTts'
+import {
+  hidePdfMenus,
+  highlightIdAt,
+  itemSlices,
+  menuActionAt,
+  openPdfMenu,
+  paintPageHighlights,
+  rangeOnPage,
+  renderPdfMenu,
+  selectionBoundaryToRaw,
+  type PdfMenuActionId,
+} from './pdfPage/pdfPageHighlights'
 
 // Página fiel de PDF (feature 022, DI-004): foliate-view sobre o renderer de layout fixo (foliate-fxl) em
 // rolagem contínua. Implementa o mesmo contrato EpubViewerHandle do EpubViewer — ReaderScreen, useTTS e
@@ -100,7 +117,25 @@ export interface PdfPageViewerProps {
   onTtsUserScrollAway?: () => void
   // Leitura contínua ativa (tocando ou pausada): tocar num parágrafo leva o TTS até ele em vez de traduzir.
   ttsGlobalActive?: boolean
+  // US5 — highlights com localizador `neopdf:` de intervalo; mesmos callbacks do EpubViewer (a caixa unificada
+  // HighlightComposerSheet fica na ReaderScreen).
+  highlights?: Highlight[]
+  onRequestCreateHighlight?: (draft: HighlightDraftPayload) => void
+  onDeleteHighlight?: (highlight: Highlight) => void
+  onEditHighlight?: (highlight: Highlight) => void
 }
+
+// Seleção que abriu o menu de seleção. Guardada porque no Android tocar num botão do menu desfaz a seleção
+// nativa ANTES do clique chegar (mesmo achado de device do EpubViewer).
+interface PendingPdfSelection {
+  doc: Document
+  pageIndex: number
+  range: Range
+}
+
+// Menu de seleção sumindo junto com a seleção: com atraso, para o clique no botão (que desfaz a seleção no
+// Android) ainda achar o menu.
+const SELECTION_MENU_HIDE_DELAY_MS = 400
 
 // Rolagem feita pelo próprio viewer (TTS acompanhando, salto de seção, zoom) não conta como "usuário rolou".
 const PROGRAMMATIC_SCROLL_MS = 1200
@@ -188,6 +223,11 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
   // Destaque atual (parágrafo + palavra), reaplicado quando uma página do parágrafo é (re)desenhada.
   const ttsHighlightRef = useRef<{ block: PdfBlock; wordStart: number; wordEnd: number } | null>(null)
   const ttsHighlightTokenRef = useRef(0)
+
+  // US5 (highlights): seleção que abriu o menu e highlight cujo menu está aberto.
+  const pendingSelectionRef = useRef<PendingPdfSelection | null>(null)
+  const selectionMenuHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const activeHighlightMenuRef = useRef<{ doc: Document; id: number } | null>(null)
 
   // ── Localização ────────────────────────────────────────────────────────────
 
@@ -501,6 +541,187 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
     if (idx < 0) return
     playbackSectionIdxRef.current = chunk.index
     propsRef.current.onParagraphTapForTts?.(idx)
+  }
+
+  // ── Highlights (US5) ───────────────────────────────────────────────────────
+
+  // Pinta nesta página os highlights cujo intervalo passa por ela (um intervalo pode atravessar páginas).
+  async function paintHighlightsOnPage(doc: Document, pageIndex: number) {
+    const ranges = (propsRef.current.highlights ?? [])
+      .filter((h) => h.id !== undefined)
+      .map((h) => ({ highlight: h, range: parsePdfRange(h.cfi) }))
+      .filter((entry) => entry.range !== null && entry.range.start.pageIndex <= pageIndex && entry.range.end.pageIndex >= pageIndex)
+    if (ranges.length === 0) {
+      paintPageHighlights(doc, [])
+      return
+    }
+    const { session } = propsRef.current
+    const extracted = await session.extractor.getPage(pageIndex)
+    const raw = extracted.rawText ?? ''
+    // Só o texto de parágrafos é pintado: no texto bruto, cabeçalho corrido, número de página e rodapé caem
+    // DENTRO de um intervalo que atravessa a virada (fim do corpo de uma página → começo da seguinte). A
+    // reconstrução já os remove; os blocos desta página (inclusive a continuação de um parágrafo do trecho
+    // anterior, DI-009) dizem o que é corpo.
+    const textItems = new Set(await bodyItemIndexesOnPage(pageIndex, extracted.itemStarts, extracted.items))
+    paintPageHighlights(doc, ranges.flatMap(({ highlight, range }) => {
+      const onPage = rangeOnPage(range!, pageIndex, raw.length)
+      if (!onPage) return []
+      return [{
+        id: highlight.id!,
+        color: highlight.color,
+        style: highlight.style ?? 'background',
+        // Indicador de nota só no começo do trecho (não repete na continuação da página seguinte).
+        hasNote: !!highlight.note?.trim() && pageIndex === range!.start.pageIndex,
+        slices: itemSlices(onPage.start, onPage.end, extracted.itemStarts, extracted.items)
+          .filter((slice) => textItems.has(slice.itemIndex)),
+      }]
+    }))
+  }
+
+  // Itens da camada de texto que são corpo (pertencem a algum parágrafo/título reconstruído) nesta página.
+  async function bodyItemIndexesOnPage(
+    pageIndex: number,
+    itemStarts: readonly number[],
+    items: ReadonlyArray<{ str: string }>,
+  ): Promise<number[]> {
+    const { session } = propsRef.current
+    const chunk = findChunkForPage(session.chunks, pageIndex)
+    if (!chunk) return []
+    const blocks = [...await session.extractor.reconstructChunk(chunk)]
+    // Página que abre um trecho pode ter a continuação de um parágrafo do trecho anterior.
+    const previous = chunk.startPage === pageIndex ? session.chunks[chunk.index - 1] : undefined
+    if (previous) blocks.push(...await session.extractor.reconstructChunk(previous))
+    return blocks
+      .filter((block) => block.kind !== 'figure')
+      .flatMap((block) => blockItemIndexes(block, pageIndex, itemStarts, items))
+  }
+
+  // Seleção elegível para o menu: não vazia, dentro da camada de texto e fora da interface (painel, menu).
+  function eligibleSelection(doc: Document): Range | null {
+    const selection = doc.getSelection()
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null
+    const range = selection.getRangeAt(0)
+    if (!range.toString().replace(/\s+/g, ' ').trim()) return null
+    const container = range.commonAncestorContainer
+    const element = container.nodeType === Node.ELEMENT_NODE ? (container as Element) : container.parentElement
+    if (!element?.closest('.textLayer') || element.closest('[data-nr-ui]')) return null
+    return range
+  }
+
+  // Posição de um retângulo do documento da página em % da camada de texto (âncora dos menus).
+  function anchorInLayer(doc: Document, rect: DOMRect): { topPct: number; bottomPct: number; leftPct: number } {
+    const layer = doc.querySelector('.textLayer')?.getBoundingClientRect()
+    if (!layer?.height || !layer.width) return { topPct: 50, bottomPct: 52, leftPct: 10 }
+    return {
+      topPct: ((rect.top - layer.top) / layer.height) * 100,
+      bottomPct: ((rect.bottom - layer.top) / layer.height) * 100,
+      leftPct: ((rect.left - layer.left) / layer.width) * 100,
+    }
+  }
+
+  function closeMenus(doc: Document) {
+    hidePdfMenus(doc)
+    activeHighlightMenuRef.current = null
+  }
+
+  function showSelectionMenu(doc: Document, range: Range) {
+    const t = tRef.current
+    const { onRequestCreateHighlight } = propsRef.current
+    activeHighlightMenuRef.current = null
+    renderPdfMenu(doc, {
+      kind: 'selection',
+      anchor: anchorInLayer(doc, range.getBoundingClientRect()),
+      actions: [
+        { id: 'copy', label: t('reader.selectionMenu.copy') },
+        { id: 'share', label: t('reader.selectionMenu.share') },
+        { id: 'translate', label: t('reader.selectionMenu.translate') },
+        ...(onRequestCreateHighlight ? [{ id: 'highlight' as const, label: t('reader.selectionMenu.highlight'), primary: true }] : []),
+      ],
+    }, t)
+  }
+
+  function showHighlightMenu(doc: Document, highlight: Highlight, mark: Element) {
+    const t = tRef.current
+    activeHighlightMenuRef.current = { doc, id: highlight.id! }
+    renderPdfMenu(doc, {
+      kind: 'highlight',
+      anchor: anchorInLayer(doc, mark.getBoundingClientRect()),
+      note: highlight.note?.trim() || undefined,
+      actions: [
+        { id: 'edit', label: t('reader.highlightMenu.edit'), primary: true },
+        { id: 'remove', label: t('reader.highlightMenu.remove') },
+      ],
+    }, t)
+  }
+
+  // Seleção (nós do DOM) → intervalo no texto bruto da página → rascunho de highlight, no mesmo formato que o
+  // modo texto entrega (cfi = intervalo `neopdf:`, paraCfi = início do parágrafo).
+  async function draftFromSelection(selection: PendingPdfSelection): Promise<HighlightDraftPayload | null> {
+    const { session } = propsRef.current
+    const { doc, pageIndex, range } = selection
+    const extracted = await session.extractor.getPage(pageIndex)
+    const start = selectionBoundaryToRaw(doc, range.startContainer, range.startOffset, 'start', extracted.itemStarts, extracted.items)
+    const end = selectionBoundaryToRaw(doc, range.endContainer, range.endOffset, 'end', extracted.itemStarts, extracted.items)
+    if (start === null || end === null || end <= start) return null
+    const chunk = findChunkForPage(session.chunks, pageIndex)
+    if (!chunk) return null
+    const startPoint = { pageIndex, offset: start }
+    const block = findBlockAtPoint(await session.extractor.reconstructChunk(chunk), startPoint)
+    const paragraphStart = (block && blockStartPoint(block)) ?? startPoint
+    return {
+      cfi: formatPdfRange({ start: startPoint, end: { pageIndex, offset: end } }),
+      paraCfi: formatPdfPoint(paragraphStart),
+      text: range.toString().replace(/\s+/g, ' ').trim(),
+      sectionIndex: chunk.index,
+      percentage: clampPercentage(progressPercentage(pageIndex, 0, session.pageCount)),
+    }
+  }
+
+  // "Traduzir" do menu de seleção: abre o painel de tradução com o trecho selecionado, ancorado na seleção.
+  async function translateSelection(selection: PendingPdfSelection, text: string) {
+    const { session } = propsRef.current
+    const { doc, pageIndex, range } = selection
+    const extracted = await session.extractor.getPage(pageIndex)
+    const start = selectionBoundaryToRaw(doc, range.startContainer, range.startOffset, 'start', extracted.itemStarts, extracted.items)
+    const chunk = findChunkForPage(session.chunks, pageIndex)
+    if (start === null || !chunk) return
+    const block = findBlockAtPoint(await session.extractor.reconstructChunk(chunk), { pageIndex, offset: start })
+    const blockStart = block ? blockStartPoint(block) : null
+    if (!block || !blockStart) return
+    const sentenceStart = Math.max(0, block.text.indexOf(text.slice(0, 24)))
+    await startTranslation(doc, pageIndex, block, blockStart, { text, start: sentenceStart }, anchorInLayer(doc, range.getBoundingClientRect()), null)
+  }
+
+  function handleMenuAction(doc: Document, action: PdfMenuActionId) {
+    const { highlights, onRequestCreateHighlight, onEditHighlight, onDeleteHighlight } = propsRef.current
+    if (action === 'edit' || action === 'remove') {
+      const active = activeHighlightMenuRef.current
+      const highlight = active ? (highlights ?? []).find((h) => h.id === active.id) : undefined
+      closeMenus(doc)
+      if (!highlight) return
+      if (action === 'edit') onEditHighlight?.(highlight)
+      else onDeleteHighlight?.(highlight)
+      return
+    }
+
+    const selection = pendingSelectionRef.current?.doc === doc ? pendingSelectionRef.current : null
+    pendingSelectionRef.current = null
+    doc.getSelection()?.removeAllRanges()
+    closeMenus(doc)
+    const text = selection?.range.toString().replace(/\s+/g, ' ').trim()
+    if (!selection || !text) return
+    if (action === 'copy') {
+      // Sem clipboard disponível, apenas não copia (mesma regra do EPUB).
+      void navigator.clipboard?.writeText(text).catch(() => undefined)
+    } else if (action === 'share') {
+      void shareText(text)
+    } else if (action === 'translate') {
+      void translateSelection(selection, text)
+    } else if (action === 'highlight') {
+      void draftFromSelection(selection).then((draft) => {
+        if (draft) onRequestCreateHighlight?.(draft)
+      })
+    }
   }
 
   // Faixa vertical da linha tocada, em % da página (o painel abre colado nela).
@@ -822,10 +1043,33 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
     if (pageCleanupsRef.current.has(doc)) return
 
     const onClick = (event: MouseEvent) => {
+      const target = event.target as Element | null
+      // Botões dos menus de seleção/highlight primeiro: no Android a seleção já foi desfeita por este toque.
+      const menuAction = menuActionAt(target)
+      if (menuAction) {
+        event.preventDefault()
+        event.stopPropagation()
+        handleMenuAction(doc, menuAction)
+        return
+      }
       const selection = doc.getSelection()
       if (selection && !selection.isCollapsed) return // há seleção em andamento: não é um toque
-      const target = event.target as Element | null
+      // Toque fora de um menu aberto só fecha o menu.
+      if (openPdfMenu(doc)) {
+        closeMenus(doc)
+        pendingSelectionRef.current = null
+        return
+      }
       if (target?.closest('a[href], .nr-pdf-translation, .nr-pdf-bookmark-marker')) return
+
+      // Toque num highlight (fora da leitura contínua, que tem prioridade como no EPUB): menu de gerenciar.
+      const highlightId = propsRef.current.ttsGlobalActive ? null : highlightIdAt(target)
+      const highlight = highlightId !== null ? propsRef.current.highlights?.find((h) => h.id === highlightId) : undefined
+      if (highlight) {
+        if (activeTranslationRef.current) clearActiveTranslation()
+        showHighlightMenu(doc, highlight, target!.closest('span.nr-pdf-hl')!)
+        return
+      }
 
       const span = target?.closest<HTMLElement>('.textLayer span[data-nr-item]')
       if (span?.textContent?.trim()) {
@@ -841,9 +1085,31 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
     }
     doc.addEventListener('click', onClick)
 
+    // Menu de seleção acompanha a seleção nativa (abre, reancora, some). Ao desfazer, some com atraso: no
+    // Android o toque no botão do menu desfaz a seleção antes do clique.
+    const onSelectionChange = () => {
+      if (selectionMenuHideTimerRef.current) clearTimeout(selectionMenuHideTimerRef.current)
+      selectionMenuHideTimerRef.current = null
+      const range = eligibleSelection(doc)
+      if (range) {
+        pendingSelectionRef.current = { doc, pageIndex, range: range.cloneRange() }
+        showSelectionMenu(doc, range)
+        return
+      }
+      if (openPdfMenu(doc) !== 'selection') return
+      selectionMenuHideTimerRef.current = setTimeout(() => {
+        selectionMenuHideTimerRef.current = null
+        if (openPdfMenu(doc) === 'selection' && !eligibleSelection(doc)) closeMenus(doc)
+      }, SELECTION_MENU_HIDE_DELAY_MS)
+    }
+    doc.addEventListener('selectionchange', onSelectionChange)
+
     const onRendered = () => {
       void drawBookmarkMarkers(doc, pageIndex)
       decoratePage(doc)
+      // A camada de texto recriada perdeu a pintura dos highlights (e os menus, que viviam nela).
+      void paintHighlightsOnPage(doc, pageIndex)
+      if (activeHighlightMenuRef.current?.doc === doc) activeHighlightMenuRef.current = null
       // A camada de texto foi recriada (zoom/tema): redesenha a tradução aberta nesta página.
       const active = activeTranslationRef.current
       if (active?.doc === doc) {
@@ -874,7 +1140,10 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
       wordLensTasksRef.current.delete(doc)
       // Página descartada pelo foliate com a tradução aberta nela: o estado não pode segurar o Document.
       if (activeTranslationRef.current?.doc === doc) activeTranslationRef.current = null
+      if (pendingSelectionRef.current?.doc === doc) pendingSelectionRef.current = null
+      if (activeHighlightMenuRef.current?.doc === doc) activeHighlightMenuRef.current = null
       doc.removeEventListener('click', onClick)
+      doc.removeEventListener('selectionchange', onSelectionChange)
       doc.removeEventListener(PDF_PAGE_RENDERED_EVENT, onRendered)
       detachPinch()
     })
@@ -997,6 +1266,8 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
       cancelled = true
       readyRef.current = false
       if (relocateTimerRef.current) clearTimeout(relocateTimerRef.current)
+      if (selectionMenuHideTimerRef.current) clearTimeout(selectionMenuHideTimerRef.current)
+      pendingSelectionRef.current = null
       detachHostPinch()
       rendererForCleanup?.removeEventListener('scroll', handleRendererScroll)
       for (const cleanup of pageCleanups.values()) cleanup()
@@ -1053,6 +1324,17 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
     if (activeTranslationRef.current) renderActiveTranslation()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.bookmarks])
+
+  // Highlights: repinta nas páginas carregadas quando a lista muda (criar, editar cor/estilo/nota, remover —
+  // inclusive no outro modo). Menu aberto de um highlight que mudou fica desatualizado: fecha.
+  useEffect(() => {
+    const contents = viewRef.current?.renderer.getContents() ?? []
+    for (const { doc, index } of contents) {
+      if (activeHighlightMenuRef.current?.doc === doc) closeMenus(doc)
+      if (hasRenderedText(doc)) void paintHighlightsOnPage(doc, index)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.highlights])
 
   // Word Lens (liga/desliga, nível, dados carregados) e vocabulário salvo: remarca as páginas carregadas.
   useEffect(() => {

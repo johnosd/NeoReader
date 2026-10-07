@@ -170,6 +170,36 @@ export function rangeAtTextPosition(position: PdfTextPosition): Range {
   return range
 }
 
+/**
+ * Ajusta ao texto bruto da página um intervalo convertido por proporção (highlight criado no modo texto). A
+ * proporção pode errar por alguns caracteres — no E2E, "grandmother investigat" foi gravado 1 caractere antes e
+ * a página fiel pintava " grandmother investiga". Procura o texto selecionado perto da posição aproximada,
+ * aceitando entre as palavras qualquer espaço/quebra de linha e, dentro delas, o hífen de quebra ("-\n"), e
+ * devolve o intervalo exato da ocorrência mais próxima. null se não achar (fica o intervalo aproximado).
+ */
+export function snapRangeToText(
+  raw: string,
+  approx: { start: number; end: number },
+  text: string,
+  slack = 80,
+): { start: number; end: number } | null {
+  const words = text.trim().split(/\s+/).filter(Boolean)
+  if (words.length === 0) return null
+  const escape = (ch: string) => ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const word = (w: string) => Array.from(w).map(escape).join('(?:-\\n)?')
+  const pattern = new RegExp(words.map(word).join('(?:\\s|-\\n)+'), 'g')
+  const from = Math.max(0, approx.start - slack)
+  const to = Math.min(raw.length, approx.end + slack)
+  let best: { start: number; end: number } | null = null
+  for (const match of raw.slice(from, to).matchAll(pattern)) {
+    const start = from + (match.index ?? 0)
+    if (!best || Math.abs(start - approx.start) < Math.abs(best.start - approx.start)) {
+      best = { start, end: start + match[0].length }
+    }
+  }
+  return best
+}
+
 // ---------------------------------------------------------------------------
 // Localizador ↔ CFI
 // ---------------------------------------------------------------------------

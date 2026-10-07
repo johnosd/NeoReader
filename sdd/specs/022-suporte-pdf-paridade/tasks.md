@@ -384,24 +384,36 @@ description: "Tasks da feature 022 — suporte a PDF com paridade de recursos do
 
 ### Testes da Fase
 
-- [ ] T063 [P] [US5] Testes em `src/__tests__/components/reader/PdfPageViewer.test.tsx`: seleção na camada de texto gera `HighlightDraftPayload` com localizadores; seleção entre páginas; highlights existentes pintados; toque em highlight abre menu de gerenciar
-- [ ] T064 [US5] Casos em `src/__tests__/screens/ReaderScreen.test.tsx` e `src/__tests__/screens/BookDetailsScreen.test.tsx`: highlight criado num modo aparece no outro; lista de destaques de PDF navega para o ponto; highlights EPUB inalterados
-- [ ] T065 [US5] E2E Chromium + device: `quickstart.md` § Highlights; SC-006
-- [ ] T066 [US5] Gate EPUB completo
+- [X] T063 [P] [US5] Testes em `src/__tests__/components/reader/PdfPageViewer.test.tsx`: seleção na camada de texto gera `HighlightDraftPayload` com localizadores; seleção entre páginas; highlights existentes pintados; toque em highlight abre menu de gerenciar
+- [X] T064 [US5] Casos em `src/__tests__/screens/ReaderScreen.test.tsx` e `src/__tests__/screens/BookDetailsScreen.test.tsx`: highlight criado num modo aparece no outro; lista de destaques de PDF navega para o ponto; highlights EPUB inalterados
+- [ ] T065 [US5] E2E Chromium + device: `quickstart.md` § Highlights; SC-006 — 2026-10-07: Chromium concluído (`pdf-highlight.check.js` 6/6, ver Registro); device no T079
+- [ ] T066 [US5] Gate EPUB completo — 2026-10-07: parte automatizada verde; checklist no device no T079
 
 ### Implementation
 
-- [ ] T067 [US5] `src/components/reader/pdfPage/`: menu de seleção e menu de gerenciar highlight dentro do documento da página (mesmas ações e mesma caixa unificada `HighlightComposerSheet` via `onRequestCreateHighlight`/`onEditHighlight`/`onDeleteHighlight`); pintura de highlights (fundo/sublinhado/ondulado) sobre a camada de texto, inclusive entre páginas
-- [ ] T068 [US5] Modo texto: highlights via `EpubViewer` com conversão localizador ↔ CFI em `src/screens/ReaderScreen.tsx` (T048); navegação a partir de `src/screens/BookDetailsScreen.tsx` abre o leitor no localizador (em qualquer modo)
+- [X] T067 [US5] `src/components/reader/pdfPage/`: menu de seleção e menu de gerenciar highlight dentro do documento da página (mesmas ações e mesma caixa unificada `HighlightComposerSheet` via `onRequestCreateHighlight`/`onEditHighlight`/`onDeleteHighlight`); pintura de highlights (fundo/sublinhado/ondulado) sobre a camada de texto, inclusive entre páginas
+- [X] T068 [US5] Modo texto: highlights via `EpubViewer` com conversão localizador ↔ CFI em `src/screens/ReaderScreen.tsx` (T048); navegação a partir de `src/screens/BookDetailsScreen.tsx` abre o leitor no localizador (em qualquer modo)
 
 **Critério de Conclusão**: highlights com cor/estilo/nota funcionam nos dois modos, aparecem nos dois (SC-006) e na lista de destaques, inclusive seleção entre páginas; checklist EPUB sem diferença.
 
 **Registro da Fase**:
 
-- Status:
+- Status: **Implementada e validada em Chromium (2026-10-07); faltam só as partes de device (T065/T066), no T079.** `EpubViewer` sem nenhuma mudança nesta fase.
 - Feito:
+  - `pdfPage/pdfPageHighlights.ts` (novo): seleção (nós do DOM) → intervalo no texto bruto da página, contando dentro de spans de Word Lens e tratando pontas entre itens; trecho do intervalo em cada página (vale para intervalo que atravessa páginas); pintura de fundo/sublinhado/ondulado só nos caracteres do intervalo, com indicador de nota no começo; menus de seleção (Copiar, Compartilhar, Traduzir, Destacar) e de gerenciar (nota + Editar destaque, Remover) DENTRO do documento da página.
+  - `pdfPage/pdfPageTextMarks.ts` (novo): envolver/desembrulhar pedaços do texto dos itens — compartilhado pelo karaokê do TTS e pelos highlights (o texto do item não muda; a camada segue alinhada).
+  - `PdfPageViewer` (T067): menu de seleção acompanha a seleção nativa e some com atraso; a seleção fica guardada porque no Android o toque no botão desfaz a seleção antes do clique (mesmo achado do EPUB). "Destacar" entrega o mesmo `HighlightDraftPayload` do EPUB, com `cfi` = intervalo `neopdf` e `paraCfi` = início do parágrafo → a caixa unificada da ReaderScreen. Toque num highlight abre o menu de gerenciar (com leitura contínua ativa, o toque segue para o TTS, como no EPUB). Repinta ao mudar a lista e quando a página é redesenhada. **Só pinta texto de parágrafo** (R-055): cabeçalho corrido, número de página e rodapé ficam de fora mesmo dentro do intervalo.
+  - `ReaderScreen`: o `PdfPageViewer` recebe `highlights` e os mesmos handlers de criar/editar/remover do EPUB e do modo texto.
+  - T068 / modo texto: já vinha da Fase 4 (conversão localizador ↔ CFI); o E2E achou o fim do intervalo gravado 1 caractere fora (conversão proporcional, R-054) → `snapRangeToText` ajusta o intervalo ao texto bruto da página pelo texto selecionado. Lista de destaques dos Detalhes já abria o leitor no localizador (teste novo).
+  - Seleção atravessando páginas na página fiel: impossível pelo navegador (cada página é um iframe) — R-053. O highlight que cruza a virada, criado no modo texto, aparece nas duas páginas.
 - Testes executados:
+  - Novos: `pdfPageHighlights.test.ts` 5; `PdfPageViewer.contract.test.tsx` +7 (pintura com estilos e nota, intervalo entre páginas, cabeçalho fora, repintura, menu de gerenciar com editar/remover, seleção → rascunho com a seleção guardada no estilo Android, traduzir seleção, TTS com prioridade); `ReaderScreen.test.tsx` +3 (highlights nos dois modos; rascunho da página fiel → caixa → `addHighlight` com o localizador) — 2 falham com a ReaderScreen anterior; `BookDetailsScreen.test.tsx` +1 (destaque de PDF na lista abre o leitor no localizador); `PdfLocatorResolver.test.ts` +3 (`snapRangeToText`, incluindo o caso real do E2E).
+  - **E2E Chromium** (`scripts/verificacao-visual/pdf-highlight.check.js`, `1col.pdf`): A. página fiel cria e pinta; B. aparece no modo texto (overlay na cor gravada); C. modo texto cria com localizador exato; D. aparece na página fiel; E. intervalo atravessando a virada pintado nas duas páginas, sem o cabeçalho — **6/6**. Iterações: 2 bugs reais (R-054 fim do intervalo do modo texto; R-055 cabeçalho pintado) e 3 ajustes da própria verificação (cor padrão, parágrafo fora da tela, clique sintético sem coordenadas).
+  - Regressão: TTS 7/7, marcador 5/5, pinça 4/4, página fiel 6/6.
+  - Gate: `npx tsc --noEmit -p tsconfig.app.json` OK · `npm run lint` OK · `npm test` **1531 passando + 2 skipped** · `npm run build` OK · `npm run test:debug-epubs` **71**.
 - Pendências:
+  - **Device (T079)**: seleção por toque longo na página fiel no Android (menu próprio com o menu nativo suprimido), criar/editar/remover nos dois modos e checklist EPUB.
+  - Limitação: seleção que atravessa páginas só no modo texto (R-053).
 
 ---
 
@@ -442,7 +454,7 @@ description: "Tasks da feature 022 — suporte a PDF com paridade de recursos do
 - [ ] T076 [P] `CLAUDE.md`: schema v19 (hoje diz v16, R-010), menção a `src/services/pdf/` e ao `PdfPageViewer` na seção Arquitetura
 - [ ] T077 [P] Revisar copy de biblioteca vazia/onboarding que já promete "PDFs e EPUBs" (`src/i18n/messages.ts` ~linhas 262/1075/1886) — agora verdadeira; ajustar se o fluxo real divergir
 - [ ] T078 Revisão de licença (R-002): cabeçalho MIT no `PdfBookFactory.ts`; conferir que nenhum arquivo contém código do Readest
-- [ ] T079 Rodar `quickstart.md` inteiro no device e registrar SC-001..SC-009 — inclui o que restou do T026: SC-001 no corpus completo, import/capa nativa de 20 PDFs (comparar com a capa do `PdfRenderer`), smoke de PDF com link interno (T038s) no APK; e o import de EPUB com capa > 2000 px depois do T038l; marcador de PDF abrindo no parágrafo marcado, inclusive voltando a uma página distante (T038v); TTS de PDF nos dois modos com tela apagada, em segundo plano e traduzido + SC-004 (T059) e TTS do EPUB em segundo plano sem diferença (parte de device do T060)
+- [ ] T079 Rodar `quickstart.md` inteiro no device e registrar SC-001..SC-009 — inclui o que restou do T026: SC-001 no corpus completo, import/capa nativa de 20 PDFs (comparar com a capa do `PdfRenderer`), smoke de PDF com link interno (T038s) no APK; e o import de EPUB com capa > 2000 px depois do T038l; marcador de PDF abrindo no parágrafo marcado, inclusive voltando a uma página distante (T038v); TTS de PDF nos dois modos com tela apagada, em segundo plano e traduzido + SC-004 (T059) e TTS do EPUB em segundo plano sem diferença (parte de device do T060); highlights nos dois modos com seleção por toque longo na página fiel (T065) e checklist EPUB (T066)
 - [ ] T080 Atualizar `docs/features/` com um resumo do suporte a PDF (arquitetura em 1 página, referenciando esta spec)
 
 ### Checklist de Release

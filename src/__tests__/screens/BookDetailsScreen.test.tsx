@@ -534,6 +534,29 @@ describe('BookDetailsScreen chapters', () => {
     })
   })
 
+  it('feature 022 (T064): highlight de PDF (intervalo neopdf) aparece na lista e abre o leitor no localizador dele', async () => {
+    const onRead = vi.fn()
+    const pdfBook: Book = { ...book, format: 'PDF', pageCount: 120, pdfTextLayer: 'full' }
+    mocks.highlights = [highlightFixture({
+      cfi: 'neopdf:v1;p=44;o=296,p=45;o=12',
+      paraCfi: 'neopdf:v1;p=44;o=296',
+      text: 'A cada dia que você e eu acordamos',
+      note: 'Abertura do capítulo',
+      percentage: 37,
+    })]
+
+    render(<BookDetailsScreen book={pdfBook} onBack={vi.fn()} onRead={onRead} onOpenSettings={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /^Destaques/ }))
+    expect(await screen.findByText('Abertura do capítulo')).toBeTruthy()
+    expect(screen.getByText(/^37% ·/)).toBeTruthy()
+    fireEvent.click(screen.getByText('A cada dia que você e eu acordamos'))
+
+    // O leitor recebe o localizador como alvo inicial; o viewer de PDF vai ao começo do intervalo (nos dois modos).
+    await waitFor(() => {
+      expect(onRead).toHaveBeenCalledWith(expect.objectContaining({ format: 'PDF' }), 'neopdf:v1;p=44;o=296,p=45;o=12')
+    })
+  })
+
   it('T039: livro sem highlights mostra estado vazio, e o contador aparece junto de marcacoes e vocabulario', async () => {
     mocks.highlights = []
 

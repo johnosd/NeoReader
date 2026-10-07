@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import * as CFI from 'foliate-js/epubcfi.js'
 
-import { PdfLocatorResolver, pdfTextBlocks } from '@/services/pdf/PdfLocatorResolver'
+import { PdfLocatorResolver, pdfTextBlocks, snapRangeToText } from '@/services/pdf/PdfLocatorResolver'
 import { createPdfTextBook, PDF_TEXT_ATTR_RANGES, type PdfTextBook } from '@/services/pdf/PdfTextBookBuilder'
 import { PdfTextExtractor } from '@/services/pdf/PdfTextExtractor'
 import type { PdfDocumentProxy, PdfPageProxy } from '@/services/pdf/pdfjs'
@@ -176,5 +176,28 @@ describe('PdfLocatorResolver — localizador ↔ CFI do livro sintético (T040)'
     expect(await resolver.locatorToCfi(formatPdfPoint({ pageIndex: 99, offset: 0 }))).toBeNull()
     expect(await resolver.cfiToLocator('epubcfi(/6/40!/4/2/2)')).toBeNull()
     expect(await resolver.cfiToLocator(null)).toBeNull()
+  })
+})
+
+describe('snapRangeToText — intervalo convertido por proporção ajustado ao texto bruto', () => {
+  // Caso real do E2E (1col.pdf, pág. 4): a proporção gravou 1 caractere antes do texto selecionado.
+  const RAW = 'ion.\nHer grandmother investigated the extraordinary responsi-\nbility of the author.\n'
+
+  it('desliza o intervalo para a ocorrência exata mais próxima', () => {
+    const start = RAW.indexOf('grandmother')
+    expect(snapRangeToText(RAW, { start: start - 1, end: start - 1 + 22 }, 'grandmother investigat'))
+      .toEqual({ start, end: start + 'grandmother investigat'.length })
+  })
+
+  it('aceita quebra de linha entre palavras e hífen de quebra dentro da palavra', () => {
+    const start = RAW.indexOf('extraordinary')
+    const snapped = snapRangeToText(RAW, { start: start + 3, end: start + 40 }, 'extraordinary responsibility of')
+    expect(snapped).toEqual({ start, end: RAW.indexOf(' the author') })
+    expect(RAW.slice(snapped!.start, snapped!.end)).toBe('extraordinary responsi-\nbility of')
+  })
+
+  it('texto que não está por perto: null (fica o intervalo aproximado)', () => {
+    expect(snapRangeToText(RAW, { start: 0, end: 5 }, 'texto inexistente')).toBeNull()
+    expect(snapRangeToText(RAW, { start: 0, end: 5 }, '   ')).toBeNull()
   })
 })

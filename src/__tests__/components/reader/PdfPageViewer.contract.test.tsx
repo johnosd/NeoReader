@@ -739,3 +739,173 @@ describe('PdfPageViewer — TTS (US4)', () => {
     now.mockRestore()
   })
 })
+
+// ─── US5: highlights na página fiel (T063) ──────────────────────────────────
+
+describe('PdfPageViewer — highlights (US5)', () => {
+  // Mesmo livro do TTS: parágrafo que começa na página 0 ("Primeira frase do livro. Segunda") e continua na 1.
+  const PAGES: Record<number, Array<{ str: string; hasEOL: boolean }>> = {
+    0: [{ str: 'Introdução', hasEOL: true }, { str: 'Primeira frase do livro. Segunda', hasEOL: true }],
+    1: [{ str: 'frase continua aqui.', hasEOL: true }],
+  }
+  const extracted = (pageIndex: number) => {
+    const items = PAGES[pageIndex] ?? []
+    const itemStarts: number[] = []
+    let rawText = ''
+    for (const item of items) {
+      itemStarts.push(rawText.length)
+      rawText += `${item.str}\n`
+    }
+    return { items, itemStarts, rawText }
+  }
+  const PARAGRAPH = {
+    kind: 'paragraph' as const,
+    text: 'Primeira frase do livro. Segunda frase continua aqui.',
+    pageIndex: 0,
+    ranges: [{ pageIndex: 0, start: 11, end: 43 }, { pageIndex: 1, start: 0, end: 20 }],
+  }
+  const base = { bookId: 1, sectionIndex: 0, percentage: 0, createdAt: new Date(), paraCfi: 'neopdf:v1;p=0;o=11' }
+  // "Primeira" (só na página 0), e "Segunda frase" atravessando da página 0 para a 1, com nota.
+  const ON_PAGE = { ...base, id: 1, cfi: 'neopdf:v1;p=0;o=11,p=0;o=19', text: 'Primeira', color: 'amber', style: 'background' as const }
+  const CROSS = { ...base, id: 2, cfi: 'neopdf:v1;p=0;o=36,p=1;o=5', text: 'Segunda frase', color: 'rose', style: 'squiggly' as const, note: 'Ideia central' }
+
+  function makeSessionWithText() {
+    const session = makeSession(30)
+    vi.mocked(session.extractor.getPage).mockImplementation(async (pageIndex: number) => extracted(pageIndex) as never)
+    vi.mocked(session.extractor.reconstructChunk).mockResolvedValue([PARAGRAPH] as never)
+    return session
+  }
+
+  function pageWithText(pageIndex: number): Document {
+    const doc = makePageDocument()
+    doc.querySelector('.textLayer')!.innerHTML = (PAGES[pageIndex] ?? [])
+      .map((item, i) => `<span data-nr-item="${i}">${item.str}</span>`).join('')
+    // jsdom não implementa Range.getBoundingClientRect (âncora do menu de seleção).
+    ;(doc.defaultView as unknown as { Range: typeof Range }).Range.prototype.getBoundingClientRect = () =>
+      ({ top: 100, bottom: 120, left: 20, right: 200, width: 180, height: 20, x: 20, y: 100, toJSON: () => ({}) }) as DOMRect
+    return doc
+  }
+
+  async function openWithHighlights(overrides: Partial<PdfPageViewerProps> = {}) {
+    const utils = setup({
+      session: makeSessionWithText(),
+      highlights: [ON_PAGE, CROSS],
+      onRequestCreateHighlight: vi.fn(),
+      onEditHighlight: vi.fn(),
+      onDeleteHighlight: vi.fn(),
+      onTranslate: vi.fn(),
+      onParagraphTapForTts: vi.fn(),
+      ...overrides,
+    })
+    await waitFor(() => expect(utils.props.onLoad).toHaveBeenCalled())
+    const docs = { 0: pageWithText(0), 1: pageWithText(1) }
+    ;(view!.renderer as unknown as { getContents: () => unknown }).getContents = () =>
+      Object.entries(docs).map(([index, doc]) => ({ doc, index: Number(index) }))
+    for (const [index, doc] of Object.entries(docs)) {
+      await act(async () => { view!.fireFoliate('load', { doc, index: Number(index) }) })
+    }
+    const marks = (doc: Document) => [...doc.querySelectorAll<HTMLElement>('span.nr-pdf-hl')]
+    const click = async (el: Element) => {
+      await act(async () => { el.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    }
+    return { ...utils, docs, marks, click }
+  }
+
+  it('pinta os highlights salvos, inclusive o que atravessa páginas, com estilo e indicador de nota', async () => {
+    const { docs, marks } = await openWithHighlights()
+    await waitFor(() => expect(marks(docs[0]).map((m) => m.textContent)).toEqual(['Primeira', 'Segunda']))
+    expect(marks(docs[1]).map((m) => m.textContent)).toEqual(['frase'])
+    expect(marks(docs[0])[0].style.backgroundColor).toContain('rgba(245, 158, 11')
+    expect(marks(docs[1])[0].style.textDecorationStyle).toBe('wavy')
+    // Indicador de nota só no começo do trecho (página 0), não na continuação.
+    expect(marks(docs[0])[1].classList.contains('nr-pdf-hl-note')).toBe(true)
+    expect(marks(docs[1])[0].classList.contains('nr-pdf-hl-note')).toBe(false)
+  })
+
+  it('só pinta texto de parágrafo: cabeçalho/número de página dentro do intervalo ficam de fora', async () => {
+    // "Introdução" não pertence a nenhum bloco reconstruído deste trecho (fazendo o papel de cabeçalho corrido);
+    // o intervalo vai do começo da página até "Primeira" e passa por ele.
+    const OVER_HEADER = { ...base, id: 3, cfi: 'neopdf:v1;p=0;o=0,p=0;o=19', text: 'Primeira', color: 'cyan', style: 'underline' as const }
+    const { docs, marks } = await openWithHighlights({ highlights: [OVER_HEADER] })
+    await waitFor(() => expect(marks(docs[0]).map((m) => m.textContent)).toEqual(['Primeira']))
+  })
+
+  it('a lista mudou (removido em qualquer modo): repinta sem o highlight', async () => {
+    const { docs, marks, props, rerender } = await openWithHighlights()
+    await waitFor(() => expect(marks(docs[1])).toHaveLength(1))
+    rerender(
+      <I18nProvider>
+        <PdfPageViewer {...props} highlights={[ON_PAGE]} />
+      </I18nProvider>,
+    )
+    await waitFor(() => expect(marks(docs[1])).toHaveLength(0))
+    expect(marks(docs[0]).map((m) => m.textContent)).toEqual(['Primeira'])
+  })
+
+  it('tocar num highlight abre o menu de gerenciar (com a nota); editar e remover chamam os mesmos callbacks do EPUB', async () => {
+    const { docs, marks, click, props } = await openWithHighlights()
+    await waitFor(() => expect(marks(docs[0])).toHaveLength(2))
+
+    await click(marks(docs[0])[1])
+    const menu = docs[0].querySelector('.nr-pdf-menu')!
+    expect(menu.textContent).toContain('Ideia central')
+    expect(props.onTranslate).not.toHaveBeenCalled()
+
+    await click(menu.querySelector('[data-nr-pdf-menu-action="edit"]')!)
+    expect(props.onEditHighlight).toHaveBeenCalledWith(CROSS)
+    expect(docs[0].querySelector('.nr-pdf-menu')).toBeNull()
+
+    await click(marks(docs[0])[0])
+    await click(docs[0].querySelector('[data-nr-pdf-menu-action="remove"]')!)
+    expect(props.onDeleteHighlight).toHaveBeenCalledWith(ON_PAGE)
+  })
+
+  it('selecionar texto abre o menu; "Destacar" entrega o rascunho com intervalo neopdf e início do parágrafo', async () => {
+    const { docs, click, props } = await openWithHighlights({ highlights: [] })
+    const doc = docs[0]
+    const text = doc.querySelector('[data-nr-item="1"]')!.firstChild!
+    const range = doc.createRange()
+    range.setStart(text, 9) // "frase"
+    range.setEnd(text, 23) // "frase do livro"
+    doc.getSelection()!.addRange(range)
+    await act(async () => { doc.dispatchEvent(new Event('selectionchange')) })
+
+    const menu = doc.querySelector('.nr-pdf-menu')!
+    expect(menu.getAttribute('data-kind')).toBe('selection')
+    expect([...menu.querySelectorAll('[data-nr-pdf-menu-action]')].map((b) => b.getAttribute('data-nr-pdf-menu-action')))
+      .toEqual(['copy', 'share', 'translate', 'highlight'])
+
+    // Android: o toque no botão desfaz a seleção nativa ANTES do clique — o rascunho sai da seleção guardada.
+    doc.getSelection()!.removeAllRanges()
+    await click(menu.querySelector('[data-nr-pdf-menu-action="highlight"]')!)
+
+    await waitFor(() => expect(props.onRequestCreateHighlight).toHaveBeenCalledWith({
+      cfi: 'neopdf:v1;p=0;o=20,p=0;o=34',
+      paraCfi: 'neopdf:v1;p=0;o=11',
+      text: 'frase do livro',
+      sectionIndex: 0,
+      percentage: 0,
+    }))
+    expect(doc.querySelector('.nr-pdf-menu')).toBeNull()
+  })
+
+  it('"Traduzir" no menu de seleção abre o painel de tradução com o trecho selecionado', async () => {
+    const { docs, click, props } = await openWithHighlights({ highlights: [] })
+    const doc = docs[0]
+    const range = doc.createRange()
+    range.selectNodeContents(doc.querySelector('[data-nr-item="1"]')!)
+    doc.getSelection()!.addRange(range)
+    await act(async () => { doc.dispatchEvent(new Event('selectionchange')) })
+    await click(doc.querySelector('[data-nr-pdf-menu-action="translate"]')!)
+    await waitFor(() => expect(props.onTranslate).toHaveBeenCalledWith('Primeira frase do livro. Segunda'))
+    expect(doc.querySelector('.nr-pdf-translation')).not.toBeNull()
+  })
+
+  it('com a leitura contínua ativa, tocar no highlight leva o TTS ao parágrafo (sem menu), como no EPUB', async () => {
+    const { docs, marks, click, props } = await openWithHighlights({ ttsGlobalActive: true })
+    await waitFor(() => expect(marks(docs[0])).toHaveLength(2))
+    await click(marks(docs[0])[0])
+    await waitFor(() => expect(props.onParagraphTapForTts).toHaveBeenCalledWith(0))
+    expect(docs[0].querySelector('.nr-pdf-menu')).toBeNull()
+  })
+})

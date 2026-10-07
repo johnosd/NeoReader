@@ -103,7 +103,8 @@ function ensureStyles(doc: Document): void {
 
 // px de layout do painel → px na tela. Mede depois de anexar: escala interna (transform da camada) × escala do
 // iframe (página encaixada na largura). Sem layout (jsdom) fica no devicePixelRatio de ensureStyles.
-function applyVisualScale(doc: Document, el: HTMLElement): void {
+// Exportada para os menus de highlight (pdfPageHighlights), que usam a mesma variável --nr-dpr.
+export function applyVisualScale(doc: Document, el: HTMLElement): void {
   const frame = doc.defaultView?.frameElement as HTMLElement | null
   const docWidth = doc.documentElement.clientWidth
   if (!frame || !docWidth || !el.offsetWidth) return

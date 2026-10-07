@@ -8,6 +8,7 @@
 import type { PdfBlock } from '@/utils/pdfParagraphs'
 import type { PdfPoint } from '@/utils/pdfLocator'
 import { findWordNear } from './pdfPageWords'
+import { unwrapMarks, wrapItemRange } from './pdfPageTextMarks'
 
 // ── Puras ────────────────────────────────────────────────────────────────────
 
@@ -129,37 +130,14 @@ export function highlightTtsItems(doc: Document, itemIndexes: readonly number[],
 /** Remove os destaques de TTS (parágrafo e palavra) da página. */
 export function clearTtsHighlight(doc: Document): void {
   doc.querySelectorAll(`.${PARAGRAPH_CLASS}`).forEach((el) => el.classList.remove(PARAGRAPH_CLASS))
-  doc.querySelectorAll(`span.${WORD_CLASS}`).forEach((mark) => {
-    const parent = mark.parentNode
-    mark.replaceWith(...Array.from(mark.childNodes))
-    parent?.normalize()
-  })
+  unwrapMarks(doc, `span.${WORD_CLASS}`)
 }
 
-/**
- * Karaokê: envolve os caracteres [start, end) do texto do item (span da camada de texto) numa marca. Percorre os
- * nós de texto (o item pode ter spans de Word Lens/vocabulário dentro) e só envolve o trecho de cada nó.
- */
+/** Karaokê: envolve os caracteres [start, end) do item numa marca (ver wrapItemRange). */
 export function markTtsWord(doc: Document, itemIndex: number, start: number, end: number): void {
-  const span = doc.querySelector<HTMLElement>(`.textLayer span[data-nr-item="${itemIndex}"]`)
-  if (!span || end <= start) return
-  const walker = doc.createTreeWalker(span, NodeFilter.SHOW_TEXT)
-  const textNodes: Text[] = []
-  for (let node = walker.nextNode(); node; node = walker.nextNode()) textNodes.push(node as Text)
-
-  let position = 0
-  for (const node of textNodes) {
-    const length = node.data.length
-    const from = Math.max(start, position) - position
-    const to = Math.min(end, position + length) - position
-    position += length
-    if (to <= from) continue
-    // splitText: [antes][palavra][depois] — a marca envolve só o pedaço do meio.
-    const middle = from > 0 ? node.splitText(from) : node
-    if (to - from < middle.data.length) middle.splitText(to - from)
+  wrapItemRange(doc, itemIndex, start, end, () => {
     const mark = doc.createElement('span')
     mark.className = WORD_CLASS
-    middle.replaceWith(mark)
-    mark.append(middle)
-  }
+    return mark
+  })
 }
