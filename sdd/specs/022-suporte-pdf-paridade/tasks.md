@@ -458,12 +458,26 @@ description: "Tasks da feature 022 — suporte a PDF com paridade de recursos do
 
 **Purpose**: Documentação, licença, métricas finais.
 
-- [ ] T075 [P] `README.md`: PDF como formato suportado, dois modos, limitações (OCR, senha, Safari); seção de estrutura de pastas
-- [ ] T076 [P] `CLAUDE.md`: schema v19 (hoje diz v16, R-010), menção a `src/services/pdf/` e ao `PdfPageViewer` na seção Arquitetura
-- [ ] T077 [P] Revisar copy de biblioteca vazia/onboarding que já promete "PDFs e EPUBs" (`src/i18n/messages.ts` ~linhas 262/1075/1886) — agora verdadeira; ajustar se o fluxo real divergir
-- [ ] T078 Revisão de licença (R-002): cabeçalho MIT no `PdfBookFactory.ts`; conferir que nenhum arquivo contém código do Readest
+- [X] T075 [P] `README.md`: PDF como formato suportado, dois modos, limitações (OCR, senha, Safari); seção de estrutura de pastas
+- [X] T076 [P] `CLAUDE.md`: schema v19 (hoje diz v16, R-010), menção a `src/services/pdf/` e ao `PdfPageViewer` na seção Arquitetura
+- [X] T077 [P] Revisar copy de biblioteca vazia/onboarding que já promete "PDFs e EPUBs" (`src/i18n/messages.ts` ~linhas 262/1075/1886) — agora verdadeira; ajustar se o fluxo real divergir
+- [X] T078 Revisão de licença (R-002): cabeçalho MIT no `PdfBookFactory.ts`; conferir que nenhum arquivo contém código do Readest
 - [ ] T079 Rodar `quickstart.md` inteiro no device e registrar SC-001..SC-009 — inclui o que restou do T026: SC-001 no corpus completo, import/capa nativa de 20 PDFs (comparar com a capa do `PdfRenderer`), smoke de PDF com link interno (T038s) no APK; e o import de EPUB com capa > 2000 px depois do T038l; marcador de PDF abrindo no parágrafo marcado, inclusive voltando a uma página distante (T038v); TTS de PDF nos dois modos com tela apagada, em segundo plano e traduzido + SC-004 (T059) e TTS do EPUB em segundo plano sem diferença (parte de device do T060); highlights nos dois modos com seleção por toque longo na página fiel (T065) e checklist EPUB (T066); download OPDS de uma entrada só-PDF e de uma EPUB num catálogo real (T071)
-- [ ] T080 Atualizar `docs/features/` com um resumo do suporte a PDF (arquitetura em 1 página, referenciando esta spec)
+- [X] T080 Atualizar `docs/features/` com um resumo do suporte a PDF (arquitetura em 1 página, referenciando esta spec)
+
+**Registro da Fase**:
+
+- Status: Documentação, copy e licença concluídas (2026-10-07); falta só o T079 (rodada de device).
+- Feito:
+  - T075 `README.md`: PDF nos formatos, na stack, na importação, no OPDS, seção "Leitor PDF" (dois modos, recursos, limitações), persistência (o README dizia v17; corrigido para v19 com `highlights` e `collections`, e os campos de PDF sem versão nova), estrutura de pastas e arquitetura.
+  - T076 `CLAUDE.md`: v16 → v19 e um parágrafo de arquitetura do PDF (inclui a armadilha do `<canvas>` no iframe sem scripts e a regra de não mudar o EPUB).
+  - T077: biblioteca vazia, home e import já falavam "EPUB ou PDF" e batem com o fluxo real. Ajustados os 2 textos que apareciam para PDF falando só de EPUB, nos 3 idiomas: catálogo OPDS vazio e "buscando dados no EPUB" da ficha. Os demais textos com "EPUB" só aparecem para EPUB (diagnóstico de estilos, timeout de extras) ou já têm variante de PDF.
+  - T078: `PdfBookFactory.ts` e `pdfPageRender.ts` com cabeçalho MIT e copyright do foliate-js; `node_modules/foliate-js` é MIT (LICENSE e package.json). Nenhum import ou código do Readest; as menções são comentários de referência conceitual (`pdfParagraphs.ts` declara implementação própria).
+  - T080 `docs/features/suporte-pdf.md`: mapa de uma página, apontando para esta spec.
+- Testes executados: `npx tsc --noEmit -p tsconfig.app.json`, `npm run lint`, `npm test` (1539 + 2 skipped), `npm run build`, `npm run test:debug-epubs` (71) — todos com saída 0.
+- Pendências:
+  - T079 no device.
+  - Observação de licença para o release: o projeto não tem um arquivo de avisos de terceiros; o texto completo da licença MIT do foliate-js só está em `node_modules`. Não é do escopo desta feature (vale para todas as dependências), mas fica anotado.
 
 ### Checklist de Release
 
@@ -475,11 +489,11 @@ description: "Tasks da feature 022 — suporte a PDF com paridade de recursos do
 - [ ] Fase 6 (US4 — TTS) concluída
 - [ ] Fase 7 (US5 — highlights) concluída
 - [ ] Fase 8 (US6 — OPDS) concluída
-- [ ] `npm run lint && npm test && npm run build && npm run test:debug-epubs` verdes, contagem de testes EPUB ≥ linha de base de T001
+- [X] `npm run lint && npm test && npm run build && npm run test:debug-epubs` verdes, contagem de testes EPUB ≥ linha de base de T001
 - [ ] `quickstart.md` § Regressão EPUB executado no device sem diferença
 - [ ] SC-001..SC-009 medidos e registrados
 - [ ] Validação em build de release no device (minificação não quebra pdf.js/worker)
-- [ ] Revisão de licença (T078) feita
+- [X] Revisão de licença (T078) feita
 
 ---
 

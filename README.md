@@ -1,6 +1,6 @@
 # NeoReader
 
-NeoReader e um leitor de EPUB mobile-first para Android e Web. O app combina
+NeoReader é um leitor de EPUB e PDF mobile-first para Android e Web. O app combina
 biblioteca local, importacao por arquivo ou pasta, leitura continua, marcadores,
 traducao inline com provedores premium via BYOK e fallback gratuito, vocabulario
 salvo, TTS com provedores premium e fallback nativo, descoberta de livros e
@@ -17,7 +17,10 @@ tags, pastas de origem e caches ficam no dispositivo.
 - Login: obrigatorio, usando Firebase Auth com Google Sign-In.
 - Idiomas da interface: automatico pelo dispositivo, Portugues (BR), Ingles e
   Espanhol.
-- Formato de leitura documentado: EPUB.
+- Formatos de leitura: EPUB e PDF. O PDF tem dois modos (página fiel e modo
+  texto) com os mesmos recursos do EPUB — ver "Leitor PDF". Limitações: PDF
+  escaneado abre só como imagem (sem OCR), PDF com senha ou DRM é recusado na
+  importação, e no Web só o Chromium é garantido (Safari/iOS não).
 - NeoReader Pro usa RevenueCat com planos mensal/anual no Android nativo. O
   paywall busca o offering `default` e mostra apenas `pro_monthly` e
   `pro_annual`.
@@ -47,6 +50,7 @@ tags, pastas de origem e caches ficam no dispositivo.
 | Mobile | Capacitor 8 + Android nativo |
 | Estilo | Tailwind CSS v4 + tokens em `src/index.css` |
 | EPUB | `foliate-js` + `fflate` |
+| PDF | `pdf.js` (o mesmo que o `foliate-js` usa), renderizado como imagem + camada de texto |
 | Storage local | Dexie.js / IndexedDB |
 | Estado | Zustand + hooks locais |
 | Icones | Lucide React |
@@ -81,7 +85,7 @@ tags, pastas de origem e caches ficam no dispositivo.
 
 - Hero banner para o ultimo livro aberto.
 - Secoes "Continue lendo" e "Meus Livros" derivadas de dados locais.
-- Botao flutuante para importar EPUB.
+- Botão flutuante para importar EPUB ou PDF.
 - Acoes rapidas por livro: atualizar ficha, reextrair capa, escolher capa manual,
   marcar como lendo/concluido, gerenciar tags e excluir.
 
@@ -101,13 +105,16 @@ tags, pastas de origem e caches ficam no dispositivo.
   arquivo. A ordenacao escolhida fica em `localStorage`.
 - Favoritos por livro.
 - Tags locais com criacao, atribuicao e exclusao.
-- Importacao de arquivos `.epub` individuais ou multiplos.
+- Importação de arquivos `.epub` e `.pdf` individuais ou múltiplos (também por
+  pasta e por "abrir com" no Android). O formato é confirmado pelo conteúdo do
+  arquivo, não pela extensão; o PDF ganha capa da primeira página, título/autor
+  do próprio PDF e idioma detectado pelo texto.
 - Importacao por pasta com opcao de subpastas, tag sugerida da pasta e preview
   antes de importar.
 - Preview de importacao com contagem de novos arquivos, duplicados e formatos
   ignorados.
 - Deteccao de duplicados por hash SHA-256, URI e par titulo/autor normalizado.
-- Em Android, o plugin nativo copia EPUBs selecionados para o armazenamento local
+- Em Android, o plugin nativo copia os livros selecionados para o armazenamento local
   do app quando possivel; em Web, os arquivos ficam embutidos no IndexedDB.
 - Arquivos movidos, removidos ou com permissao perdida sao marcados como
   `missingFile` e o leitor oferece remocao do registro da biblioteca.
@@ -122,7 +129,9 @@ tags, pastas de origem e caches ficam no dispositivo.
   texto, ordenacao Padrao/Populares/Recentes/Aleatorio quando o servidor
   suporta, layout de lista ou grid dependendo se a pagina e so de pastas ou
   tem livros). Suporta OPDS 1.x (Atom) e OPDS 2.0 (JSON), detectados por
-  `Content-Type`. Livro baixado ganha tags automaticas de assunto/idioma
+  `Content-Type`. Entradas disponíveis só em PDF também aparecem (com selo
+  "PDF" na capa) e podem ser baixadas; quando há EPUB e PDF, o EPUB é o
+  escolhido. Livro baixado ganha tags automaticas de assunto/idioma
   quando o catalogo informa esses metadados. Project Gutenberg vem
   pre-configurado por padrao; catalogos
   self-hosted com Basic Auth sao gerenciados em Configuracoes > Catalogos
@@ -249,6 +258,36 @@ ficha manualmente.
   biblioteca.
 - O build endurece o sandbox dos iframes do `foliate-js` removendo
   `allow-scripts` nos renderers suportados.
+
+### Leitor PDF
+
+Feature `022-suporte-pdf-paridade` (spec e decisões em
+`sdd/specs/022-suporte-pdf-paridade/`). Dois modos, trocados pelo painel do
+leitor; o último modo usado fica salvo por livro:
+
+- **Página fiel**: a página original em scroll contínuo, com zoom por pinça,
+  tema claro/escuro aplicado à página, sumário (quando o PDF tem) e progresso
+  por página. Cada página é desenhada como imagem com a camada de texto do
+  pdf.js por cima (o iframe não roda scripts, então não há `<canvas>`).
+- **Modo texto**: os parágrafos são reconstruídos a partir do texto do PDF
+  (colunas, hifenização, cabeçalhos e números de página repetidos) e exibidos
+  refluídos no mesmo `EpubViewer` do EPUB, com fonte, tamanho, tema e
+  espaçamento do leitor. Páginas sem texto ou com 3+ colunas aparecem como
+  imagem.
+- Recursos nos dois modos: Word Lens e vocabulário, tradução (inline no modo
+  texto, painel na própria página na página fiel), TTS com acompanhamento do
+  trecho lido (inclusive traduzido e em segundo plano), highlights com nota,
+  marcadores com sync no Drive (Pro). Highlights, marcadores e posição valem
+  nos dois modos, porque usam o mesmo localizador (`neopdf:v1;p=..;o=..`,
+  página + posição no texto da página).
+- PDF escaneado (sem texto) abre na página fiel com aviso de que os recursos de
+  texto não estão disponíveis.
+- PDFs de até 1000 páginas / 200 MB abrem sem travar; acima disso, abrem com
+  aviso de possível lentidão.
+- Limitações: sem OCR; PDF com senha ou DRM é recusado; formulários e anotações
+  nativas do PDF não são interativos, e highlights não são gravados no arquivo;
+  na página fiel não dá para selecionar um trecho que atravesse duas páginas
+  (faz-se no modo texto, e a página fiel mostra o destaque nas duas).
 
 ### Highlights
 
@@ -569,7 +608,11 @@ npx @capacitor/assets generate --android
 
 ## Persistencia local
 
-O banco local usa Dexie em `NeoReaderDB`. O schema atual esta na versao 17.
+O banco local usa Dexie em `NeoReaderDB`. O schema atual está na versão 19.
+O PDF não criou versão nova: seus campos (`pageCount`, `pdfTextLayer`,
+`detectedLanguage` em `books`; `pdfReadingMode` em `bookSettings`) não são
+indexados, e o localizador `neopdf:` ocupa o mesmo campo `cfi` de progresso,
+marcadores e highlights.
 
 | Tabela | Conteudo |
 |---|---|
@@ -577,6 +620,7 @@ O banco local usa Dexie em `NeoReaderDB`. O schema atual esta na versao 17.
 | `bookCovers` | Capas extraidas, manuais ou migradas |
 | `progress` | CFI, percentual, fracao e secao atual |
 | `bookmarks` | Marcadores por CFI, snippet, cor e soft delete |
+| `highlights` | Trechos destacados (intervalo, cor, estilo e nota), locais, sem sync |
 | `vocabulary` | Pares original/traducao salvos pelo usuario |
 | `translations` | Cache de traducoes por hash |
 | `settings` | Preferencias globais e API keys locais |
@@ -587,13 +631,14 @@ O banco local usa Dexie em `NeoReaderDB`. O schema atual esta na versao 17.
 | `epubExtras` | Descricao, idioma, TOC, preview e diagnosticos extraidos do EPUB |
 | `tags` | Tags criadas pelo usuario |
 | `sourceFolders` | Pastas usadas como origem de importacao |
+| `collections` | Coleções de livros |
 | `opdsCatalogs` | Catalogos OPDS cadastrados (nome, URL, flag de credencial) — a credencial em si fica fora do Dexie, no secure storage nativo |
 | `opdsDownloadedEntries` | Vinculo entry OPDS -> livro baixado, usado pro estado "ja na biblioteca" |
 
 Modos de armazenamento de livros:
 
-- `embedded`: EPUB salvo como `fileBlob` no IndexedDB.
-- `local`: EPUB copiado pelo plugin Android para a area privada do app, com URI
+- `embedded`: livro (EPUB ou PDF) salvo como `fileBlob` no IndexedDB.
+- `local`: livro copiado pelo plugin Android para a area privada do app, com URI
   local.
 - `external`: registro aponta para URI externa/legada e pode virar
   `missingFile` se o acesso for perdido.
@@ -637,7 +682,8 @@ Persistido fora do Dexie:
 src/
 |-- assets/                 # Imagens, logos e icones de provedores TTS
 |-- components/
-|   |-- reader/             # Viewer EPUB, chrome, TOC, marcadores, TTS e aparencia
+|   |-- reader/             # Viewers EPUB e PDF, chrome, TOC, marcadores, TTS e aparencia
+|   |   `-- pdfPage/        # Página fiel do PDF: gestos, TTS, highlights, tradução
 |   |-- ui/                 # Primitives compartilhadas
 |   |-- AdBannerSlot.tsx
 |   |-- BottomNav.tsx
@@ -652,6 +698,9 @@ src/
 |-- i18n/                   # Locales, provider e mensagens
 |-- screens/                # Telas principais
 |-- services/               # EPUB, importacao, auth, metadados, traducao, TTS, ads e billing
+|   |-- importers/          # Importador por formato (EPUB, PDF)
+|   |-- opds/               # Catálogos OPDS
+|   `-- pdf/                # pdf.js, metadados, extração de texto, modo texto, localizador
 |-- store/                  # Estado global do leitor
 |-- types/                  # Tipos de dominio
 |-- utils/                  # CFI, TOC, progresso, preferencias, idiomas e busca
@@ -688,11 +737,21 @@ docs/
 - `src/services/NativeLibraryImportService.ts` encapsula o plugin Android para
   escolher arquivos/pastas, ler chunks e preparar importacao local.
 - `android/app/src/main/java/com/johnny/neoreader/NeoReaderLibraryPlugin.java`
-  implementa o lado nativo do picker e da copia/inspecao de EPUBs.
+  implementa o lado nativo do picker e da copia/inspecao de EPUBs e PDFs.
+- `src/services/importers/` escolhe o importador pelo conteúdo do arquivo
+  (`src/utils/bookFormat.ts`): EPUB segue o caminho de sempre, PDF usa
+  `src/services/pdf/PdfService.ts` (metadados, capa, camada de texto, idioma).
 - `src/services/BookFileResolver.ts` resolve `embedded`, `local` e `external`
   antes de abrir o livro.
 - `src/components/reader/EpubViewer.tsx` carrega `foliate-js` sob demanda,
   configura o renderer em scroll continuo e injeta recursos NeoReader no iframe.
+- PDF: `src/components/reader/PdfPageViewer.tsx` (página fiel, sobre o renderer
+  de layout fixo do `foliate-js`, com os recursos em `reader/pdfPage/`) e
+  `src/components/reader/PdfTextModeViewer.tsx` (modo texto: livro sintético
+  de `src/services/pdf/PdfTextBookBuilder.ts` aberto no próprio `EpubViewer`).
+  `src/services/pdf/PdfLocatorResolver.ts` converte o localizador `neopdf:`
+  entre os dois modos. `src/screens/ReaderScreen.tsx` liga os recursos pelas
+  capacidades do viewer ativo, não pelo formato.
 - `vite.config.ts` copia assets PDF.js exigidos pelo `foliate-js`, endurece
   sandbox de iframe e configura proxy dev para Fish Audio.
 

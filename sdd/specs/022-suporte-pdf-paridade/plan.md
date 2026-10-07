@@ -205,7 +205,7 @@ npm run android:run
 | Fase 6 — US4 (TTS) | **Implementada e validada em Chromium (2026-10-07)**; T059 e o checklist de device do T060 ficam no T079. Página fiel: parágrafos reconstruídos do trecho, destaque nas duas páginas de um parágrafo que cruza a virada, karaokê, acompanhamento e troca de trecho automática. Modo texto: TTS do `EpubViewer` sem ajuste. `pdf-tts.check.js` 7/7 nos dois modos. |
 | Fase 7 — US5 (highlights) | **Implementada e validada em Chromium (2026-10-07)**; T065/T066 no device ficam no T079. Página fiel: seleção → menu → caixa unificada, pintura por estilo só em texto de parágrafo, menu de gerenciar com nota. Modo texto: localizador exato (R-054). `pdf-highlight.check.js` 6/6 (SC-006 nos dois sentidos + virada de página). |
 | Fase 8 — US6 (OPDS) | **Implementada (2026-10-07)**; o download OPDS só roda no Android nativo (`CapacitorHttp`), então o download real de PDF e de EPUB pelo catálogo (T071) fica no T079. Parsers aceitam só-PDF (`acquisitionFormat`), mistas → EPUB, DRM (ACSM com `indirectAcquisition`) continua fora; download decide o formato pelos bytes (R-056); selo "PDF" no card. |
-| Fase 9 — Polish | Não iniciada |
+| Fase 9 — Polish | **Documentação, copy e licença concluídas (2026-10-07)**: README (com a seção "Leitor PDF" e o schema corrigido para v19), CLAUDE.md, 2 textos ajustados nos 3 idiomas, licença revisada, `docs/features/suporte-pdf.md`. Falta só o T079 (rodada de device). |
 | Código de app para PDF | Import (web + Android, importadores por formato), `PdfService`, ficha, idioma, `usePdfReaderSession`, página fiel (`PdfPageViewer`, com tradução/Word Lens, TTS e highlights), modo texto (`PdfTextBookBuilder` + `PdfLocatorResolver` + `PdfTextModeViewer`), avisos, `ReaderScreen` por capacidades, plugin Java, **OPDS** |
 | Regressão EPUB | 1539 testes passando + 2 skipped (base 1094 inalterada) · corpus EPUB 71 · lint/tipos/build ok · `EpubViewer` e `useTTS` sem mudança nas Fases 6–8 · entrada OPDS só-EPUB/mista com o mesmo link de antes (testes) · checklist no device pendente (T044/T053/T060/T066/T071 → T079) |
 
@@ -285,6 +285,7 @@ npm run android:run
 
 | Data | Fase/Story | Resumo | Pendência Principal |
 | --- | --- | --- | --- |
+| 2026-10-07 | Fase 9 — Polish | T075–T078, T080: README (PDF em formatos/stack/import/OPDS, seção "Leitor PDF", persistência v17 → v19 com `highlights`/`collections`, pastas, arquitetura), CLAUDE.md (v16 → v19 + parágrafo do PDF), copy (OPDS vazio e "buscando dados no EPUB" nos 3 idiomas), licença (cabeçalhos MIT ok, foliate-js MIT, nada do Readest), `docs/features/suporte-pdf.md`. Gate: tipos, lint, 1539 + 2 skipped, build, 71 EPUB. | T079: rodada de device com todos os itens acumulados. |
 | 2026-10-07 | Fase 8 (US6) — OPDS | T069, T070, T072–T074: `pickAcquisition` nos dois parsers (EPUB preferido, PDF aceito, DRM fora) e `acquisitionFormat` na entrada; `OpdsDownloadService` com formato pelos bytes (R-056), `.pdf`/`application/pdf` e o mesmo `importEpub` (já despacha por conteúdo); selo "PDF" no `OpdsEntryCard`. 10 testes novos (8 falham no código antigo). Coordinator sem mudança (independe do formato; estado coberto pelo teste do download). Gate: tipos, lint, 1539 + 2 skipped, build, 71 EPUB. | T071 (download OPDS de PDF e EPUB no device) → T079. Próxima: Fase 9 (Polish). |
 | 2026-10-07 | Fase 7 (US5) — highlights | T063, T064, T067, T068: página fiel com seleção → menu → caixa unificada, pintura por estilo e nota, menu de gerenciar, intervalo entre páginas; `pdfPageTextMarks` compartilhado com o TTS. E2E achou 2 bugs (R-054 intervalo do modo texto deslocado → `snapRangeToText`; R-055 cabeçalho pintado → só corpo). `pdf-highlight.check.js` 6/6. Gate: 1531 + 2 skipped, 71 EPUB; TTS 7/7, marcador 5/5, pinça 4/4, página fiel 6/6. | Device no T079 (T065/T066). Próxima: Fase 8 (US6 — OPDS). |
 | 2026-10-07 | Fase 6 (US4) — TTS | T057, T058, T061, T062: TTS da página fiel sobre os parágrafos reconstruídos do trecho (`pdfPageTts.ts` + métodos do contrato no `PdfPageViewer`), destaque nas duas páginas e karaokê (R-051), acompanhamento com rolagem do usuário respeitada, troca de trecho pelo mesmo protocolo do EPUB; modo texto sem ajuste. E2E com `speechSynthesis` falso (R-052): 7/7 em `1col.pdf` (página e texto) e em O Milagre da Manhã. Gate: 1512 + 2 skipped, 71 EPUB; marcador 5/5, pinça 4/4, página fiel 6/6. | Device no T079 (T059, checklist do T060). Próxima: Fase 7 (US5 — highlights). |
@@ -304,18 +305,18 @@ npm run android:run
 | 2026-10-05 | Fase 2 (Foundational) | T007–T018: tipos, utilitários puros, `pdfParagraphs` calibrado em 11 PDFs reais (SC-003 ≥ 95% em prosa), `PdfBookFactory`/`PdfTextExtractor` validados em Chromium (grande.pdf abre em 0,65 s); 135 testes novos; gate EPUB verde (1226 + 71) | `PdfService` deve normalizar `author` (array) e `language`; device só na Fase 3 |
 | 2026-10-05 | Fase 1 (Setup) | T001–T006: baseline EPUB registrada; plugin dev `/vendor/pdfjs`; corpus sintético (12 PDFs, `grande` = 1000 pág./188 MB) + extrator de fixtures; gate EPUB idêntico à baseline (1094 testes + 71 corpus) | Corpus sintético: incluir PDFs reais na calibragem do T015 (R-014) |
 
-**PRÓXIMO**: Fase 9 (Polish): README e CLAUDE.md (T075/T076), copy de biblioteca vazia (T077), licença (T078), `docs/features/` (T080) e, por último, a rodada de device T079 com tudo o que foi acumulado (T044, T052, T053, T059, T060, T065, T066, T071, T038v e o restante do T026).
+**PRÓXIMO**: T079 — rodada de device com APK novo, seguindo `quickstart.md`: T044, T052, T053, T059, T060, T065, T066, T071, T038v, o restante do T026 (SC-001 no corpus, 20 PDFs/capa nativa, smoke do T038s, capa grande do T038l), SC-001..SC-009 e validação em build de release. Ao fechar, marcar as Fases 4–8 no Checklist de Release e rodar `update-feature-status.ps1 -Status Implementada`.
 
 ## Arquivos Principais
 
 <!-- Sobrescrita a cada checkpoint — foco da etapa atual, não a árvore inteira. -->
 
-Foco atual: fim da Fase 8 (US6 — OPDS) e início da Fase 9 (Polish):
+Foco atual: rodada final de device (T079):
 
-- `src/services/opds/OpdsAtomParser.ts` e `OpdsJsonParser.ts`: `pickAcquisition` (EPUB → PDF) e `acquisitionFormat`.
-- `src/services/opds/OpdsDownloadService.ts`: formato pelos bytes, nome/MIME por formato, mesmo `BookImportService.importEpub`.
-- `src/components/OpdsEntryCard.tsx`: selo "PDF".
-- Fase 9: `README.md`, `CLAUDE.md`, `src/i18n/messages.ts` (copy), `src/services/pdf/PdfBookFactory.ts` (licença), `docs/features/`.
+- `sdd/specs/022-suporte-pdf-paridade/quickstart.md`: roteiro do device, incluindo § Regressão EPUB.
+- `docs/features/suporte-pdf.md`: mapa de uma página da arquitetura do PDF.
+- `scripts/verificacao-visual/pdf-*.check.js`: E2E de referência no Chromium, para comparar com o que o device mostrar.
+- Skill `android-debug`: logs e diagnóstico no celular.
 
 ## Cuidados para Retomada
 

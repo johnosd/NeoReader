@@ -3,7 +3,7 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Sobre o projeto
-NeoReader é um leitor de EPUB mobile-first (Android via Capacitor + Web) focado
+NeoReader é um leitor de EPUB e PDF mobile-first (Android via Capacitor + Web) focado
 em **incentivar a leitura**, **com integrações tts realistas** e **facilitar o aprendizado de inglês**. Interface
 estilo "Netflix for Books": dark mode, capas grandes, rows horizontais
 scrollable. A aplicação é **local-first** — livros, progresso, marcadores,
@@ -49,7 +49,8 @@ Antes de abrir PR: `npm run lint && npm test && npm run build`.
 - Import de livro: `src/services/BookImportService.ts` coordena hash/dedupe/metadados/capa/source folder; `src/services/NativeLibraryImportService.ts` fala com o plugin nativo Android (`android/app/src/main/java/com/johnny/neoreader/NeoReaderLibraryPlugin.java`) para picker de arquivo/pasta e cópia local.
 - Antes de abrir um livro, `src/services/BookFileResolver.ts` resolve o `storageMode` (`embedded` no IndexedDB, `local` copiado pelo plugin Android, `external` por URI que pode virar `missingFile`).
 - `src/components/reader/EpubViewer.tsx` carrega `foliate-js` sob demanda, roda em modo scroll contínuo (`flow=scrolled`) e injeta os recursos NeoReader (tradução inline, highlights de Word Lens, TTS) dentro do iframe do EPUB — cuidado com sandbox/CSP ao mexer aqui.
-- Persistência: Dexie DB `NeoReaderDB` em `src/db/database.ts`, schema versionado (`this.version(N).stores(...)`, atualmente v16); cada tabela tem seu próprio módulo em `src/db/` (`books.ts`, `progress.ts`, `bookmarks.ts`, `vocabulary.ts`, `bookInfo.ts` etc). Ao mudar schema, sempre adicione uma nova `version()` — nunca edite uma existente.
+- PDF (feature 022, `sdd/specs/022-suporte-pdf-paridade/`): o formato vem do conteúdo (`src/utils/bookFormat.ts`) e o import despacha por `src/services/importers/`. `src/services/pdf/` concentra pdf.js, metadados, extração de texto, o livro sintético do modo texto (`PdfTextBookBuilder`) e o localizador `neopdf:` (`PdfLocatorResolver`). Leitura em dois viewers: `PdfPageViewer.tsx` (página fiel; recursos em `reader/pdfPage/`, desenhados dentro do iframe sem scripts — use `<img>`/DOM, nunca `<canvas>`) e `PdfTextModeViewer.tsx` (reusa o `EpubViewer`). A `ReaderScreen` liga recursos pelas capacidades do viewer, não pelo formato. Regra da feature: nada de PDF pode mudar o comportamento do EPUB — rode `npm run test:debug-epubs` ao mexer em código compartilhado.
+- Persistência: Dexie DB `NeoReaderDB` em `src/db/database.ts`, schema versionado (`this.version(N).stores(...)`, atualmente v19); cada tabela tem seu próprio módulo em `src/db/` (`books.ts`, `progress.ts`, `bookmarks.ts`, `vocabulary.ts`, `bookInfo.ts` etc). Ao mudar schema, sempre adicione uma nova `version()` — nunca edite uma existente.
 - Estado do leitor (tema, fonte, TOC, progresso em memória) fica em `src/store/readerStore.ts` (Zustand); estado de navegação/telas fica local em `App.tsx`.
 - `vite.config.ts` copia assets do PDF.js exigidos pelo `foliate-js`, endurece o sandbox de iframe (remove `allow-scripts` nos renderers suportados) e configura proxy dev para Fish Audio.
 - i18n: provider local em `src/i18n/` (pt-BR, en, es), sem lib externa (ex: `react-i18next`).
@@ -67,10 +68,10 @@ Antes de abrir PR: `npm run lint && npm test && npm run build`.
 ## Estrutura de pastas
 Árvore completa e atualizada em `README.md` (seção "Estrutura de pastas").
 Resumo:
-- `src/components/` — UI reutilizável (`reader/` = viewer EPUB, chrome, TOC, marcadores, TTS, aparência)
+- `src/components/` — UI reutilizável (`reader/` = viewers EPUB e PDF, chrome, TOC, marcadores, TTS, aparência)
 - `src/screens/` — Telas completas
 - `src/hooks/` — Hooks de auth, biblioteca, leitor, TTS, billing e UI
-- `src/services/` — Lógica de negócio (EPUB, importação, auth, metadados, tradução, TTS, ads, billing)
+- `src/services/` — Lógica de negócio (EPUB, PDF, OPDS, importação, auth, metadados, tradução, TTS, ads, billing)
 - `src/db/` — Schema Dexie e repositórios locais
 - `src/store/` — Estado global (Zustand)
 - `src/types/` — Tipos de domínio compartilhados
