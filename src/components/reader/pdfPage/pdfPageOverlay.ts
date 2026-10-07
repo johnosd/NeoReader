@@ -1,5 +1,5 @@
-// DOM de overlay desenhado DENTRO do documento (iframe) de cada página PDF: balão de ações e marcadores
-// na margem. Overlays React sobre o iframe não recebem toque de forma confiável no Android WebView, então
+// DOM de overlay desenhado DENTRO do documento (iframe) de cada página PDF: marcadores na margem (o painel
+// de tradução/Word Lens fica em pdfPageTranslation.ts). Overlays React sobre o iframe não recebem toque de forma confiável no Android WebView, então
 // — como no EpubViewer — tudo que o usuário toca vive no próprio documento da página.
 //
 // Os elementos entram como filhos de `.textLayer`: ele tem o tamanho exato da página, então posições em %
@@ -8,19 +8,7 @@
 
 export { PDF_PAGE_RENDERED_EVENT } from '@/services/pdf/pdfPageRender'
 
-const BUBBLE_CLASS = 'nr-pdf-bubble'
 const MARKER_CLASS = 'nr-pdf-bookmark-marker'
-
-export interface PdfOverlayPalette {
-  background: string
-  text: string
-  isDark: boolean
-}
-
-export interface BubbleAction {
-  label: string
-  onSelect: () => void
-}
 
 export interface BookmarkMarker {
   id: number
@@ -37,81 +25,6 @@ function layoutPx(doc: Document, visualPx: number): number {
 
 function textLayerOf(doc: Document): HTMLElement | null {
   return doc.querySelector<HTMLElement>('.textLayer')
-}
-
-export function hideBubble(doc: Document): void {
-  doc.querySelectorAll(`.${BUBBLE_CLASS}`).forEach((el) => el.remove())
-}
-
-export function hasBubble(doc: Document): boolean {
-  return doc.querySelector(`.${BUBBLE_CLASS}`) !== null
-}
-
-/**
- * Balão com ações perto do ponto tocado. `xPct`/`yPct` são relativos à página (0–100). Substitui o balão
- * anterior; a ação escolhida fecha o balão.
- */
-export function showBubble(
-  doc: Document,
-  options: { xPct: number; yPct: number; actions: BubbleAction[]; palette: PdfOverlayPalette },
-): void {
-  const layer = textLayerOf(doc)
-  if (!layer) return
-  hideBubble(doc)
-
-  const { palette } = options
-  const bubble = doc.createElement('div')
-  bubble.className = BUBBLE_CLASS
-  bubble.setAttribute('role', 'toolbar')
-
-  // Fica centrado no toque, mas dentro da página: ancora à esquerda/direita perto das bordas.
-  const x = Math.min(88, Math.max(12, options.xPct))
-  Object.assign(bubble.style, {
-    position: 'absolute',
-    left: `${x}%`,
-    top: `${Math.max(2, options.yPct)}%`,
-    transform: `translate(-50%, ${layoutPx(doc, -46)}px)`,
-    zIndex: '5',
-    display: 'flex',
-    gap: `${layoutPx(doc, 6)}px`,
-    padding: `${layoutPx(doc, 6)}px`,
-    borderRadius: `${layoutPx(doc, 12)}px`,
-    background: palette.isDark ? '#1e2230' : '#ffffff',
-    color: palette.isDark ? '#f1f5f9' : '#0f172a',
-    boxShadow: `0 ${layoutPx(doc, 4)}px ${layoutPx(doc, 14)}px rgba(0,0,0,0.35)`,
-    border: `${layoutPx(doc, 1)}px solid ${palette.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(15,23,42,0.12)'}`,
-    fontFamily: 'system-ui, sans-serif',
-    fontSize: `${layoutPx(doc, 14)}px`,
-    lineHeight: '1.2',
-    // Os spans do text layer ficam "color: transparent"; o balão precisa de cor própria e de eventos.
-    cursor: 'pointer',
-    userSelect: 'none',
-  })
-
-  for (const action of options.actions) {
-    const button = doc.createElement('button')
-    button.type = 'button'
-    button.textContent = action.label
-    Object.assign(button.style, {
-      appearance: 'none',
-      border: '0',
-      background: 'transparent',
-      color: 'inherit',
-      font: 'inherit',
-      padding: `${layoutPx(doc, 8)}px ${layoutPx(doc, 12)}px`,
-      borderRadius: `${layoutPx(doc, 8)}px`,
-      whiteSpace: 'nowrap',
-    })
-    button.addEventListener('click', (event) => {
-      event.stopPropagation()
-      hideBubble(doc)
-      action.onSelect()
-    })
-    bubble.append(button)
-  }
-  // Tocar no balão não pode contar como "toque fora do texto" (que alterna o chrome).
-  bubble.addEventListener('click', (event) => event.stopPropagation())
-  layer.append(bubble)
 }
 
 const MARKER_COLORS: Record<string, string> = {

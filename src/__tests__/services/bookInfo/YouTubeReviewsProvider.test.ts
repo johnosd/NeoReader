@@ -126,6 +126,18 @@ describe('YouTubeReviewsProvider', () => {
     })
   })
 
+  it('busca só pelo título quando o autor é o texto de reserva (R-031)', async () => {
+    const fetchImpl = makeFetch([])
+    const provider = new YouTubeReviewsProvider({ apiKey: 'yt-key', fetchImpl, maxResults: 5 })
+
+    await provider.collect(null, makeContext({
+      lookupHints: { title: 'Os Noturnos', author: 'Autor desconhecido', identifiers: [] },
+    }))
+
+    const queries = (fetchImpl as ReturnType<typeof vi.fn>).mock.calls.map((call) => getQueryFromUrl(call[0]))
+    expect(queries).toEqual(['Os Noturnos review', 'Os Noturnos resenha'])
+  })
+
   it('deduplicates videos and stops at maxResults', async () => {
     const fetchImpl = makeFetch([
       {

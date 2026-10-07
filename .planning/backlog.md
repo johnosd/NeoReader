@@ -6,6 +6,8 @@ update-bug-status.ps1.
 
 ## Ideias Futuras
 
+- [Bug] EPUB de layout fixo (`rendition:layout = pre-paginated`: quadrinhos, livros ilustrados) não abre: o `EpubViewer` só chama `onLoad` ao finalizar uma seção do renderer de texto; com o `foliate-fxl` isso nunca acontece e o vigia de 8 s (`INITIAL_INTERACTIVE_TIMEOUT_MS`) mostra "Não foi possível abrir este livro". Pré-existente (igual no `main`, 6c1acb9). Reproduzir com `scripts/verificacao-visual/gerar-epub-fxl.py` + `epub-fxl.check.js`. O patch `evictFoliateScrollPagesAfterLoad` (`vite.config.ts`) já vale para esse renderer. Origem: feature 022, T038r/R-041 (2026-10-06). Caminho: `sdd-bugfix`.
+- PDF: zoom ≥ 300% leva ~2 s até a nitidez final (página inteira renderizada em ~15 Mpx na thread principal). Ideia: renderizar só a área visível em alta resolução (tiles). Aceito como está pelo dono do produto. Origem: feature 022, T038p/R-039 (2026-10-06).
 
 
 ## Features
@@ -33,7 +35,7 @@ update-bug-status.ps1.
 | 019-onboarding-diferenciais | Onboarding com Diferenciais (TTS Traduzido, Vozes e Tradução Premium, OPDS, Sync) | Em Execucao | 43/45 tasks | 2026-09-16 |
 | 020-tts-buffer-lookahead | Buffer e Lookahead de TTS na língua nativa | Em Execução | 6/11 tasks | 2026-09-21 |
 | 021-automatizacao-sync-bookmarks-ao-fechar | Automatização do sync de bookmarks ao fechar | Convergida | 19/23 tasks | 2026-09-23 |
-| 022-suporte-pdf-paridade | Suporte a PDF com paridade de recursos do EPUB | Em Execução | 60/121 tasks | 2026-10-06 |
+| 022-suporte-pdf-paridade | Suporte a PDF com paridade de recursos do EPUB | Em Execução | 85/122 tasks | 2026-10-06 |
 
 ## Bugs
 

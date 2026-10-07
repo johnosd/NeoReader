@@ -826,10 +826,15 @@ export const ptBRMessages = {
   'pdf.language.warning.choose': 'Escolher idioma',
   'pdf.language.warning.dismiss': 'Agora não',
   'pdf.language.sheet.title': 'Idioma do livro',
-  'pdf.bookmark.add': 'Marcar parágrafo',
-  'pdf.bookmark.remove': 'Remover marcador',
   'pdf.error.password': 'Este PDF é protegido por senha e não pode ser importado.',
   'pdf.error.invalid': 'Este arquivo não é um PDF válido ou está corrompido.',
+  'pdf.readingMode.label': 'Modo de leitura',
+  'pdf.readingMode.page': 'Página',
+  'pdf.readingMode.text': 'Texto',
+  'pdf.readingMode.textUnavailable': 'Modo texto indisponível: este PDF não tem texto selecionável.',
+  'pdf.textMode.figure': 'Figura — página {page}',
+  'pdf.textMode.pageAsImage': 'Página {page}, como no original',
+  'pdf.translation.close': 'Fechar',
 } as const
 
 export type MessageKey = keyof typeof ptBRMessages
@@ -1658,10 +1663,15 @@ const enMessages = {
   'pdf.language.warning.choose': 'Choose language',
   'pdf.language.warning.dismiss': 'Not now',
   'pdf.language.sheet.title': 'Book language',
-  'pdf.bookmark.add': 'Bookmark paragraph',
-  'pdf.bookmark.remove': 'Remove bookmark',
   'pdf.error.password': 'This PDF is password protected and cannot be imported.',
   'pdf.error.invalid': 'This file is not a valid PDF or is corrupted.',
+  'pdf.readingMode.label': 'Reading mode',
+  'pdf.readingMode.page': 'Page',
+  'pdf.readingMode.text': 'Text',
+  'pdf.readingMode.textUnavailable': 'Text mode unavailable: this PDF has no selectable text.',
+  'pdf.textMode.figure': 'Figure — page {page}',
+  'pdf.textMode.pageAsImage': 'Page {page}, as in the original',
+  'pdf.translation.close': 'Close',
 } satisfies Record<MessageKey, string>
 
 const esMessages = {
@@ -2488,10 +2498,15 @@ const esMessages = {
   'pdf.language.warning.choose': 'Elegir idioma',
   'pdf.language.warning.dismiss': 'Ahora no',
   'pdf.language.sheet.title': 'Idioma del libro',
-  'pdf.bookmark.add': 'Marcar párrafo',
-  'pdf.bookmark.remove': 'Quitar marcador',
   'pdf.error.password': 'Este PDF está protegido con contraseña y no se puede importar.',
   'pdf.error.invalid': 'Este archivo no es un PDF válido o está dañado.',
+  'pdf.readingMode.label': 'Modo de lectura',
+  'pdf.readingMode.page': 'Página',
+  'pdf.readingMode.text': 'Texto',
+  'pdf.readingMode.textUnavailable': 'Modo texto no disponible: este PDF no tiene texto seleccionable.',
+  'pdf.textMode.figure': 'Figura — página {page}',
+  'pdf.textMode.pageAsImage': 'Página {page}, como en el original',
+  'pdf.translation.close': 'Cerrar',
 } satisfies Record<MessageKey, string>
 
 export const messages: Record<SupportedLocale, Record<MessageKey, string>> = {

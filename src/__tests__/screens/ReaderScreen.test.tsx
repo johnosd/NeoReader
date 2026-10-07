@@ -51,6 +51,7 @@ const mocks = vi.hoisted(() => {
     epubViewerProps: null as Record<string, unknown> | null,
     // Feature 022 (PDF): props capturadas do PdfPageViewer e estado controlável da sessão do PDF.
     pdfViewerProps: null as Record<string, unknown> | null,
+    pdfTextViewerProps: null as Record<string, unknown> | null,
     pdfSessionState: { status: 'idle' } as { status: string; session?: unknown; error?: Error },
     pdfSessionArgs: null as { enabled: boolean; onError?: (error: Error) => void } | null,
     tocDrawerProps: null as Record<string, unknown> | null,
@@ -309,6 +310,20 @@ vi.mock('@/components/reader/PdfPageViewer', async () => {
   })
 
   return { PdfPageViewer }
+})
+
+vi.mock('@/components/reader/PdfTextModeViewer', async () => {
+  const React = await import('react')
+
+  const PdfTextModeViewer = React.forwardRef((props: Record<string, unknown>, ref) => {
+    React.useEffect(() => {
+      mocks.pdfTextViewerProps = props
+    }, [props])
+    React.useImperativeHandle(ref, () => mocks.viewerHandle)
+    return <div data-testid="pdf-text-viewer" />
+  })
+
+  return { PdfTextModeViewer }
 })
 
 vi.mock('@/hooks/usePdfReaderSession', () => ({
@@ -2939,5 +2954,211 @@ describe('ReaderScreen — PDF (feature 022)', () => {
       expect(screen.getByTestId('pdf-notice-noText')).toBeTruthy()
       expect(screen.queryByTestId('pdf-language-notice')).toBeNull()
     })
+  })
+})
+
+describe('ReaderScreen — PDF, modo texto (feature 022, US2)', () => {
+  const pdfBook: Book = {
+    ...book,
+    format: 'PDF',
+    fileBlob: new Blob(['%PDF-1.7'], { type: 'application/pdf' }),
+    pdfTextLayer: 'full',
+    pageCount: 120,
+    detectedLanguage: 'pt-BR',
+  }
+  const readySession = { status: 'ready', session: { pageCount: 120, chunks: [], pdfBook: { toc: [] }, extractor: {} } }
+
+  beforeEach(() => {
+    mocks.epubViewerProps = null
+    mocks.pdfViewerProps = null
+    mocks.pdfTextViewerProps = null
+    mocks.pdfSessionState = readySession
+    mocks.bookmarks = []
+    mocks.liveQueryIndex = 0
+    mocks.readerProgress.savedCfi = null
+    mocks.readerProgress.initialLoadDone = true
+    mocks.viewerHandle.getVisibleLocation.mockReset()
+    vi.mocked(updateBookSettings).mockClear()
+    vi.mocked(getSettings).mockResolvedValue(makeSettings())
+    vi.mocked(getBookSettings).mockResolvedValue({})
+  })
+
+  const renderReader = async (overrides: Partial<Book> = {}) => {
+    const utils = render(
+      <ReaderScreen book={{ ...pdfBook, ...overrides }} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />,
+    )
+    await flushAsyncWork()
+    await flushAsyncWork()
+    return utils
+  }
+
+  it('modo texto gravado no livro é restaurado: monta o modo texto, não a página fiel', async () => {
+    vi.mocked(getBookSettings).mockResolvedValue({ pdfReadingMode: 'text' })
+    mocks.readerProgress.savedCfi = 'neopdf:v1;p=12;o=340'
+    await renderReader()
+
+    expect(screen.getByTestId('pdf-text-viewer')).toBeTruthy()
+    expect(screen.queryByTestId('pdf-page-viewer')).toBeNull()
+    expect(screen.queryByTestId('epub-viewer')).toBeNull()
+    expect(mocks.pdfTextViewerProps?.savedLocator).toBe('neopdf:v1;p=12;o=340')
+    expect(mocks.pdfTextViewerProps?.session).toBe(readySession.session)
+  })
+
+  it('sem modo gravado abre na página fiel (padrão de FR-008)', async () => {
+    await renderReader()
+    expect(screen.getByTestId('pdf-page-viewer')).toBeTruthy()
+    expect(screen.queryByTestId('pdf-text-viewer')).toBeNull()
+  })
+
+  it('alternar de página fiel para texto preserva o localizador visível e grava o modo', async () => {
+    mocks.readerProgress.savedCfi = 'neopdf:v1;p=2;o=0'
+    await renderReader()
+    mocks.viewerHandle.getVisibleLocation.mockReturnValue({ cfi: 'neopdf:v1;p=7;o=120', percentage: 6 })
+
+    fireEvent.click(screen.getByRole('button', { name: 'open-appearance' }))
+    fireEvent.click(screen.getByTestId('pdf-reading-mode-text'))
+    await flushAsyncWork()
+
+    expect(screen.getByTestId('pdf-text-viewer')).toBeTruthy()
+    expect(mocks.pdfTextViewerProps?.savedLocator).toBe('neopdf:v1;p=7;o=120')
+    expect(updateBookSettings).toHaveBeenCalledWith(pdfBook.id, { pdfReadingMode: 'text' })
+  })
+
+  it('alternar de texto para página fiel leva o localizador visível do modo texto', async () => {
+    vi.mocked(getBookSettings).mockResolvedValue({ pdfReadingMode: 'text' })
+    await renderReader()
+    mocks.viewerHandle.getVisibleLocation.mockReturnValue({ cfi: 'neopdf:v1;p=30;o=55' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'open-appearance' }))
+    fireEvent.click(screen.getByTestId('pdf-reading-mode-page'))
+    await flushAsyncWork()
+
+    expect(screen.getByTestId('pdf-page-viewer')).toBeTruthy()
+    expect(mocks.pdfViewerProps?.savedLocator).toBe('neopdf:v1;p=30;o=55')
+    expect(updateBookSettings).toHaveBeenCalledWith(pdfBook.id, { pdfReadingMode: 'page' })
+  })
+
+  it('aberto com alvo inicial (startHref), alternar usa a posição visível e não volta ao alvo', async () => {
+    render(<ReaderScreen book={pdfBook} startHref="neopdf:v1;p=40;o=0" onBack={vi.fn()} onOpenVocabulary={vi.fn()} />)
+    await flushAsyncWork()
+    await flushAsyncWork()
+    expect(mocks.pdfViewerProps?.initialTarget).toBe('neopdf:v1;p=40;o=0')
+    mocks.viewerHandle.getVisibleLocation.mockReturnValue({ cfi: 'neopdf:v1;p=44;o=10' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'open-appearance' }))
+    fireEvent.click(screen.getByTestId('pdf-reading-mode-text'))
+    await flushAsyncWork()
+
+    expect(mocks.pdfTextViewerProps?.savedLocator).toBe('neopdf:v1;p=44;o=10')
+    expect(mocks.pdfTextViewerProps?.initialTarget).toBeNull()
+  })
+
+  it('PDF sem camada de texto não oferece o modo texto, mesmo com o modo texto gravado', async () => {
+    vi.mocked(getBookSettings).mockResolvedValue({ pdfReadingMode: 'text' })
+    await renderReader({ pdfTextLayer: 'none' })
+
+    expect(screen.getByTestId('pdf-page-viewer')).toBeTruthy()
+    expect(screen.queryByTestId('pdf-text-viewer')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'open-appearance' }))
+    expect((screen.getByTestId('pdf-reading-mode-text') as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByText(/Modo texto indispon|Text mode unavailable/)).toBeTruthy()
+  })
+
+  it('EPUB não mostra o controle de modo de leitura', async () => {
+    render(<ReaderScreen book={book} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />)
+    await flushAsyncWork()
+    await flushAsyncWork()
+    fireEvent.click(screen.getByRole('button', { name: 'open-appearance' }))
+    expect(screen.queryByTestId('pdf-reading-mode-text')).toBeNull()
+  })
+})
+
+describe('ReaderScreen — PDF, Word Lens e tradução (feature 022, US3)', () => {
+  const pdfBook: Book = {
+    ...book,
+    format: 'PDF',
+    fileBlob: new Blob(['%PDF-1.7'], { type: 'application/pdf' }),
+    pdfTextLayer: 'full',
+    pageCount: 120,
+    detectedLanguage: 'en',
+  }
+  const readySession = { status: 'ready', session: { pageCount: 120, chunks: [], pdfBook: { toc: [] }, extractor: {} } }
+
+  beforeEach(() => {
+    mocks.pdfViewerProps = null
+    mocks.pdfTextViewerProps = null
+    mocks.pdfSessionState = readySession
+    mocks.liveQueryIndex = 0
+    mocks.readerProgress.savedCfi = null
+    mocks.viewerHandle.injectTranslation.mockClear()
+    mocks.viewerHandle.showTranslationLoading.mockClear()
+    vi.mocked(translate).mockReset()
+    vi.mocked(addVocabItem).mockClear()
+    mocks.isNativePlatform.mockReturnValue(true)
+    vi.mocked(getSettings).mockResolvedValue(makeSettings({
+      appSettings: {
+        speechifyApiKey: '',
+        elevenLabsApiKey: '',
+        fishAudioApiKey: '',
+        translationTargetLang: 'pt-BR',
+        deeplApiKey: 'deepl-real-key',
+      },
+    }))
+  })
+
+  const renderPdf = async (mode: 'page' | 'text') => {
+    vi.mocked(getBookSettings).mockResolvedValue({ bookId: 1, translationProvider: 'deepl', pdfReadingMode: mode })
+    render(<ReaderScreen book={pdfBook} onBack={vi.fn()} onOpenVocabulary={vi.fn()} />)
+    await flushAsyncWork()
+    await flushAsyncWork()
+    return mode === 'page' ? mocks.pdfViewerProps! : mocks.pdfTextViewerProps!
+  }
+
+  it.each(['page', 'text'] as const)('modo %s: tradução usa o mesmo provedor do livro (DeepL) e o mesmo fluxo do EPUB', async (mode) => {
+    const viewerProps = await renderPdf(mode)
+    vi.mocked(translate).mockResolvedValueOnce({ translatedText: 'Texto traduzido', provider: 'deepl' })
+    mocks.viewerHandle.showTranslationLoading.mockReturnValueOnce('pdf-tr-1')
+
+    await act(async () => {
+      await (viewerProps.onTranslate as (text: string) => Promise<void>)('The committee left.')
+    })
+
+    expect(translate).toHaveBeenCalledWith('The committee left.', 'en', 'pt-BR', expect.objectContaining({ provider: 'deepl' }))
+    expect(mocks.viewerHandle.injectTranslation).toHaveBeenCalledWith('Texto traduzido', 'pdf-tr-1', 'deepl')
+  })
+
+  it.each(['page', 'text'] as const)('modo %s: falha na tradução mostra a mesma mensagem de erro do EPUB', async (mode) => {
+    const viewerProps = await renderPdf(mode)
+    vi.mocked(translate).mockRejectedValueOnce(new Error('rede'))
+
+    await act(async () => {
+      await (viewerProps.onTranslate as (text: string) => Promise<void>)('Hello.')
+    })
+    await flushAsyncWork()
+
+    expect(mocks.viewerHandle.injectTranslation).toHaveBeenCalledWith(expect.stringMatching(/Erro ao traduzir|Translation failed/), undefined)
+  })
+
+  it.each(['page', 'text'] as const)('modo %s: salvar no vocabulário grava a frase com idioma do livro e do destino', async (mode) => {
+    const viewerProps = await renderPdf(mode)
+
+    act(() => { (viewerProps.onSaveVocab as (s: string, t: string) => void)('The committee left.', 'O comitê saiu.') })
+
+    expect(addVocabItem).toHaveBeenCalledWith(expect.objectContaining({
+      bookId: pdfBook.id,
+      sourceText: 'The committee left.',
+      translatedText: 'O comitê saiu.',
+      sourceLang: 'en',
+      targetLang: 'pt-BR',
+    }))
+  })
+
+  it('página fiel recebe Word Lens, vocabulário e os mesmos callbacks de tradução', async () => {
+    const viewerProps = await renderPdf('page')
+    expect(viewerProps.onTranslate).toBeTypeOf('function')
+    expect(viewerProps.onWordLensDefinition).toBeTypeOf('function')
+    expect(viewerProps.onSpeakOne).toBeTypeOf('function')
+    expect(viewerProps.wordLensLevel).toBeDefined()
+    expect(viewerProps.vocabWords).toEqual([])
   })
 })

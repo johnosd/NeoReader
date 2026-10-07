@@ -167,8 +167,19 @@ declare module 'foliate-js/overlayer.js' {
 }
 
 declare module 'foliate-js/epubcfi.js' {
+  // Partes de um CFI já analisado (formato interno do epubcfi.js; opaco para o app).
+  export type CfiParts = unknown[] & { parent?: unknown[] }
+  export const isCFI: RegExp
   export function compare(a: string, b: string): number
   export function collapse(cfi: string, toEnd?: boolean): string
+  export function parse(cfi: string): CfiParts
+  export function fromRange(range: Range): string
+  export function toRange(doc: Document, parts: CfiParts): Range | null
+  export function joinIndir(...cfis: string[]): string
+  export const fake: {
+    fromIndex(index: number): string
+    toIndex(parts: unknown): number
+  }
 }
 
 declare module 'foliate-js/opds.js' {

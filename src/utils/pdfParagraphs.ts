@@ -786,3 +786,18 @@ export function reconstructPdfParagraphs(pages: readonly PdfPageInput[], options
   const to = options.ownedToPage ?? Infinity
   return blocks.filter((block) => block.pageIndex >= from && block.pageIndex <= to)
 }
+
+/**
+ * A ordem de leitura da página é incerta? Hoje a reconstrução só separa DUAS colunas (um rio). Se uma
+ * das metades ainda tem outro rio, a página tem 3+ colunas (jornal, folheto) e a ordem "esquerda e
+ * depois direita" misturaria colunas. O modo texto mostra essa página como na original (spec, Edge Cases).
+ */
+export function hasUncertainColumnOrder(page: PdfPageInput): boolean {
+  const glyphs = toGlyphs(page.items)
+  const gutter = findGutter(glyphs)
+  if (!gutter) return false
+  const mid = (gutter.a + gutter.b) / 2
+  const left = glyphs.filter((g) => g.x + g.w / 2 < mid)
+  const right = glyphs.filter((g) => g.x + g.w / 2 >= mid)
+  return findGutter(left) !== null || findGutter(right) !== null
+}

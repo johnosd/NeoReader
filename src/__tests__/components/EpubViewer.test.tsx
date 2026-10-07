@@ -9,6 +9,12 @@ import { logEvent } from '@/services/DiagnosticsLogger'
 import type { Book } from '@/types/book'
 import { registerUnmanifestedEpubStylesheets } from '@/utils/epubResources'
 import { failNextOpen, deferNextOpen, resolveDeferredOpen, type FoliateViewMock } from '../setup'
+import { BookFileResolver } from '@/services/BookFileResolver'
+import { createPdfTextBook, type PdfTextBook } from '@/services/pdf/PdfTextBookBuilder'
+import type { PdfChunk } from '@/utils/pdfChunks'
+import type { PdfBlock } from '@/utils/pdfParagraphs'
+// @ts-expect-error -- módulo JS do foliate-js sem tipos; só o TOCProgress real é usado (T045b).
+import { TOCProgress } from 'foliate-js/progress.js'
 
 // Mocka o import dinâmico de foliate-js — apenas registra o side-effect.
 // O elemento <foliate-view> é provido pelo FoliateViewMock registrado no setup.ts.
@@ -3341,5 +3347,128 @@ describe('EpubViewer — liberação de recursos ao trocar de livro/desmontar', 
 
     expect(foliateEl.book).toBeDefined()
     expect(foliateEl.book?.destroy).toHaveBeenCalledOnce()
+  })
+})
+
+// ─── Modo texto do PDF: livro sintético via openBook (feature 022, T041/T045b) ─────
+
+describe('EpubViewer — openBook (modo texto do PDF)', () => {
+  const CHUNKS: PdfChunk[] = [
+    { index: 0, startPage: 0, endPage: 4, label: 'Capítulo 1' },
+    { index: 1, startPage: 5, endPage: 5, label: 'Capítulo 2' },
+    { index: 2, startPage: 6, endPage: 9, label: 'Capítulo 3' },
+  ]
+  const paragraph = (text: string, pageIndex: number): PdfBlock => ({
+    kind: 'paragraph', text, pageIndex, ranges: [{ pageIndex, start: 0, end: text.length }],
+  })
+  // Trecho 1 = só título + 1 linha curta: exatamente o formato que o pulo de "capítulo-stub" sumiria.
+  const BLOCKS: Record<number, PdfBlock[]> = {
+    0: [paragraph('Texto longo do primeiro capítulo, com conteúdo de leitura de verdade.', 0)],
+    1: [{ kind: 'heading', level: 1, text: 'Capítulo 2', pageIndex: 5, ranges: [{ pageIndex: 5, start: 0, end: 10 }] }, paragraph('Curto.', 5)],
+    2: [paragraph('Texto do terceiro capítulo.', 6)],
+  }
+
+  function makeSyntheticBook(): PdfTextBook {
+    return createPdfTextBook({
+      chunks: CHUNKS,
+      reconstructChunk: async (chunk) => BLOCKS[chunk.index],
+      getPagesShownAsImage: async () => [],
+    }, {
+      title: 'PDF', author: 'Autora', language: 'pt-BR',
+      labels: { figure: (n) => `Figura ${n}`, pageAsImage: (n) => `Página ${n}` },
+    })
+  }
+
+  const originalCreateObjectURL = URL.createObjectURL
+  const originalRevokeObjectURL = URL.revokeObjectURL
+  beforeEach(() => {
+    // jsdom não implementa createObjectURL; o livro sintético gera blob: URLs por seção.
+    URL.createObjectURL = vi.fn(() => 'blob:nr/secao')
+    URL.revokeObjectURL = vi.fn()
+    return () => {
+      URL.createObjectURL = originalCreateObjectURL
+      URL.revokeObjectURL = originalRevokeObjectURL
+    }
+  })
+
+  it('com openBook passa o book recebido a view.open e não lê o arquivo (T041)', async () => {
+    const resolveSpy = vi.spyOn(BookFileResolver, 'resolveReaderSource')
+    const synthetic = makeSyntheticBook()
+    const openBook = vi.fn(async () => synthetic)
+
+    const { foliateEl, props } = await renderViewer({ openBook })
+
+    expect(openBook).toHaveBeenCalledTimes(1)
+    expect(foliateEl.open).toHaveBeenCalledWith(synthetic)
+    expect(resolveSpy).not.toHaveBeenCalled()
+    expect(foliateEl.book).toBe(synthetic)
+    expect(props.onTocReady).toHaveBeenCalledWith(synthetic.toc)
+    resolveSpy.mockRestore()
+  })
+
+  it('sem openBook chama BookFileResolver.resolveReaderSource exatamente como antes (T041)', async () => {
+    const source = new Blob(['epub'], { type: 'application/epub+zip' })
+    const resolveSpy = vi.spyOn(BookFileResolver, 'resolveReaderSource').mockResolvedValue(source)
+
+    const { foliateEl } = await renderViewer()
+    await act(async () => { await Promise.resolve() })
+
+    expect(resolveSpy).toHaveBeenCalledTimes(1)
+    expect(resolveSpy).toHaveBeenCalledWith(mockBook)
+    expect(foliateEl.open).toHaveBeenCalledWith(source)
+    resolveSpy.mockRestore()
+  })
+
+  it('trecho só com título + 1 linha curta NÃO é pulado como capítulo-stub (T045b, R-011)', async () => {
+    const synthetic = makeSyntheticBook()
+    const { viewerRef, foliateEl } = await renderViewer({ openBook: async () => synthetic })
+    const doc = await synthetic.sections[1].createDocument()
+    injectFakeWindow(doc, 0, 800, 400)
+
+    act(() => { void viewerRef.current?.next() })
+    expect(foliateEl.renderer.goTo).toHaveBeenCalledTimes(1)
+    loadSection(foliateEl, doc, 1)
+    await act(async () => { await Promise.resolve() })
+
+    expect(foliateEl.renderer.goTo).toHaveBeenCalledTimes(1)
+  })
+
+  it('controle negativo: o mesmo trecho sem data-type="chapter" seria pulado (T045b)', async () => {
+    const synthetic = makeSyntheticBook()
+    const { viewerRef, foliateEl } = await renderViewer({ openBook: async () => synthetic })
+    const doc = await synthetic.sections[1].createDocument()
+    doc.querySelector('[data-type="chapter"]')!.removeAttribute('data-type')
+    injectFakeWindow(doc, 0, 800, 400)
+
+    act(() => { void viewerRef.current?.next() })
+    loadSection(foliateEl, doc, 1)
+    await act(async () => { await Promise.resolve() })
+
+    expect(foliateEl.renderer.goTo).toHaveBeenCalledTimes(2)
+  })
+
+  it('passos pós-open do EPUB não alteram o livro sintético (T045b, R-011)', async () => {
+    const synthetic = makeSyntheticBook()
+    const keysBefore = Object.keys(synthetic).sort()
+
+    await renderViewer({ openBook: async () => synthetic })
+
+    // registerUnmanifestedEpubStylesheets sai com 0 (sem entries/resources) e
+    // installPassiveEpubContentTransform não acha transformTarget: nada é acrescentado ao book.
+    expect(Object.keys(synthetic).sort()).toEqual(keysBefore)
+    expect(registerUnmanifestedEpubStylesheets(synthetic)).toBe(0)
+  })
+
+  it('progresso pelo sumário usa o rótulo do trecho (TOCProgress real do foliate) (T045b)', async () => {
+    const synthetic = makeSyntheticBook()
+    const progress = new TOCProgress()
+    await progress.init({
+      toc: synthetic.toc,
+      ids: synthetic.sections.map((section) => section.id),
+      splitHref: synthetic.splitTOCHref.bind(synthetic),
+      getFragment: synthetic.getTOCFragment.bind(synthetic),
+    })
+
+    expect(CHUNKS.map((chunk) => progress.getProgress(chunk.index)?.label)).toEqual(['Capítulo 1', 'Capítulo 2', 'Capítulo 3'])
   })
 })

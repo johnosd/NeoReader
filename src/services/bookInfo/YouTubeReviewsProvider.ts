@@ -6,6 +6,7 @@ import type {
 } from '../../types/bookInfo'
 import { fetchWithTimeout, getDefaultFetch } from '../http'
 import { hasRelevantOverlap } from '../../utils/textMatch'
+import { usableAuthorHint } from '../../utils/placeholderAuthor'
 
 interface YouTubeSearchItem {
   id?: {
@@ -57,7 +58,7 @@ export class YouTubeReviewsProvider implements BookInfoProvider {
     const title = this.cleanText(context?.lookupHints.title)
     if (!title) return {}
 
-    const author = this.cleanText(context?.lookupHints.author)
+    const author = usableAuthorHint(this.cleanText(context?.lookupHints.author))
     const queries = this.buildQueries(title, author)
 
     const reviews: BookReview[] = []

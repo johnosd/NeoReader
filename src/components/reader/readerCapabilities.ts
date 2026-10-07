@@ -1,9 +1,9 @@
 import type { BookFormat } from '@/types/book'
 
-// Capacidades da superfície montada no leitor. O modo texto do PDF poderá usar
-// o EpubViewer com tipografia sem alterar o comportamento da superfície EPUB.
+// Capacidades da superfície montada no leitor. O modo texto do PDF ('pdf-text') usa
+// o EpubViewer com tipografia, montado pelo PdfTextModeViewer, sem alterar a superfície EPUB.
 export interface ReaderCapabilities {
-  viewer: 'epub' | 'pdf-page'
+  viewer: 'epub' | 'pdf-page' | 'pdf-text'
   usesPdfSession: boolean
   showsPdfNotices: boolean
   supportsTypography: boolean
@@ -37,7 +37,7 @@ const PDF_PAGE_CAPABILITIES: ReaderCapabilities = {
 
 const PDF_TEXT_CAPABILITIES: ReaderCapabilities = {
   ...PDF_PAGE_CAPABILITIES,
-  viewer: 'epub',
+  viewer: 'pdf-text',
   supportsTypography: true,
   translationPresentation: 'inline',
   closesChromeAfterNavigation: false,

@@ -1,6 +1,6 @@
 import type { PdfChunk } from '@/utils/pdfChunks'
 import { buildRawPage } from '@/utils/pdfLocator'
-import { reconstructPdfParagraphs, type PdfBlock, type PdfPageInput } from '@/utils/pdfParagraphs'
+import { hasUncertainColumnOrder, reconstructPdfParagraphs, type PdfBlock, type PdfPageInput } from '@/utils/pdfParagraphs'
 import { isPdfTextItem, type PdfDocumentProxy } from './pdfjs'
 
 // Páginas de texto extraídas mantidas em memória (itens + texto bruto). ~1000 itens/página ≈ 150 KB,
@@ -85,6 +85,21 @@ export class PdfTextExtractor {
       this.chunkCache.delete(this.chunkCache.keys().next().value as number)
     }
     return blocks
+  }
+
+  /**
+   * Páginas do trecho que o modo texto mostra como na original (FR-009 e Edge Cases da spec): sem texto
+   * (escaneada dentro de um PDF misto) ou com ordem de colunas incerta. `rawLength` = tamanho do texto
+   * bruto, para o localizador cobrir a página inteira.
+   */
+  async getPagesShownAsImage(chunk: PdfChunk): Promise<Array<{ pageIndex: number; rawLength: number }>> {
+    const result: Array<{ pageIndex: number; rawLength: number }> = []
+    for (let pageIndex = chunk.startPage; pageIndex <= chunk.endPage; pageIndex++) {
+      const page = await this.getPage(pageIndex)
+      const hasText = page.items.some((item) => item.str.trim())
+      if (!hasText || hasUncertainColumnOrder(page)) result.push({ pageIndex, rawLength: page.rawText.length })
+    }
+    return result
   }
 
   /** Esvazia os caches (troca de livro/saída do leitor). O PDFDocumentProxy é destruído por quem o criou. */

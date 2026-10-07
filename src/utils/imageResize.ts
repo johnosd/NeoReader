@@ -1,3 +1,5 @@
+import { dataUrlToBlob } from './dataUrl'
+
 // Tipos de imagem que o Canvas sabe reexportar preservando o formato original.
 // Qualquer outro tipo (ex: image/gif) cai pra JPEG — ver research.md Decisão 3.
 const REENCODABLE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp'])
@@ -49,7 +51,15 @@ export async function resizeCoverBlob(blob: Blob, maxDimension: number): Promise
 
   const outputType = REENCODABLE_MIME_TYPES.has(blob.type) ? blob.type : 'image/jpeg'
 
-  return new Promise((resolve) => {
-    canvas.toBlob((resized) => resolve(resized ?? blob), outputType)
-  })
+  // toDataURL e não toBlob: no WebView do Android o toBlob atrasava 4–13 s por capa (R-035 da feature 022).
+  // Navegador sem encoder do tipo pedido (ex.: webp) devolve PNG — o MIME do Blob vem do data URL.
+  try {
+    return dataUrlToBlob(canvas.toDataURL(outputType)) ?? blob
+  } catch {
+    return blob
+  } finally {
+    // Libera o bitmap do canvas assim que a imagem codificada existe.
+    canvas.width = 0
+    canvas.height = 0
+  }
 }

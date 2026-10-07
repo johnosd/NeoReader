@@ -1585,6 +1585,10 @@ interface EpubViewerProps {
   // unificada fora do iframe — feature 016).
   onDeleteHighlight?: (highlight: Highlight) => void
   onEditHighlight?: (highlight: Highlight) => void
+  // Modo texto do PDF (feature 022, DI-003): entrega um book já montado (livro sintético) em vez do
+  // arquivo. Ausente = caminho EPUB de sempre. Lido só no setup (que roda por book.id): para trocar
+  // de livro sintético, o pai remonta o componente com outra `key`.
+  openBook?: () => Promise<unknown>
 }
 
 // forwardRef: padrão React para expor métodos imperativos ao componente pai.
@@ -1601,6 +1605,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
       onOpenImage,
       vocabWords,
       highlights, onRequestCreateHighlight, onDeleteHighlight, onEditHighlight,
+      openBook,
     },
     ref,
   ) => {
@@ -4356,8 +4361,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         }, INITIAL_INTERACTIVE_TIMEOUT_MS)
 
         try {
-          const readerSource = await BookFileResolver.resolveReaderSource(book)
-          await (view.open as (source: Blob | string) => Promise<void>)(readerSource)
+          const readerSource = openBook ? await openBook() : await BookFileResolver.resolveReaderSource(book)
+          await (view.open as (source: unknown) => Promise<void>)(readerSource)
           if (cancelled) {
             // O cleanup já rodou (e não achou view.book, que só existe depois do open()
             // resolver) — sem isso, o book que acabou de terminar de abrir vaza pra sempre.

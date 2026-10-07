@@ -13,6 +13,7 @@ import {
   type GoogleBooksVolumeInfo,
 } from '../GoogleBooksService'
 import { htmlToPlainText } from '../../utils/textSanitizer'
+import { usableAuthorHint } from '../../utils/placeholderAuthor'
 
 export class GoogleBooksProvider implements BookInfoProvider {
   readonly source = 'google-books' as const
@@ -49,7 +50,8 @@ export class GoogleBooksProvider implements BookInfoProvider {
       universalIdentifier: this.extractUniversalIdentifier(identifiers),
       lookupHints: {
         title: context?.lookupHints.title ?? this.cleanText(volume.volumeInfo.title),
-        author: context?.lookupHints.author ?? this.cleanText(volume.volumeInfo.authors?.[0]),
+        // Placeholder "Autor desconhecido" não bloqueia o autor real que o Google Books encontrou.
+        author: usableAuthorHint(context?.lookupHints.author) ?? this.cleanText(volume.volumeInfo.authors?.[0]),
         identifiers,
       },
     }
@@ -64,7 +66,7 @@ export class GoogleBooksProvider implements BookInfoProvider {
       identifier.kind === 'ISBN_13' || identifier.kind === 'ISBN_10'
     ))
     const title = context?.lookupHints.title?.trim()
-    const author = context?.lookupHints.author?.trim()
+    const author = usableAuthorHint(context?.lookupHints.author)
     const queries: string[] = []
 
     if (title && author) {
@@ -83,7 +85,7 @@ export class GoogleBooksProvider implements BookInfoProvider {
     if (volumes.length === 0) return null
 
     const requestedTitle = this.normalizeForMatch(context?.lookupHints.title)
-    const requestedAuthor = this.normalizeForMatch(context?.lookupHints.author)
+    const requestedAuthor = this.normalizeForMatch(usableAuthorHint(context?.lookupHints.author))
     if (!requestedTitle && !requestedAuthor) return volumes[0]
 
     return [...volumes].sort((left, right) => (

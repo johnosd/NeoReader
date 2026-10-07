@@ -257,7 +257,7 @@ describe('PdfPageViewer — contrato EpubViewerHandle', () => {
     expect(location.percentage).toBeGreaterThan(0)
   })
 
-  it('métodos de TTS/tradução/Word Lens são seguros (sem efeito) até as fases US3/US4', async () => {
+  it('métodos de TTS são seguros até a US4, e os de tradução não fazem nada sem tradução aberta', async () => {
     const { ref, props } = setup()
     await waitFor(() => expect(props.onLoad).toHaveBeenCalled())
     const handle = ref.current!
@@ -373,8 +373,9 @@ describe('PdfPageViewer — contrato EpubViewerHandle', () => {
     const doc = makePageDocument()
     await act(async () => { view!.fireFoliate('load', { doc, index: 7 }) })
     await act(async () => { doc.querySelector('span')!.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    // O toque abre o painel de tradução (US3); "Marcar" é uma das ações dele, como no bloco inline do EPUB.
     const button = await waitFor(() => {
-      const found = doc.querySelector<HTMLButtonElement>('.nr-pdf-bubble button')
+      const found = doc.querySelector<HTMLButtonElement>('.nr-pdf-translation [data-nr-action="bookmark"]')
       expect(found).not.toBeNull()
       return found!
     })
@@ -390,5 +391,156 @@ describe('PdfPageViewer — contrato EpubViewerHandle', () => {
     await act(async () => { view?.fireFoliate('relocate', {}) })
     expect(onRelocate).not.toHaveBeenCalledWith(expect.objectContaining({ cfi: 'neopdf:v1;p=0;o=0' }))
     await waitFor(() => expect(props.onLoad).toHaveBeenCalled())
+  })
+})
+
+// ─── US3: Word Lens e tradução na página fiel (T050) ────────────────────────
+
+describe('PdfPageViewer — Word Lens e tradução (US3)', () => {
+  // Página 7 com um parágrafo de 2 frases; "responsibility" e "committee" quebram entre linhas com hífen.
+  const ITEMS = [
+    { str: 'The traveller described the extraordinary respon-', hasEOL: true },
+    { str: 'sibility of the author. Then the com-', hasEOL: true },
+    { str: 'mittee left.', hasEOL: true },
+  ]
+  const RAW = ITEMS.map((i) => `${i.str}\n`).join('')
+  const STARTS = [0, ITEMS[0].str.length + 1, ITEMS[0].str.length + ITEMS[1].str.length + 2]
+  const BLOCK = {
+    kind: 'paragraph' as const,
+    text: 'The traveller described the extraordinary responsibility of the author. Then the committee left.',
+    pageIndex: 7,
+    ranges: [{ pageIndex: 7, start: 0, end: RAW.length - 1 }],
+  }
+  const FIRST = 'The traveller described the extraordinary responsibility of the author.'
+  const SECOND = 'Then the committee left.'
+  const WORD_LENS = { levels: { responsibility: 4 as const, committee: 5 as const, extraordinary: 4 as const }, lemmas: {} }
+
+  function makeTranslationSession() {
+    const session = makeSession(30)
+    vi.mocked(session.extractor.getPage).mockResolvedValue({ itemStarts: STARTS, items: ITEMS, rawText: RAW } as never)
+    vi.mocked(session.extractor.reconstructChunk).mockResolvedValue([BLOCK])
+    return session
+  }
+
+  async function openPage(overrides: Partial<PdfPageViewerProps> = {}) {
+    const utils = setup({
+      session: makeTranslationSession(),
+      onTranslate: vi.fn(),
+      onWordLensDefinition: vi.fn(),
+      onSaveVocab: vi.fn(),
+      onSpeakOne: vi.fn(),
+      onBookmarkParagraph: vi.fn(),
+      wordLensEnabled: true,
+      wordLensLevel: 'B1',
+      wordLensData: WORD_LENS,
+      ...overrides,
+    })
+    await waitFor(() => expect(utils.props.onLoad).toHaveBeenCalled())
+    const doc = makePageDocument()
+    doc.querySelector('.textLayer')!.innerHTML = ITEMS.map((item, i) => `<span data-nr-item="${i}">${item.str}</span>`).join('')
+    await act(async () => { view!.fireFoliate('load', { doc, index: 7 }) })
+    const tap = async (itemIndex: number) => {
+      await act(async () => {
+        doc.querySelector(`span[data-nr-item="${itemIndex}"]`)!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      })
+    }
+    const panel = () => doc.querySelector<HTMLElement>('.nr-pdf-translation')
+    return { ...utils, doc, tap, panel }
+  }
+
+  it('toque no texto emite a frase reconstruída (sem quebras nem hífen) e abre o painel na própria página', async () => {
+    const { props, tap, panel, doc } = await openPage({ wordLensEnabled: false })
+    await tap(0)
+
+    await waitFor(() => expect(props.onTranslate).toHaveBeenCalledWith(FIRST))
+    expect(panel()).not.toBeNull()
+    expect(panel()!.querySelector('.nr-tr-spinner')).not.toBeNull()
+    expect(panel()!.closest('.textLayer')).not.toBeNull() // dentro do documento da página (DOM do iframe)
+    // Parágrafo ativo destacado nas linhas do bloco.
+    await waitFor(() => expect(doc.querySelectorAll('.textLayer span.nr-pdf-active')).toHaveLength(3))
+  })
+
+  it('fluxo da ReaderScreen: showTranslationLoading → injectTranslation com selo do provedor; resposta antiga é ignorada', async () => {
+    const { ref, tap, panel } = await openPage({ wordLensEnabled: false })
+    await tap(2)
+    await waitFor(() => expect(panel()).not.toBeNull())
+
+    const selectionId = ref.current!.showTranslationLoading()
+    expect(selectionId).toMatch(/^pdf-tr-/)
+    act(() => ref.current!.injectTranslation('resposta velha', 'outra-selecao', 'deepl'))
+    expect(panel()!.textContent).not.toContain('resposta velha')
+
+    act(() => ref.current!.injectTranslation('Então o comitê saiu.', selectionId, 'deepl'))
+    expect(panel()!.querySelector('.nr-tr-text')!.textContent).toBe('Então o comitê saiu.')
+    expect(panel()!.textContent).toContain('DeepL')
+
+    act(() => ref.current!.clearTranslation())
+    expect(panel()).toBeNull()
+  })
+
+  it('palavra hifenizada entre linhas acima do nível abre o Word Lens (tocando a 2ª metade) e mostra a definição', async () => {
+    const { ref, props, tap, panel } = await openPage()
+    await tap(1) // "sibility of the author..." — início do item = 2ª metade de "respon-sibility"
+
+    await waitFor(() => expect(props.onWordLensDefinition).toHaveBeenCalled())
+    const target = vi.mocked(props.onWordLensDefinition!).mock.calls[0][0]
+    expect(target).toMatchObject({ surface: 'responsibility', lemma: 'responsibility', level: 'B2' })
+    expect(target.selectionId).toBe(ref.current!.showTranslationLoading())
+    expect(props.onTranslate).toHaveBeenCalledWith(FIRST)
+
+    act(() => ref.current!.injectWordLensDefinition(target, {
+      partsOfSpeech: ['noun'],
+      senses: [{ partOfSpeech: 'noun', definition: 'a duty to deal with something', examples: [], synonyms: ['duty'] }],
+    }))
+    expect(panel()!.querySelector('.nr-wl')!.textContent).toContain('a duty to deal with something')
+    // Erro de outra seleção (toque antigo) não apaga a definição atual.
+    act(() => ref.current!.injectWordLensDefinitionError({ ...target, selectionId: 'outra' }))
+    expect(panel()!.querySelector('.nr-wl')!.textContent).toContain('a duty to deal with something')
+  })
+
+  it('ações do painel: ouvir, salvar no vocabulário (frase sem quebras), marcar parágrafo e próxima frase', async () => {
+    const { ref, props, tap, panel } = await openPage({ wordLensEnabled: false })
+    await tap(0)
+    await waitFor(() => expect(panel()).not.toBeNull())
+    const selectionId = ref.current!.showTranslationLoading()
+    act(() => ref.current!.injectTranslation('O viajante descreveu...', selectionId))
+    const click = (action: string) => act(() => {
+      panel()!.querySelector<HTMLButtonElement>(`[data-nr-action="${action}"]`)!.click()
+    })
+
+    click('speak')
+    expect(props.onSpeakOne).toHaveBeenCalledWith(FIRST)
+    click('save')
+    expect(props.onSaveVocab).toHaveBeenCalledWith(FIRST, 'O viajante descreveu...')
+    expect(panel()!.querySelector('[data-nr-action="save"]')!.textContent).toMatch(/Salvo|Saved/)
+    click('bookmark')
+    expect(props.onBookmarkParagraph).toHaveBeenCalledWith(expect.objectContaining({ cfi: 'neopdf:v1;p=7;o=0' }))
+    await act(async () => { panel()!.querySelector<HTMLButtonElement>('[data-nr-action="next"]')!.click() })
+    await waitFor(() => expect(props.onTranslate).toHaveBeenLastCalledWith(SECOND))
+  })
+
+  it('tocar de novo na mesma frase fecha; tocar fora do texto fecha sem alternar o chrome', async () => {
+    const { props, tap, panel, doc } = await openPage({ wordLensEnabled: false })
+    await tap(0)
+    await waitFor(() => expect(panel()).not.toBeNull())
+    await tap(0)
+    expect(panel()).toBeNull()
+
+    await tap(2)
+    await waitFor(() => expect(panel()).not.toBeNull())
+    await act(async () => { doc.body.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    expect(panel()).toBeNull()
+    expect(props.onCenterTap).not.toHaveBeenCalled()
+    expect(doc.querySelectorAll('.nr-pdf-active')).toHaveLength(0)
+  })
+
+  it('sublinha passivamente palavras do Word Lens e vocabulário salvo na camada de texto', async () => {
+    const { doc } = await openPage({ vocabWords: ['the author'] })
+    await act(async () => { doc.dispatchEvent(new CustomEvent('nr-pdf-rendered')) })
+
+    await waitFor(() => expect([...doc.querySelectorAll('.textLayer .nr-word-lens')].map((el) => el.textContent)).toEqual(['extraordinary']), { timeout: 3000 })
+    expect([...doc.querySelectorAll('.textLayer .nr-vocab')].map((el) => el.textContent)).toEqual(['the author'])
+    // O sublinhado fica DENTRO do span do item: o toque continua achando o item.
+    expect(doc.querySelector('.nr-word-lens')!.closest('span[data-nr-item]')).not.toBeNull()
   })
 })

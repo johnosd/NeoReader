@@ -6,6 +6,11 @@ import type { PdfReaderSession } from '@/hooks/usePdfReaderSession'
 import type { PdfTocItem } from '@/services/pdf/PdfBookFactory'
 import type { Book, Bookmark } from '@/types/book'
 import type { ReaderTheme } from '@/types/settings'
+import type { TranslationProvider } from '@/types/translation'
+import type { CefrLevel, WordLensData } from '@/types/wordLens'
+import { getTranslationProviderLabel } from '@/services/TranslationProviderRegistry'
+import type { PdfBlock } from '@/utils/pdfParagraphs'
+import { scheduleWordLensDocument, type WordLensDocumentTask } from '@/utils/wordLensDom'
 import { findChunkForPage } from '@/utils/pdfChunks'
 import {
   formatPdfPoint,
@@ -20,6 +25,7 @@ import type {
   ParagraphBookmarkPayload,
   ReaderRelocatePayload,
   TtsChunk,
+  WordLensDefinitionTarget,
 } from './EpubViewer'
 import { attachPinchZoom, clampZoomPct, PDF_ZOOM_MAX_PCT, PDF_ZOOM_MIN_PCT } from './pdfPage/pdfPageGestures'
 import {
@@ -32,17 +38,24 @@ import {
   tocItemForPage,
   tocLabelForPage,
 } from './pdfPage/pdfPageMapping'
+import { PDF_PAGE_RENDERED_EVENT, renderBookmarkMarkers } from './pdfPage/pdfPageOverlay'
 import {
-  hideBubble,
-  PDF_PAGE_RENDERED_EVENT,
-  renderBookmarkMarkers,
-  showBubble,
-} from './pdfPage/pdfPageOverlay'
+  clearTextItemHighlight,
+  hasTranslationPanel,
+  hideTranslationPanel,
+  highlightTextItems,
+  markVocabularyInTextLayer,
+  renderTranslationPanel,
+  type PdfDefinitionState,
+  type PdfPanelAction,
+} from './pdfPage/pdfPageTranslation'
+import { nextSentenceInBlock, resolveTapInBlock, wordLensTargetAt, type PdfWordLensTarget } from './pdfPage/pdfPageWords'
 
 // Página fiel de PDF (feature 022, DI-004): foliate-view sobre o renderer de layout fixo (foliate-fxl) em
 // rolagem contínua. Implementa o mesmo contrato EpubViewerHandle do EpubViewer — ReaderScreen, useTTS e
 // useTranslatedAudiobook o dirigem sem saber o formato. Tradução, Word Lens, TTS e highlights entram nas
-// próximas fases (US3–US5); aqui valem leitura, zoom, tema, sumário, progresso e marcadores (US1).
+// próximas fases (US4–US5); aqui valem leitura, zoom, tema, sumário, progresso, marcadores (US1) e Word Lens +
+// tradução (US3): o toque traduz a frase tocada num painel dentro da página, como o bloco inline do EPUB.
 
 export interface PdfPageViewerProps {
   book: Book
@@ -61,6 +74,31 @@ export interface PdfPageViewerProps {
   onCenterTap: () => void
   onBookmarkTap?: (bookmarkId: number) => void
   onBookmarkParagraph?: (payload: ParagraphBookmarkPayload) => void
+  // US3 — mesmos callbacks/tipos do EpubViewer (a ReaderScreen usa os mesmos handlers nos dois viewers).
+  wordLensEnabled?: boolean
+  wordLensLevel?: CefrLevel
+  wordLensData?: WordLensData | null
+  vocabWords?: string[]
+  onTranslate?: (sourceText: string) => void
+  onWordLensDefinition?: (target: WordLensDefinitionTarget) => void
+  onSaveVocab?: (sourceText: string, translatedText: string) => void
+  onSpeakOne?: (text: string) => void
+}
+
+// Tradução aberta na página fiel. É estado (não só DOM) porque o pdf.js recria a camada de texto a cada
+// render (zoom/tema) e o painel precisa ser redesenhado igual.
+interface ActivePdfTranslation {
+  selectionId: string
+  doc: Document
+  pageIndex: number
+  block: PdfBlock
+  blockStart: PdfPoint
+  sentence: string
+  sentenceStart: number
+  anchor: { topPct: number; bottomPct: number }
+  translation: { status: 'loading' } | { status: 'ready'; text: string; provider?: TranslationProvider }
+  wordLens: { target: PdfWordLensTarget; state: PdfDefinitionState } | null
+  saved: boolean
 }
 
 // Subconjunto do renderer foliate-fxl que usamos (não há .d.ts do fixed-layout).
@@ -113,6 +151,9 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
   // Cada relocate é resolvido de forma assíncrona (extrai o texto da página); só o mais recente vale.
   const relocateTokenRef = useRef(0)
   const pageCleanupsRef = useRef(new Map<Document, () => void>())
+  const activeTranslationRef = useRef<ActivePdfTranslation | null>(null)
+  const translationSeqRef = useRef(0)
+  const wordLensTasksRef = useRef(new Map<Document, WordLensDocumentTask>())
 
   // ── Localização ────────────────────────────────────────────────────────────
 
@@ -247,50 +288,243 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
 
   // ── Toque ──────────────────────────────────────────────────────────────────
 
-  async function handleTextTap(doc: Document, pageIndex: number, itemIndex: number, event: MouseEvent) {
-    const { session, onBookmarkParagraph, readerTheme, bookmarks } = propsRef.current
-    if (!onBookmarkParagraph) return
+  // Offset bruto exato do caractere tocado: caret dentro do span do item (que pode ter spans de Word Lens
+  // dentro); sem caret (jsdom, toque fora da linha) vale o início do item.
+  function caretOffsetInItem(doc: Document, span: HTMLElement, event: MouseEvent): number {
+    let caret: Range | null = null
+    try {
+      caret = doc.caretRangeFromPoint?.(event.clientX, event.clientY) ?? null
+    } catch {
+      caret = null
+    }
+    if (!caret || !span.contains(caret.startContainer)) return 0
+    const before = doc.createRange()
+    before.selectNodeContents(span)
+    before.setEnd(caret.startContainer, caret.startOffset)
+    return before.toString().length
+  }
 
-    const layer = doc.querySelector<HTMLElement>('.textLayer')
-    if (!layer) return
-    const rect = layer.getBoundingClientRect()
-    const xPct = rect.width ? ((event.clientX - rect.left) / rect.width) * 100 : 50
-    const yPct = rect.height ? ((event.clientY - rect.top) / rect.height) * 100 : 50
+  // Itens da camada de texto que pertencem ao bloco nesta página (destaque do parágrafo ativo).
+  async function blockItemsOnPage(block: PdfBlock, pageIndex: number): Promise<number[]> {
+    const extracted = await propsRef.current.session.extractor.getPage(pageIndex)
+    const ranges = block.ranges.filter((r) => r.pageIndex === pageIndex)
+    const items: number[] = []
+    extracted.items.forEach((item, index) => {
+      const start = extracted.itemStarts[index] ?? 0
+      const end = start + item.str.length
+      if (item.str.trim() && ranges.some((r) => start < r.end && end > r.start)) items.push(index)
+    })
+    return items
+  }
+
+  // Faixa vertical da linha tocada, em % da página (o painel abre colado nela).
+  function lineAnchor(doc: Document, span: HTMLElement): { topPct: number; bottomPct: number } {
+    const layerRect = doc.querySelector('.textLayer')?.getBoundingClientRect()
+    const rect = span.getBoundingClientRect()
+    if (!layerRect?.height) return { topPct: 50, bottomPct: 52 }
+    return {
+      topPct: ((rect.top - layerRect.top) / layerRect.height) * 100,
+      bottomPct: ((rect.bottom - layerRect.top) / layerRect.height) * 100,
+    }
+  }
+
+  function bookmarkForBlock(blockStart: PdfPoint) {
+    const locator = formatPdfPoint(blockStart)
+    return propsRef.current.bookmarks.find((b) => !b.deletedAt && b.cfi === locator)
+  }
+
+  function toggleBookmark(block: PdfBlock, blockStart: PdfPoint) {
+    const { session, onBookmarkParagraph, onBookmarkTap } = propsRef.current
+    const existing = bookmarkForBlock(blockStart)
+    if (existing?.id !== undefined) {
+      onBookmarkTap?.(existing.id)
+      return
+    }
+    // Inteiro, como no EPUB: a lista de marcadores exibe o valor gravado sem formatar.
+    const percentage = clampPercentage(progressPercentage(blockStart.pageIndex, 0, session.pageCount))
+    onBookmarkParagraph?.({
+      cfi: formatPdfPoint(blockStart),
+      label: tocLabelForPage(session.pdfBook.toc, blockStart.pageIndex) ?? `${Math.round(percentage)}%`,
+      percentage,
+      snippet: block.text.slice(0, 150),
+    })
+  }
+
+  // Mesmas ações do bloco inline do EPUB (próxima, ouvir, marcar, salvar) + fechar.
+  function panelActions(active: ActivePdfTranslation): PdfPanelAction[] {
+    const t = tRef.current
+    const { onSpeakOne, onSaveVocab } = propsRef.current
+    const bookmarked = !!bookmarkForBlock(active.blockStart)
+    const actions: PdfPanelAction[] = []
+    if (active.translation.status === 'ready') {
+      actions.push({ id: 'next', label: t('reader.translation.next'), onSelect: () => translateNextSentence() })
+      if (onSpeakOne) actions.push({ id: 'speak', label: t('reader.translation.speak'), onSelect: () => onSpeakOne(active.sentence) })
+    }
+    actions.push({
+      id: 'bookmark',
+      label: bookmarked ? t('reader.translation.remove') : t('reader.translation.bookmark'),
+      pressed: bookmarked,
+      onSelect: () => toggleBookmark(active.block, active.blockStart),
+    })
+    if (active.translation.status === 'ready' && onSaveVocab) {
+      const text = active.translation.text
+      actions.push({
+        id: 'save',
+        label: active.saved ? t('reader.translation.saved') : t('reader.translation.save'),
+        onSelect: () => {
+          if (active.saved) return
+          onSaveVocab(active.sentence, text)
+          active.saved = true
+          renderActiveTranslation()
+        },
+      })
+    }
+    actions.push({ id: 'close', label: t('pdf.translation.close'), onSelect: () => clearActiveTranslation() })
+    return actions
+  }
+
+  function renderActiveTranslation() {
+    const active = activeTranslationRef.current
+    if (!active) return
+    const { readerTheme, overrideBookColors } = propsRef.current
+    const translation = active.translation
+    // Selo "via {provedor}" só fora do MyMemory (FR-008 da feature 017, mesma regra do EPUB).
+    const providerLabel = translation.status === 'ready' && translation.provider && translation.provider !== 'mymemory'
+      ? getTranslationProviderLabel(translation.provider)
+      : null
+    renderTranslationPanel(active.doc, {
+      anchor: active.anchor,
+      // Modo Original: a página fica com as cores do PDF (fundo claro na prática) → painel claro.
+      palette: { isDark: overrideBookColors && getReaderThemePalette(readerTheme).isDark },
+      translation: translation.status === 'ready' ? { status: 'ready', text: translation.text, providerLabel } : { status: 'loading' },
+      wordLens: active.wordLens,
+      actions: panelActions(active),
+    }, tRef.current)
+  }
+
+  function clearActiveTranslation() {
+    const active = activeTranslationRef.current
+    activeTranslationRef.current = null
+    if (!active) return
+    hideTranslationPanel(active.doc)
+    clearTextItemHighlight(active.doc)
+  }
+
+  // Abre a tradução de uma frase do bloco. Mesmo fluxo do EPUB: o viewer emite a frase (onTranslate) e a
+  // ReaderScreen chama showTranslationLoading/injectTranslation; a definição chega por onWordLensDefinition.
+  async function startTranslation(
+    doc: Document,
+    pageIndex: number,
+    block: PdfBlock,
+    blockStart: PdfPoint,
+    sentence: { text: string; start: number },
+    anchor: { topPct: number; bottomPct: number },
+    wordLensTarget: PdfWordLensTarget | null,
+  ) {
+    const previous = activeTranslationRef.current
+    if (previous && previous.doc !== doc) {
+      hideTranslationPanel(previous.doc)
+      clearTextItemHighlight(previous.doc)
+    }
+    const selectionId = `pdf-tr-${++translationSeqRef.current}`
+    const active: ActivePdfTranslation = {
+      selectionId,
+      doc,
+      pageIndex,
+      block,
+      blockStart,
+      sentence: sentence.text,
+      sentenceStart: sentence.start,
+      anchor,
+      translation: { status: 'loading' },
+      wordLens: wordLensTarget ? { target: wordLensTarget, state: { status: 'loading' } } : null,
+      saved: false,
+    }
+    activeTranslationRef.current = active
+    renderActiveTranslation()
+
+    const { onTranslate, onWordLensDefinition } = propsRef.current
+    onTranslate?.(sentence.text)
+    if (wordLensTarget) onWordLensDefinition?.({ ...wordLensTarget, selectionId })
+
+    const items = await blockItemsOnPage(block, pageIndex)
+    if (activeTranslationRef.current === active) highlightTextItems(doc, items)
+  }
+
+  function translateNextSentence() {
+    const active = activeTranslationRef.current
+    if (!active) return
+    const next = nextSentenceInBlock(active.block.text, active.sentenceStart, active.sentence)
+    if (next) {
+      void startTranslation(active.doc, active.pageIndex, active.block, active.blockStart, { text: next.sentence, start: next.start }, active.anchor, null)
+      return
+    }
+    // Fim do parágrafo: 1ª frase do próximo parágrafo do trecho, se ele começa nesta mesma página.
+    void (async () => {
+      const { session } = propsRef.current
+      const chunk = findChunkForPage(session.chunks, active.pageIndex)
+      if (!chunk) return
+      const blocks = await session.extractor.reconstructChunk(chunk)
+      const index = blocks.indexOf(active.block)
+      const following = blocks.slice(index + 1).find((b) => b.kind !== 'figure' && b.text.trim())
+      const start = following ? blockStartPoint(following) : null
+      if (index < 0 || !following || !start || start.pageIndex !== active.pageIndex) return
+      const first = resolveTapInBlock(following, start, '')
+      void startTranslation(active.doc, active.pageIndex, following, start, { text: first.sentence, start: first.sentenceStart }, active.anchor, null)
+    })()
+  }
+
+  async function handleTextTap(doc: Document, pageIndex: number, span: HTMLElement, event: MouseEvent) {
+    const { session, wordLensEnabled, wordLensLevel, wordLensData } = propsRef.current
+    const itemIndex = Number(span.dataset.nrItem)
+    const anchor = lineAnchor(doc, span)
+    const caretOffset = caretOffsetInItem(doc, span, event)
 
     // Parágrafo tocado: item → offset bruto → bloco reconstruído do trecho (pdfParagraphs).
     const extracted = await session.extractor.getPage(pageIndex)
-    const point: PdfPoint = { pageIndex, offset: offsetOfItem(extracted.itemStarts, itemIndex) }
+    const point: PdfPoint = { pageIndex, offset: offsetOfItem(extracted.itemStarts, itemIndex) + caretOffset }
     const chunk = findChunkForPage(session.chunks, pageIndex)
     if (!chunk) return
     const block = findBlockAtPoint(await session.extractor.reconstructChunk(chunk), point)
     const start = block ? blockStartPoint(block) : null
     if (!block || !start) return
 
-    const startLocator = formatPdfPoint(start)
-    const existing = bookmarks.find((b) => !b.deletedAt && b.cfi === startLocator)
-    const palette = getReaderThemePalette(readerTheme)
-    // Inteiro, como no EPUB: a lista de marcadores exibe o valor gravado sem formatar.
-    const percentage = clampPercentage(progressPercentage(start.pageIndex, 0, session.pageCount))
+    const tap = resolveTapInBlock(block, point, extracted.rawText ?? '')
+    const target = wordLensEnabled && wordLensLevel
+      ? wordLensTargetAt(tap, block.text, wordLensLevel, wordLensData ?? null)
+      : null
 
-    showBubble(doc, {
-      xPct,
-      yPct,
-      palette,
-      actions: [
-        existing
-          ? { label: tRef.current('pdf.bookmark.remove'), onSelect: () => propsRef.current.onBookmarkTap?.(existing.id!) }
-          : {
-            label: tRef.current('pdf.bookmark.add'),
-            onSelect: () =>
-              onBookmarkParagraph({
-                cfi: startLocator,
-                label: tocLabelForPage(session.pdfBook.toc, start.pageIndex) ?? `${Math.round(percentage)}%`,
-                percentage,
-                snippet: block.text.slice(0, 150),
-              }),
-          },
-      ],
+    // Tocar de novo na mesma frase (sem outra palavra de Word Lens) fecha, como no EPUB.
+    const active = activeTranslationRef.current
+    if (active && active.doc === doc && active.sentenceStart === tap.sentenceStart &&
+      active.blockStart.pageIndex === start.pageIndex && active.blockStart.offset === start.offset &&
+      (!target || active.wordLens?.target.lemma === target.lemma)) {
+      clearActiveTranslation()
+      return
+    }
+    await startTranslation(doc, pageIndex, block, start, { text: tap.sentence, start: tap.sentenceStart }, anchor, target)
+  }
+
+  // ── Word Lens passivo e vocabulário salvo na camada de texto ───────────────
+
+  function decoratePage(doc: Document) {
+    const { wordLensEnabled, wordLensLevel, wordLensData, vocabWords } = propsRef.current
+    markVocabularyInTextLayer(doc, vocabWords ?? [])
+    wordLensTasksRef.current.get(doc)?.cancel()
+    if (!wordLensLevel) return
+    // Mesmo marcador do EPUB (wordLensDom): processa em lotes ociosos e ignora a interface ([data-nr-ui]).
+    const task = scheduleWordLensDocument(doc, { enabled: !!wordLensEnabled, level: wordLensLevel, data: wordLensData ?? null })
+    wordLensTasksRef.current.set(doc, task)
+    void task.completed.then(() => {
+      if (wordLensTasksRef.current.get(doc) === task) wordLensTasksRef.current.delete(doc)
     })
+  }
+
+  function updateDefinition(target: WordLensDefinitionTarget, state: PdfDefinitionState) {
+    const active = activeTranslationRef.current
+    if (!active?.wordLens || target.selectionId !== active.selectionId) return
+    active.wordLens = { target: active.wordLens.target, state }
+    renderActiveTranslation()
   }
 
   // ── Marcadores desenhados na margem ────────────────────────────────────────
@@ -399,20 +633,33 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
       const selection = doc.getSelection()
       if (selection && !selection.isCollapsed) return // há seleção em andamento: não é um toque
       const target = event.target as Element | null
-      if (target?.closest('a[href], .nr-pdf-bubble, .nr-pdf-bookmark-marker')) return
+      if (target?.closest('a[href], .nr-pdf-translation, .nr-pdf-bookmark-marker')) return
 
       const span = target?.closest<HTMLElement>('.textLayer span[data-nr-item]')
       if (span?.textContent?.trim()) {
-        void handleTextTap(doc, pageIndex, Number(span.dataset.nrItem), event)
+        void handleTextTap(doc, pageIndex, span, event)
         return
       }
-      hideBubble(doc)
+      // Fora do texto com tradução aberta: o toque só fecha o painel (não alterna o chrome).
+      if (activeTranslationRef.current) {
+        clearActiveTranslation()
+        return
+      }
       propsRef.current.onCenterTap()
     }
     doc.addEventListener('click', onClick)
 
     const onRendered = () => {
       void drawBookmarkMarkers(doc, pageIndex)
+      decoratePage(doc)
+      // A camada de texto foi recriada (zoom/tema): redesenha a tradução aberta nesta página.
+      const active = activeTranslationRef.current
+      if (active?.doc === doc) {
+        if (!hasTranslationPanel(doc)) renderActiveTranslation()
+        void blockItemsOnPage(active.block, pageIndex).then((items) => {
+          if (activeTranslationRef.current === active) highlightTextItems(doc, items)
+        })
+      }
       // Zoom/tema refazem a camada de texto: a posição (offset do 1º texto visível) mudou de lugar na tela.
       if (viewRef.current && getTopVisiblePageIndex() === pageIndex) scheduleRelocate()
     }
@@ -427,6 +674,10 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
     }, { coordsFollowViewScale: true }))
 
     pageCleanupsRef.current.set(doc, () => {
+      wordLensTasksRef.current.get(doc)?.cancel()
+      wordLensTasksRef.current.delete(doc)
+      // Página descartada pelo foliate com a tradução aberta nela: o estado não pode segurar o Document.
+      if (activeTranslationRef.current?.doc === doc) activeTranslationRef.current = null
       doc.removeEventListener('click', onClick)
       doc.removeEventListener(PDF_PAGE_RENDERED_EVENT, onRendered)
       detachPinch()
@@ -589,8 +840,17 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
   useEffect(() => {
     const contents = viewRef.current?.renderer.getContents() ?? []
     for (const { doc, index } of contents) void drawBookmarkMarkers(doc, index)
+    // O botão Marcar/Remover do painel aberto acompanha a lista.
+    if (activeTranslationRef.current) renderActiveTranslation()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.bookmarks])
+
+  // Word Lens (liga/desliga, nível, dados carregados) e vocabulário salvo: remarca as páginas carregadas.
+  useEffect(() => {
+    const contents = viewRef.current?.renderer.getContents() ?? []
+    for (const { doc } of contents) if (hasRenderedText(doc)) decoratePage(doc)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.wordLensEnabled, props.wordLensLevel, props.wordLensData, props.vocabWords])
 
   // ── Contrato EpubViewerHandle ──────────────────────────────────────────────
 
@@ -632,12 +892,26 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
     clearTts: () => undefined,
     scrollToParagraph: () => undefined,
     resetTtsScroll: () => undefined,
-    showTranslationLoading: () => null,
-    injectTranslation: () => undefined,
-    showWordLensDefinitionLoading: () => undefined,
-    injectWordLensDefinition: () => undefined,
-    injectWordLensDefinitionError: () => undefined,
-    clearTranslation: () => undefined,
+
+    // ── US3: tradução e Word Lens no painel da página ──
+    showTranslationLoading: () => {
+      const active = activeTranslationRef.current
+      if (!active) return null
+      active.translation = { status: 'loading' }
+      renderActiveTranslation()
+      return active.selectionId
+    },
+    injectTranslation: (text, selectionId, provider) => {
+      const active = activeTranslationRef.current
+      // Resposta de uma tradução já trocada por outra (toque novo antes de chegar): descarta.
+      if (!active || (selectionId && selectionId !== active.selectionId)) return
+      active.translation = { status: 'ready', text, provider }
+      renderActiveTranslation()
+    },
+    showWordLensDefinitionLoading: (target) => updateDefinition(target, { status: 'loading' }),
+    injectWordLensDefinition: (target, entry) => updateDefinition(target, { status: 'ready', entry }),
+    injectWordLensDefinitionError: (target) => updateDefinition(target, { status: 'error' }),
+    clearTranslation: () => clearActiveTranslation(),
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [])
 

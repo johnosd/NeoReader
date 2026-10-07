@@ -166,6 +166,25 @@ describe('GoogleBooksProvider', () => {
     )
   })
 
+  it('não usa o texto de reserva "Autor desconhecido" como termo nem bloqueia o autor encontrado (R-031)', async () => {
+    const fetchImpl = makeFetch({
+      totalItems: 1,
+      items: [{ id: 'v', volumeInfo: { title: 'Os Noturnos', authors: ['Fulano de Tal'] } }],
+    })
+    const provider = new GoogleBooksProvider(new GoogleBooksService({ fetchImpl }))
+
+    const info = await provider.collect(null, makeContext({
+      lookupHints: { title: 'Os Noturnos', author: 'Autor desconhecido', identifiers: [] },
+    }))
+
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      1,
+      'https://www.googleapis.com/books/v1/volumes?q=intitle%3AOs+Noturnos&maxResults=5',
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    )
+    expect(info.lookupHints?.author).toBe('Fulano de Tal')
+  })
+
   it('tries a broader title and author query when the structured query has no result', async () => {
     const fetchImpl = makeFetch({
       totalItems: 0,

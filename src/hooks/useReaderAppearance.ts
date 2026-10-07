@@ -14,7 +14,7 @@ import {
 } from '../services/TranslationProviderRegistry'
 import { clampTtsRate, normalizeLanguageTag } from '../utils/language'
 import { getBookTtsVoiceSelections } from '../utils/ttsVoiceSelection'
-import type { Book } from '../types/book'
+import type { Book, PdfReadingMode } from '../types/book'
 import type { FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from '../types/settings'
 import type { TtsPlaybackConfig, TtsProvider } from '../types/tts'
 import type { TranslationProvider } from '../types/translation'
@@ -51,6 +51,8 @@ export interface UseReaderAppearanceResult {
   // Em EPUB é sempre false — lá o fallback para 'en' continua como sempre foi.
   bookLanguageUndefined: boolean
   pdfLanguageWarningDismissed: boolean
+  // Só PDF (FR-008): último modo de leitura do livro; ausente = página fiel.
+  pdfReadingMode: PdfReadingMode
   translationTargetLang: string
   ttsConfig: TtsPlaybackConfig
   ttsEngine: TtsProvider
@@ -65,6 +67,7 @@ export interface UseReaderAppearanceResult {
   // Escolha manual do idioma (null = voltar a detectar automaticamente) e dispensa do aviso de PDF.
   applyBookLanguage: (code: string | null) => void
   dismissPdfLanguageWarning: () => void
+  applyPdfReadingMode: (mode: PdfReadingMode) => void
   switchToNativeTts: () => void
   handleReaderStyleModeChange: (mode: ReaderStyleMode) => void
 }
@@ -105,6 +108,7 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
   const [bookLanguage, setBookLanguage] = useState('en')
   const [bookLanguageUndefined, setBookLanguageUndefined] = useState(false)
   const [pdfLanguageWarningDismissed, setPdfLanguageWarningDismissed] = useState(false)
+  const [pdfReadingMode, setPdfReadingMode] = useState<PdfReadingMode>('page')
   const [translationTargetLang, setTranslationTargetLang] = useState('pt-BR')
   const [ttsConfig, setTtsConfig] = useState<TtsPlaybackConfig>({
     provider: 'native',
@@ -149,6 +153,7 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
       // Em PDF, ausência de idioma NÃO vira 'en' em silêncio: o leitor avisa uma vez (FR-020).
       setBookLanguageUndefined(isPdf && !candidateLanguage)
       setPdfLanguageWarningDismissed(bs.pdfLanguageWarningDismissed ?? false)
+      setPdfReadingMode(bs.pdfReadingMode ?? 'page')
       const selectedProvider = bs.ttsProvider ?? 'speechify'
       const resolvedFontFamily = bs.fontFamily ?? s.readerDefaults.fontFamily
       const providerAvailability = getTtsProviderAvailability(s.appSettings)
@@ -258,6 +263,12 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
     void updateBookSettings(book.id!, { pdfLanguageWarningDismissed: true })
   }
 
+  function applyPdfReadingMode(mode: PdfReadingMode) {
+    logReaderAppearanceChange('reader.pdf.readingMode.change', pdfReadingMode, mode, book.id)
+    setPdfReadingMode(mode)
+    void updateBookSettings(book.id!, { pdfReadingMode: mode })
+  }
+
   function switchToNativeTts() {
     setTtsConfig((current) => ({ ...current, provider: 'native' }))
     setTtsEngine('native')
@@ -289,6 +300,7 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
     bookLanguage,
     bookLanguageUndefined,
     pdfLanguageWarningDismissed,
+    pdfReadingMode,
     translationTargetLang,
     ttsConfig,
     ttsEngine,
@@ -300,6 +312,7 @@ export function useReaderAppearance(book: Book): UseReaderAppearanceResult {
     applyTtsConfigPatch,
     applyBookLanguage,
     dismissPdfLanguageWarning,
+    applyPdfReadingMode,
     switchToNativeTts,
     handleReaderStyleModeChange,
   }

@@ -6,6 +6,7 @@
 // Mudanças: tipado em TypeScript, pdf.js carregado sob demanda, sem globais soltas.
 
 import { loadPdfjs, pdfjsPath, type PdfPageProxy } from './pdfjs'
+import { dataUrlToBlob } from '../../utils/dataUrl'
 
 // Disparado no documento da página quando um render termina (a camada de texto foi refeita). Quem desenha
 // overlays dentro da página (balão, marcadores) redesenha ao ouvi-lo, porque o pdf.js limpa a camada a cada zoom.
@@ -356,13 +357,49 @@ export async function renderPdfPageToBlob(page: PdfPageProxy, scale = 1): Promis
   return dataUrlToBlob(dataUrl)
 }
 
-// "data:image/png;base64,AAAA" → Blob. atob devolve uma string binária (1 char = 1 byte); copiamos para bytes.
-function dataUrlToBlob(dataUrl: string): Blob | null {
-  const comma = dataUrl.indexOf(',')
-  if (comma < 0) return null
-  const mime = /^data:([^;,]+)/.exec(dataUrl)?.[1] ?? 'image/png'
-  const binary = atob(dataUrl.slice(comma + 1))
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-  return new Blob([bytes], { type: mime })
+// Largura-alvo das imagens do modo texto (figura recortada / página "como na original"): nítida num
+// celular DPR 3 sem gerar bitmaps enormes por trecho.
+const TEXT_MODE_IMAGE_WIDTH_PX = 1200
+const TEXT_MODE_IMAGE_MAX_SCALE = 2
+// Folga em volta da faixa da figura (pt), para não cortar legenda/borda.
+const FIGURE_REGION_PADDING_PT = 6
+
+/**
+ * Imagem de uma página para o modo texto (FR-009): a faixa vertical da figura (`region`, coordenadas do
+ * PDF com y para cima) ou a página inteira. JPEG via toDataURL (R-034: toBlob trava no WebView do Android).
+ */
+export async function renderPdfPageRegionToBlob(
+  page: PdfPageProxy,
+  region?: { yTop: number; yBottom: number } | null,
+): Promise<Blob | null> {
+  const base = page.getViewport({ scale: 1 })
+  const scale = Math.min(TEXT_MODE_IMAGE_MAX_SCALE, TEXT_MODE_IMAGE_WIDTH_PX / base.width)
+  const viewport = page.getViewport({ scale })
+  const pageCanvas = document.createElement('canvas')
+  pageCanvas.width = Math.round(viewport.width)
+  pageCanvas.height = Math.round(viewport.height)
+  const pageContext = pageCanvas.getContext('2d')
+  if (!pageContext) return null
+  await page.render({ canvasContext: pageContext, viewport }).promise
+
+  let output = pageCanvas
+  if (region) {
+    // y do PDF cresce para cima; no canvas, para baixo a partir do topo da página.
+    const top = Math.max(0, Math.floor((base.height - region.yTop - FIGURE_REGION_PADDING_PT) * scale))
+    const bottom = Math.min(pageCanvas.height, Math.ceil((base.height - region.yBottom + FIGURE_REGION_PADDING_PT) * scale))
+    if (bottom - top > 1) {
+      output = document.createElement('canvas')
+      output.width = pageCanvas.width
+      output.height = bottom - top
+      output.getContext('2d')?.drawImage(pageCanvas, 0, top, pageCanvas.width, bottom - top, 0, 0, output.width, output.height)
+    }
+  }
+
+  const dataUrl = output.toDataURL('image/jpeg', 0.85)
+  // Libera os bitmaps assim que a imagem existe.
+  for (const canvas of new Set([pageCanvas, output])) {
+    canvas.width = 0
+    canvas.height = 0
+  }
+  return dataUrlToBlob(dataUrl)
 }

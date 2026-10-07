@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { reconstructPdfParagraphs, type PdfBlock, type PdfPageInput, type PdfTextItemInput } from '@/utils/pdfParagraphs'
+import { hasUncertainColumnOrder, reconstructPdfParagraphs, type PdfBlock, type PdfPageInput, type PdfTextItemInput } from '@/utils/pdfParagraphs'
 import { buildRawPageText } from '@/utils/pdfLocator'
 import { loadPdfFixture } from '../testUtils/pdfFixtures'
 
@@ -452,5 +452,27 @@ describe('reconstructPdfParagraphs — fixtures do pdf.js', () => {
       // o texto bruto da primeira faixa começa igual ao bloco (ignorando espaços/quebras)
       expect(slice.startsWith(block.text.replace(/\s+/g, '').slice(0, 12))).toBe(true)
     }
+  })
+})
+
+describe('hasUncertainColumnOrder (fallback "como na página" do modo texto)', () => {
+  // Colunas de 150pt com 25 linhas cada, separadas por rios de 30pt.
+  const columnsPage = (columnXs: number[]): PdfPageInput =>
+    page(0, columnXs.flatMap((x) =>
+      Array.from({ length: 25 }, (_, i) => ({ text: `linha ${i} da coluna`, x, y: 780 - i * LINE_H, width: 150 })),
+    ))
+
+  it('sinaliza página com 3 colunas (a reconstrução só separa duas)', () => {
+    expect(hasUncertainColumnOrder(columnsPage([50, 230, 410]))).toBe(true)
+  })
+
+  it('não sinaliza página de 1 ou 2 colunas', () => {
+    expect(hasUncertainColumnOrder(columnsPage([50]))).toBe(false)
+    expect(hasUncertainColumnOrder(columnsPage([50, 330]))).toBe(false)
+  })
+
+  it.each(['1col', '1col-pt', '1col-es', '2col', 'tabelas', 'misto', 'escaneado'])('nenhuma página de %s é marcada', (name) => {
+    const flagged = loadPdfFixture(name).pages.filter(hasUncertainColumnOrder).map((p) => p.pageIndex)
+    expect(flagged).toEqual([])
   })
 })

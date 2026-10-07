@@ -13,6 +13,7 @@ import {
   type WordLensDefinitionTarget,
 } from '../components/reader/EpubViewer'
 import { PdfPageViewer } from '../components/reader/PdfPageViewer'
+import { PdfTextModeViewer } from '../components/reader/PdfTextModeViewer'
 import { readerCapabilitiesForFormat } from '../components/reader/readerCapabilities'
 import { PdfLanguageNotice } from '../components/reader/PdfLanguageNotice'
 import { PdfTextLayerNotice, type PdfNoticeVariant } from '../components/reader/PdfTextLayerNotice'
@@ -50,6 +51,7 @@ import {
   ReaderFontControl,
   ReaderFontSizeControl,
   ReaderLineHeightControl,
+  PdfReadingModeControl,
   ReaderModeControl,
   ReaderThemeControl,
 } from '../components/reader/ReaderAppearanceControls'
@@ -250,6 +252,7 @@ export function ReaderScreen({
     bookLanguage,
     bookLanguageUndefined,
     pdfLanguageWarningDismissed,
+    pdfReadingMode,
     translationTargetLang,
     ttsConfig,
     ttsEngine,
@@ -260,6 +263,7 @@ export function ReaderScreen({
     applyTtsConfigPatch,
     applyBookLanguage,
     dismissPdfLanguageWarning,
+    applyPdfReadingMode,
     switchToNativeTts,
     handleReaderStyleModeChange,
   } = useReaderAppearance(book)
@@ -428,8 +432,13 @@ export function ReaderScreen({
   // Progresso do IndexedDB (async)
   const { savedCfi, savedProgress, initialLoadDone, saveProgress, flushProgress } = useReaderProgress(book.id!)
 
+  // Modo texto só existe em PDF com camada de texto (FR-007); sem ela o leitor fica na página fiel.
+  const pdfTextAvailable = book.format === 'PDF' && book.pdfTextLayer !== 'none'
+  const activePdfMode = pdfTextAvailable && pdfReadingMode === 'text' ? 'text' : 'page'
+  // Posição capturada ao alternar de modo: vira o ponto inicial do outro viewer (FR-008, SC-005).
+  const [pdfModeSwitchLocator, setPdfModeSwitchLocator] = useState<string | null>(null)
   // A superfície montada declara as capacidades usadas pelo chrome e pela sessão.
-  const readerCapabilities = readerCapabilitiesForFormat(book.format)
+  const readerCapabilities = readerCapabilitiesForFormat(book.format, activePdfMode)
   // Erro ao abrir o PDF (arquivo ausente, corrompido): mesmo encerramento do "carregando" do onError do EpubViewer.
   const pdfSession = usePdfReaderSession(book, readerCapabilities.usesPdfSession, (failure) => {
     finishReaderOpen('failure', failure)
@@ -1413,6 +1422,21 @@ export function ReaderScreen({
     releaseInitialLoading()
     setError(err.message)
   }
+  // Alternar página fiel ↔ modo texto: o viewer atual sai e o outro abre no mesmo localizador. O viewer
+  // é REMONTADO (componentes diferentes), porque o setup do EpubViewer só roda quando book.id muda (R-011).
+  const handlePdfReadingModeChange = (mode: 'page' | 'text') => {
+    const visible = viewerRef.current?.getVisibleLocation()
+    const locator = visible?.cfi && isPdfLocator(visible.cfi) ? visible.cfi : (isPdfLocator(cfi) ? cfi : null)
+    // A leitura em voz alta segue o viewer que está saindo: encerra antes de trocar.
+    if (ttsPlayerVisible) handleTtsStop()
+    setPdfModeSwitchLocator(locator)
+    setAppearanceSheetOpen(false)
+    setCurrentLoading(true)
+    applyPdfReadingMode(mode)
+  }
+  // Depois de uma troca de modo, a posição da troca vale mais que o alvo com que o leitor abriu (startHref).
+  const pdfStartLocator = pdfModeSwitchLocator ?? (startHref ? null : (isPdfLocator(savedCfi) ? savedCfi : null))
+  const pdfInitialTarget = pdfModeSwitchLocator ? null : (startHref ?? null)
 
   // Um aviso por vez: sem texto > texto parcial > PDF grande > idioma indefinido (só se há texto).
   const pdfNoticeVariant: PdfNoticeVariant | null = !readerCapabilities.showsPdfNotices
@@ -1517,8 +1541,8 @@ export function ReaderScreen({
             bookmarks={activeBookmarks}
             readerTheme={readerTheme}
             overrideBookColors={overrideBookColors}
-            savedLocator={startHref ? null : (isPdfLocator(savedCfi) ? savedCfi : null)}
-            initialTarget={startHref && isPdfLocator(startHref) ? startHref : null}
+            savedLocator={pdfStartLocator}
+            initialTarget={pdfInitialTarget && isPdfLocator(pdfInitialTarget) ? pdfInitialTarget : null}
             onRelocate={handleRelocate}
             onTocReady={setToc}
             onLoad={handlePdfViewerLoad}
@@ -1526,6 +1550,63 @@ export function ReaderScreen({
             onCenterTap={handleCenterTap}
             onBookmarkTap={(id) => { void softDeleteBookmark(id) }}
             onBookmarkParagraph={handleParagraphBookmark}
+            wordLensEnabled={wordLensEnabled}
+            wordLensLevel={wordLensLevel}
+            wordLensData={wordLensData}
+            vocabWords={vocabWords}
+            onTranslate={handleTranslate}
+            onWordLensDefinition={handleWordLensDefinition}
+            onSaveVocab={handleSaveVocab}
+            onSpeakOne={(text) => void tts.speakOne(text)}
+          />
+        )}
+        {/* Modo texto do PDF (US2): o EpubViewer sobre o livro sintético, com a conversão de posições
+            feita pelo PdfTextModeViewer — daqui para cima tudo continua em localizadores. */}
+        {!effectiveMissingFile && readerCapabilities.viewer === 'pdf-text' && pdfSession.status === 'ready' && (
+          <PdfTextModeViewer
+            ref={viewerRef}
+            book={book}
+            session={pdfSession.session}
+            bookmarks={activeBookmarks}
+            fontSize={fontSize}
+            lineHeight={lineHeight}
+            readerTheme={readerTheme}
+            fontFamily={fontFamily}
+            overrideBookFont={overrideBookFont}
+            overrideBookColors={overrideBookColors}
+            focusLineEnabled={focusLineEnabled}
+            wordLensEnabled={wordLensEnabled}
+            wordLensLevel={wordLensLevel}
+            wordLensData={wordLensData}
+            savedLocator={pdfStartLocator}
+            initialTarget={pdfInitialTarget}
+            onRelocate={handleRelocate}
+            onTocReady={setToc}
+            onSectionReady={handleReaderSectionReady}
+            onLoad={handlePdfViewerLoad}
+            onError={handlePdfViewerError}
+            onSaveVocab={handleSaveVocab}
+            chromeVisible={chromeVisible}
+            onCenterTap={handleCenterTap}
+            onOpenToc={handleOpenToc}
+            onTranslate={handleTranslate}
+            onWordLensDefinition={handleWordLensDefinition}
+            onSpeakOne={(text) => void tts.speakOne(text)}
+            onParagraphTapForTts={(idx) => {
+              const chunks = getTtsChunks()
+              const chunkIdx = Math.max(0, chunks.findIndex(c => c.paraIdx >= idx))
+              void tts.stop().then(() => startPlay(chunks, chunkIdx))
+            }}
+            onTtsUserScrollAway={() => setShowBackToTtsLocation(true)}
+            ttsGlobalActive={ttsPlayerVisible}
+            onBookmarkTap={(id) => { void softDeleteBookmark(id) }}
+            onBookmarkParagraph={handleParagraphBookmark}
+            onOpenImage={handleOpenImage}
+            vocabWords={vocabWords}
+            highlights={highlights}
+            onRequestCreateHighlight={handleRequestCreateHighlight}
+            onDeleteHighlight={handleDeleteHighlight}
+            onEditHighlight={handleEditHighlight}
           />
         )}
       </div>
@@ -1735,6 +1816,18 @@ export function ReaderScreen({
         title={t('reader.appearance.title')}
       >
         <div className="flex flex-col gap-5">
+          {readerCapabilities.supportsReadingModeToggle && (
+            <div>
+              <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-text-muted">
+                {t('pdf.readingMode.label')}
+              </p>
+              <PdfReadingModeControl
+                value={activePdfMode}
+                onChange={handlePdfReadingModeChange}
+                textAvailable={pdfTextAvailable}
+              />
+            </div>
+          )}
           <div>
             <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-text-muted">
               {t('reader.appearance.theme')}
@@ -1924,7 +2017,8 @@ function ReaderSkeleton({
     }
   }, [pdfPreviewBookId])
 
-  const coverUrl = coverState?.bookId === pdfPreviewBookId ? coverState.url : null
+  // `coverState &&` explícito: com `?.`, sem capa e sem livro PDF a comparação vira undefined === undefined.
+  const coverUrl = coverState && coverState.bookId === pdfPreviewBookId ? coverState.url : null
 
   return (
     <div

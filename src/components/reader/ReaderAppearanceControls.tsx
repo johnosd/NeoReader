@@ -1,6 +1,6 @@
-import { Check, Minus, Plus } from 'lucide-react'
+import { Check, FileText, Minus, Plus, ScrollText } from 'lucide-react'
 import type { ReactNode } from 'react'
-import type { BookFormat } from '../../types/book'
+import type { BookFormat, PdfReadingMode } from '../../types/book'
 import type { FontSize, ReaderFontFamily, ReaderLineHeight, ReaderTheme } from '../../types/settings'
 import { useI18n, type MessageKey } from '../../i18n'
 import {
@@ -401,6 +401,53 @@ export function ReaderPreviewPanel({
       >
         {children}
       </p>
+    </div>
+  )
+}
+
+// Alterna página fiel ↔ modo texto do PDF (US2, FR-008). Em PDF sem camada de texto o modo texto não
+// existe: a opção fica desabilitada com a explicação (quickstart § Modo texto, item 7).
+export function PdfReadingModeControl({
+  value,
+  onChange,
+  textAvailable,
+}: {
+  value: PdfReadingMode
+  onChange: (mode: PdfReadingMode) => void
+  textAvailable: boolean
+}) {
+  const { t } = useI18n()
+  const options: Array<{ mode: PdfReadingMode; label: string; Icon: typeof FileText }> = [
+    { mode: 'page', label: t('pdf.readingMode.page'), Icon: FileText },
+    { mode: 'text', label: t('pdf.readingMode.text'), Icon: ScrollText },
+  ]
+
+  return (
+    <div>
+      <div className="grid grid-cols-2 gap-2" role="group" aria-label={t('pdf.readingMode.label')}>
+        {options.map(({ mode, label, Icon }) => {
+          const active = value === mode
+          const disabled = mode === 'text' && !textAvailable
+          return (
+            <button
+              key={mode}
+              type="button"
+              data-testid={`pdf-reading-mode-${mode}`}
+              disabled={disabled}
+              aria-pressed={active}
+              onClick={() => { if (!active) onChange(mode) }}
+              className={choiceClass(active, 'surface', 'flex min-h-[52px] items-center gap-2 px-3 py-3 pr-9 text-left disabled:opacity-40')}
+            >
+              <ActiveMark active={active} />
+              <Icon size={18} aria-hidden />
+              <span className="text-sm font-semibold">{label}</span>
+            </button>
+          )
+        })}
+      </div>
+      {!textAvailable && (
+        <p className="mt-2 text-xs leading-snug text-text-muted">{t('pdf.readingMode.textUnavailable')}</p>
+      )}
     </div>
   )
 }

@@ -115,7 +115,13 @@ class FoliateViewMock extends HTMLElement {
     this.rendererEvents.dispatchEvent(new Event(event))
   }
 
-  open = vi.fn(() => {
+  // Book já montado (modo texto do PDF, prop `openBook` do EpubViewer) é adotado como está, igual ao
+  // foliate-js real; Blob/URL continuam virando o book EPUB falso.
+  open = vi.fn((source?: unknown) => {
+    if (source && typeof source === 'object' && !(source instanceof Blob) && 'sections' in source) {
+      this.book = source as ReturnType<typeof makeBookMock>
+      return Promise.resolve()
+    }
     if (nextOpenError) {
       const err = nextOpenError
       nextOpenError = null
