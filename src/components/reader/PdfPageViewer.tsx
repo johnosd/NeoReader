@@ -189,12 +189,16 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
     return topIndex ?? fallback
   }
 
-  async function waitForRenderedPage(pageIndex: number): Promise<Document | null> {
+  // `needText`: quem vai procurar um <span> da página (ir até uma linha) precisa da camada de texto, que fica
+  // pronta DEPOIS da imagem (~100 ms depois, medido). Sem isto, voltar a um marcador de página descartada da
+  // memória achava a imagem, não achava o span e parava no topo da página (R-050).
+  async function waitForRenderedPage(pageIndex: number, options: { needText?: boolean } = {}): Promise<Document | null> {
     const deadline = Date.now() + WAIT_FOR_PAGE_MS
     while (Date.now() < deadline) {
       const doc = getLoadedDoc(pageIndex)
+      if (hasRenderedText(doc)) return doc ?? null
       // Página sem texto (escaneada) nunca terá spans: basta a imagem da página existir (R-030: <img>, não canvas).
-      if (hasRenderedText(doc) || doc?.querySelector('#canvas img, #canvas canvas')) return doc ?? null
+      if (!options.needText && doc?.querySelector('#canvas img, #canvas canvas')) return doc ?? null
       await sleep(WAIT_POLL_MS)
     }
     return getLoadedDoc(pageIndex) ?? null
@@ -207,7 +211,10 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
     const pageIndex = Math.min(Math.max(0, point.pageIndex), session.pageCount - 1)
 
     await view.renderer.goTo({ index: pageIndex })
-    const doc = await waitForRenderedPage(pageIndex)
+    // Ir até uma linha (offset > 0) numa página com texto exige a camada de texto, não só a imagem.
+    const extracted = !options.alignEnd && point.offset > 0 ? await session.extractor.getPage(pageIndex) : null
+    const itemIndex = extracted ? itemIndexAtOffset(extracted.itemStarts, extracted.items, point.offset) : -1
+    const doc = await waitForRenderedPage(pageIndex, { needText: itemIndex >= 0 })
     if (!doc) return
 
     const frame = doc.defaultView?.frameElement as HTMLElement | null
@@ -215,13 +222,21 @@ export const PdfPageViewer = forwardRef<EpubViewerHandle, PdfPageViewerProps>(fu
       frame?.scrollIntoView({ block: 'end' })
       return
     }
-    if (point.offset <= 0) return
-
     // Rola até a linha do offset salvo: texto bruto da página → item → <span data-nr-item>.
-    const extracted = await session.extractor.getPage(pageIndex)
-    const itemIndex = itemIndexAtOffset(extracted.itemStarts, extracted.items, point.offset)
     if (itemIndex < 0) return
-    doc.querySelector<HTMLElement>(`.textLayer span[data-nr-item="${itemIndex}"]`)?.scrollIntoView({ block: 'start' })
+    const span = doc.querySelector<HTMLElement>(`.textLayer span[data-nr-item="${itemIndex}"]`)
+    if (span && frame) scrollRendererToSpan(view.renderer, frame, span)
+  }
+
+  // Põe o topo do span no topo do leitor. Conta explícita em vez de `span.scrollIntoView()`: chamado de dentro do
+  // iframe da página (documento com transform 1/dpr), ele não rolava o renderer — o marcador do capítulo 3 de
+  // O Milagre da Manhã abria no topo da página, com o parágrafo marcado 369 px abaixo (bug do device, R-050).
+  function scrollRendererToSpan(renderer: FxlRenderer, frame: HTMLElement, span: HTMLElement) {
+    const frameRect = frame.getBoundingClientRect()
+    // Rect do span é relativo ao viewport do iframe e sem a escala que a página tem no documento pai.
+    const scale = frame.offsetWidth ? frameRect.width / frame.offsetWidth : 1
+    const spanTop = frameRect.top + span.getBoundingClientRect().top * scale
+    renderer.scrollTop += spanTop - renderer.getBoundingClientRect().top
   }
 
   // Primeiro texto visível da página `pageIndex`: devolve o offset no texto bruto e a fração percorrida da página.

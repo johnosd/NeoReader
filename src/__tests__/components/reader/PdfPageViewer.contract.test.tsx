@@ -215,6 +215,31 @@ describe('PdfPageViewer — contrato EpubViewerHandle', () => {
     expect(goTo.mock.calls.length).toBe(calls)
   })
 
+  it('ir até um marcador espera a camada de texto da página, não só a imagem (R-050)', async () => {
+    // Página recarregada (tinha saído da memória): a imagem aparece ~100 ms antes da camada de texto. Antes o
+    // viewer aceitava a imagem como "pronto", não achava o span e parava no topo da página.
+    const { ref, props } = setup()
+    await waitFor(() => expect(props.onLoad).toHaveBeenCalled())
+    const pageDoc = view!.renderer.getContents()[0].doc as Document
+    pageDoc.querySelector('#canvas')!.innerHTML = '<img alt="">'
+    pageDoc.querySelector('.textLayer')!.innerHTML = ''
+    const renderer = view!.renderer as unknown as { scrollTop: number }
+    renderer.scrollTop = 0
+
+    await act(async () => { ref.current!.goTo('neopdf:v1;p=3;o=5') })
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    expect(renderer.scrollTop).toBe(0) // sem camada de texto ainda: não rola para lugar nenhum
+
+    // A camada de texto chega; o span do parágrafo está 120 px abaixo do topo da página.
+    const span = pageDoc.createElement('span')
+    span.dataset.nrItem = '0'
+    span.textContent = 'Olá mundo'
+    span.getBoundingClientRect = () => ({ top: 120, left: 0, bottom: 140, right: 100, width: 100, height: 20, x: 0, y: 120, toJSON: () => ({}) })
+    pageDoc.querySelector('.textLayer')!.append(span)
+
+    await waitFor(() => expect(renderer.scrollTop).toBe(120))
+  })
+
   it('next/prev rolam pelo renderer', async () => {
     const { ref, props } = setup()
     await waitFor(() => expect(props.onLoad).toHaveBeenCalled())
