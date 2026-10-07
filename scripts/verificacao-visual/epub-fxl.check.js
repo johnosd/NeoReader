@@ -6,7 +6,7 @@ async (page) => {
   // COMO RODAR: `python -I scripts/verificacao-visual/gerar-epub-fxl.py debug-books/fxl/layout-fixo.epub 24`,
   // dev server `npx vite --port 5199 --strictPort` e browser_run_code_unsafe com
   // filename = "scripts/verificacao-visual/epub-fxl.check.js".
-  // ESTADO EM 2026-10-07: 3/3 aprovados após o bugfix epub-layout-fixo-no-abre. Antes reprovava também no
+  // ESTADO EM 2026-10-07: 4/4 aprovados após os bugfixes de abertura e toque. Antes reprovava também no
   // `main` (6c1acb9): o registro da página era podado durante load, antes de o FXL publicá-la em getContents().
   // Critérios: renderer foliate-fxl; páginas visíveis com tinta na tela e o título "Página N" certo; depois de rolar
   // até o fim e voltar, a página 1 reaparece; iframes vivos ≤ 8 (teto do foliate); nenhum erro de página no console.
@@ -18,6 +18,11 @@ async (page) => {
   const errors = []
   p.on('pageerror', (e) => errors.push(e.message.slice(0, 160)))
   p.on('console', (m) => { if (m.type() === 'error') errors.push(m.text().slice(0, 1500)) })
+  // Resposta controlada: este teste cobre o painel/marcador, sem depender do provedor de tradução.
+  await p.route('**/api.mymemory.translated.net/get**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ responseStatus: 200, responseData: { translatedText: 'Tradução de teste.' } }),
+  }))
 
   // Páginas visíveis: índice, título lido de dentro do iframe e se a página tem iframe carregado.
   const visible = () => p.evaluate(() => {
@@ -53,6 +58,10 @@ async (page) => {
     if (!r.ok) return { summary: 'FALHOU: import', error: r.message }
     await p.evaluate((id) => window.__open(id), r.id)
     await p.waitForTimeout(5000)
+    // Ambiente web isolado não tem voz TTS instalada; dispensar o aviso que
+    // cobre o painel após scrollIntoView, sem alterar preferências do leitor.
+    const dismiss = p.getByRole('button', { name: 'Dismiss', exact: true })
+    if (await dismiss.isVisible()) await dismiss.click()
 
     const rows = []
     const check = async (label, expectFirst) => {
@@ -75,6 +84,53 @@ async (page) => {
     await p.evaluate(() => { document.querySelector('foliate-view').renderer.scrollTop = 0 })
     await p.waitForTimeout(2500)
     await check('volta ao início', 0)
+
+    // Clique físico na margem central da página reduzida (600x800 -> largura 412).
+    // Antes: zona de chrome falsa; depois: erro XML pelo atributo hidden sem valor.
+    await p.mouse.click(206, 450)
+    const bookmarkButton = p.locator('foliate-view iframe[data-section-index="0"]').contentFrame().locator('[data-nr-action="bookmark"]')
+    await bookmarkButton.waitFor({ state: 'visible', timeout: 10000 })
+    // A abertura rola o parágrafo suavemente; FXL bloqueia eventos durante
+    // essa animação. Esperar seu término antes do próximo gesto físico.
+    await p.waitForTimeout(700)
+    const menuStyle = await bookmarkButton.evaluate(button => {
+      const doc = button.ownerDocument
+      const win = doc.defaultView
+      const block = doc.getElementById('nr-translation-block')
+      return {
+        radius: win.getComputedStyle(block).borderRadius,
+        font: win.getComputedStyle(block).fontFamily,
+        grid: win.getComputedStyle(doc.querySelector('.nr-tr-actions')).display,
+        tile: win.getComputedStyle(button.querySelector('.nr-tr-action-tile')).width,
+        icon: win.getComputedStyle(button.querySelector('svg')).width,
+        originalFont: win.getComputedStyle(doc.querySelector('body > p')).fontSize,
+        originalBackground: win.getComputedStyle(doc.body).backgroundColor,
+      }
+    })
+    const styled = menuStyle.radius === '18px' && menuStyle.font.includes('Inter') &&
+      menuStyle.grid === 'grid' && menuStyle.tile === '40px' && menuStyle.icon === '17px' &&
+      menuStyle.originalFont === '28px' && menuStyle.originalBackground === 'rgb(255, 255, 255)'
+    rows.push(`${styled ? 'OK ' : 'FALHOU'} | menu com design do leitor, página original preservada | ${JSON.stringify(menuStyle)}`)
+    await p.screenshot({ path: `${OUT}/epub-fxl-menu.png` })
+    await bookmarkButton.click()
+    const readBookmarkCount = () => p.evaluate(async (id) => {
+      const { db } = await import('/src/db/database.ts')
+      return await db.bookmarks.where('bookId').equals(id).count()
+    }, r.id)
+    let savedCount = 0
+    for (let attempt = 0; attempt < 20 && savedCount !== 1; attempt++) {
+      savedCount = await readBookmarkCount()
+      if (savedCount !== 1) await p.waitForTimeout(100)
+    }
+    if (savedCount !== 1) return { summary: 'FALHOU: marcador', savedCount, errors }
+    await p.evaluate((id) => window.__open(id), r.id)
+    await p.waitForTimeout(1000)
+    const persistedCount = await p.evaluate(async (id) => {
+      const { db } = await import('/src/db/database.ts')
+      return await db.bookmarks.where('bookId').equals(id).count()
+    }, r.id)
+    const persisted = persistedCount === 1
+    rows.push(`${persisted ? 'OK ' : 'FALHOU'} | toque central abre painel, botão cria marcador e persiste ao reabrir | count=${persistedCount}`)
 
     const failed = rows.filter((row) => row.startsWith('FALHOU')).length + (errors.length ? 1 : 0)
     return { summary: failed ? `FALHOU (${failed})` : `${rows.length}/${rows.length} aprovados`, rows, errors: errors.slice(0, 8) }

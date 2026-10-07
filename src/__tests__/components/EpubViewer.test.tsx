@@ -479,6 +479,30 @@ describe('EpubViewer — abertura do livro', () => {
     expect(styles).toContain('transition: none')
   })
 
+  it('aplica o design do menu ao FXL sem alterar a pagina e atualiza o tema de paginas novas', async () => {
+    const { foliateEl, props, rerender } = await renderViewer()
+    Object.defineProperty(foliateEl.renderer, 'localName', { value: 'foliate-fxl' })
+    Object.defineProperty(foliateEl.renderer, 'setStyles', { value: undefined })
+    const doc = makeFakeDoc(['Fixed layout page.'])
+    loadSection(foliateEl, doc)
+    const style = doc.getElementById('nr-reader-ui-styles')
+    expect(style).not.toBeNull()
+    expect(style?.namespaceURI).toBe('http://www.w3.org/1999/xhtml')
+    expect(style?.textContent).toContain('.nr-tr-action-tile')
+    expect(style?.textContent).toContain('grid-template-columns: repeat(4')
+    expect(style?.textContent).toContain('#141820')
+    expect(style?.textContent).not.toContain('html, body')
+    expect(style?.textContent).not.toContain('img, svg, figure, picture')
+
+    const nextProps = { ...props, readerTheme: 'sage' as const }
+    rerender(<EpubViewer {...(nextProps as Parameters<typeof EpubViewer>[0])} />)
+    expect(doc.querySelectorAll('#nr-reader-ui-styles')).toHaveLength(1)
+    expect(style?.textContent).toContain('rgba(246, 250, 238, 0.98)')
+    const nextDoc = makeFakeDoc(['Next fixed page.'])
+    loadSection(foliateEl, nextDoc, 1)
+    expect(nextDoc.getElementById('nr-reader-ui-styles')?.textContent).toContain('rgba(246, 250, 238, 0.98)')
+  })
+
   it('marca Word Lens depois do load sem atrasar a prontidao inicial', async () => {
     const onLoad = vi.fn()
     const { foliateEl } = await renderViewer({
@@ -1041,6 +1065,55 @@ describe('EpubViewer — seleção de texto', () => {
 
     expect(onCenterTap).not.toHaveBeenCalled()
     expect(onTranslate).toHaveBeenCalledWith('Last paragraph of a long chapter.')
+  })
+
+  it.each([450, 40, 880])('converte o toque físico em EPUB fixo reduzido (y=%s)', async (screenY) => {
+    const onTranslate = vi.fn()
+    const onCenterTap = vi.fn()
+    const onBookmarkParagraph = vi.fn()
+    const { viewerRef, foliateEl } = await renderViewer({ onTranslate, onCenterTap, onBookmarkParagraph })
+    const doc = makeFakeDoc(['Fixed layout paragraph.'])
+    const para = doc.querySelector('p')!
+    Object.defineProperty(para, 'scrollIntoView', { value: vi.fn() })
+    setViewportWidth(doc, 600)
+    const win = injectFakeWindow(doc, 0, 800, 800)
+    setElementRect(para, { left: 40, top: 314, right: 560, bottom: 432, width: 520, height: 118 })
+    loadSection(foliateEl, doc, 0)
+
+    // A página mede 549px na tela, mas seu documento continua com 800px.
+    // O host FXL é a viewport, sem #container interno.
+    const scale = 412 / 600
+    const frameTop = screenY === 880 ? 400 : 0
+    ;(win as unknown as { frameElement: unknown }).frameElement = {
+      clientHeight: 800,
+      getBoundingClientRect: () => ({ top: frameTop, height: 800 * scale }),
+    }
+    const renderer = document.createElement('foliate-fxl')
+    Object.defineProperties(renderer, Object.getOwnPropertyDescriptors(foliateEl.renderer))
+    renderer.attachShadow({ mode: 'open' })
+    setElementRect(renderer, { left: 0, top: 0, right: 412, bottom: 915, width: 412, height: 915 })
+    Object.defineProperty(foliateEl, 'renderer', { configurable: true, value: renderer })
+    clickAt(doc.body, 300, (screenY - frameTop) / scale)
+
+    if (screenY !== 450) {
+      expect(onCenterTap).toHaveBeenCalledOnce()
+      expect(onTranslate).not.toHaveBeenCalled()
+      return
+    }
+    expect(onCenterTap).not.toHaveBeenCalled()
+    expect(onTranslate).toHaveBeenCalledWith('Fixed layout paragraph.')
+    act(() => { viewerRef.current?.showTranslationLoading() })
+    const parsePanel = () => new DOMParser().parseFromString(
+      `<div xmlns="http://www.w3.org/1999/xhtml">${doc.getElementById('nr-translation-block')!.innerHTML}</div>`,
+      'application/xhtml+xml',
+    )
+    expect(parsePanel().querySelector('parsererror')).toBeNull()
+    act(() => { viewerRef.current?.injectTranslation('Parágrafo fixo.') })
+    expect(parsePanel().querySelector('parsererror')).toBeNull()
+    const button = doc.querySelector('[data-nr-action="bookmark"]')!
+    expect(button).not.toBeNull()
+    click(button)
+    expect(onBookmarkParagraph).toHaveBeenCalledWith(expect.objectContaining({ snippet: 'Fixed layout paragraph.' }))
   })
 
   it('tap fora de paragrafo legivel registra motivo e alterna o chrome', async () => {

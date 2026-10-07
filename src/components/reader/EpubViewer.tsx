@@ -854,6 +854,7 @@ function buildReaderCSS(
   overrideBookFont: boolean,
   overrideBookColors: boolean,
   focusLineEnabled: boolean,
+  includeBookStyles = true,
 ): string {
   const sizes: Record<FontSize, string> = {
     sm: '16px',
@@ -904,6 +905,7 @@ function buildReaderCSS(
   const actionSaveBackground = palette.isDark ? 'rgba(0, 200, 83, 0.08)' : 'rgba(16, 185, 129, 0.08)'
   const actionSaveBorder = palette.isDark ? 'rgba(61, 220, 132, 0.22)' : 'rgba(5, 150, 105, 0.18)'
   return `
+    ${includeBookStyles ? `
     html, body {
       ${themeColorStyles}
       ${fontFamilyStyles}
@@ -934,6 +936,7 @@ function buildReaderCSS(
       max-width: 100% !important;
       height: auto !important;
     }
+    ` : ''}
 
     /* Parágrafo selecionado para tradução (fallback quando frase ocupa o parágrafo todo) */
     .nr-hl {
@@ -1253,7 +1256,7 @@ function buildReaderCSS(
     [data-nr-bookmark="emerald"]::before { background: #22c55e !important; }
     [data-nr-bookmark="amber"]::before { background: #f59e0b !important; }
     [data-nr-bookmark="rose"]::before { background: #f43f5e !important; }
-    ${focusLineEnabled ? `
+    ${focusLineEnabled && includeBookStyles ? `
     /* Régua de leitura: faixa fixa no centro da tela para guiar o olho */
     body::after {
       content: '' !important;
@@ -1431,6 +1434,18 @@ function buildReaderCSS(
       cursor: inherit !important;
     }
   `
+}
+
+function applyFixedLayoutUiStyles(doc: Document, theme: ReaderTheme): void {
+  let style = doc.getElementById('nr-reader-ui-styles')
+  if (!style) {
+    // FXL preserva XHTML: o namespace HTML é necessário para o style aplicar CSS.
+    style = doc.createElementNS('http://www.w3.org/1999/xhtml', 'style')
+    style.id = 'nr-reader-ui-styles'
+    ;(doc.head ?? doc.documentElement).appendChild(style)
+  }
+  // Aplicar apenas a UI NeoReader mantém fontes, imagens e geometria do livro fixo.
+  style.textContent = buildReaderCSS('md', 'comfortable', theme, 'classic', false, false, false, false)
 }
 
 export interface EpubViewerHandle {
@@ -1659,6 +1674,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     // ttsGlobalActive: modo leitura contínua ativo (inclui pausado) — gating do clique
     const ttsGlobalActiveRef = useSyncRef(ttsGlobalActive)
     const chromeVisibleRef = useSyncRef(chromeVisible)
+    const readerThemeRef = useSyncRef(readerTheme)
     const wordLensConfigRef = useSyncRef({ enabled: wordLensEnabled, level: wordLensLevel, data: wordLensData })
     // Navegação entre capítulos: detecta fundo visual + swipe para avançar
     const currentSectionIdxRef = useRef(0)
@@ -1760,6 +1776,9 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     }
 
     function registerLoadedSection(index: number, doc: Document): LoadedSectionContent {
+      if (viewRef.current?.renderer.localName === 'foliate-fxl') {
+        applyFixedLayoutUiStyles(doc, readerThemeRef.current)
+      }
       const content = buildLoadedSectionContent(index, doc)
       loadedSectionsRef.current.set(index, content)
       return content
@@ -3178,13 +3197,20 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
     // disponíveis; do contrário, quem chama cai no cálculo antigo.
     function getPhysicalTapPosition(ev: MouseEvent, doc: Document): PhysicalTapPosition | null {
       const frameEl = doc.defaultView?.frameElement as HTMLElement | null
-      const scrollContainer = getRendererScrollContainer()
+      const renderer = viewRef.current?.renderer
+      // FXL rola no próprio host; só o paginator possui #container interno.
+      const scrollContainer = getRendererScrollContainer() ??
+        (renderer instanceof HTMLElement && renderer.localName === 'foliate-fxl' ? renderer : null)
       if (!frameEl || !scrollContainer) return null
 
       const frameRect = frameEl.getBoundingClientRect()
       const containerRect = scrollContainer.getBoundingClientRect()
+      // clientY pertence ao documento sem escala; o rect externo já inclui
+      // o transform:scale usado para ajustar páginas fixas à largura da tela.
+      const layoutHeight = frameEl.clientHeight || doc.defaultView?.innerHeight || 0
+      const scaleY = layoutHeight > 0 && frameRect.height > 0 ? frameRect.height / layoutHeight : 1
       return {
-        viewportY: frameRect.top + ev.clientY,
+        viewportY: frameRect.top + ev.clientY * scaleY,
         containerTop: containerRect.top,
         viewportHeight: containerRect.height,
       }
@@ -3644,14 +3670,15 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
         block.id = 'nr-translation-block'
         block.className = 'nr-translation-block'
         block.dataset.nrTranslationFor = translationId
+        // EPUB fixo pode preservar XHTML: atributos booleanos precisam de valor em XML.
         block.innerHTML = `
-          <section class="nr-wl-definition-slot" data-nr-definition-slot="1" aria-live="polite" hidden></section>
+          <section class="nr-wl-definition-slot" data-nr-definition-slot="1" aria-live="polite" hidden="hidden"></section>
           <div class="nr-tr-panel" data-nr-translation-slot="1">
             <div class="nr-tr-loading">
               <span class="nr-tr-spinner"></span>
             </div>
           </div>
-          <div class="nr-tr-actions" data-nr-actions-slot="1" hidden></div>`
+          <div class="nr-tr-actions" data-nr-actions-slot="1" hidden="hidden"></div>`
         para.after(block)
         logEvent('reader.translation.panel.open', {
           flowId: activeTranslationFlowIdRef.current ?? undefined,
@@ -3751,6 +3778,10 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(
 
     // Atualiza fonte sem recriar o view (efeito separado intencional)
     useEffect(() => {
+      // FixedLayout não oferece setStyles; páginas novas recebem o tema em registerLoadedSection.
+      if (viewRef.current?.renderer.localName === 'foliate-fxl') {
+        for (const { doc } of loadedSectionsRef.current.values()) applyFixedLayoutUiStyles(doc, readerTheme)
+      }
       viewRef.current?.renderer?.setStyles?.(buildReaderCSS(
         fontSize,
         lineHeight,
