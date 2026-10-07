@@ -16,8 +16,15 @@ const mocks = vi.hoisted(() => {
   const highlightsEquals = vi.fn(() => ({ delete: highlightsDelete }))
   const highlightsWhere = vi.fn(() => ({ equals: highlightsEquals }))
 
+  const booksFilterCount = vi.fn(async () => 0)
   return {
-    books: { delete: vi.fn(async () => undefined) },
+    books: {
+      delete: vi.fn(async () => undefined),
+      get: vi.fn(async (): Promise<Record<string, unknown> | undefined> => ({ id: 42, storageMode: 'embedded' })),
+      filter: vi.fn(() => ({ count: booksFilterCount })),
+    },
+    booksFilterCount,
+    deleteLocalBookFile: vi.fn(async () => true),
     bookCovers: { delete: vi.fn(async () => undefined) },
     progress: makeWhereDeleteTable(),
     bookmarks: makeWhereDeleteTable(),
@@ -64,6 +71,10 @@ vi.mock('@/db/database', () => ({
   },
 }))
 
+vi.mock('@/services/NativeLibraryImportService', () => ({
+  deleteLocalBookFile: mocks.deleteLocalBookFile,
+}))
+
 import { deleteBook } from '@/db/books'
 
 describe('deleteBook', () => {
@@ -78,6 +89,43 @@ describe('deleteBook', () => {
     mocks.highlightsWhere.mockClear()
     mocks.highlightsEquals.mockClear()
     mocks.highlightsDelete.mockClear()
+    mocks.books.get.mockReset().mockResolvedValue({ id: 42, storageMode: 'embedded' })
+    mocks.booksFilterCount.mockReset().mockResolvedValue(0)
+    mocks.deleteLocalBookFile.mockReset().mockResolvedValue(true)
+  })
+
+  // T083 (feature 022): livro local (import nativo ou download OPDS) não pode deixar o arquivo órfão.
+  it('apaga o arquivo local do livro depois de remover os registros', async () => {
+    mocks.books.get.mockResolvedValue({ id: 42, storageMode: 'local', uri: 'file:///data/books/abc.pdf' })
+
+    await deleteBook(42)
+
+    expect(mocks.books.delete).toHaveBeenCalledWith(42)
+    expect(mocks.deleteLocalBookFile).toHaveBeenCalledWith('file:///data/books/abc.pdf')
+  })
+
+  it('livro embutido no IndexedDB (embedded) não chama o plugin', async () => {
+    await deleteBook(42)
+    expect(mocks.deleteLocalBookFile).not.toHaveBeenCalled()
+  })
+
+  it('não apaga o arquivo se outro livro ainda aponta para ele', async () => {
+    mocks.books.get.mockResolvedValue({ id: 42, storageMode: 'local', uri: 'file:///data/books/abc.pdf' })
+    mocks.booksFilterCount.mockResolvedValue(1)
+
+    await deleteBook(42)
+
+    expect(mocks.deleteLocalBookFile).not.toHaveBeenCalled()
+  })
+
+  it('falha ao apagar o arquivo não desfaz nem quebra a exclusão', async () => {
+    mocks.books.get.mockResolvedValue({ id: 42, storageMode: 'local', uri: 'file:///data/books/abc.pdf' })
+    mocks.deleteLocalBookFile.mockRejectedValue(new Error('plugin indisponível'))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await expect(deleteBook(42)).resolves.toBeUndefined()
+    expect(mocks.books.delete).toHaveBeenCalledWith(42)
+    warn.mockRestore()
   })
 
   it('remove metadados enriquecidos junto com o livro', async () => {

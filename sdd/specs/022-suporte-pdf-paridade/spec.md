@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-23
 
-**Status**: Implementada
+**Status**: Convergida
 
 **Input**: "Validar o suporte a livros em PDF sem perda de qualidade que hoje temos em EPUB" — necessidade real, a maioria dos concorrentes oferece PDF; o objetivo é oferecer também e ser melhor que eles. Origem: assessment `sdd/assessments/suporte-pdf-sem-perda-qualidade-paridade/` (veredito `go`) e relatório de referência `docs/features/pdf_support_report.md` (arquitetura do Readest, usado só como referência conceitual).
 

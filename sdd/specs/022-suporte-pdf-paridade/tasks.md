@@ -571,3 +571,22 @@ Task: "T036 [P] [US1] PdfTextLayerNotice + aviso de PDF grande"
 - Se alguma task exigir mudar o `EpubViewer.tsx` além de T046, parar e reabrir o design (DI-003)
 
 <!-- sdd-converge anexa "## Phase N: Convergence" abaixo desta linha -->
+
+---
+
+## Phase 10: Convergence
+
+**Origem**: `sdd-converge` de 2026-10-07 (achados C1, C2).
+
+- [X] T081 [US1] Device: depois da refatoração do plugin em `4592a1a` (`prepareLocalEpubImport` → `prepareImportFromStream`), importar pelo seletor e por pasta um EPUB e um PDF e confirmar `prepareLocalEpubImport finished`, formato/capa corretos e duplicado recusado como antes — sem regressão do EPUB (origem: FR-018, FR-001; achado C1, MEDIUM)
+- [X] T082 [US6] Registrar em `plan.md` (`## Riscos e Decisões`) que livros baixados pelo OPDS — EPUB inclusive — passaram de `storageMode: 'embedded'` para `'local'` com o download nativo, e confirmar no device que um EPUB baixado pelo OPDS abre e é excluído normalmente (origem: plan R-060/T079e; achado C2, LOW)
+- [X] T083 [US6] (descoberta no T082) Excluir um livro `storageMode: 'local'` apagava só os registros (`deleteBook`, `src/db/books.ts`) — o arquivo em `files/books/` ficava órfão. Pré-existente para imports nativos, mas o T079e tornou os downloads OPDS locais (antes `embedded`, apagados junto com o registro). **Decisão do dono do produto: corrigir para todos e limpar os órfãos.** `deleteBook` agora apaga o arquivo local depois da transação, só se nenhum outro livro usa o mesmo `uri`; falha ao apagar não desfaz a exclusão. 4 testes (o de exclusão falha no código antigo). Device: arquivo presente antes e ausente depois da exclusão. Limpeza: 29 órfãos / 346 MB apagados (`files/books` = 137 arquivos para 137 livros locais) e tags/pastas de origem dos testes removidas (nenhum livro as usava).
+
+**Registro da Fase**:
+
+- Status: Concluída (2026-10-07) — T081, T082 e T083.
+- Feito:
+  - T081: com o APK de `4592a1a`, pasta com `conv-1col.pdf` (cópia renomeada) + `conv-noturnos.epub`: o plugin preparou os dois (`prepareLocalEpubImport finished`, PDF `inspectMs` 333, EPUB com OPF lido); o PDF foi recusado como duplicado pelo hash e o EPUB entrou ("Os Noturnos"/Flávia Muniz, capa `epub-extracted`, `local`) e abriu (texto em 0,47 s, sem botão de modo do PDF). Seletor de arquivo único com o PDF: preparado e recusado como duplicado.
+  - T082: EPUB "Romeo and Juliet" baixado do OPDS do Gutenberg pelo caminho novo — `importSource: 'opds'`, `storageMode: 'local'`, capa; abriu em 0,32 s. Decisão registrada em `plan.md` (R-062). A exclusão remove o registro, mas não o arquivo (→ T083).
+- Testes executados: no device (SM-S911B) via CDP + adb; logs `prepareLocalEpubImport finished`, `batch-item-duplicate-found`, `native-import-finished`; `run-as ls files/books` antes/depois da exclusão. Gate: `npx tsc --noEmit -p tsconfig.app.json`, `npm run lint`, `npm test` (1553 + 2 skipped), `npm run test:debug-epubs` (71), `npm run build` — todos com saída 0.
+- Pendências: nenhuma.

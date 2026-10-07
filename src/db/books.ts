@@ -1,5 +1,6 @@
 import { unlinkBookFromAuthors } from './authors'
 import { db } from './database'
+import { deleteLocalBookFile } from '../services/NativeLibraryImportService'
 import type { Book, ReadingStatus } from '../types/book'
 
 // Salva um livro novo no IndexedDB. Retorna o id gerado.
@@ -36,6 +37,7 @@ export async function findBookByFileName(fileName: string): Promise<Book | undef
 }
 
 export async function deleteBook(id: number): Promise<void> {
+  const book = await db.books.get(id)
   // Apaga o livro e todos os dados relacionados numa transação atômica.
   // Sem isso, progresso, marcadores, vocabulário, highlights e assets ficam
   // órfãos no IndexedDB.
@@ -55,6 +57,22 @@ export async function deleteBook(id: number): Promise<void> {
       await unlinkBookFromAuthors(id)
     },
   )
+  await deleteLocalCopyIfUnused(book)
+}
+
+// Livro `local` (import nativo ou download OPDS) tem o arquivo em files/books/ do app: sem isto ele
+// ficava órfão a cada exclusão (feature 022, T083 — 412 MB achados no device). Fora da transação
+// porque é I/O nativo (o Dexie fecha a transação em await não-Dexie). Só apaga se nenhum outro livro
+// usa o mesmo arquivo; falha ao apagar não desfaz a exclusão (o livro já saiu da biblioteca).
+async function deleteLocalCopyIfUnused(book: Book | undefined): Promise<void> {
+  if (book?.storageMode !== 'local' || !book.uri) return
+  const stillUsed = await db.books.filter((other) => other.uri === book.uri).count()
+  if (stillUsed > 0) return
+  try {
+    await deleteLocalBookFile(book.uri)
+  } catch (error) {
+    console.warn('Não foi possível apagar o arquivo local do livro excluído.', error)
+  }
 }
 
 export async function updateLastOpened(id: number): Promise<void> {
