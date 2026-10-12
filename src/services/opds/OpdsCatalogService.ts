@@ -55,6 +55,19 @@ function upgradeToHttps(url: string, catalogBaseUrl: string): string {
   return url.startsWith('http://') ? `https://${url.slice('http://'.length)}` : url
 }
 
+// Basic Auth só pode atravessar a origem que o usuário autorizou. A mesma
+// normalização HTTPS usada no request entra na comparação para preservar
+// links http anunciados por catálogos HTTPS do mesmo host.
+function isAuthorizedOrigin(catalogBaseUrl: string, url: string): boolean {
+  try {
+    const catalogOrigin = new URL(upgradeToHttps(catalogBaseUrl, catalogBaseUrl)).origin
+    const targetOrigin = new URL(upgradeToHttps(url, catalogBaseUrl), catalogBaseUrl).origin
+    return catalogOrigin === targetOrigin
+  } catch {
+    return false
+  }
+}
+
 async function rawRequest(
   catalogBaseUrl: string,
   url: string,
@@ -119,7 +132,9 @@ function parseFeedBody(format: 'atom' | 'json', body: string, url: string): Opds
 }
 
 async function fetchFeedPage(catalog: OpdsCatalog, url: string): Promise<OpdsFeedPage> {
-  const credential = await resolveCredentialFromStorage(catalog)
+  const credential = isAuthorizedOrigin(catalog.baseUrl, url)
+    ? await resolveCredentialFromStorage(catalog)
+    : undefined
   const { headers, body } = await rawRequest(catalog.baseUrl, url, ACCEPT_HEADER, credential)
   const format = detectFormat(headers, body)
   return parseFeedBody(format, body, url)
@@ -160,7 +175,9 @@ async function resolveSearchUrl(catalog: OpdsCatalog, rawSearchUrl: string, quer
   }
 
   const descriptionUrl = resolveUrl(rawSearchUrl, catalog.baseUrl)
-  const credential = await resolveCredentialFromStorage(catalog)
+  const credential = isAuthorizedOrigin(catalog.baseUrl, descriptionUrl)
+    ? await resolveCredentialFromStorage(catalog)
+    : undefined
   const { body } = await rawRequest(catalog.baseUrl, descriptionUrl, 'application/opensearchdescription+xml', credential)
   const buildSearchUrl = parseOpenSearchDescription(body, descriptionUrl)
   return buildSearchUrl(query)
@@ -178,7 +195,7 @@ async function fetchCoverDataUrl(catalog: OpdsCatalog, coverUrl: string, credent
     const response = await CapacitorHttp.request({
       url: upgradeToHttps(coverUrl, catalog.baseUrl),
       method: 'GET',
-      headers: buildAuthHeaders(credential),
+      headers: isAuthorizedOrigin(catalog.baseUrl, coverUrl) ? buildAuthHeaders(credential) : {},
       responseType: 'arraybuffer',
       connectTimeout: REQUEST_TIMEOUT_MS,
       readTimeout: REQUEST_TIMEOUT_MS,

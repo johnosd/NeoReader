@@ -160,6 +160,21 @@ describe('OpdsDownloadService', () => {
     )
   })
 
+  it('não manda Authorization ao plugin para aquisição em outra origem', async () => {
+    mocks.getCredential.mockResolvedValue({ username: 'u', password: 'p' })
+    mocks.importPreparedNativeBook.mockResolvedValue(2)
+
+    await OpdsDownloadService.download(
+      { ...catalog, id: 2, hasCredential: true },
+      { ...entry, id: 'e-external', acquisitionUrl: 'https://external.example/download/book.epub' },
+    )
+
+    expect(mocks.downloadBookToLocal).toHaveBeenCalledWith(
+      expect.objectContaining({ headers: {} }),
+      expect.anything(),
+    )
+  })
+
   it('marca erro no coordinator quando o download falha (ex: HTTP ou tempo esgotado no plugin)', async () => {
     mocks.downloadBookToLocal.mockRejectedValue(new Error('Falha ao baixar o livro (401)'))
 

@@ -155,6 +155,17 @@ describe('OpdsCatalogService', () => {
     expect(mocks.request).toHaveBeenCalledWith(expect.objectContaining({ url: 'https://example.com/opds/folder-1' }))
   })
 
+  it('não envia Authorization para página de outra origem', async () => {
+    mocks.getCredential.mockResolvedValue({ username: 'user', password: 'pass' })
+    mocks.request.mockResolvedValueOnce({ status: 200, headers: { 'Content-Type': 'application/atom+xml' }, data: ATOM_BODY })
+
+    await OpdsCatalogService.fetchPage(catalog({ id: 2, hasCredential: true }), 'https://external.example/opds/page-2')
+
+    expect(mocks.request).toHaveBeenCalledWith(expect.objectContaining({
+      headers: expect.not.objectContaining({ Authorization: expect.anything() }),
+    }))
+  })
+
   it('search com template pronto (OPDS 2.0 JSON) expande e busca num fetch só', async () => {
     mocks.request.mockResolvedValueOnce({ status: 200, headers: { 'Content-Type': 'application/opds+json' }, data: JSON_BODY })
 
@@ -275,6 +286,17 @@ describe('OpdsCatalogService', () => {
         headers: expect.objectContaining({ Authorization: `Basic ${btoa('user:pass')}` }),
       }))
       expect(resolved!.coverUrl).toBe('data:image/jpeg;base64,YmFzZTY0')
+    })
+
+    it('não envia Authorization para capa de outra origem', async () => {
+      mocks.getCredential.mockResolvedValue({ username: 'user', password: 'pass' })
+      mocks.request.mockResolvedValueOnce({ status: 200, headers: { 'Content-Type': 'image/jpeg' }, data: 'YmFzZTY0' })
+
+      await OpdsCatalogService.resolveEntryCovers(catalog({ id: 2, hasCredential: true }), [entry({ coverUrl: 'https://external.example/cover.jpg' })])
+
+      expect(mocks.request).toHaveBeenCalledWith(expect.objectContaining({
+        headers: expect.not.objectContaining({ Authorization: expect.anything() }),
+      }))
     })
 
     it('remove coverUrl (em vez de deixar a URL original, que 401 de qualquer forma) quando a busca autenticada falha', async () => {

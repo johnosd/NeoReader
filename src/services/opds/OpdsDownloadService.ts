@@ -41,9 +41,19 @@ function upgradeToHttps(url: string, catalog: OpdsCatalog): string {
   return url.startsWith('http://') ? `https://${url.slice('http://'.length)}` : url
 }
 
-async function authHeaders(catalog: OpdsCatalog): Promise<Record<string, string>> {
+function isAuthorizedOrigin(catalog: OpdsCatalog, url: string): boolean {
+  try {
+    const catalogOrigin = new URL(upgradeToHttps(catalog.baseUrl, catalog)).origin
+    const targetOrigin = new URL(upgradeToHttps(url, catalog), catalog.baseUrl).origin
+    return catalogOrigin === targetOrigin
+  } catch {
+    return false
+  }
+}
+
+async function authHeaders(catalog: OpdsCatalog, url: string): Promise<Record<string, string>> {
   const headers: Record<string, string> = {}
-  if (catalog.hasCredential && catalog.id != null) {
+  if (catalog.hasCredential && catalog.id != null && isAuthorizedOrigin(catalog, url)) {
     const credential = await OpdsCredentialStore.get(catalog.id)
     if (credential) headers.Authorization = `Basic ${btoa(`${credential.username}:${credential.password}`)}`
   }
@@ -62,7 +72,7 @@ async function downloadToLocal(catalog: OpdsCatalog, entry: OpdsFeedEntry, url: 
       url: upgradeToHttps(url, catalog),
       // Nome provisório pelo formato anunciado; o definitivo sai do formato real (abaixo).
       name: buildFileName(entry, entry.acquisitionFormat ?? 'EPUB'),
-      headers: await authHeaders(catalog),
+      headers: await authHeaders(catalog, url),
       timeoutMs: DOWNLOAD_STALL_TIMEOUT_MS,
     },
     { timeoutMs: DOWNLOAD_TOTAL_TIMEOUT_MS },
