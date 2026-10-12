@@ -38,6 +38,9 @@ public class TtsPlaybackService extends Service {
     private static final String TAG = "NeoReaderTtsPlayback";
     private static final String CHANNEL_ID = "neoreader_tts_playback";
     private static final int NOTIFICATION_ID = 4801;
+    // Janela de graça do wake lock ao receber "play" da MediaSession com a reprodução
+    // pausada: cobre o trajeto até o JS retomar (que readquire o lock sem timeout).
+    private static final long RESUME_GRACE_WAKE_LOCK_MS = 10_000L;
 
     public static final String EXTRA_BOOK_ID = "bookId";
     public static final String EXTRA_TITLE = "title";
@@ -214,6 +217,13 @@ public class TtsPlaybackService extends Service {
     /** Sincroniza o estado play/pause exibido — chamado pelo plugin quando o JS pausa/retoma. */
     void updatePlaybackState(boolean playing) {
         isPlaying = playing;
+        // Pausado não precisa de CPU acordada: a notificação/MediaSession continuam sem o
+        // lock. Ao retomar, readquire (sem timeout) — cancela também a janela de graça.
+        if (playing) {
+            acquireWakeLock();
+        } else {
+            releaseWakeLock();
+        }
         updatePlaybackStateCompat();
         refreshNotification();
     }
@@ -224,13 +234,28 @@ public class TtsPlaybackService extends Service {
     }
 
     private void acquireWakeLock() {
-        if (wakeLock != null && wakeLock.isHeld()) return;
-        PowerManager powerManager = (PowerManager) getSystemService(Context.POWER_SERVICE);
-        // PARTIAL_WAKE_LOCK mantém a CPU acordada com a tela apagada, sem
-        // acender a tela — o oposto do toggle "Manter tela ligada" existente
-        // (FLAG_KEEP_SCREEN_ON), que só ajuda com o app em primeiro plano.
-        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "NeoReader:TtsPlayback");
-        wakeLock.setReferenceCounted(false);
+        acquireWakeLock(0L);
+    }
+
+    /** timeoutMs > 0 = lock temporário (janela de graça); 0 = enquanto durar a reprodução. */
+    private void acquireWakeLock(long timeoutMs) {
+        if (wakeLock == null) {
+            PowerManager powerManager = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            // PARTIAL_WAKE_LOCK mantém a CPU acordada com a tela apagada, sem
+            // acender a tela — o oposto do toggle "Manter tela ligada" existente
+            // (FLAG_KEEP_SCREEN_ON), que só ajuda com o app em primeiro plano.
+            wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "NeoReader:TtsPlayback");
+            wakeLock.setReferenceCounted(false);
+        }
+        if (timeoutMs > 0) {
+            // Não rebaixa um lock de reprodução já ativo para temporário.
+            if (wakeLock.isHeld()) return;
+            wakeLock.acquire(timeoutMs);
+            Log.d(TAG, "acquireWakeLock: wake lock temporário (" + timeoutMs + " ms)");
+            return;
+        }
+        // Lock não-contado: acquire() num lock já ativo é idempotente e cancela um
+        // timeout pendente (promove a janela de graça a lock de reprodução).
         wakeLock.acquire();
         Log.d(TAG, "acquireWakeLock: wake lock adquirido");
     }
@@ -308,6 +333,9 @@ public class TtsPlaybackService extends Service {
             @Override
             public void onPlay() {
                 Log.d(TAG, "MediaSession: onPlay");
+                // Retomada pela tela de bloqueio/fone com a tela apagada: o lock foi liberado
+                // na pausa, então segura a CPU até o JS retomar e readquirir o lock.
+                if (!isPlaying) acquireWakeLock(RESUME_GRACE_WAKE_LOCK_MS);
                 NeoReaderTtsPlaybackPlugin.notifyPlaybackControl("play");
             }
 
