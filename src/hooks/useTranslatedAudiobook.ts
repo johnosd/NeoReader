@@ -7,6 +7,10 @@ import {
 import type { TtsChunk } from '../components/reader/EpubViewer'
 import type { TranslationProvider } from '../types/translation'
 
+// 'more' = chunks novos foram anexados ao array; 'end' = não há mais texto
+// na seção; 'interrupted' = sessão cancelada ou tradução falhou (não é fim).
+export type TranslatedChunkWaitResult = 'more' | 'end' | 'interrupted'
+
 export interface UseTranslatedAudiobookOptions {
   getParagraphs: () => string[]
   onFatalFailure: (error: unknown) => void
@@ -27,6 +31,8 @@ export function useTranslatedAudiobook(options: UseTranslatedAudiobookOptions) {
     optionsRef.current = options
   }, [options])
   const sessionRef = useRef<TranslatedAudiobookSession | null>(null)
+  // Prefetch em voo de advanceToNextParagraph (null quando não há nenhum).
+  const pendingAdvanceRef = useRef<Promise<TranslatedChunkWaitResult> | null>(null)
 
   const isActive = useCallback(() => sessionRef.current !== null, [])
 
@@ -52,6 +58,7 @@ export function useTranslatedAudiobook(options: UseTranslatedAudiobookOptions) {
 
   const startSession = useCallback((sourceLang: string, targetLang: string, provider: TranslationProvider) => {
     sessionRef.current?.abortController.abort()
+    pendingAdvanceRef.current = null
     const session = createTranslatedAudiobookSession(sourceLang, targetLang, provider)
     sessionRef.current = session
     return session
@@ -98,23 +105,41 @@ export function useTranslatedAudiobook(options: UseTranslatedAudiobookOptions) {
     const nextStart = currentParaIdx + 1
     if (session.translatedChunksByParagraph.has(nextStart)) return
 
-    void translateFromParagraph(session, nextStart)
-      .then((result) => {
+    // Bug audiobook-traduzido-pula-restante-secao: a promessa fica guardada
+    // pra `waitForMoreChunks()` — o loop do useTTS espera por ela quando a
+    // fala alcança o fim do array antes da tradução voltar.
+    const pending: Promise<TranslatedChunkWaitResult> = translateFromParagraph(session, nextStart)
+      .then((result): TranslatedChunkWaitResult => {
         // A sessão pode ter sido cancelada (troca de capítulo/livro/idioma/
         // provedor) enquanto esta tradução estava em voo — descarta o
         // resultado nesse caso, nunca escreve num array de uma sessão morta.
-        if (!result || sessionRef.current !== session || session.abortController.signal.aborted) return
+        if (sessionRef.current !== session || session.abortController.signal.aborted) return 'interrupted'
+        if (!result) return 'end'
         chunksArray.push(...result.chunks)
+        return 'more'
       })
-      .catch((error) => {
-        if (session.abortController.signal.aborted || sessionRef.current !== session) return
+      .catch((error): TranslatedChunkWaitResult => {
+        if (session.abortController.signal.aborted || sessionRef.current !== session) return 'interrupted'
         optionsRef.current.onFatalFailure(error)
+        return 'interrupted'
       })
+      .finally(() => {
+        if (pendingAdvanceRef.current === pending) pendingAdvanceRef.current = null
+      })
+    pendingAdvanceRef.current = pending
+  }, [])
+
+  // Chamado pelo loop do useTTS quando acabaram os chunks disponíveis: se há
+  // um prefetch em voo, espera ele; senão a seção acabou de verdade ('end').
+  const waitForMoreChunks = useCallback((): Promise<TranslatedChunkWaitResult> => {
+    if (!sessionRef.current) return Promise.resolve('interrupted')
+    return pendingAdvanceRef.current ?? Promise.resolve('end')
   }, [])
 
   const cancel = useCallback(() => {
     sessionRef.current?.abortController.abort()
     sessionRef.current = null
+    pendingAdvanceRef.current = null
   }, [])
 
   // Usado pelos controles de avançar (próxima frase/parágrafo, feature 018):
@@ -123,5 +148,5 @@ export function useTranslatedAudiobook(options: UseTranslatedAudiobookOptions) {
   // "fim da seção" — evita avançar de capítulo precocemente por engano.
   const hasPendingTranslation = useCallback(() => sessionRef.current?.inFlightParagraph != null, [])
 
-  return { isActive, buildInitialChunks, advanceToNextParagraph, cancel, hasPendingTranslation }
+  return { isActive, buildInitialChunks, advanceToNextParagraph, waitForMoreChunks, cancel, hasPendingTranslation }
 }

@@ -676,6 +676,12 @@ export function ReaderScreen({
     onFinished: () => {
       advanceTtsToNextSection()
     },
+    // Leitura traduzida: ao acabar o array, espera o prefetch do próximo
+    // parágrafo em vez de dar a seção por encerrada (bug
+    // audiobook-traduzido-pula-restante-secao). Fora dela, fim imediato.
+    waitForMoreChunks: () => translatedAudiobook.isActive()
+      ? translatedAudiobook.waitForMoreChunks()
+      : Promise.resolve('end'),
   })
 
   // Chokepoint único (research.md R2): quando uma sessão de leitura

@@ -31,6 +31,10 @@ type AudioSpeechMark = {
 
 type TtsPlaybackMode = 'continuous' | 'inline'
 type TtsPlaybackStopReason = 'finished' | 'stopped' | 'paused' | 'error'
+// Resposta de quem alimenta o array de chunks em segundo plano (leitura
+// traduzida): 'more' = anexou chunks; 'end' = fonte terminou de verdade;
+// 'interrupted' = fonte cancelada/falhou — encerra sem tratar como fim natural.
+export type TtsChunkWaitResult = 'more' | 'end' | 'interrupted'
 
 const WORD_HIGHLIGHT_SYNC_DELAY_MS = 140
 const NATIVE_RANGE_FALLBACK_DELAY_MS = 180
@@ -44,6 +48,9 @@ interface UseTTSOptions extends TtsPlaybackConfig {
   onStop: () => void
   onFinished?: () => void
   onError?: (error: unknown) => void
+  // Opcional: quando o loop chega ao fim do array, pergunta se há chunks a
+  // caminho antes de encerrar. Ausente = comportamento antigo (fim imediato).
+  waitForMoreChunks?: () => Promise<TtsChunkWaitResult>
 }
 
 function replaceSpeechControlCharacters(text: string) {
@@ -238,6 +245,7 @@ export function useTTS(options: UseTTSOptions) {
     onStop: options.onStop,
     onFinished: options.onFinished,
     onError: options.onError,
+    waitForMoreChunks: options.waitForMoreChunks,
   })
   const configRef = useRef<TtsPlaybackConfig>({
     provider: options.provider,
@@ -278,6 +286,9 @@ export function useTTS(options: UseTTSOptions) {
   // true quando a última pausa foi causada por perda TRANSITÓRIA de foco de áudio
   // (ex: ligação) — só nesse caso o retorno do foco retoma sozinho (handleAudioFocusChange).
   const pausedByTransientFocusLossRef = useRef(false)
+  // "Despertador" da espera por chunks novos (waitForMoreChunks): stop()/pause()
+  // chamam isto pra encerrar a espera na hora, sem depender do produtor.
+  const wakeChunkWaitRef = useRef<() => void>(() => {})
 
   function updatePaused(next: boolean) {
     pauseRequestedRef.current = next
@@ -323,8 +334,9 @@ export function useTTS(options: UseTTSOptions) {
       onStop: options.onStop,
       onFinished: options.onFinished,
       onError: options.onError,
+      waitForMoreChunks: options.waitForMoreChunks,
     }
-  }, [options.onError, options.onFinished, options.onParagraphChange, options.onProviderFallback, options.onStop, options.onWordHighlight])
+  }, [options.onError, options.onFinished, options.onParagraphChange, options.onProviderFallback, options.onStop, options.onWordHighlight, options.waitForMoreChunks])
 
   useEffect(() => {
     configRef.current = {
@@ -862,6 +874,31 @@ export function useTTS(options: UseTTSOptions) {
     }
   }
 
+  // Espera chunks novos chegarem ao array em uso (só se houver
+  // waitForMoreChunks). Retorna 'more' apenas se o array cresceu além de
+  // `index`; a espera corre contra wakeChunkWaitRef (stop/pause).
+  async function waitForMoreChunks(chunks: TtsChunk[], index: number, mySession: number): Promise<TtsChunkWaitResult> {
+    const wait = callbacksRef.current.waitForMoreChunks
+    if (!wait) return 'end'
+    while (index >= chunks.length) {
+      if (shouldStopRef.current || pauseRequestedRef.current || playSessionRef.current !== mySession) return 'interrupted'
+      let wake = () => {}
+      const result = await new Promise<TtsChunkWaitResult>((resolve) => {
+        wake = () => resolve('interrupted')
+        wakeChunkWaitRef.current = wake
+        wait().then(resolve, () => resolve('interrupted'))
+      })
+      // Só limpa se ainda for o nosso — um play() novo pode ter registrado o dele.
+      if (wakeChunkWaitRef.current === wake) wakeChunkWaitRef.current = () => {}
+      if (result !== 'more') {
+        // Pausa durante a espera: o resume deve começar no chunk ainda não falado.
+        if (pauseRequestedRef.current && playSessionRef.current === mySession) lastChunkIdxRef.current = index
+        return result
+      }
+    }
+    return 'more'
+  }
+
   async function play(chunks: TtsChunk[], startIdx = 0) {
     const mySession = ++playSessionRef.current
     const playbackFlowId = createFlowId('tts-playback')
@@ -923,8 +960,20 @@ export function useTTS(options: UseTTSOptions) {
       })
     }
 
+    // true quando a fonte de chunks foi cancelada/falhou durante a espera —
+    // encerra como "parado", nunca como fim natural (sem onFinished).
+    let chunkSourceInterrupted = false
+
     try {
-      for (let index = startIdx; index < chunks.length; index += 1) {
+      for (let index = startIdx; ; index += 1) {
+        // Fim momentâneo do array: numa leitura traduzida o próximo parágrafo
+        // pode ainda estar sendo traduzido — espera antes de declarar o fim
+        // (bug audiobook-traduzido-pula-restante-secao).
+        if (index >= chunks.length) {
+          const waitResult = await waitForMoreChunks(chunks, index, mySession)
+          if (waitResult === 'interrupted') chunkSourceInterrupted = true
+          if (waitResult !== 'more') break
+        }
         if (shouldStopRef.current || playSessionRef.current !== mySession) break
 
         const chunk = chunks[index]
@@ -985,7 +1034,7 @@ export function useTTS(options: UseTTSOptions) {
         setIsPlaying(false)
         if (pauseRequestedRef.current) {
           setIsPaused(true)
-        } else if (!shouldStopRef.current && !playbackError) {
+        } else if (!shouldStopRef.current && !playbackError && !chunkSourceInterrupted) {
           lastChunkIdxRef.current = 0
           setIsPaused(false)
           callbacksRef.current.onFinished?.()
@@ -1003,6 +1052,9 @@ export function useTTS(options: UseTTSOptions) {
     const playbackDone = playbackDoneRef.current
     updatePaused(true)
     setIsPlaying(false)
+    // Se o loop está esperando a tradução do próximo parágrafo, encerra a
+    // espera agora (não há fala/áudio pra interromper nesse momento).
+    wakeChunkWaitRef.current()
     void WakeLockService.allowSleep()
     // Não chama TtsPlaybackSessionService.stop() aqui — a sessão/notificação
     // nativa continua ativa durante a pausa, só o ícone/estado é atualizado.
@@ -1066,6 +1118,7 @@ export function useTTS(options: UseTTSOptions) {
     const shouldLogStopIntent = isPlaying || isPaused || pauseRequestedRef.current || Boolean(audioRef.current || stopPremiumPlaybackRef.current)
     shouldStopRef.current = true
     updatePaused(false)
+    wakeChunkWaitRef.current()
     void WakeLockService.allowSleep()
     void TtsPlaybackSessionService.stop()
     premiumSynthesisAbortControllerRef.current?.abort()
