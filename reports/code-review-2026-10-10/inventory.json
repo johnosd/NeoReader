@@ -1,0 +1,2397 @@
+[
+  {
+    "path": ".github/workflows/claude-code-review.yml",
+    "lines": 44,
+    "group": ".github"
+  },
+  {
+    "path": ".github/workflows/claude.yml",
+    "lines": 50,
+    "group": ".github"
+  },
+  {
+    "path": "android/app/build.gradle",
+    "lines": 85,
+    "group": "android"
+  },
+  {
+    "path": "android/app/capacitor.build.gradle",
+    "lines": 26,
+    "group": "android"
+  },
+  {
+    "path": "android/app/src/androidTest/java/com/getcapacitor/myapp/ExampleInstrumentedTest.java",
+    "lines": 26,
+    "group": "tests"
+  },
+  {
+    "path": "android/app/src/main/AndroidManifest.xml",
+    "lines": 81,
+    "group": "android"
+  },
+  {
+    "path": "android/app/src/main/java/com/johnny/neoreader/ExternalEpubIntentStore.java",
+    "lines": 155,
+    "group": "android"
+  },
+  {
+    "path": "android/app/src/main/java/com/johnny/neoreader/GoogleDriveAuthPlugin.java",
+    "lines": 62,
+    "group": "android"
+  },
+  {
+    "path": "android/app/src/main/java/com/johnny/neoreader/MainActivity.java",
+    "lines": 51,
+    "group": "android"
+  },
+  {
+    "path": "android/app/src/main/java/com/johnny/neoreader/NeoReaderLibraryPlugin.java",
+    "lines": 1639,
+    "group": "android"
+  },
+  {
+    "path": "android/app/src/main/java/com/johnny/neoreader/NeoReaderTtsPlaybackPlugin.java",
+    "lines": 140,
+    "group": "android"
+  },
+  {
+    "path": "android/app/src/main/java/com/johnny/neoreader/NeoReaderWebView.java",
+    "lines": 133,
+    "group": "android"
+  },
+  {
+    "path": "android/app/src/main/java/com/johnny/neoreader/PdfImportHelper.java",
+    "lines": 117,
+    "group": "android"
+  },
+  {
+    "path": "android/app/src/main/java/com/johnny/neoreader/TtsPlaybackService.java",
+    "lines": 421,
+    "group": "android"
+  },
+  {
+    "path": "android/app/src/main/res/drawable-v24/ic_launcher_foreground.xml",
+    "lines": 34,
+    "group": "android"
+  },
+  {
+    "path": "android/app/src/main/res/drawable/ic_launcher_background.xml",
+    "lines": 170,
+    "group": "android"
+  },
+  {
+    "path": "android/app/src/main/res/layout/activity_main.xml",
+    "lines": 12,
+    "group": "android"
+  },
+  {
+    "path": "android/app/src/main/res/layout/capacitor_bridge_layout_main.xml",
+    "lines": 23,
+    "group": "android"
+  },
+  {
+    "path": "android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml",
+    "lines": 7,
+    "group": "android"
+  },
+  {
+    "path": "android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml",
+    "lines": 7,
+    "group": "android"
+  },
+  {
+    "path": "android/app/src/main/res/values-en/strings.xml",
+    "lines": 9,
+    "group": "android"
+  },
+  {
+    "path": "android/app/src/main/res/values-es/strings.xml",
+    "lines": 9,
+    "group": "android"
+  },
+  {
+    "path": "android/app/src/main/res/values/ic_launcher_background.xml",
+    "lines": 4,
+    "group": "android"
+  },
+  {
+    "path": "android/app/src/main/res/values/strings.xml",
+    "lines": 13,
+    "group": "android"
+  },
+  {
+    "path": "android/app/src/main/res/values/styles.xml",
+    "lines": 22,
+    "group": "android"
+  },
+  {
+    "path": "android/app/src/main/res/xml/file_paths.xml",
+    "lines": 5,
+    "group": "android"
+  },
+  {
+    "path": "android/app/src/main/res/xml/network_security_config.xml",
+    "lines": 16,
+    "group": "android"
+  },
+  {
+    "path": "android/app/src/test/java/com/getcapacitor/myapp/ExampleUnitTest.java",
+    "lines": 18,
+    "group": "tests"
+  },
+  {
+    "path": "android/build.gradle",
+    "lines": 29,
+    "group": "android"
+  },
+  {
+    "path": "android/capacitor.settings.gradle",
+    "lines": 27,
+    "group": "android"
+  },
+  {
+    "path": "android/gradle.properties",
+    "lines": 32,
+    "group": "android"
+  },
+  {
+    "path": "android/gradle/wrapper/gradle-wrapper.properties",
+    "lines": 7,
+    "group": "android"
+  },
+  {
+    "path": "android/settings.gradle",
+    "lines": 5,
+    "group": "android"
+  },
+  {
+    "path": "android/variables.gradle",
+    "lines": 17,
+    "group": "android"
+  },
+  {
+    "path": "capacitor.config.ts",
+    "lines": 38,
+    "group": "capacitor.config.ts"
+  },
+  {
+    "path": "eslint.config.js",
+    "lines": 23,
+    "group": "eslint.config.js"
+  },
+  {
+    "path": "index.html",
+    "lines": 13,
+    "group": "index.html"
+  },
+  {
+    "path": "package-lock.json",
+    "lines": 10763,
+    "group": "package-lock.json"
+  },
+  {
+    "path": "package.json",
+    "lines": 76,
+    "group": "package.json"
+  },
+  {
+    "path": "scripts/analyze-diagnostics.mjs",
+    "lines": 624,
+    "group": "scripts"
+  },
+  {
+    "path": "scripts/extract-pdf-text-fixtures.mjs",
+    "lines": 141,
+    "group": "scripts"
+  },
+  {
+    "path": "scripts/patch-capacitor-tts-proguard.mjs",
+    "lines": 33,
+    "group": "scripts"
+  },
+  {
+    "path": "scripts/pdf-corpus/generate-corpus.mjs",
+    "lines": 405,
+    "group": "scripts"
+  },
+  {
+    "path": "scripts/pdf-corpus/postprocess.py",
+    "lines": 114,
+    "group": "scripts"
+  },
+  {
+    "path": "scripts/run-debug-epub-tests.mjs",
+    "lines": 33,
+    "group": "scripts"
+  },
+  {
+    "path": "scripts/verificacao-visual/epub-fxl.check.js",
+    "lines": 140,
+    "group": "scripts"
+  },
+  {
+    "path": "scripts/verificacao-visual/gerar-epub-fxl.py",
+    "lines": 70,
+    "group": "scripts"
+  },
+  {
+    "path": "scripts/verificacao-visual/harness/e2e.html",
+    "lines": 5,
+    "group": "scripts"
+  },
+  {
+    "path": "scripts/verificacao-visual/harness/e2e.tsx",
+    "lines": 68,
+    "group": "scripts"
+  },
+  {
+    "path": "scripts/verificacao-visual/pdf-highlight.check.js",
+    "lines": 220,
+    "group": "scripts"
+  },
+  {
+    "path": "scripts/verificacao-visual/pdf-marcador.check.js",
+    "lines": 94,
+    "group": "scripts"
+  },
+  {
+    "path": "scripts/verificacao-visual/pdf-pagina-fiel.check.js",
+    "lines": 149,
+    "group": "scripts"
+  },
+  {
+    "path": "scripts/verificacao-visual/pdf-pinca.check.js",
+    "lines": 75,
+    "group": "scripts"
+  },
+  {
+    "path": "scripts/verificacao-visual/pdf-tts.check.js",
+    "lines": 152,
+    "group": "scripts"
+  },
+  {
+    "path": "scripts/word-lens/build_word_lens.py",
+    "lines": 496,
+    "group": "scripts"
+  },
+  {
+    "path": "scripts/word-lens/tests/test_build_word_lens.py",
+    "lines": 153,
+    "group": "tests"
+  },
+  {
+    "path": "src/App.css",
+    "lines": 184,
+    "group": "src"
+  },
+  {
+    "path": "src/App.tsx",
+    "lines": 567,
+    "group": "src"
+  },
+  {
+    "path": "src/__tests__/App.test.tsx",
+    "lines": 674,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/components/AddBookButton.test.tsx",
+    "lines": 24,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/components/EpubViewer.test.tsx",
+    "lines": 3615,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/components/ErrorBoundary.test.tsx",
+    "lines": 95,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/components/ImageZoomModal.test.tsx",
+    "lines": 116,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/components/IntegrationHelpBanner.test.tsx",
+    "lines": 36,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/components/LibraryGridView.test.tsx",
+    "lines": 59,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/components/OpdsCatalogRow.test.tsx",
+    "lines": 165,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/components/OpdsEntryCard.test.tsx",
+    "lines": 128,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/components/PublicDomainBookCard.test.tsx",
+    "lines": 78,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/components/PublicDomainCatalogSection.test.tsx",
+    "lines": 95,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/components/QuickBookActionsSheet.test.tsx",
+    "lines": 161,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/components/ReaderChrome.test.tsx",
+    "lines": 81,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/components/ReaderProgressFooter.test.tsx",
+    "lines": 26,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/components/TocDrawer.test.tsx",
+    "lines": 133,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/components/TtsMiniPlayer.test.tsx",
+    "lines": 57,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/components/reader/HighlightComposerSheet.test.tsx",
+    "lines": 109,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/components/reader/PdfPageViewer.contract.test.tsx",
+    "lines": 911,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/components/reader/PdfTextModeViewer.test.tsx",
+    "lines": 221,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/components/reader/pdfPageGestures.test.ts",
+    "lines": 107,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/components/reader/pdfPageHighlights.test.ts",
+    "lines": 94,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/components/reader/pdfPageMapping.test.ts",
+    "lines": 145,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/components/reader/pdfPageTts.test.ts",
+    "lines": 101,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/components/reader/pdfPageWords.test.ts",
+    "lines": 88,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/db/authors.test.ts",
+    "lines": 120,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/db/bookInfo.test.ts",
+    "lines": 180,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/db/bookSettings.test.ts",
+    "lines": 141,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/db/bookmarks.test.ts",
+    "lines": 108,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/db/books.deleteBook.test.ts",
+    "lines": 153,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/db/cacheExpiry.test.ts",
+    "lines": 108,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/db/highlights.test.ts",
+    "lines": 130,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/db/opdsCatalogs.test.ts",
+    "lines": 131,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/db/opdsDownloadedEntries.test.ts",
+    "lines": 72,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/db/settings.test.ts",
+    "lines": 270,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/db/vocabulary.test.ts",
+    "lines": 67,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/debug/realEpubCorpus.test.ts",
+    "lines": 734,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/fixtures/pdf/1col-es.json",
+    "lines": 1,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/fixtures/pdf/1col-pt.json",
+    "lines": 1,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/fixtures/pdf/1col.json",
+    "lines": 1,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/fixtures/pdf/2col.json",
+    "lines": 1,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/fixtures/pdf/escaneado.json",
+    "lines": 1,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/fixtures/pdf/misto.json",
+    "lines": 1,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/fixtures/pdf/tabelas.json",
+    "lines": 1,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/hooks/useCapacitorAppListener.test.tsx",
+    "lines": 85,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/hooks/useCategoryGroups.test.ts",
+    "lines": 75,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/hooks/useChromeAutoHide.test.ts",
+    "lines": 94,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/hooks/useLibraryGroups.test.ts",
+    "lines": 49,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/hooks/useLibraryScrollRestore.test.ts",
+    "lines": 71,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/hooks/useOpdsCatalogBrowse.test.ts",
+    "lines": 162,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/hooks/useOpdsCatalogs.test.ts",
+    "lines": 147,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/hooks/usePdfReaderSession.test.tsx",
+    "lines": 154,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/hooks/usePublicDomainCatalog.test.ts",
+    "lines": 79,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/hooks/useReaderAppearance.test.tsx",
+    "lines": 392,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/hooks/useReaderProgress.test.tsx",
+    "lines": 122,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/hooks/useSyncRef.test.ts",
+    "lines": 37,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/hooks/useTTS.test.tsx",
+    "lines": 1462,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/hooks/useTtsSleepTimer.test.ts",
+    "lines": 104,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/hooks/useUserSettings.test.tsx",
+    "lines": 84,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/hooks/useWindowVirtualList.test.ts",
+    "lines": 21,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/i18n/locales.test.ts",
+    "lines": 28,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/i18n/messages.test.ts",
+    "lines": 19,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/i18n/ui-smoke.test.tsx",
+    "lines": 33,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/screens/BookDetailsScreen.test.tsx",
+    "lines": 2158,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/screens/DiscoverScreen.test.tsx",
+    "lines": 400,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/screens/HomeScreen.test.tsx",
+    "lines": 139,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/screens/LibraryScreen.test.tsx",
+    "lines": 273,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/screens/LoginScreen.test.tsx",
+    "lines": 41,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/screens/OpdsCatalogBrowseScreen.test.tsx",
+    "lines": 173,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/screens/OpdsCatalogSettingsScreen.test.tsx",
+    "lines": 277,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/screens/PaywallScreen.test.tsx",
+    "lines": 117,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/screens/ProfileScreen.test.tsx",
+    "lines": 195,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/screens/PublicDomainCatalogScreen.test.tsx",
+    "lines": 54,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/screens/ReaderScreen.test.tsx",
+    "lines": 3281,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/screens/SettingsAppearanceScreen.test.tsx",
+    "lines": 122,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/screens/SettingsIntegrationsScreen.test.tsx",
+    "lines": 88,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/screens/SettingsLanguageScreen.test.tsx",
+    "lines": 90,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/screens/SettingsNarrationScreen.test.tsx",
+    "lines": 131,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/screens/SettingsPlanScreen.test.tsx",
+    "lines": 64,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/screens/SettingsScreen.test.tsx",
+    "lines": 129,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/screens/SettingsSyncScreen.test.tsx",
+    "lines": 149,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/screens/SettingsTranslationScreen.test.tsx",
+    "lines": 258,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/screens/SettingsWordLensScreen.test.tsx",
+    "lines": 91,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/screens/VocabularyScreen.test.tsx",
+    "lines": 66,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/screens/WelcomeScreen.test.tsx",
+    "lines": 51,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/scripts/analyze-diagnostics.test.ts",
+    "lines": 77,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/AuthorService.test.ts",
+    "lines": 170,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/BillingService.test.ts",
+    "lines": 133,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/BookFileResolver.test.ts",
+    "lines": 136,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/BookImportService.pdf.test.ts",
+    "lines": 395,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/BookImportService.realEpub.test.ts",
+    "lines": 410,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/BookImportService.test.ts",
+    "lines": 845,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/BookmarkDriveRestoreService.test.ts",
+    "lines": 343,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/BookmarkDriveSyncIntegration.test.ts",
+    "lines": 191,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/BookmarkDriveSyncModel.test.ts",
+    "lines": 104,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/BookmarkDriveSyncService.test.ts",
+    "lines": 236,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/BookmarkDriveSyncTriggers.test.ts",
+    "lines": 206,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/CapacitorBridgeLogging.test.ts",
+    "lines": 27,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/DeepLService.test.ts",
+    "lines": 162,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/DiagnosticsLogger.test.ts",
+    "lines": 136,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/EpubService.test.ts",
+    "lines": 804,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/FeatureQuotaService.test.ts",
+    "lines": 137,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/FirebaseAuthService.test.ts",
+    "lines": 296,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/GoogleDriveAppDataService.test.ts",
+    "lines": 195,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/GoogleTranslateService.test.ts",
+    "lines": 139,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/ImportCoordinator.test.ts",
+    "lines": 24,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/NativeLibraryImportService.test.ts",
+    "lines": 520,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/NativeSystemUiService.test.ts",
+    "lines": 138,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/NytBooksService.test.ts",
+    "lines": 77,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/OpenAiTranslationService.test.ts",
+    "lines": 169,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/PublicDomainCatalogService.test.ts",
+    "lines": 113,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/PublicDomainDownloadCoordinator.test.ts",
+    "lines": 68,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/PublicDomainDownloadService.test.ts",
+    "lines": 121,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/TranslatedAudiobookService.test.ts",
+    "lines": 127,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/TranslationProviderRegistry.test.ts",
+    "lines": 156,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/TranslationService.test.ts",
+    "lines": 262,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/TtsAudioCache.test.ts",
+    "lines": 71,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/TtsPlaybackSessionService.test.ts",
+    "lines": 119,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/WordLensDataService.test.ts",
+    "lines": 165,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/bookInfo/BookInfoRefreshService.test.ts",
+    "lines": 157,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/bookInfo/EpubBookInfoProvider.test.ts",
+    "lines": 300,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/bookInfo/GoogleBooksProvider.test.ts",
+    "lines": 469,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/bookInfo/OpenLibraryProvider.test.ts",
+    "lines": 344,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/bookInfo/PdfBookInfoProvider.test.ts",
+    "lines": 176,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/bookInfo/YouTubeReviewsProvider.test.ts",
+    "lines": 318,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/http.test.ts",
+    "lines": 77,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/importers/BookFormatImporters.test.ts",
+    "lines": 106,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/opds/OpdsAtomParser.test.ts",
+    "lines": 139,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/opds/OpdsCatalogService.test.ts",
+    "lines": 299,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/opds/OpdsCredentialStore.test.ts",
+    "lines": 61,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/opds/OpdsDownloadCoordinator.test.ts",
+    "lines": 54,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/opds/OpdsDownloadService.test.ts",
+    "lines": 207,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/opds/OpdsJsonParser.test.ts",
+    "lines": 109,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/pdf/PdfBookFactory.range.test.ts",
+    "lines": 74,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/pdf/PdfLocatorResolver.test.ts",
+    "lines": 203,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/pdf/PdfService.test.ts",
+    "lines": 239,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/pdf/PdfTextBookBuilder.test.ts",
+    "lines": 290,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/pdf/PdfTextExtractor.test.ts",
+    "lines": 174,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/pdf/pdfMetadata.test.ts",
+    "lines": 45,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/pdf/pdfPageBitmapScale.test.ts",
+    "lines": 19,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/pdf/pdfPagePanning.test.ts",
+    "lines": 55,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/pdf/pdfPageRender.annotations.test.ts",
+    "lines": 57,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/services/providerValidation.test.ts",
+    "lines": 960,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/setup.ts",
+    "lines": 244,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/store/readerStore.test.ts",
+    "lines": 66,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/testUtils/domMeasurements.ts",
+    "lines": 24,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/testUtils/pdfFixtures.ts",
+    "lines": 42,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/utils/bookFormat.test.ts",
+    "lines": 45,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/utils/cfi.test.ts",
+    "lines": 42,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/utils/imageResize.test.ts",
+    "lines": 141,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/utils/isbn.test.ts",
+    "lines": 102,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/utils/pdfChunks.test.ts",
+    "lines": 128,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/utils/pdfLocator.test.ts",
+    "lines": 158,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/utils/pdfParagraphs.test.ts",
+    "lines": 478,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/utils/placeholderAuthor.test.ts",
+    "lines": 17,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/utils/readableBlocks.test.ts",
+    "lines": 43,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/utils/readerUtils.test.ts",
+    "lines": 52,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/utils/readingState.test.ts",
+    "lines": 28,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/utils/textLanguage.test.ts",
+    "lines": 73,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/utils/toc.test.ts",
+    "lines": 85,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/utils/ttsChunking.test.ts",
+    "lines": 40,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/utils/wordLens.test.ts",
+    "lines": 85,
+    "group": "tests"
+  },
+  {
+    "path": "src/__tests__/utils/wordLensDom.test.ts",
+    "lines": 132,
+    "group": "tests"
+  },
+  {
+    "path": "src/components/AdBannerSlot.tsx",
+    "lines": 65,
+    "group": "src"
+  },
+  {
+    "path": "src/components/AddBookButton.tsx",
+    "lines": 114,
+    "group": "src"
+  },
+  {
+    "path": "src/components/AuthorTab.tsx",
+    "lines": 281,
+    "group": "src"
+  },
+  {
+    "path": "src/components/BookCard.tsx",
+    "lines": 136,
+    "group": "src"
+  },
+  {
+    "path": "src/components/BookRow.tsx",
+    "lines": 74,
+    "group": "src"
+  },
+  {
+    "path": "src/components/BottomNav.tsx",
+    "lines": 59,
+    "group": "src"
+  },
+  {
+    "path": "src/components/HeroBanner.tsx",
+    "lines": 167,
+    "group": "src"
+  },
+  {
+    "path": "src/components/IntegrationEducationCard.tsx",
+    "lines": 62,
+    "group": "src"
+  },
+  {
+    "path": "src/components/IntegrationHelpBanner.tsx",
+    "lines": 87,
+    "group": "src"
+  },
+  {
+    "path": "src/components/LibraryGridView.tsx",
+    "lines": 113,
+    "group": "src"
+  },
+  {
+    "path": "src/components/NytBookCard.tsx",
+    "lines": 58,
+    "group": "src"
+  },
+  {
+    "path": "src/components/NytBooksRow.tsx",
+    "lines": 61,
+    "group": "src"
+  },
+  {
+    "path": "src/components/OpdsCatalogRow.tsx",
+    "lines": 90,
+    "group": "src"
+  },
+  {
+    "path": "src/components/OpdsEntryCard.tsx",
+    "lines": 190,
+    "group": "src"
+  },
+  {
+    "path": "src/components/ProgressCard.tsx",
+    "lines": 82,
+    "group": "src"
+  },
+  {
+    "path": "src/components/PublicDomainBookCard.tsx",
+    "lines": 116,
+    "group": "src"
+  },
+  {
+    "path": "src/components/PublicDomainCatalogSection.tsx",
+    "lines": 62,
+    "group": "src"
+  },
+  {
+    "path": "src/components/QuickBookActionsSheet.tsx",
+    "lines": 359,
+    "group": "src"
+  },
+  {
+    "path": "src/components/QuotaUsageHint.tsx",
+    "lines": 22,
+    "group": "src"
+  },
+  {
+    "path": "src/components/reader/BookmarkSheet.tsx",
+    "lines": 147,
+    "group": "src"
+  },
+  {
+    "path": "src/components/reader/EpubViewer.tsx",
+    "lines": 4537,
+    "group": "src"
+  },
+  {
+    "path": "src/components/reader/HighlightComposerSheet.tsx",
+    "lines": 121,
+    "group": "src"
+  },
+  {
+    "path": "src/components/reader/ImageZoomModal.tsx",
+    "lines": 367,
+    "group": "src"
+  },
+  {
+    "path": "src/components/reader/PdfLanguageNotice.tsx",
+    "lines": 50,
+    "group": "src"
+  },
+  {
+    "path": "src/components/reader/PdfPageViewer.tsx",
+    "lines": 1457,
+    "group": "src"
+  },
+  {
+    "path": "src/components/reader/PdfTextLayerNotice.tsx",
+    "lines": 47,
+    "group": "src"
+  },
+  {
+    "path": "src/components/reader/PdfTextModeViewer.tsx",
+    "lines": 265,
+    "group": "src"
+  },
+  {
+    "path": "src/components/reader/ReaderAppearanceControls.tsx",
+    "lines": 453,
+    "group": "src"
+  },
+  {
+    "path": "src/components/reader/ReaderChrome.tsx",
+    "lines": 199,
+    "group": "src"
+  },
+  {
+    "path": "src/components/reader/ReaderProgressFooter.tsx",
+    "lines": 32,
+    "group": "src"
+  },
+  {
+    "path": "src/components/reader/TocDrawer.tsx",
+    "lines": 249,
+    "group": "src"
+  },
+  {
+    "path": "src/components/reader/TtsMiniPlayer.tsx",
+    "lines": 190,
+    "group": "src"
+  },
+  {
+    "path": "src/components/reader/pdfPage/pdfPageGestures.ts",
+    "lines": 93,
+    "group": "src"
+  },
+  {
+    "path": "src/components/reader/pdfPage/pdfPageHighlights.ts",
+    "lines": 243,
+    "group": "src"
+  },
+  {
+    "path": "src/components/reader/pdfPage/pdfPageMapping.ts",
+    "lines": 110,
+    "group": "src"
+  },
+  {
+    "path": "src/components/reader/pdfPage/pdfPageOverlay.ts",
+    "lines": 79,
+    "group": "src"
+  },
+  {
+    "path": "src/components/reader/pdfPage/pdfPageTextMarks.ts",
+    "lines": 49,
+    "group": "src"
+  },
+  {
+    "path": "src/components/reader/pdfPage/pdfPageTranslation.ts",
+    "lines": 246,
+    "group": "src"
+  },
+  {
+    "path": "src/components/reader/pdfPage/pdfPageTts.ts",
+    "lines": 143,
+    "group": "src"
+  },
+  {
+    "path": "src/components/reader/pdfPage/pdfPageWords.ts",
+    "lines": 127,
+    "group": "src"
+  },
+  {
+    "path": "src/components/reader/readerCapabilities.ts",
+    "lines": 49,
+    "group": "src"
+  },
+  {
+    "path": "src/components/settings/ApiKeyField.tsx",
+    "lines": 108,
+    "group": "src"
+  },
+  {
+    "path": "src/components/settings/SettingsLayout.tsx",
+    "lines": 96,
+    "group": "src"
+  },
+  {
+    "path": "src/components/settings/TouchZonesDiagram.tsx",
+    "lines": 56,
+    "group": "src"
+  },
+  {
+    "path": "src/components/settings/apiKeyValidation.ts",
+    "lines": 50,
+    "group": "src"
+  },
+  {
+    "path": "src/components/ui/Badge.tsx",
+    "lines": 34,
+    "group": "src"
+  },
+  {
+    "path": "src/components/ui/BottomSheet.tsx",
+    "lines": 64,
+    "group": "src"
+  },
+  {
+    "path": "src/components/ui/Button.tsx",
+    "lines": 66,
+    "group": "src"
+  },
+  {
+    "path": "src/components/ui/Checkbox.tsx",
+    "lines": 40,
+    "group": "src"
+  },
+  {
+    "path": "src/components/ui/EmptyState.tsx",
+    "lines": 28,
+    "group": "src"
+  },
+  {
+    "path": "src/components/ui/ErrorBoundary.tsx",
+    "lines": 68,
+    "group": "src"
+  },
+  {
+    "path": "src/components/ui/Input.tsx",
+    "lines": 64,
+    "group": "src"
+  },
+  {
+    "path": "src/components/ui/ListItem.tsx",
+    "lines": 58,
+    "group": "src"
+  },
+  {
+    "path": "src/components/ui/Skeleton.tsx",
+    "lines": 14,
+    "group": "src"
+  },
+  {
+    "path": "src/components/ui/Spinner.tsx",
+    "lines": 28,
+    "group": "src"
+  },
+  {
+    "path": "src/components/ui/Switch.tsx",
+    "lines": 36,
+    "group": "src"
+  },
+  {
+    "path": "src/components/ui/Toast.tsx",
+    "lines": 58,
+    "group": "src"
+  },
+  {
+    "path": "src/components/ui/index.ts",
+    "lines": 13,
+    "group": "src"
+  },
+  {
+    "path": "src/db/authors.ts",
+    "lines": 69,
+    "group": "src"
+  },
+  {
+    "path": "src/db/bookCovers.ts",
+    "lines": 23,
+    "group": "src"
+  },
+  {
+    "path": "src/db/bookInfo.ts",
+    "lines": 107,
+    "group": "src"
+  },
+  {
+    "path": "src/db/bookSettings.ts",
+    "lines": 96,
+    "group": "src"
+  },
+  {
+    "path": "src/db/bookmarks.ts",
+    "lines": 70,
+    "group": "src"
+  },
+  {
+    "path": "src/db/books.ts",
+    "lines": 105,
+    "group": "src"
+  },
+  {
+    "path": "src/db/collections.ts",
+    "lines": 30,
+    "group": "src"
+  },
+  {
+    "path": "src/db/database.ts",
+    "lines": 424,
+    "group": "src"
+  },
+  {
+    "path": "src/db/epubExtras.ts",
+    "lines": 24,
+    "group": "src"
+  },
+  {
+    "path": "src/db/highlights.ts",
+    "lines": 36,
+    "group": "src"
+  },
+  {
+    "path": "src/db/opdsCatalogs.ts",
+    "lines": 88,
+    "group": "src"
+  },
+  {
+    "path": "src/db/opdsDownloadedEntries.ts",
+    "lines": 18,
+    "group": "src"
+  },
+  {
+    "path": "src/db/progress.ts",
+    "lines": 57,
+    "group": "src"
+  },
+  {
+    "path": "src/db/settings.ts",
+    "lines": 93,
+    "group": "src"
+  },
+  {
+    "path": "src/db/sourceFolders.ts",
+    "lines": 20,
+    "group": "src"
+  },
+  {
+    "path": "src/db/tags.ts",
+    "lines": 45,
+    "group": "src"
+  },
+  {
+    "path": "src/db/translations.ts",
+    "lines": 39,
+    "group": "src"
+  },
+  {
+    "path": "src/db/ttsVoiceCaches.ts",
+    "lines": 46,
+    "group": "src"
+  },
+  {
+    "path": "src/db/vocabulary.ts",
+    "lines": 31,
+    "group": "src"
+  },
+  {
+    "path": "src/hooks/useAuth.ts",
+    "lines": 69,
+    "group": "src"
+  },
+  {
+    "path": "src/hooks/useBookCoverUrl.ts",
+    "lines": 24,
+    "group": "src"
+  },
+  {
+    "path": "src/hooks/useBookDetailsTtsVoices.ts",
+    "lines": 80,
+    "group": "src"
+  },
+  {
+    "path": "src/hooks/useBookInfo.ts",
+    "lines": 235,
+    "group": "src"
+  },
+  {
+    "path": "src/hooks/useBookmarkDriveSyncStatus.ts",
+    "lines": 32,
+    "group": "src"
+  },
+  {
+    "path": "src/hooks/useCapacitorAppListener.ts",
+    "lines": 38,
+    "group": "src"
+  },
+  {
+    "path": "src/hooks/useCategoryGroups.ts",
+    "lines": 82,
+    "group": "src"
+  },
+  {
+    "path": "src/hooks/useChromeAutoHide.ts",
+    "lines": 48,
+    "group": "src"
+  },
+  {
+    "path": "src/hooks/useEntitlements.ts",
+    "lines": 68,
+    "group": "src"
+  },
+  {
+    "path": "src/hooks/useImportActivity.ts",
+    "lines": 6,
+    "group": "src"
+  },
+  {
+    "path": "src/hooks/useLibrary.ts",
+    "lines": 18,
+    "group": "src"
+  },
+  {
+    "path": "src/hooks/useLibraryCatalog.ts",
+    "lines": 182,
+    "group": "src"
+  },
+  {
+    "path": "src/hooks/useLibraryGroups.ts",
+    "lines": 85,
+    "group": "src"
+  },
+  {
+    "path": "src/hooks/useLibraryScrollRestore.ts",
+    "lines": 79,
+    "group": "src"
+  },
+  {
+    "path": "src/hooks/useNytTrending.ts",
+    "lines": 48,
+    "group": "src"
+  },
+  {
+    "path": "src/hooks/useOpdsCatalogBrowse.ts",
+    "lines": 197,
+    "group": "src"
+  },
+  {
+    "path": "src/hooks/useOpdsCatalogs.ts",
+    "lines": 143,
+    "group": "src"
+  },
+  {
+    "path": "src/hooks/usePdfReaderSession.ts",
+    "lines": 87,
+    "group": "src"
+  },
+  {
+    "path": "src/hooks/useProfileSummary.ts",
+    "lines": 143,
+    "group": "src"
+  },
+  {
+    "path": "src/hooks/useProgressDriveSyncStatus.ts",
+    "lines": 21,
+    "group": "src"
+  },
+  {
+    "path": "src/hooks/usePublicDomainCatalog.ts",
+    "lines": 125,
+    "group": "src"
+  },
+  {
+    "path": "src/hooks/useReaderAppearance.ts",
+    "lines": 325,
+    "group": "src"
+  },
+  {
+    "path": "src/hooks/useReaderProgress.ts",
+    "lines": 105,
+    "group": "src"
+  },
+  {
+    "path": "src/hooks/useSyncRef.ts",
+    "lines": 10,
+    "group": "src"
+  },
+  {
+    "path": "src/hooks/useTTS.ts",
+    "lines": 1219,
+    "group": "src"
+  },
+  {
+    "path": "src/hooks/useTranslatedAudiobook.ts",
+    "lines": 127,
+    "group": "src"
+  },
+  {
+    "path": "src/hooks/useTtsSleepTimer.ts",
+    "lines": 69,
+    "group": "src"
+  },
+  {
+    "path": "src/hooks/useUserSettings.ts",
+    "lines": 42,
+    "group": "src"
+  },
+  {
+    "path": "src/hooks/useVocabularyDriveSyncStatus.ts",
+    "lines": 21,
+    "group": "src"
+  },
+  {
+    "path": "src/hooks/useWindowVirtualList.ts",
+    "lines": 55,
+    "group": "src"
+  },
+  {
+    "path": "src/i18n/I18nContext.ts",
+    "lines": 30,
+    "group": "src"
+  },
+  {
+    "path": "src/i18n/I18nProvider.tsx",
+    "lines": 52,
+    "group": "src"
+  },
+  {
+    "path": "src/i18n/index.ts",
+    "lines": 21,
+    "group": "src"
+  },
+  {
+    "path": "src/i18n/locales.ts",
+    "lines": 55,
+    "group": "src"
+  },
+  {
+    "path": "src/i18n/messages.ts",
+    "lines": 2537,
+    "group": "src"
+  },
+  {
+    "path": "src/index.css",
+    "lines": 71,
+    "group": "src"
+  },
+  {
+    "path": "src/main.tsx",
+    "lines": 32,
+    "group": "src"
+  },
+  {
+    "path": "src/plugins/GoogleDriveAuthPlugin.ts",
+    "lines": 13,
+    "group": "src"
+  },
+  {
+    "path": "src/screens/BookDetailsScreen.tsx",
+    "lines": 2372,
+    "group": "src"
+  },
+  {
+    "path": "src/screens/DiscoverScreen.tsx",
+    "lines": 213,
+    "group": "src"
+  },
+  {
+    "path": "src/screens/HomeScreen.tsx",
+    "lines": 300,
+    "group": "src"
+  },
+  {
+    "path": "src/screens/LibraryScreen.tsx",
+    "lines": 1443,
+    "group": "src"
+  },
+  {
+    "path": "src/screens/LoginScreen.tsx",
+    "lines": 93,
+    "group": "src"
+  },
+  {
+    "path": "src/screens/OpdsCatalogBrowseScreen.tsx",
+    "lines": 219,
+    "group": "src"
+  },
+  {
+    "path": "src/screens/OpdsCatalogSettingsScreen.tsx",
+    "lines": 353,
+    "group": "src"
+  },
+  {
+    "path": "src/screens/PaywallScreen.tsx",
+    "lines": 444,
+    "group": "src"
+  },
+  {
+    "path": "src/screens/ProfileScreen.tsx",
+    "lines": 444,
+    "group": "src"
+  },
+  {
+    "path": "src/screens/PublicDomainCatalogScreen.tsx",
+    "lines": 61,
+    "group": "src"
+  },
+  {
+    "path": "src/screens/ReaderScreen.tsx",
+    "lines": 2107,
+    "group": "src"
+  },
+  {
+    "path": "src/screens/SettingsAppearanceScreen.tsx",
+    "lines": 154,
+    "group": "src"
+  },
+  {
+    "path": "src/screens/SettingsIntegrationsScreen.tsx",
+    "lines": 129,
+    "group": "src"
+  },
+  {
+    "path": "src/screens/SettingsLanguageScreen.tsx",
+    "lines": 131,
+    "group": "src"
+  },
+  {
+    "path": "src/screens/SettingsNarrationScreen.tsx",
+    "lines": 316,
+    "group": "src"
+  },
+  {
+    "path": "src/screens/SettingsPlanScreen.tsx",
+    "lines": 109,
+    "group": "src"
+  },
+  {
+    "path": "src/screens/SettingsScreen.tsx",
+    "lines": 129,
+    "group": "src"
+  },
+  {
+    "path": "src/screens/SettingsSyncScreen.tsx",
+    "lines": 222,
+    "group": "src"
+  },
+  {
+    "path": "src/screens/SettingsTranslationScreen.tsx",
+    "lines": 246,
+    "group": "src"
+  },
+  {
+    "path": "src/screens/SettingsWordLensScreen.tsx",
+    "lines": 98,
+    "group": "src"
+  },
+  {
+    "path": "src/screens/VocabularyScreen.tsx",
+    "lines": 132,
+    "group": "src"
+  },
+  {
+    "path": "src/screens/WelcomeScreen.tsx",
+    "lines": 182,
+    "group": "src"
+  },
+  {
+    "path": "src/services/AdsService.ts",
+    "lines": 211,
+    "group": "src"
+  },
+  {
+    "path": "src/services/AuthorService.ts",
+    "lines": 253,
+    "group": "src"
+  },
+  {
+    "path": "src/services/BillingService.ts",
+    "lines": 286,
+    "group": "src"
+  },
+  {
+    "path": "src/services/BookFileResolver.ts",
+    "lines": 112,
+    "group": "src"
+  },
+  {
+    "path": "src/services/BookImportService.ts",
+    "lines": 1162,
+    "group": "src"
+  },
+  {
+    "path": "src/services/BookmarkDriveRestoreService.ts",
+    "lines": 340,
+    "group": "src"
+  },
+  {
+    "path": "src/services/BookmarkDriveSyncModel.ts",
+    "lines": 98,
+    "group": "src"
+  },
+  {
+    "path": "src/services/BookmarkDriveSyncService.ts",
+    "lines": 274,
+    "group": "src"
+  },
+  {
+    "path": "src/services/BookmarkDriveSyncStatus.ts",
+    "lines": 76,
+    "group": "src"
+  },
+  {
+    "path": "src/services/CapacitorBridgeLogging.ts",
+    "lines": 18,
+    "group": "src"
+  },
+  {
+    "path": "src/services/DeepLService.ts",
+    "lines": 156,
+    "group": "src"
+  },
+  {
+    "path": "src/services/DiagnosticsLogger.ts",
+    "lines": 373,
+    "group": "src"
+  },
+  {
+    "path": "src/services/DriveDataSyncStatus.ts",
+    "lines": 70,
+    "group": "src"
+  },
+  {
+    "path": "src/services/ElevenLabsService.ts",
+    "lines": 866,
+    "group": "src"
+  },
+  {
+    "path": "src/services/EpubService.ts",
+    "lines": 1229,
+    "group": "src"
+  },
+  {
+    "path": "src/services/FeatureQuotaService.ts",
+    "lines": 215,
+    "group": "src"
+  },
+  {
+    "path": "src/services/FirebaseAuthService.ts",
+    "lines": 421,
+    "group": "src"
+  },
+  {
+    "path": "src/services/FishAudioService.ts",
+    "lines": 772,
+    "group": "src"
+  },
+  {
+    "path": "src/services/GoogleBooksService.ts",
+    "lines": 120,
+    "group": "src"
+  },
+  {
+    "path": "src/services/GoogleDriveAppDataService.ts",
+    "lines": 263,
+    "group": "src"
+  },
+  {
+    "path": "src/services/GoogleTranslateService.ts",
+    "lines": 133,
+    "group": "src"
+  },
+  {
+    "path": "src/services/ImportCoordinator.ts",
+    "lines": 141,
+    "group": "src"
+  },
+  {
+    "path": "src/services/ImportDiagnostics.ts",
+    "lines": 284,
+    "group": "src"
+  },
+  {
+    "path": "src/services/NativeLibraryImportService.ts",
+    "lines": 850,
+    "group": "src"
+  },
+  {
+    "path": "src/services/NativeSystemUiService.ts",
+    "lines": 60,
+    "group": "src"
+  },
+  {
+    "path": "src/services/NativeTtsService.ts",
+    "lines": 78,
+    "group": "src"
+  },
+  {
+    "path": "src/services/NytBooksService.ts",
+    "lines": 93,
+    "group": "src"
+  },
+  {
+    "path": "src/services/OpenAiTranslationService.ts",
+    "lines": 189,
+    "group": "src"
+  },
+  {
+    "path": "src/services/OpenLibraryService.ts",
+    "lines": 134,
+    "group": "src"
+  },
+  {
+    "path": "src/services/ProgressDriveSyncModel.ts",
+    "lines": 36,
+    "group": "src"
+  },
+  {
+    "path": "src/services/ProgressDriveSyncService.ts",
+    "lines": 169,
+    "group": "src"
+  },
+  {
+    "path": "src/services/PublicDomainCatalogService.ts",
+    "lines": 142,
+    "group": "src"
+  },
+  {
+    "path": "src/services/PublicDomainDownloadCoordinator.ts",
+    "lines": 51,
+    "group": "src"
+  },
+  {
+    "path": "src/services/PublicDomainDownloadService.ts",
+    "lines": 84,
+    "group": "src"
+  },
+  {
+    "path": "src/services/SpeechifyService.ts",
+    "lines": 369,
+    "group": "src"
+  },
+  {
+    "path": "src/services/TranslatedAudiobookService.ts",
+    "lines": 152,
+    "group": "src"
+  },
+  {
+    "path": "src/services/TranslationProviderRegistry.ts",
+    "lines": 171,
+    "group": "src"
+  },
+  {
+    "path": "src/services/TranslationService.ts",
+    "lines": 264,
+    "group": "src"
+  },
+  {
+    "path": "src/services/TtsAudioCache.ts",
+    "lines": 121,
+    "group": "src"
+  },
+  {
+    "path": "src/services/TtsPlaybackSessionService.ts",
+    "lines": 114,
+    "group": "src"
+  },
+  {
+    "path": "src/services/TtsProviderRegistry.ts",
+    "lines": 153,
+    "group": "src"
+  },
+  {
+    "path": "src/services/VocabularyDriveSyncModel.ts",
+    "lines": 49,
+    "group": "src"
+  },
+  {
+    "path": "src/services/VocabularyDriveSyncService.ts",
+    "lines": 149,
+    "group": "src"
+  },
+  {
+    "path": "src/services/WakeLockService.ts",
+    "lines": 42,
+    "group": "src"
+  },
+  {
+    "path": "src/services/WordLensDataService.ts",
+    "lines": 216,
+    "group": "src"
+  },
+  {
+    "path": "src/services/bookInfo/BookInfoRefreshService.ts",
+    "lines": 59,
+    "group": "src"
+  },
+  {
+    "path": "src/services/bookInfo/BookInfoService.ts",
+    "lines": 247,
+    "group": "src"
+  },
+  {
+    "path": "src/services/bookInfo/EpubBookInfoProvider.ts",
+    "lines": 522,
+    "group": "src"
+  },
+  {
+    "path": "src/services/bookInfo/GoogleBooksProvider.ts",
+    "lines": 275,
+    "group": "src"
+  },
+  {
+    "path": "src/services/bookInfo/OpenLibraryProvider.ts",
+    "lines": 253,
+    "group": "src"
+  },
+  {
+    "path": "src/services/bookInfo/PdfBookInfoProvider.ts",
+    "lines": 95,
+    "group": "src"
+  },
+  {
+    "path": "src/services/bookInfo/YouTubeReviewsProvider.ts",
+    "lines": 146,
+    "group": "src"
+  },
+  {
+    "path": "src/services/bookInfo/index.ts",
+    "lines": 7,
+    "group": "src"
+  },
+  {
+    "path": "src/services/http.ts",
+    "lines": 99,
+    "group": "src"
+  },
+  {
+    "path": "src/services/importers/BookFormatImporter.ts",
+    "lines": 28,
+    "group": "src"
+  },
+  {
+    "path": "src/services/importers/EpubBookImporter.ts",
+    "lines": 55,
+    "group": "src"
+  },
+  {
+    "path": "src/services/importers/PdfBookImporter.ts",
+    "lines": 52,
+    "group": "src"
+  },
+  {
+    "path": "src/services/importers/index.ts",
+    "lines": 15,
+    "group": "src"
+  },
+  {
+    "path": "src/services/importers/preparedFile.ts",
+    "lines": 14,
+    "group": "src"
+  },
+  {
+    "path": "src/services/opds/OpdsAtomParser.ts",
+    "lines": 139,
+    "group": "src"
+  },
+  {
+    "path": "src/services/opds/OpdsCatalogService.ts",
+    "lines": 234,
+    "group": "src"
+  },
+  {
+    "path": "src/services/opds/OpdsCredentialStore.ts",
+    "lines": 42,
+    "group": "src"
+  },
+  {
+    "path": "src/services/opds/OpdsDownloadCoordinator.ts",
+    "lines": 49,
+    "group": "src"
+  },
+  {
+    "path": "src/services/opds/OpdsDownloadService.ts",
+    "lines": 111,
+    "group": "src"
+  },
+  {
+    "path": "src/services/opds/OpdsJsonParser.ts",
+    "lines": 152,
+    "group": "src"
+  },
+  {
+    "path": "src/services/pdf/PdfBookFactory.ts",
+    "lines": 289,
+    "group": "src"
+  },
+  {
+    "path": "src/services/pdf/PdfImportError.ts",
+    "lines": 21,
+    "group": "src"
+  },
+  {
+    "path": "src/services/pdf/PdfLocatorResolver.ts",
+    "lines": 363,
+    "group": "src"
+  },
+  {
+    "path": "src/services/pdf/PdfService.ts",
+    "lines": 103,
+    "group": "src"
+  },
+  {
+    "path": "src/services/pdf/PdfTextBookBuilder.ts",
+    "lines": 355,
+    "group": "src"
+  },
+  {
+    "path": "src/services/pdf/PdfTextExtractor.ts",
+    "lines": 143,
+    "group": "src"
+  },
+  {
+    "path": "src/services/pdf/pdfMetadata.ts",
+    "lines": 43,
+    "group": "src"
+  },
+  {
+    "path": "src/services/pdf/pdfPageRender.ts",
+    "lines": 405,
+    "group": "src"
+  },
+  {
+    "path": "src/services/pdf/pdfjs.ts",
+    "lines": 111,
+    "group": "src"
+  },
+  {
+    "path": "src/store/readerStore.ts",
+    "lines": 32,
+    "group": "src"
+  },
+  {
+    "path": "src/types/auth.ts",
+    "lines": 11,
+    "group": "src"
+  },
+  {
+    "path": "src/types/author.ts",
+    "lines": 28,
+    "group": "src"
+  },
+  {
+    "path": "src/types/book.ts",
+    "lines": 139,
+    "group": "src"
+  },
+  {
+    "path": "src/types/bookInfo.ts",
+    "lines": 105,
+    "group": "src"
+  },
+  {
+    "path": "src/types/foliate.d.ts",
+    "lines": 248,
+    "group": "src"
+  },
+  {
+    "path": "src/types/highlight.ts",
+    "lines": 33,
+    "group": "src"
+  },
+  {
+    "path": "src/types/opds.ts",
+    "lines": 84,
+    "group": "src"
+  },
+  {
+    "path": "src/types/settings.ts",
+    "lines": 127,
+    "group": "src"
+  },
+  {
+    "path": "src/types/translation.ts",
+    "lines": 31,
+    "group": "src"
+  },
+  {
+    "path": "src/types/tts.ts",
+    "lines": 49,
+    "group": "src"
+  },
+  {
+    "path": "src/types/vocabulary.ts",
+    "lines": 25,
+    "group": "src"
+  },
+  {
+    "path": "src/types/wordLens.ts",
+    "lines": 38,
+    "group": "src"
+  },
+  {
+    "path": "src/utils/annotationColors.ts",
+    "lines": 18,
+    "group": "src"
+  },
+  {
+    "path": "src/utils/bookFormat.ts",
+    "lines": 41,
+    "group": "src"
+  },
+  {
+    "path": "src/utils/categoryNormalizer.ts",
+    "lines": 89,
+    "group": "src"
+  },
+  {
+    "path": "src/utils/cfi.ts",
+    "lines": 64,
+    "group": "src"
+  },
+  {
+    "path": "src/utils/cn.ts",
+    "lines": 7,
+    "group": "src"
+  },
+  {
+    "path": "src/utils/dataUrl.ts",
+    "lines": 12,
+    "group": "src"
+  },
+  {
+    "path": "src/utils/epubResources.ts",
+    "lines": 31,
+    "group": "src"
+  },
+  {
+    "path": "src/utils/imageResize.ts",
+    "lines": 65,
+    "group": "src"
+  },
+  {
+    "path": "src/utils/isbn.ts",
+    "lines": 101,
+    "group": "src"
+  },
+  {
+    "path": "src/utils/language.ts",
+    "lines": 31,
+    "group": "src"
+  },
+  {
+    "path": "src/utils/languageOptions.ts",
+    "lines": 26,
+    "group": "src"
+  },
+  {
+    "path": "src/utils/librarySearch.ts",
+    "lines": 11,
+    "group": "src"
+  },
+  {
+    "path": "src/utils/pdfChunks.ts",
+    "lines": 93,
+    "group": "src"
+  },
+  {
+    "path": "src/utils/pdfLimits.ts",
+    "lines": 9,
+    "group": "src"
+  },
+  {
+    "path": "src/utils/pdfLocator.ts",
+    "lines": 142,
+    "group": "src"
+  },
+  {
+    "path": "src/utils/pdfParagraphs.ts",
+    "lines": 803,
+    "group": "src"
+  },
+  {
+    "path": "src/utils/placeholderAuthor.ts",
+    "lines": 14,
+    "group": "src"
+  },
+  {
+    "path": "src/utils/progress.ts",
+    "lines": 14,
+    "group": "src"
+  },
+  {
+    "path": "src/utils/readableBlocks.ts",
+    "lines": 27,
+    "group": "src"
+  },
+  {
+    "path": "src/utils/readerPreferences.ts",
+    "lines": 201,
+    "group": "src"
+  },
+  {
+    "path": "src/utils/readerUtils.ts",
+    "lines": 27,
+    "group": "src"
+  },
+  {
+    "path": "src/utils/readingState.ts",
+    "lines": 35,
+    "group": "src"
+  },
+  {
+    "path": "src/utils/textLanguage.ts",
+    "lines": 76,
+    "group": "src"
+  },
+  {
+    "path": "src/utils/textMatch.ts",
+    "lines": 43,
+    "group": "src"
+  },
+  {
+    "path": "src/utils/textSanitizer.ts",
+    "lines": 54,
+    "group": "src"
+  },
+  {
+    "path": "src/utils/toc.ts",
+    "lines": 204,
+    "group": "src"
+  },
+  {
+    "path": "src/utils/ttsChunking.ts",
+    "lines": 132,
+    "group": "src"
+  },
+  {
+    "path": "src/utils/ttsVoiceSelection.ts",
+    "lines": 117,
+    "group": "src"
+  },
+  {
+    "path": "src/utils/wordLens.ts",
+    "lines": 96,
+    "group": "src"
+  },
+  {
+    "path": "src/utils/wordLensDom.ts",
+    "lines": 260,
+    "group": "src"
+  },
+  {
+    "path": "tsconfig.app.json",
+    "lines": 31,
+    "group": "tsconfig.app.json"
+  },
+  {
+    "path": "tsconfig.json",
+    "lines": 7,
+    "group": "tsconfig.json"
+  },
+  {
+    "path": "tsconfig.node.json",
+    "lines": 24,
+    "group": "tsconfig.node.json"
+  },
+  {
+    "path": "vite.config.ts",
+    "lines": 150,
+    "group": "vite.config.ts"
+  },
+  {
+    "path": "vitest.config.ts",
+    "lines": 28,
+    "group": "vitest.config.ts"
+  }
+]

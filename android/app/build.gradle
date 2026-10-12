@@ -1,10 +1,16 @@
 apply plugin: 'com.android.application'
+// Precisa vir depois do plugin do Android: o GPP cria as tasks publish<Variant>Bundle
+// em cima das variants que o AGP registra.
+apply plugin: 'com.github.triplet.play'
 
 def releaseStoreFile = project.findProperty("NEOREADER_RELEASE_STORE_FILE") ?: System.getenv("NEOREADER_RELEASE_STORE_FILE")
 def releaseStorePassword = project.findProperty("NEOREADER_RELEASE_STORE_PASSWORD") ?: System.getenv("NEOREADER_RELEASE_STORE_PASSWORD")
 def releaseKeyAlias = project.findProperty("NEOREADER_RELEASE_KEY_ALIAS") ?: System.getenv("NEOREADER_RELEASE_KEY_ALIAS")
 def releaseKeyPassword = project.findProperty("NEOREADER_RELEASE_KEY_PASSWORD") ?: System.getenv("NEOREADER_RELEASE_KEY_PASSWORD")
 def hasReleaseSigning = releaseStoreFile && releaseStorePassword && releaseKeyAlias && releaseKeyPassword
+// Caminho (não o conteúdo) do JSON da service account da Play. Mesmo padrão do signing:
+// ~/.gradle/gradle.properties ou variável de ambiente. O arquivo vive fora do repo.
+def playServiceAccountJson = project.findProperty("PLAY_SERVICE_ACCOUNT_JSON") ?: System.getenv("PLAY_SERVICE_ACCOUNT_JSON")
 
 android {
     namespace = "com.johnny.neoreader"
@@ -42,6 +48,17 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
+}
+
+// Gradle Play Publisher. Só as tasks publish* usam isso; builds normais (sem a
+// credencial) continuam funcionando porque a propriedade só é definida se existir.
+play {
+    if (playServiceAccountJson) {
+        serviceAccountCredentials.set(file(playServiceAccountJson))
+    }
+    track.set("internal")
+    // `publish` e `publishBundle` sobem AAB (não APK) por padrão.
+    defaultToAppBundles.set(true)
 }
 
 repositories {

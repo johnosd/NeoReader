@@ -6,6 +6,9 @@ Cobre da atualização de versão até o upload do `.aab` assinado.
 > Pra executar esse processo com o Claude Code, use o skill `/play-release`
 > (`.claude/skills/play-release/SKILL.md`) — ele automatiza os passos 1 e 2,
 > redige as release notes nos 3 idiomas e verifica a assinatura do bundle.
+> O upload (passo 4) pode ser manual ou pelo skill `/play-publish`
+> (`.claude/skills/play-publish/SKILL.md`), que sobe o `.aab` arquivado via
+> Gradle Play Publisher.
 > Este documento continua sendo a referência do **porquê** de cada passo
 > (Play App Signing, upload key, recuperação de chave).
 
@@ -102,6 +105,30 @@ NEOREADER_RELEASE_KEY_PASSWORD
    `NEOREADER_RELEASE_STORE_FILE`) também não está no repo — fica só no
    caminho indicado por essa variável.
 
+### Credencial de publicação (Gradle Play Publisher)
+
+Pra publicar pelo Gradle (`/play-publish`), a Play Developer API exige uma
+**service account** — outra credencial, independente da upload key. O
+`build.gradle` lê só o **caminho** do JSON dela, da propriedade:
+
+```
+PLAY_SERVICE_ACCOUNT_JSON
+```
+
+- Vive em `C:\Users\<usuário>\.gradle\gradle.properties`, junto das 4
+  `NEOREADER_RELEASE_*` (fallback: variável de ambiente de mesmo nome). Use
+  barras normais no caminho (`C:/Users/...`) pra não precisar escapar `\`, e
+  caminho **absoluto** — o Gradle resolveria um relativo a partir de
+  `android/app`.
+- O `.env` não vale pra isso, pelo mesmo motivo das chaves de assinatura (o
+  Gradle não o lê). Pode guardar o caminho lá como backup/lembrete.
+- O JSON em si **nunca** entra no Git. Hoje fica em `.secrets/` na raiz
+  (ignorado pelo `.gitignore`, junto com `*service-account*.json` e
+  similares); worktrees não o têm. Se possível, prefira um caminho fora do
+  repositório.
+- Sem a propriedade, builds normais seguem funcionando — só as tasks
+  `publish*`/`promote*` falham.
+
 ### Se perder a upload key (arquivo `.keystore`/senha)
 
 1. Confira se o valor de `NEOREADER_RELEASE_STORE_FILE` no `.env` (backup)
@@ -121,6 +148,12 @@ NEOREADER_RELEASE_KEY_PASSWORD
    dá pra contar com isso no dia de um deploy urgente.
 
 ## 4. Upload no Play Console
+
+> **Via Gradle (opcional):** `/play-publish` sobe o `.aab` arquivado pra track
+> internal com o Gradle Play Publisher (`:app:publishReleaseBundle`), usando o
+> `release-notes.txt` do release. Promoção pra outras tracks é a task
+> `:app:promoteReleaseArtifact`, sempre com confirmação explícita. O passo a
+> passo manual abaixo continua válido.
 
 1. [play.google.com/console](https://play.google.com/console) → selecione
    o NeoReader.
@@ -147,3 +180,4 @@ gradualmente em vez de 100% de uma vez.
 - [ ] `gradlew :app:bundleRelease` gerou o `.aab` sem erro
 - [ ] Cópia arquivada em `release-artifacts/`
 - [ ] `.aab` enviado na track certa do Play Console, com release notes
+      (manualmente, ou via `/play-publish` com o bump já commitado)

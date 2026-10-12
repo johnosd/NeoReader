@@ -1,6 +1,6 @@
 ---
 name: play-release
-description: Gera uma nova versão publicável do NeoReader Android para a Play Store — bumpa versionCode/versionName, levanta o que mudou desde o último release, redige as release notes nos 3 idiomas da ficha da loja (pt-BR, es-ES, en-US), roda os gates do projeto, gera o .aab assinado com bundleRelease, confere que a assinatura entrou, arquiva o bundle + mapping.txt + notas + SHA256 em release-artifacts/ e sugere o commit de bump. Use quando o usuário pedir para "gerar o aab", "criar uma nova versão pra Play Store", "preparar o release", "publicar uma atualização", "bumpar a versão do Android" ou "escrever as release notes". NÃO use para build de debug/teste em device (use npm run android:run ou o skill android-debug), nem para investigar bug que só aparece em release (isso é diagnóstico, não publicação).
+description: Gera uma nova versão publicável do NeoReader Android para a Play Store — bumpa versionCode/versionName, levanta o que mudou desde o último release, redige as release notes nos 3 idiomas da ficha da loja (pt-BR, es-ES, en-US), roda os gates do projeto, gera o .aab assinado com bundleRelease, confere que a assinatura entrou, arquiva o bundle + mapping.txt + notas + SHA256 em release-artifacts/ e sugere o commit de bump. Use quando o usuário pedir para "gerar o aab", "criar uma nova versão pra Play Store", "preparar o release", "preparar uma atualização", "bumpar a versão do Android" ou "escrever as release notes". NÃO use para build de debug/teste em device (use npm run android:run ou o skill android-debug), nem para investigar bug que só aparece em release (isso é diagnóstico, não publicação), nem para subir o .aab na Play via Gradle ou promover entre tracks (use o skill play-publish).
 ---
 
 # play-release
@@ -9,9 +9,10 @@ Executa o processo de publicação documentado em `docs/deploy-play-console.md`,
 na ordem certa e com as verificações que faltam quando se segue o doc na mão
 (assinatura ausente, `cap sync` esquecido, notas fora do limite do Play).
 
-O skill **prepara** o release até o `.aab` arquivado e verificado. O upload no
-Play Console é manual — não existe automação de Play Developer API neste
-projeto, e o skill não tenta inventar uma.
+O skill **prepara** o release até o `.aab` arquivado e verificado — ele não
+publica nada. O upload pode ser feito à mão no Play Console (passos na Fase 8)
+ou, com o bundle já arquivado, pelo skill **`/play-publish`** (Gradle Play
+Publisher → track internal, com ensaio `--no-commit`).
 
 ## O que sai no fim
 
@@ -275,6 +276,10 @@ Depois reporte ao usuário, em uma lista curta:
 4. Lembrete: o editor de release notes do Play aceita o arquivo inteiro com as
    tags `<pt-BR>`/`<es-ES>`/`<en-US>` de uma vez; se estiver editando idioma
    por idioma, cole só o conteúdo do bloco correspondente.
+5. Alternativa ao upload manual: depois de **commitar o bump**, `/play-publish`
+   sobe esse mesmo `.aab` arquivado pra track internal pelo Gradle. Ele
+   reaproveita o `release-notes.txt` acima — por isso o formato do arquivo não
+   deve mudar.
 
 Detalhes de Play App Signing, upload key e recuperação de chave perdida estão
 em `docs/deploy-play-console.md` — aponte pra lá em vez de repetir aqui.

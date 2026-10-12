@@ -63,6 +63,16 @@ android/.idea
 *.aab
 *.keystore
 !debug.keystore
+*.jks
+keystore.properties
+
+# Credenciais da Play Console / Google (service account JSON) — nunca no Git.
+# Padrões específicos de propósito: um `*.json` genérico pegaria package.json etc.
+.secrets/
+*service-account*.json
+*service_account*.json
+play-*credential*.json
+client_secret*.json
 
 # Env
 .env
@@ -80,6 +90,10 @@ debug-books/
 
 # Artefatos de release Android (AAB + mapping.txt) — arquivados localmente, nunca no Git
 release-artifacts/
+
+# Release notes derivadas pro Gradle Play Publisher — geradas pelo skill play-publish
+# a partir de release-artifacts/*/release-notes.txt (a fonte da verdade fica lá)
+android/app/src/main/play/
 
 # Scripts/screenshots de debug em device e verificação Chromium via Playwright MCP — descartáveis
 .tmp-e2e/
