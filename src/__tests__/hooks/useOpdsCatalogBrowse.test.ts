@@ -104,6 +104,77 @@ describe('useOpdsCatalogBrowse', () => {
     expect(mocks.fetchPage).toHaveBeenLastCalledWith(catalog, 'https://example.com/opds/?page=2')
   })
 
+  // R17: página 2 da pasta A que chega depois de navegar pra B não pode
+  // entrar na lista de B nem trocar o nextPageUrl de B.
+  it('descarta a página atrasada da pasta anterior ao navegar', async () => {
+    let resolveOld: (value: OpdsFeedPage) => void = () => undefined
+    mocks.fetchPage
+      .mockResolvedValueOnce(page([bookEntry], { nextPageUrl: 'https://example.com/opds/?page=2' }))
+      .mockImplementationOnce(() => new Promise<OpdsFeedPage>((resolve) => { resolveOld = resolve }))
+    const { result } = renderHook(() => useOpdsCatalogBrowse(catalog, 'Project Gutenberg', vi.fn()))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    act(() => result.current.loadMore())
+    expect(result.current.loadingMore).toBe(true)
+
+    const folderBook: OpdsFeedEntry = { ...bookEntry, id: 'book-b', title: 'Livro da pasta B' }
+    mocks.fetchPage.mockResolvedValueOnce(page([folderBook], { nextPageUrl: 'https://example.com/opds/folder-1?page=2' }))
+    act(() => result.current.navigateTo(folderEntry))
+    await waitFor(() => expect(result.current.entries).toEqual([folderBook]))
+    // A consulta nova libera o "carregar mais" mesmo com a página de A em voo.
+    expect(result.current.loadingMore).toBe(false)
+
+    await act(async () => {
+      resolveOld(page([{ ...bookEntry, id: 'a-old' }], { nextPageUrl: 'https://example.com/opds/?page=3' }))
+    })
+
+    expect(result.current.entries).toEqual([folderBook])
+    expect(result.current.loadingMore).toBe(false)
+    // nextPageUrl continua sendo o de B.
+    mocks.fetchPage.mockResolvedValueOnce(page([]))
+    act(() => result.current.loadMore())
+    expect(mocks.fetchPage).toHaveBeenLastCalledWith(catalog, 'https://example.com/opds/folder-1?page=2')
+  })
+
+  it('descarta a página atrasada (inclusive erro) depois de trocar a ordenação', async () => {
+    let rejectOld: (reason: unknown) => void = () => undefined
+    mocks.fetchPage
+      .mockResolvedValueOnce(page([bookEntry], { nextPageUrl: 'https://example.com/opds/?page=2' }))
+      .mockImplementationOnce(() => new Promise<OpdsFeedPage>((_resolve, reject) => { rejectOld = reject }))
+    const { result } = renderHook(() => useOpdsCatalogBrowse(catalog, 'Project Gutenberg', vi.fn()))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    act(() => result.current.loadMore())
+
+    // Ordem nova ainda carregando, com página 2 própria.
+    let resolveSorted: (value: OpdsFeedPage) => void = () => undefined
+    mocks.fetchPage.mockImplementationOnce(() => new Promise<OpdsFeedPage>((resolve) => { resolveSorted = resolve }))
+    act(() => result.current.setSortOrder('downloads'))
+    expect(result.current.hasMore).toBe(false)
+
+    const sortedBook: OpdsFeedEntry = { ...bookEntry, id: 'book-sorted', title: 'Mais baixado' }
+    await act(async () => {
+      resolveSorted(page([sortedBook], { nextPageUrl: 'https://example.com/opds/?sort=downloads&page=2' }))
+    })
+    await waitFor(() => expect(result.current.entries).toEqual([sortedBook]))
+
+    // Pagina 2 da ordem nova em voo; o erro da página antiga chega depois e não pode mexer nela.
+    let resolveSortedPage2: (value: OpdsFeedPage) => void = () => undefined
+    mocks.fetchPage.mockImplementationOnce(() => new Promise<OpdsFeedPage>((resolve) => { resolveSortedPage2 = resolve }))
+    act(() => result.current.loadMore())
+    await act(async () => {
+      rejectOld(new Error('rede lenta'))
+    })
+    expect(result.current.loadingMore).toBe(true)
+
+    const sortedBook2: OpdsFeedEntry = { ...bookEntry, id: 'book-sorted-2', title: 'Segundo mais baixado' }
+    await act(async () => {
+      resolveSortedPage2(page([sortedBook2]))
+    })
+    expect(result.current.entries).toEqual([sortedBook, sortedBook2])
+    expect(result.current.loadingMore).toBe(false)
+  })
+
   it('busca com debounce chama OpdsCatalogService.search com o searchUrl da página raiz', async () => {
     mocks.fetchPage.mockResolvedValueOnce(page([bookEntry], { searchUrl: 'search{?q}' }))
     const { result } = renderHook(() => useOpdsCatalogBrowse(catalog, 'Project Gutenberg', vi.fn()))

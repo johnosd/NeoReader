@@ -72,6 +72,10 @@ export function useOpdsCatalogBrowse(
   // do primeiro carregamento (undefined -> URL real dispararia o efeito de
   // novo).
   const searchUrlRef = useRef<string | undefined>(undefined)
+  // Geração da consulta atual (pasta/busca/ordem). Sobe a cada consulta nova e
+  // na desmontagem; um loadMore só aplica o resultado se a geração ainda for a
+  // mesma de quando começou — senão a página 2 da pasta A cairia na pasta B (R17).
+  const queryGenerationRef = useRef(0)
 
   useEffect(() => {
     let cancelled = false
@@ -89,8 +93,12 @@ export function useOpdsCatalogBrowse(
     }
 
     function runFetch() {
+      queryGenerationRef.current += 1
       setLoading(true)
       setError(false)
+      // Paginação da consulta anterior não vale mais pra esta.
+      setNextPageUrl(undefined)
+      setLoadingMore(false)
       const request = trimmedQuery && searchUrlRef.current
         ? OpdsCatalogService.search(catalog, searchUrlRef.current, trimmedQuery, sortOrder)
         : OpdsCatalogService.fetchPage(catalog, currentUrl, sortOrder)
@@ -114,12 +122,15 @@ export function useOpdsCatalogBrowse(
       return () => {
         cancelled = true
         clearTimeout(timeoutId)
+        queryGenerationRef.current += 1
       }
     }
 
     runFetch()
     return () => {
       cancelled = true
+      // Troca de contexto ou desmontagem: invalida um loadMore em voo.
+      queryGenerationRef.current += 1
     }
   }, [currentUrl, searchQuery, catalog, sortOrder])
 
@@ -162,15 +173,22 @@ export function useOpdsCatalogBrowse(
     loadingMore,
     loadMore: () => {
       if (!nextPageUrl || loadingMore) return
+      const generation = queryGenerationRef.current
+      // Resultado obsoleto (usuário mudou de pasta/busca/ordem ou saiu da tela)
+      // é descartado em sucesso e em erro — o loadingMore já foi resetado pela consulta nova.
+      const isCurrent = () => generation === queryGenerationRef.current
       setLoadingMore(true)
       OpdsCatalogService.fetchPage(catalog, nextPageUrl)
         .then((page) => OpdsCatalogService.resolveEntryCovers(catalog, page.entries).then((entries) => ({ ...page, entries })))
         .then((page) => {
+          if (!isCurrent()) return
           setEntries((prev) => [...prev, ...page.entries])
           setNextPageUrl(page.nextPageUrl)
           setLoadingMore(false)
         })
-        .catch(() => setLoadingMore(false))
+        .catch(() => {
+          if (isCurrent()) setLoadingMore(false)
+        })
     },
     navigateTo: (entry) => {
       if (entry.kind !== 'navigation' || !entry.navigationUrl) return
