@@ -7,6 +7,9 @@ import {
   hasDriveSyncEntitlement,
 } from './DriveDataSyncStatus'
 import {
+  fromRemoteVocabItem,
+  isRemoteVocabFile,
+  selectRemoteItemsToRestore,
   toRemoteVocabFile,
   vocabSyncKey,
   VOCABULARY_DRIVE_FILE_NAME,
@@ -65,9 +68,29 @@ export async function syncVocabulary(options: SyncOptions = {}): Promise<void> {
 
     vocabularySyncStatusStore.set('pending-offline')
 
+    const existingFile = (await driveClient.list({ name: VOCABULARY_DRIVE_FILE_NAME }))[0]
+    let restoredCount = 0
+
+    if (existingFile) {
+      // Lê e mescla o remoto ANTES de publicar: sem isso, um device com tabela
+      // vazia (reinstalação, celular novo) apagava o backup no login (bug R01).
+      // Se a leitura falhar, o erro sobe pro catch e nada é escrito.
+      const remote = await driveClient.getJson<unknown>(existingFile.id)
+      if (!isRemoteVocabFile(remote)) {
+        throw new Error('vocabulary-remote-invalid-format')
+      }
+      const localBefore = await db.vocabulary.toArray()
+      const toRestore = selectRemoteItemsToRestore(localBefore, remote.items, readPublishedKeys())
+      if (toRestore.length > 0) {
+        // bulkAdd direto (não addVocabItem) pra não reagendar outro sync.
+        await db.vocabulary.bulkAdd(toRestore.map(fromRemoteVocabItem))
+        restoredCount = toRestore.length
+      }
+    }
+
+    // Publica a união (local + o que acabou de ser restaurado).
     const items = await db.vocabulary.orderBy('createdAt').toArray()
     const payload = toRemoteVocabFile(items)
-    const existingFile = (await driveClient.list({ name: VOCABULARY_DRIVE_FILE_NAME }))[0]
 
     if (existingFile) {
       await driveClient.updateJson(existingFile.id, payload)
@@ -75,12 +98,15 @@ export async function syncVocabulary(options: SyncOptions = {}): Promise<void> {
       await driveClient.createJson(VOCABULARY_DRIVE_FILE_NAME, payload)
     }
 
+    // Só grava a baseline depois da escrita confirmada no Drive.
+    writePublishedKeys(items.map(vocabSyncKey))
+
     vocabularySyncStatusStore.set('connected')
     logEvent('vocabulary.sync.success', {
       flowId,
       status: 'success',
       durationMs: getDiagnosticsNowMs() - startedAt,
-      details: { itemCount: items.length },
+      details: { itemCount: items.length, restoredCount },
     })
   } catch (error) {
     vocabularySyncStatusStore.setFromError(error)
@@ -130,6 +156,31 @@ export async function restoreVocabularyFromDrive(
   } catch {
     // Falha silenciosa — não bloqueia o app
     return { addedCount: 0 }
+  }
+}
+
+// Baseline do merge: chaves que este device publicou no último sync com
+// sucesso. Fica no localStorage com o nome do banco (já é por conta). Se sumir
+// ou falhar, o merge restaura tudo do remoto — lado seguro (nunca perde dados).
+function publishedKeysStorageKey(): string {
+  return `neoreader:vocab-drive-baseline:${db.name}`
+}
+
+function readPublishedKeys(): Set<string> {
+  try {
+    const raw = localStorage.getItem(publishedKeysStorageKey())
+    const parsed: unknown = raw ? JSON.parse(raw) : []
+    return new Set(Array.isArray(parsed) ? parsed.filter((k): k is string => typeof k === 'string') : [])
+  } catch {
+    return new Set()
+  }
+}
+
+function writePublishedKeys(keys: string[]): void {
+  try {
+    localStorage.setItem(publishedKeysStorageKey(), JSON.stringify([...new Set(keys)]))
+  } catch {
+    // Sem baseline o próximo sync só restaura a mais (seguro); não falha o sync.
   }
 }
 

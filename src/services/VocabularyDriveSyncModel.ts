@@ -47,3 +47,68 @@ export function toRemoteVocabFile(items: VocabItem[]): RemoteVocabFile {
     items: remoteItems,
   }
 }
+
+// Valida o formato mínimo do arquivo remoto. Formato desconhecido = não dá pra
+// mesclar com segurança, então o sync aborta em vez de sobrescrever.
+export function isRemoteVocabFile(value: unknown): value is RemoteVocabFile {
+  if (typeof value !== 'object' || value === null) return false
+  return Array.isArray((value as { items?: unknown }).items)
+}
+
+// Normaliza um item remoto: só `sourceText` é obrigatório (sem ele não há o que
+// restaurar). Campos ausentes viram '' em vez de descartar o item — descartar
+// faria o próximo publish apagá-lo do Drive. A chave é calculada sobre o item
+// normalizado, igual ao que fica salvo no local, pra não restaurar em loop.
+export function normalizeRemoteVocabItem(item: unknown): RemoteVocabItem | null {
+  if (typeof item !== 'object' || item === null) return null
+  const raw = item as Record<string, unknown>
+  if (typeof raw.sourceText !== 'string' || raw.sourceText.length === 0) return null
+  const text = (value: unknown) => (typeof value === 'string' ? value : '')
+  return {
+    bookTitle: text(raw.bookTitle),
+    sourceText: raw.sourceText,
+    translatedText: text(raw.translatedText),
+    sourceLang: text(raw.sourceLang),
+    targetLang: text(raw.targetLang),
+    createdAt: text(raw.createdAt),
+  }
+}
+
+export function fromRemoteVocabItem(item: RemoteVocabItem): Omit<VocabItem, 'id'> {
+  const createdAt = new Date(item.createdAt)
+  return {
+    bookId: 0, // bookId é local de cada device; 0 = sem livro vinculado
+    bookTitle: item.bookTitle,
+    sourceText: item.sourceText,
+    translatedText: item.translatedText,
+    sourceLang: item.sourceLang,
+    targetLang: item.targetLang,
+    createdAt: Number.isNaN(createdAt.getTime()) ? new Date() : createdAt,
+  }
+}
+
+// Merge de 3 vias (local × remoto × baseline) que decide o que restaurar no
+// local antes de publicar. `baselineKeys` = chaves que ESTE device publicou no
+// último sync bem-sucedido. Item remoto ausente no local:
+//   - fora da baseline → veio de outro device (ou nunca sincronizamos) → restaura;
+//   - dentro da baseline → este device publicou e depois excluiu → não restaura.
+// Sem baseline (install novo/storage limpo) restaura tudo: pior caso é
+// ressuscitar um item excluído, nunca perder dados.
+export function selectRemoteItemsToRestore(
+  localItems: Pick<VocabItem, 'bookTitle' | 'sourceText' | 'targetLang'>[],
+  remoteItems: unknown[],
+  baselineKeys: ReadonlySet<string>,
+): RemoteVocabItem[] {
+  const localKeys = new Set(localItems.map(vocabSyncKey))
+  const seen = new Set<string>()
+  const toRestore: RemoteVocabItem[] = []
+  for (const rawItem of remoteItems) {
+    const item = normalizeRemoteVocabItem(rawItem)
+    if (!item) continue
+    const key = vocabSyncKey(item)
+    if (localKeys.has(key) || baselineKeys.has(key) || seen.has(key)) continue
+    seen.add(key) // evita restaurar duplicatas do próprio arquivo remoto
+    toRestore.push(item)
+  }
+  return toRestore
+}
