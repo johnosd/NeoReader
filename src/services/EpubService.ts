@@ -94,29 +94,87 @@ export class EpubService {
   // compartilhada garante que 2 chamadas concorrentes (parseExtras e
   // EpubBookInfoProvider, que rodam em efeitos React separados na mesma
   // abertura da tela de detalhes) façam 1 unzip só, não 2.
+  // É um LRU limitado: o Map guarda a ordem de inserção, então a primeira
+  // chave é sempre a menos usada (cada hit faz delete+set pra ir pro fim).
   private static packageCache = new Map<number, Promise<EpubZipPackage>>()
+  // Bytes descompactados de cada entrada já resolvida. Promessa em andamento
+  // não aparece aqui (tamanho desconhecido) e nunca é despejada.
+  private static packageCacheBytes = new Map<number, number>()
+  // O uso real é "tela de detalhes aberta agora"; poucas entradas bastam.
+  static readonly PACKAGE_CACHE_MAX_ENTRIES = 3
+  static readonly PACKAGE_CACHE_MAX_BYTES = 48 * 1024 * 1024
 
   static invalidateExtrasCache(bookId: number): void {
     EpubService.extrasCache.delete(bookId)
     EpubService.packageCache.delete(bookId)
+    EpubService.packageCacheBytes.delete(bookId)
     void deleteStoredEpubExtras(bookId).catch(() => {})
   }
 
   // Descompacta o EPUB e resolve o OPF. Sem bookId, sempre descompacta de
   // novo (uso em import, onde o livro ainda nao tem id). Com bookId, reusa o
-  // resultado em memoria enquanto a tela de detalhes estiver aberta.
+  // resultado em memoria dentro do limite do LRU (entradas + bytes).
   static async getEpubPackage(fileBlob: Blob, bookId?: number): Promise<EpubZipPackage> {
     if (bookId === undefined) return EpubService.unzipPackage(fileBlob)
 
     let cached = EpubService.packageCache.get(bookId)
-    if (!cached) {
-      cached = EpubService.unzipPackage(fileBlob).catch((error) => {
-        EpubService.packageCache.delete(bookId)
-        throw error
-      })
+    if (cached) {
+      // Hit: reposiciona como mais recente.
+      EpubService.packageCache.delete(bookId)
       EpubService.packageCache.set(bookId, cached)
+      return cached
     }
+
+    const pending: Promise<EpubZipPackage> = EpubService.unzipPackage(fileBlob).then(
+      (pkg) => {
+        // Só contabiliza se a entrada ainda é esta promessa (pode ter sido
+        // invalidada ou despejada enquanto descompactava).
+        if (EpubService.packageCache.get(bookId) === pending) {
+          EpubService.packageCacheBytes.set(bookId, EpubService.packageByteSize(pkg))
+          EpubService.enforcePackageCacheLimits()
+        }
+        return pkg
+      },
+      (error) => {
+        if (EpubService.packageCache.get(bookId) === pending) {
+          EpubService.packageCache.delete(bookId)
+          EpubService.packageCacheBytes.delete(bookId)
+        }
+        throw error
+      },
+    )
+    cached = pending
+    EpubService.packageCache.set(bookId, cached)
+    EpubService.enforcePackageCacheLimits()
     return cached
+  }
+
+  private static packageByteSize(pkg: EpubZipPackage): number {
+    let total = 0
+    for (const data of Object.values(pkg.files)) total += data.byteLength
+    return total
+  }
+
+  // Despeja entradas resolvidas, da menos para a mais recente, até caber no
+  // limite de entradas e no orçamento de bytes. Um pacote que sozinho estoura
+  // o orçamento também sai — quem já tem a promessa recebe o resultado normal.
+  private static enforcePackageCacheLimits(): void {
+    const cache = EpubService.packageCache
+    const sizes = EpubService.packageCacheBytes
+    const totalBytes = () => {
+      let total = 0
+      for (const bytes of sizes.values()) total += bytes
+      return total
+    }
+
+    for (const bookId of [...cache.keys()]) {
+      const overEntries = cache.size > EpubService.PACKAGE_CACHE_MAX_ENTRIES
+      const overBytes = totalBytes() > EpubService.PACKAGE_CACHE_MAX_BYTES
+      if (!overEntries && !overBytes) return
+      if (!sizes.has(bookId)) continue // ainda descompactando: compartilhada, não despeja
+      cache.delete(bookId)
+      sizes.delete(bookId)
+    }
   }
 
   private static async unzipPackage(fileBlob: Blob): Promise<EpubZipPackage> {

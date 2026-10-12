@@ -802,3 +802,105 @@ describe('EpubService.parseExtras - cache de sessão', () => {
     }))
   })
 })
+
+// R11 (code review 2026-10-10): o cache de pacotes descompactados é um LRU
+// limitado por entradas e bytes, sem perder o compartilhamento do unzip.
+describe('EpubService.getEpubPackage - limite do cache (LRU)', () => {
+  // Acesso aos campos privados só pra inspecionar/zerar o estado estático.
+  const internals = EpubService as unknown as {
+    packageCache: Map<number, Promise<unknown>>
+    packageCacheBytes: Map<number, number>
+  }
+
+  const makeBlob = () => {
+    const arrayBuffer = vi.fn().mockResolvedValue(new ArrayBuffer(0))
+    return { blob: { arrayBuffer } as unknown as Blob, arrayBuffer }
+  }
+
+  beforeEach(() => {
+    internals.packageCache.clear()
+    internals.packageCacheBytes.clear()
+    fflateState.error = null
+    fflateState.files = { 'small.bin': new Uint8Array(16) }
+  })
+
+  it('mantem no maximo PACKAGE_CACHE_MAX_ENTRIES e descarta o mais antigo', async () => {
+    const max = EpubService.PACKAGE_CACHE_MAX_ENTRIES
+    const blobs = Array.from({ length: max + 5 }, makeBlob)
+    for (const [index, { blob }] of blobs.entries()) {
+      await EpubService.getEpubPackage(blob, 7000 + index)
+    }
+
+    expect(internals.packageCache.size).toBe(max)
+    expect(internals.packageCache.has(7000)).toBe(false)
+
+    // O mais recente continua em cache; o despejado descompacta de novo.
+    const newest = blobs[blobs.length - 1]
+    await EpubService.getEpubPackage(newest.blob, 7000 + blobs.length - 1)
+    expect(newest.arrayBuffer).toHaveBeenCalledTimes(1)
+    await EpubService.getEpubPackage(blobs[0].blob, 7000)
+    expect(blobs[0].arrayBuffer).toHaveBeenCalledTimes(2)
+  })
+
+  it('um hit reposiciona a entrada como mais recente', async () => {
+    const max = EpubService.PACKAGE_CACHE_MAX_ENTRIES
+    const blobs = Array.from({ length: max }, makeBlob)
+    for (const [index, { blob }] of blobs.entries()) {
+      await EpubService.getEpubPackage(blob, 7100 + index)
+    }
+    // Reusa o mais antigo e abre um novo: quem sai é o segundo mais antigo.
+    await EpubService.getEpubPackage(blobs[0].blob, 7100)
+    await EpubService.getEpubPackage(makeBlob().blob, 7199)
+
+    expect(internals.packageCache.has(7100)).toBe(true)
+    expect(internals.packageCache.has(7101)).toBe(false)
+    expect(blobs[0].arrayBuffer).toHaveBeenCalledTimes(1)
+  })
+
+  it('respeita o orcamento de bytes e nao retem pacote maior que o orcamento', async () => {
+    const budget = EpubService.PACKAGE_CACHE_MAX_BYTES
+    // Dois pacotes de 40% do orçamento cabem; o terceiro força despejo.
+    fflateState.files = { 'image.bin': new Uint8Array(Math.floor(budget * 0.4)) }
+    await EpubService.getEpubPackage(makeBlob().blob, 7200)
+    await EpubService.getEpubPackage(makeBlob().blob, 7201)
+    await EpubService.getEpubPackage(makeBlob().blob, 7202)
+
+    let retained = 0
+    for (const bytes of internals.packageCacheBytes.values()) retained += bytes
+    expect(retained).toBeLessThanOrEqual(budget)
+    expect([...internals.packageCache.keys()]).toEqual([7201, 7202])
+
+    // Pacote sozinho acima do orçamento: devolvido ao chamador, mas não retido.
+    fflateState.files = { 'huge.bin': new Uint8Array(budget + 1) }
+    const huge = await EpubService.getEpubPackage(makeBlob().blob, 7203)
+    expect(huge.files['huge.bin'].byteLength).toBe(budget + 1)
+    expect(internals.packageCache.has(7203)).toBe(false)
+  })
+
+  it('compartilha o unzip em andamento mesmo com o cache cheio', async () => {
+    const max = EpubService.PACKAGE_CACHE_MAX_ENTRIES
+    for (let index = 0; index < max; index++) {
+      await EpubService.getEpubPackage(makeBlob().blob, 7300 + index)
+    }
+    const { blob, arrayBuffer } = makeBlob()
+    const [first, second] = await Promise.all([
+      EpubService.getEpubPackage(blob, 7399),
+      EpubService.getEpubPackage(blob, 7399),
+    ])
+
+    expect(first).toBe(second)
+    expect(arrayBuffer).toHaveBeenCalledTimes(1)
+    expect(internals.packageCache.size).toBe(max)
+    expect(internals.packageCache.has(7399)).toBe(true)
+  })
+
+  it('invalidar durante o unzip nao deixa contabilidade orfa', async () => {
+    const { blob } = makeBlob()
+    const pending = EpubService.getEpubPackage(blob, 7400)
+    EpubService.invalidateExtrasCache(7400)
+    await pending
+
+    expect(internals.packageCache.has(7400)).toBe(false)
+    expect(internals.packageCacheBytes.has(7400)).toBe(false)
+  })
+})
