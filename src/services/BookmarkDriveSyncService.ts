@@ -7,7 +7,13 @@ import {
   createBookmarkSyncKey,
   createRemoteBookmarkFile,
   getBookmarkDriveFileName,
+  type RemoteBookmarkFile,
 } from './BookmarkDriveSyncModel'
+import {
+  isRemoteBookmark,
+  isSupportedRemoteBookmarkFile,
+  mergeRemoteBookmarksIntoLocal,
+} from './BookmarkDriveMerge'
 import {
   GoogleDriveAppDataError,
   GoogleDriveAppDataService,
@@ -24,6 +30,8 @@ import {
 
 export interface BookmarkDriveSyncClient {
   list(options: { name?: string }): Promise<GoogleDriveAppDataFile[]>
+  // Necessário para reconciliar com o que outro aparelho publicou antes do upload.
+  getJson<T>(fileId: string): Promise<T>
   createJson<T>(name: string, data: T): Promise<GoogleDriveAppDataFile>
   updateJson<T>(fileId: string, data: T): Promise<GoogleDriveAppDataFile>
 }
@@ -99,14 +107,42 @@ export async function syncBookBookmarks(
     if (!book) throw new Error('Book not found for bookmark sync.')
     if (!book.fileHash) throw new Error('Book fileHash is required for bookmark sync.')
 
-    const normalizedBookmarks = await ensureBookmarkSyncKeys(bookmarks)
     const fileName = getBookmarkDriveFileName(book.fileHash)
+    const existingFile = (await driveClient.list({ name: fileName }))[0]
+
+    // Bug R03: antes publicávamos só a tabela local (last-writer-wins) e
+    // apagávamos marcadores/tombstones criados por outro aparelho. Agora o
+    // remoto é lido e mesclado no local ANTES do upload. Se a leitura ou a
+    // validação falhar, o erro cai no catch e nada é escrito (sem sobrescrita
+    // destrutiva); os bookmarks ficam pendentes para o retry.
+    let remoteMergedCount = 0
+    if (existingFile) {
+      const remotePayload = await driveClient.getJson<RemoteBookmarkFile>(existingFile.id)
+      if (!isSupportedRemoteBookmarkFile(remotePayload)) {
+        throw new Error('Remote bookmark file has an unsupported schema; refusing to overwrite.')
+      }
+      if (remotePayload.bookFileHash.trim().toLowerCase() !== book.fileHash.trim().toLowerCase()) {
+        throw new Error('Remote bookmark file hash mismatch; refusing to overwrite.')
+      }
+      const mergeResult = await mergeRemoteBookmarksIntoLocal(
+        bookId,
+        bookmarks,
+        remotePayload.bookmarks.filter(isRemoteBookmark),
+        now(),
+      )
+      remoteMergedCount = mergeResult.mergedCount
+    }
+
+    // Relê o banco: depois do merge ele é a união reconciliada (local + remoto).
+    const reconciledBookmarks = existingFile
+      ? await db.bookmarks.where('bookId').equals(bookId).toArray()
+      : bookmarks
+    const normalizedBookmarks = await ensureBookmarkSyncKeys(reconciledBookmarks)
     const payload = createRemoteBookmarkFile({
       book,
       bookmarks: normalizedBookmarks,
       updatedAt: now(),
     })
-    const existingFile = (await driveClient.list({ name: fileName }))[0]
 
     if (existingFile) {
       await driveClient.updateJson(existingFile.id, payload)
@@ -123,6 +159,7 @@ export async function syncBookBookmarks(
       details: {
         bookId,
         bookmarkCount: normalizedBookmarks.length,
+        remoteMergedCount,
         operation: existingFile ? 'update' : 'create',
       },
     })

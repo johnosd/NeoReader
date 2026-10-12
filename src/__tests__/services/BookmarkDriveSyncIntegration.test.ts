@@ -1,6 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { Book, Bookmark } from '@/types/book'
 import type { GoogleDriveAppDataFile } from '@/services/GoogleDriveAppDataService'
+import type { RemoteBookmarkFile } from '@/services/BookmarkDriveSyncModel'
 
 let db: typeof import('@/db/database')['db']
 let addBook: typeof import('@/db/books')['addBook']
@@ -133,7 +134,83 @@ describe('Bookmark Drive sync integration', () => {
     expect(restored).toHaveLength(1)
     expect(restored[0].deletedAt).toEqual(deletedAt)
   })
+
+  // Bug R03: o upload sobrescrevia o remoto só com a tabela local.
+  it('preserva marcador de outro aparelho ao publicar o local (bug R03)', async () => {
+    const driveClient = new InMemoryDriveClient()
+    const cfiX = 'epubcfi(/6/10!/4/2/1:0)'
+    const cfiY = 'epubcfi(/6/12!/4/2/1:0)'
+
+    // Aparelho A cria X e publica.
+    const bookA = await createImportedBook()
+    await createLocalBookmark(bookA, { cfi: cfiX, label: 'X', syncKey: createBookmarkSyncKey(cfiX) })
+    await syncBookBookmarks(bookA, { driveClient, now: () => new Date('2026-06-15T10:05:00.000Z'), ...PRO_OPTIONS })
+
+    // Aparelho B (snapshot antigo, sem X) cria Y e publica.
+    await resetDatabase()
+    const bookB = await createImportedBook()
+    await createLocalBookmark(bookB, { cfi: cfiY, label: 'Y', syncKey: createBookmarkSyncKey(cfiY) })
+    await syncBookBookmarks(bookB, { driveClient, now: () => new Date('2026-06-15T10:06:00.000Z'), ...PRO_OPTIONS })
+
+    const remote = await readRemote(driveClient)
+    expect(remote.bookmarks.map((bookmark) => bookmark.label).sort()).toEqual(['X', 'Y'])
+
+    // B também passa a ter X localmente, sem duplicar Y, e tudo marcado como sincronizado.
+    const localB = await db.bookmarks.where('bookId').equals(bookB).toArray()
+    expect(localB.map((bookmark) => bookmark.label).sort()).toEqual(['X', 'Y'])
+    expect(localB.every((bookmark) => bookmark.syncedAt && !bookmark.syncError)).toBe(true)
+
+    // Retry sem mudanças não duplica nada.
+    await syncBookBookmarks(bookB, { driveClient, now: () => new Date('2026-06-15T10:07:00.000Z'), ...PRO_OPTIONS })
+    expect((await readRemote(driveClient)).bookmarks).toHaveLength(2)
+    expect(await db.bookmarks.where('bookId').equals(bookB).count()).toBe(2)
+  })
+
+  it('exclusao remota mais recente vence edicao local antiga e nao ressuscita (bug R03)', async () => {
+    const driveClient = new InMemoryDriveClient()
+    const deletedAt = new Date('2026-06-15T10:20:00.000Z')
+
+    // A exclui o marcador e publica o tombstone.
+    const bookA = await createImportedBook()
+    await createLocalBookmark(bookA, { deletedAt, updatedAt: deletedAt })
+    await syncBookBookmarks(bookA, { driveClient, now: () => new Date('2026-06-15T10:21:00.000Z'), ...PRO_OPTIONS })
+
+    // B ainda tem o marcador vivo, editado antes da exclusão, e sincroniza.
+    await resetDatabase()
+    const bookB = await createImportedBook()
+    await createLocalBookmark(bookB, { label: 'edit antigo', updatedAt: new Date('2026-06-15T10:10:00.000Z') })
+    await syncBookBookmarks(bookB, { driveClient, now: () => new Date('2026-06-15T10:22:00.000Z'), ...PRO_OPTIONS })
+
+    const remote = await readRemote(driveClient)
+    expect(remote.bookmarks).toHaveLength(1)
+    expect(remote.bookmarks[0].deletedAt).toBe(deletedAt.toISOString())
+    const localB = await db.bookmarks.where('bookId').equals(bookB).toArray()
+    expect(localB).toHaveLength(1)
+    expect(localB[0].deletedAt).toEqual(deletedAt)
+  })
+
+  it('edicao local mais recente vence tombstone remoto antigo (bug R03)', async () => {
+    const driveClient = new InMemoryDriveClient()
+    const deletedAt = new Date('2026-06-15T10:10:00.000Z')
+
+    const bookA = await createImportedBook()
+    await createLocalBookmark(bookA, { deletedAt, updatedAt: deletedAt })
+    await syncBookBookmarks(bookA, { driveClient, now: () => new Date('2026-06-15T10:11:00.000Z'), ...PRO_OPTIONS })
+
+    await resetDatabase()
+    const bookB = await createImportedBook()
+    await createLocalBookmark(bookB, { label: 'edit novo', updatedAt: new Date('2026-06-15T10:30:00.000Z') })
+    await syncBookBookmarks(bookB, { driveClient, now: () => new Date('2026-06-15T10:31:00.000Z'), ...PRO_OPTIONS })
+
+    const remote = await readRemote(driveClient)
+    expect(remote.bookmarks).toEqual([expect.objectContaining({ label: 'edit novo', deletedAt: null })])
+  })
 })
+
+async function readRemote(driveClient: InMemoryDriveClient): Promise<RemoteBookmarkFile> {
+  const [file] = await driveClient.list({ name: getBookmarkDriveFileName(BOOK_HASH) })
+  return driveClient.getJson<RemoteBookmarkFile>(file.id)
+}
 
 async function resetDatabase(): Promise<void> {
   await db.open()

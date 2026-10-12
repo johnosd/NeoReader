@@ -94,7 +94,15 @@ function setBookmarks(bookmarks: Bookmark[]) {
 
 function makeDriveClient() {
   return {
-    list: vi.fn(async () => []),
+    list: vi.fn(async (): Promise<Array<{ id: string; name: string }>> => []),
+    // Remoto válido e vazio por padrão: o sync lê antes de publicar (bug R03).
+    getJson: vi.fn(async (): Promise<unknown> => ({
+      schemaVersion: 1,
+      bookFileHash: BOOK_HASH,
+      book: { title: 'Clean Code', author: 'Robert C. Martin', fileName: 'clean-code.epub' },
+      bookmarks: [],
+      updatedAt: '2026-06-15T09:30:00.000Z',
+    })),
     createJson: vi.fn(async () => ({ id: 'file-1', name: 'bookmarks.json' })),
     updateJson: vi.fn(async () => ({ id: 'file-1', name: 'bookmarks.json' })),
   }
@@ -203,6 +211,43 @@ describe('BookmarkDriveSyncService', () => {
     expect(mocks.bookmarksUpdate).not.toHaveBeenCalledWith(7, expect.objectContaining({
       syncedAt: new Date('2026-06-15T10:05:00.000Z'),
     }))
+  })
+
+  it('le o remoto antes de atualizar arquivo existente (bug R03)', async () => {
+    const driveClient = makeDriveClient()
+    driveClient.list.mockResolvedValue([{ id: 'file-existing', name: 'bookmarks.json' }])
+
+    await syncBookBookmarks(42, { driveClient, ...PRO_OPTIONS })
+
+    expect(driveClient.getJson).toHaveBeenCalledWith('file-existing')
+    expect(driveClient.getJson.mock.invocationCallOrder[0])
+      .toBeLessThan(driveClient.updateJson.mock.invocationCallOrder[0])
+  })
+
+  it('nao sobrescreve o remoto quando a leitura falha (bug R03)', async () => {
+    const driveClient = makeDriveClient()
+    driveClient.list.mockResolvedValue([{ id: 'file-existing', name: 'bookmarks.json' }])
+    driveClient.getJson.mockRejectedValue(new GoogleDriveAppDataError('offline', 'offline'))
+
+    await syncBookBookmarks(42, { driveClient, ...PRO_OPTIONS })
+
+    expect(driveClient.updateJson).not.toHaveBeenCalled()
+    expect(driveClient.createJson).not.toHaveBeenCalled()
+    expect(mocks.bookmarksUpdate).toHaveBeenCalledWith(7, expect.objectContaining({
+      syncedAt: null,
+      syncError: 'offline',
+    }))
+  })
+
+  it('nao sobrescreve remoto com schema desconhecido (bug R03)', async () => {
+    const driveClient = makeDriveClient()
+    driveClient.list.mockResolvedValue([{ id: 'file-existing', name: 'bookmarks.json' }])
+    driveClient.getJson.mockResolvedValue({ schemaVersion: 99, bookFileHash: BOOK_HASH, bookmarks: [] })
+
+    await syncBookBookmarks(42, { driveClient, ...PRO_OPTIONS })
+
+    expect(driveClient.updateJson).not.toHaveBeenCalled()
+    expect(mocks.logWarn).toHaveBeenCalledWith('bookmark.sync.failure', expect.any(Object))
   })
 
   it('registra erro quando livro nao tem fileHash', async () => {
