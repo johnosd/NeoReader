@@ -72,6 +72,10 @@ Os resultados finais estão nos relatórios `test.md` de cada bug.
 | epub-layout-fixo-no-abre | EPUB de layout fixo não abre | Test | verified | Concluído | 2026-10-07 |
 | toque-no-epub-fixo-no-abre | Toque no EPUB fixo não abre menu contextual | Test | verified | Concluído | 2026-10-07 |
 | menu-epub-fixo-sem-estilos-leitor | Menu do EPUB fixo sem estilos do leitor | Test | partial | Concluído (com ressalva) ou reabrir Assess | 2026-10-07 |
+| links-externos-opds-recebem-credencial-catlogo | links-externos-opds-recebem-credencial-catlogo | Test | verified | Concluído | 2026-10-12 |
+| vocabulario-remoto-apagado-ao-entrar-outro | Vocabulário remoto apagado ao entrar em outro dispositivo | Test | verified | Concluído | 2026-10-12 |
+| upload-marcadores-substitui-os-outro-dispositivo | Upload de marcadores substitui os de outro dispositivo | Test | verified | Concluído | 2026-10-12 |
+| audiobook-traduzido-pula-restante-secao | Audiobook traduzido pula o restante da seção | Test | partial | Concluído (com ressalva) ou reabrir Assess | 2026-10-12 |
 
 ## Melhorias Ad-hoc
 
