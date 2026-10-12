@@ -69,7 +69,8 @@ export interface PdfDataRangeTransport {
 export interface PdfJsLib {
   GlobalWorkerOptions: { workerSrc: string }
   PDFDataRangeTransport: new (length: number, initialData: ArrayBuffer[] | Uint8Array[]) => PdfDataRangeTransport
-  getDocument(options: Record<string, unknown>): { promise: Promise<PdfDocumentProxy> }
+  // A loading task: destroy() derruba transporte/worker mesmo se a abertura ainda não terminou.
+  getDocument(options: Record<string, unknown>): { promise: Promise<PdfDocumentProxy>; destroy(): Promise<void> }
   TextLayer: new (options: { textContentSource: ReadableStream; container: HTMLElement; viewport: PdfViewportLike }) => {
     render(): Promise<void>
     // Um <span> por TextItem (str definido), na mesma ordem de getTextContent().

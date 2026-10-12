@@ -42,6 +42,8 @@ export function usePdfReaderSession(
 
     let cancelled = false
     let opened: PdfReaderSession | null = null
+    // Cancela a abertura em andamento (requests de Range + worker do pdf.js) se sair antes de terminar.
+    const opening = new AbortController()
 
     const release = (session: PdfReaderSession) => {
       session.extractor.clear()
@@ -52,7 +54,8 @@ export function usePdfReaderSession(
     void (async () => {
       try {
         const source = await BookFileResolver.resolvePdfReaderSource(book)
-        const { book: pdfBook, pdf } = await createPdfBook(source)
+        // Signal já abortado (saiu durante a resolução) faz createPdfBook rejeitar sem abrir nada.
+        const { book: pdfBook, pdf } = await createPdfBook(source, { signal: opening.signal })
         const session: PdfReaderSession = {
           pdfBook,
           pdf,
@@ -77,6 +80,7 @@ export function usePdfReaderSession(
 
     return () => {
       cancelled = true
+      opening.abort()
       if (opened) release(opened)
       setState({ status: 'idle' })
     }

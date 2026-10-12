@@ -120,8 +120,26 @@ export function outlineEntriesFromToc(toc: readonly PdfTocItem[] | null | undefi
   return (toc ?? []).flatMap((item) => (item.index === undefined ? [] : [{ title: item.label, pageIndex: item.index }]))
 }
 
-export async function createPdfBook(file: Blob | PdfRangeSource): Promise<PdfBookHandle> {
+export interface CreatePdfBookOptions {
+  // Abortar durante a abertura (ex.: saiu do leitor) rejeita e libera requests/worker.
+  signal?: AbortSignal
+}
+
+export async function createPdfBook(file: Blob | PdfRangeSource, options: CreatePdfBookOptions = {}): Promise<PdfBookHandle> {
+  const { signal } = options
+  signal?.throwIfAborted()
   const pdfjs = await loadPdfjs()
+  signal?.throwIfAborted()
+
+  // O PDFDataRangeTransport do pdf.js não tem canal de erro: se uma faixa falha, ele espera os bytes para
+  // sempre. Por isso a abertura corre contra esta promessa, que rejeita na 1ª falha de Range ou no abort.
+  let failOpening!: (error: unknown) => void
+  const openingFailed = new Promise<never>((_, reject) => { failOpening = reject })
+  openingFailed.catch(() => undefined) // evita "unhandled rejection" se ninguém estiver aguardando
+  const onAbort = () => failOpening(signal?.reason ?? new DOMException('PDF opening aborted', 'AbortError'))
+  signal?.addEventListener('abort', onAbort, { once: true })
+  // Corre uma etapa da abertura contra a falha de transporte/abort.
+  const untilFailure = <T>(step: Promise<T>) => Promise.race([step, openingFailed])
 
   // O pdf.js pede [begin, end): arquivos locais vêm por HTTP Range e Blobs usam slice().
   const transport = new pdfjs.PDFDataRangeTransport(file instanceof Blob ? file.size : file.length, [])
@@ -133,11 +151,15 @@ export async function createPdfBook(file: Blob | PdfRangeSource): Promise<PdfBoo
     read
       .then((chunk) => transport.onDataRange(begin, chunk))
       .catch((error) => {
-        if (!rangeRequests.signal.aborted) console.warn('PDF range read failed:', begin, end, error)
+        if (rangeRequests.signal.aborted) return
+        console.warn('PDF range read failed:', begin, end, error)
+        // Durante a abertura, propaga; depois dela é no-op (a promessa já foi descartada).
+        failOpening(error)
       })
   }
 
-  const pdf = await pdfjs.getDocument({
+  // Guardada para poder destruir o transporte/worker mesmo se o documento nunca abrir.
+  const loadingTask = pdfjs.getDocument({
     range: transport,
     // Sem isto o pdf.js baixaria o arquivo inteiro em segundo plano depois de abrir.
     disableAutoFetch: true,
@@ -145,13 +167,29 @@ export async function createPdfBook(file: Blob | PdfRangeSource): Promise<PdfBoo
     cMapUrl: pdfjsPath('cmaps/'),
     standardFontDataUrl: pdfjsPath('standard_fonts/'),
     isEvalSupported: false,
-  }).promise
+  })
+
+  // Falha/abort em qualquer etapa da abertura: corta os Range pendentes e derruba a loading task
+  // (que também destrói o documento, se ele já tiver sido carregado).
+  const abandonOpening = () => {
+    signal?.removeEventListener('abort', onAbort)
+    rangeRequests.abort()
+    void loadingTask.destroy().catch(() => undefined)
+  }
+
+  let pdf: PdfDocumentProxy
+  try {
+    pdf = await untilFailure(loadingTask.promise)
+  } catch (error) {
+    abandonOpening()
+    throw error
+  }
 
   try {
     // O layout fixo precisa do tamanho da 1ª página como viewport padrão.
-    const firstViewport = (await pdf.getPage(1)).getViewport({ scale: 1 })
+    const firstViewport = (await untilFailure(pdf.getPage(1))).getViewport({ scale: 1 })
 
-    const meta = (await pdf.getMetadata()) ?? {}
+    const meta = (await untilFailure(pdf.getMetadata())) ?? {}
     const dc = (name: string) => meta.metadata?.get(name)
     const metadata: PdfBookMetadata = {
       title: dc('dc:title') ?? meta.info?.Title,
@@ -166,8 +204,8 @@ export async function createPdfBook(file: Blob | PdfRangeSource): Promise<PdfBoo
       rights: dc('dc:rights'),
     }
 
-    const outline = await pdf.getOutline()
-    const toc = outline ? await Promise.all(outline.map((node) => makeTocItem(node, pdf))) : null
+    const outline = await untilFailure(pdf.getOutline())
+    const toc = outline ? await untilFailure(Promise.all(outline.map((node) => makeTocItem(node, pdf)))) : null
 
     // Dois caches LRU: páginas do pdf.js e HTML-base já renderizado. Map mantém ordem de inserção;
     // reinserir ao ler move o item para o fim (mais recente).
@@ -280,10 +318,12 @@ export async function createPdfBook(file: Blob | PdfRangeSource): Promise<PdfBoo
       },
     }
 
+    // Abertura concluída: abortar o signal depois daqui não derruba a sessão (o dono chama book.destroy()).
+    signal?.removeEventListener('abort', onAbort)
     return { book, pdf }
   } catch (error) {
-    // Falhou depois de abrir o documento (1ª página, metadados): não deixar o worker/documento vazando.
-    void pdf.destroy()
+    // Falhou depois de abrir o documento (1ª página, metadados, Range, abort): não deixar o worker/documento vazando.
+    abandonOpening()
     throw error
   }
 }

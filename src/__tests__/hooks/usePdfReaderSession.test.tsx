@@ -58,7 +58,7 @@ describe('usePdfReaderSession', () => {
     await waitFor(() => expect(result.current.status).toBe('ready'))
 
     expect(mocks.resolvePdfReaderSource).toHaveBeenCalledWith(book)
-    expect(mocks.createPdfBook).toHaveBeenCalledWith(pdfBlob)
+    expect(mocks.createPdfBook).toHaveBeenCalledWith(pdfBlob, { signal: expect.any(AbortSignal) })
     if (result.current.status !== 'ready') throw new Error('esperava ready')
     const { session } = result.current
     expect(session.pageCount).toBe(45)
@@ -75,7 +75,7 @@ describe('usePdfReaderSession', () => {
     const { result } = renderHook(() => usePdfReaderSession({ ...book, storageMode: 'local', uri: 'file:///large.pdf' }, true))
     await waitFor(() => expect(result.current.status).toBe('ready'))
 
-    expect(mocks.createPdfBook).toHaveBeenCalledWith(source)
+    expect(mocks.createPdfBook).toHaveBeenCalledWith(source, { signal: expect.any(AbortSignal) })
   })
 
   it('usa o sumário do PDF para dividir os trechos', async () => {
@@ -113,6 +113,27 @@ describe('usePdfReaderSession', () => {
     })
 
     await waitFor(() => expect(destroy).toHaveBeenCalledTimes(1))
+  })
+
+  // R14: sair enquanto createPdfBook ainda abre aborta o signal (cancela Range/worker) e não vira erro.
+  it('sair durante a abertura aborta o signal passado a createPdfBook e não vira status error', async () => {
+    let signal: AbortSignal | undefined
+    mocks.createPdfBook.mockImplementation((_source: unknown, options: { signal: AbortSignal }) => {
+      signal = options.signal
+      return new Promise((_, reject) => {
+        options.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+      })
+    })
+    const onError = vi.fn()
+    const { result, unmount } = renderHook(() => usePdfReaderSession(book, true, onError))
+    await waitFor(() => expect(signal).toBeDefined())
+    expect(result.current.status).toBe('loading')
+
+    unmount()
+    await act(async () => { await Promise.resolve() })
+
+    expect(signal?.aborted).toBe(true)
+    expect(onError).not.toHaveBeenCalled()
   })
 
   it('erro ao resolver o arquivo vira status error (mensagem preservada para a tela de arquivo ausente)', async () => {
