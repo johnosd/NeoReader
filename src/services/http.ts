@@ -16,6 +16,9 @@ export async function fetchWithTimeout(
   url: string,
   options: FetchWithTimeoutOptions = {},
 ): Promise<Response> {
+  // Já cancelado antes de despachar: não abre a requisição nem loga como falha.
+  const externalSignal = options.init?.signal ?? undefined
+  if (externalSignal?.aborted) throw toAbortError(externalSignal)
   const controller = new AbortController()
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const method = options.init?.method ?? 'GET'
@@ -27,6 +30,11 @@ export async function fetchWithTimeout(
     controller.abort()
   }, timeoutMs)
   const fetchImpl = options.fetchImpl ?? getDefaultFetch()
+  // Compõe o cancelamento do chamador (init.signal) com o timeout num único
+  // controller: o fetch recebe um só signal, que aborta no que vier primeiro.
+  // Listener manual em vez de AbortSignal.any (suporte incerto em WebView antigo).
+  const abortFromExternal = () => controller.abort(externalSignal?.reason)
+  externalSignal?.addEventListener('abort', abortFromExternal)
 
   logEvent('network.request', {
     flowId,
@@ -62,6 +70,8 @@ export async function fetchWithTimeout(
     return response
   } catch (error) {
     const durationMs = getDiagnosticsNowMs() - startedAt
+    // Cancelado pelo chamador (não por timeout): não é falha de rede, só repassa.
+    if (!didTimeout && externalSignal?.aborted) throw error
     const isTimeout = didTimeout || isAbortError(error)
     if (isTimeout) {
       logWarn('network.timeout', {
@@ -91,9 +101,16 @@ export async function fetchWithTimeout(
     throw error
   } finally {
     clearTimeout(timeoutId)
+    // Evita vazar listener num signal externo de vida longa.
+    externalSignal?.removeEventListener('abort', abortFromExternal)
   }
 }
 
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
+}
+
+/** Motivo do abort como erro (AbortError por padrão quando o chamador não deu motivo). */
+export function toAbortError(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException('The operation was aborted.', 'AbortError')
 }

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { translate, hashText } from '@/services/TranslationService'
 import { TranslationProviderError } from '@/services/TranslationProviderRegistry'
+import { translateParagraphForAudiobook } from '@/services/TranslatedAudiobookService'
 
 // Mocka IndexedDB (Dexie) — testes de serviço não devem depender de storage real
 vi.mock('@/db/translations', () => ({
@@ -258,5 +259,85 @@ describe('translate — provider premium configurado (FR-006/FR-007/FR-010)', ()
       translate('Hello.', 'en', 'pt-BR', { provider: 'deepl', signal: controller.signal }),
     ).rejects.toThrow()
     expect(fetch).not.toHaveBeenCalled() // nunca tentou o fallback MyMemory
+  })
+})
+
+// R10 (code review 2026-10-10): o signal do chamador precisa chegar ao MyMemory
+// e ao fetch, e cancelar nunca vira retry/fallback nem próximas partes.
+describe('translate — cancelamento (R10)', () => {
+  // fetch que só termina quando o signal recebido aborta.
+  function makeHangingFetch() {
+    return vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+    }))
+  }
+
+  it('MyMemory com signal já abortado não despacha a requisição', async () => {
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(
+      translate('Synthetic', 'en', 'pt-BR', { provider: 'mymemory', signal: controller.signal }),
+    ).rejects.toMatchObject({ name: 'AbortError' })
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('abort durante a requisição MyMemory interrompe o fetch', async () => {
+    const hanging = makeHangingFetch()
+    vi.stubGlobal('fetch', hanging)
+    const controller = new AbortController()
+
+    const promise = translate('Hello.', 'en', 'pt-BR', { signal: controller.signal })
+    void promise.catch(() => undefined)
+    await vi.waitFor(() => expect(hanging).toHaveBeenCalledOnce())
+    controller.abort()
+
+    await expect(promise).rejects.toMatchObject({ name: 'AbortError' })
+    expect(mockSetCache).not.toHaveBeenCalled()
+  })
+
+  it('provider premium com signal já abortado não chama o premium nem o MyMemory', async () => {
+    mockGetApiKey.mockReturnValue('fake-deepl-key')
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(
+      translate('Hello.', 'en', 'pt-BR', { provider: 'deepl', signal: controller.signal }),
+    ).rejects.toMatchObject({ name: 'AbortError' })
+    expect(mockTranslatePremium).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('abort durante o backoff do premium não gasta o retry nem cai pro MyMemory', async () => {
+    vi.useFakeTimers()
+    mockGetApiKey.mockReturnValue('fake-deepl-key')
+    const controller = new AbortController()
+    mockTranslatePremium.mockRejectedValueOnce(new TranslationProviderError('network_error', 'timeout', true))
+
+    const promise = translate('Hello.', 'en', 'pt-BR', { provider: 'deepl', signal: controller.signal })
+    void promise.catch(() => undefined)
+    await vi.advanceTimersByTimeAsync(100) // dentro do backoff de 500 ms
+    controller.abort()
+    await vi.advanceTimersByTimeAsync(500)
+
+    await expect(promise).rejects.toMatchObject({ name: 'AbortError' })
+    expect(mockTranslatePremium).toHaveBeenCalledTimes(1)
+    expect(fetch).not.toHaveBeenCalled()
+    vi.useRealTimers()
+  })
+
+  it('parágrafo longo dividido: abort no 1º pedaço não despacha os restantes', async () => {
+    const hanging = makeHangingFetch()
+    vi.stubGlobal('fetch', hanging)
+    const controller = new AbortController()
+    const longParagraph = 'Esta e uma frase de teste com tamanho razoavel para dividir. '.repeat(10).trim()
+
+    const promise = translateParagraphForAudiobook(longParagraph, 'en', 'pt-BR', 'mymemory', controller.signal)
+    void promise.catch(() => undefined)
+    await vi.waitFor(() => expect(hanging).toHaveBeenCalledOnce())
+    controller.abort()
+
+    await expect(promise).rejects.toMatchObject({ name: 'AbortError' })
+    expect(hanging).toHaveBeenCalledOnce()
   })
 })

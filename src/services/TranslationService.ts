@@ -1,7 +1,7 @@
 import { getCachedTranslation, setCachedTranslation } from '../db/translations'
 import { getSettings } from '../db/settings'
 import { createFlowId, getDiagnosticsNowMs, logError, logEvent, logWarn } from './DiagnosticsLogger'
-import { fetchWithTimeout } from './http'
+import { fetchWithTimeout, toAbortError } from './http'
 import {
   getTranslationProviderApiKeyFromSettings,
   isPremiumTranslationProvider,
@@ -68,6 +68,11 @@ export async function translate(
   options: TranslateOptions = {},
 ): Promise<TranslationResult> {
   const provider = options.provider ?? 'mymemory'
+  const signal = options.signal
+  // Chamador já cancelou: rejeita antes de qualquer trabalho. Isso também
+  // interrompe sequências (ex.: pedaços de parágrafo longo no audiobook
+  // traduzido) — a próxima chamada nem chega a despachar.
+  if (signal?.aborted) throw toAbortError(signal)
   const truncated = text.length > MAX_CHARS ? text.slice(0, MAX_CHARS) : text
   const langpair = `${source}|${target}`
   const hash = hashText(truncated, langpair, provider)
@@ -89,14 +94,14 @@ export async function translate(
   }
 
   if (!isPremiumTranslationProvider(provider)) {
-    return translateViaMyMemory(truncated, langpair, hash, source, target, baseDetails)
+    return translateViaMyMemory(truncated, langpair, hash, source, target, baseDetails, signal)
   }
 
   const settings = await getSettings()
   const apiKey = getTranslationProviderApiKeyFromSettings(settings.appSettings, provider)
   // Defensivo: a UI (FR-005) já bloqueia selecionar um provider sem chave
   // válida, então isto não deveria disparar na prática.
-  if (!apiKey) return translateViaMyMemory(truncated, langpair, hash, source, target, baseDetails)
+  if (!apiKey) return translateViaMyMemory(truncated, langpair, hash, source, target, baseDetails, signal)
 
   const flowId = createFlowId('translation')
   const startedAt = getDiagnosticsNowMs()
@@ -107,7 +112,7 @@ export async function translate(
         apiKey,
         sourceLang: source,
         targetLang: target,
-        signal: options.signal,
+        signal,
       })
 
       void setCachedTranslation({
@@ -133,7 +138,7 @@ export async function translate(
       // Cancelamento explícito do usuário (troca de trecho/saída da tela) —
       // aborta sem fallback e sem log de falha (não é um erro real do
       // provider, FR-007).
-      if (options.signal?.aborted) throw error
+      if (signal?.aborted) throw error
 
       const isLastAttempt = attempt >= MAX_ATTEMPTS
       const failure = error instanceof TranslationProviderError
@@ -148,6 +153,8 @@ export async function translate(
           details: { ...baseDetails, attempt, code: failure.code },
         })
         await delay(RETRY_BACKOFF_MS)
+        // Cancelado durante o backoff: não gasta o retry.
+        if (signal?.aborted) throw toAbortError(signal)
         continue
       }
 
@@ -175,13 +182,13 @@ export async function translate(
         throw failure
       }
 
-      return translateViaMyMemory(truncated, langpair, hash, source, target, baseDetails)
+      return translateViaMyMemory(truncated, langpair, hash, source, target, baseDetails, signal)
     }
   }
 
   // Inalcançável (o loop sempre retorna ou lança) — só pra satisfazer o
   // checador de tipos sobre um retorno em todos os caminhos.
-  return translateViaMyMemory(truncated, langpair, hash, source, target, baseDetails)
+  return translateViaMyMemory(truncated, langpair, hash, source, target, baseDetails, signal)
 }
 
 async function translateViaMyMemory(
@@ -191,6 +198,7 @@ async function translateViaMyMemory(
   source: string,
   target: string,
   baseDetails: Record<string, unknown>,
+  signal?: AbortSignal,
 ): Promise<TranslationResult> {
   const flowId = createFlowId('translation')
   const startedAt = getDiagnosticsNowMs()
@@ -204,7 +212,8 @@ async function translateViaMyMemory(
 
   try {
     const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(truncated)}&langpair=${langpair}`
-    const response = await fetchWithTimeout(url)
+    // signal composto com o timeout dentro do fetchWithTimeout.
+    const response = await fetchWithTimeout(url, { init: { signal } })
 
     if (!response.ok) throw new Error('Tradução indisponível. Verifique sua conexão.')
 
@@ -239,6 +248,8 @@ async function translateViaMyMemory(
 
     return { translatedText, provider: 'mymemory' }
   } catch (error) {
+    // Cancelamento do chamador não é falha do MyMemory — só repassa.
+    if (signal?.aborted) throw error
     logError('translation.failure', error, {
       flowId,
       provider: 'mymemory',
