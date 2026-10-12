@@ -13,7 +13,19 @@ import {
 const API_KEY_FIELDS = ['speechifyApiKey', 'elevenLabsApiKey', 'fishAudioApiKey', 'youtubeApiKey'] as const
 type ApiKeyField = typeof API_KEY_FIELDS[number]
 
+// Banco legado (pré-isolamento por conta). Só o dono dele pode herdar o
+// backup antigo sem namespace — ver sdd/bugs/backup-api-keys-atravessa-contas.
+const LEGACY_DB_NAME = 'NeoReaderDB'
+
+// Namespace pelo nome do banco Dexie ativo: é o identificador estável da conta
+// (um banco por uid, escolhido em database.ts). Sem isso, a conta B herdava
+// as chaves da conta A no primeiro login.
 function prefKey(field: ApiKeyField) {
+  return `neoreader:settings:${db.name}:${field}`
+}
+
+// Chave antiga, compartilhada por todas as contas. Só lida/removida no banco legado.
+function legacyPrefKey(field: ApiKeyField) {
   return `neoreader:settings:${field}`
 }
 
@@ -22,17 +34,35 @@ async function backupApiKeys(appSettings: AppSettings): Promise<void> {
   await Promise.all(
     API_KEY_FIELDS.map(field => Preferences.set({ key: prefKey(field), value: appSettings[field] }))
   )
+  // Migração concluída: remove o backup legado para que apagar uma chave
+  // não a faça reaparecer a partir dele.
+  if (db.name === LEGACY_DB_NAME) {
+    await Promise.all(API_KEY_FIELDS.map(field => Preferences.remove({ key: legacyPrefKey(field) })))
+  }
+}
+
+async function readApiKeys(keyFor: (field: ApiKeyField) => string) {
+  const entries = await Promise.all(
+    API_KEY_FIELDS.map(async field => {
+      const { value } = await Preferences.get({ key: keyFor(field) })
+      return [field, value] as const
+    })
+  )
+  return entries
 }
 
 async function restoreApiKeysFromPreferences(): Promise<Partial<AppSettings> | null> {
   if (!Capacitor.isNativePlatform()) return null
-  const entries = await Promise.all(
-    API_KEY_FIELDS.map(async field => {
-      const { value } = await Preferences.get({ key: prefKey(field) })
-      return [field, value ?? ''] as const
-    })
-  )
-  const restored = Object.fromEntries(entries) as Pick<AppSettings, ApiKeyField>
+  let entries = await readApiKeys(prefKey)
+  // Fallback para a chave legada só no banco legado e só se esta conta nunca
+  // gravou backup namespaced (value === null, não string vazia).
+  const hasNamespacedBackup = entries.some(([, value]) => value !== null)
+  if (!hasNamespacedBackup && db.name === LEGACY_DB_NAME) {
+    entries = await readApiKeys(legacyPrefKey)
+  }
+  const restored = Object.fromEntries(
+    entries.map(([field, value]) => [field, value ?? ''])
+  ) as Pick<AppSettings, ApiKeyField>
   return API_KEY_FIELDS.some(f => restored[f] !== '') ? restored : null
 }
 
