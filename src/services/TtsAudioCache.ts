@@ -3,12 +3,15 @@ import type { PremiumTtsProvider, TtsSpeechMark } from '../types/tts'
 
 export const PREMIUM_TTS_AUDIO_CACHE_MAX_AGE_MS = 1000 * 60 * 60 * 6
 
-const PREMIUM_TTS_AUDIO_CACHE_VERSION = 1
+// v2: modelId entrou na identidade da chave (trocar o modelo não reaproveita áudio antigo).
+const PREMIUM_TTS_AUDIO_CACHE_VERSION = 2
 const PREMIUM_TTS_AUDIO_CACHE_MAX_ENTRIES = 64
 
 export interface PremiumTtsAudioCacheParams {
   provider: PremiumTtsProvider
   voiceId?: string | null
+  // Modelo pedido à síntese; ausente/vazio = default do provider.
+  modelId?: string | null
   language: string
   rate: number
   text: string
@@ -27,6 +30,7 @@ export function buildPremiumTtsAudioCacheKey(params: PremiumTtsAudioCacheParams)
     `v${PREMIUM_TTS_AUDIO_CACHE_VERSION}`,
     params.provider,
     normalizeCacheValue(params.voiceId, 'default'),
+    normalizeCacheValue(params.modelId, 'default'),
     normalizeCacheValue(params.language, 'und').toLowerCase(),
     normalizeRate(params.rate),
     params.text.length,

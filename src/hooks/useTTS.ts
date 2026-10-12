@@ -384,7 +384,9 @@ export function useTTS(options: UseTTSOptions) {
       stopPremiumPlaybackRef.current?.()
       audioRef.current = null
 
-      void TextToSpeech.stop().catch(logTtsPlaybackError)
+      // Libera o Promise.race da fala em curso após o plugin confirmar o stop — sem isso o
+      // loop de play() fica órfão depois de desmontar (mesmo ack usado por stop()/pause()).
+      void TextToSpeech.stop().then(() => nativeSpeakStopAckRef.current()).catch(logTtsPlaybackError)
       void WakeLockService.allowSleep()
       void TtsPlaybackSessionService.stop()
     }
@@ -546,6 +548,7 @@ export function useTTS(options: UseTTSOptions) {
     const cacheParams: PremiumTtsAudioCacheParams = {
       provider,
       voiceId,
+      modelId,
       language: config.language,
       rate: config.rate,
       text,
@@ -687,13 +690,21 @@ export function useTTS(options: UseTTSOptions) {
           clearSyntheticHighlights = scheduleSyntheticWordHighlights(text, paraIdx, offsetInPara, session, speechStartedAt)
         }, NATIVE_RANGE_FALLBACK_DELAY_MS)
 
+    let stopAckResolve: () => void = () => {}
+    // Limpa o ack só se ainda for o desta fala — um play() novo (retomada durante uma pausa
+    // pendente) já pode ter registrado o próprio ack, que não pode ser apagado aqui.
+    const clearOwnStopAck = () => {
+      if (nativeSpeakStopAckRef.current === stopAckResolve) nativeSpeakStopAckRef.current = () => {}
+    }
     try {
       const voice = await NativeTtsService.resolveVoiceIndex(config.nativeVoiceKey, language)
+      // pause()/stop() durante a resolução da voz: não chama speak() — no Android ele não
+      // resolveria mais (o stop já passou) e nada dispararia o ack, travando a pausa.
+      if (shouldStopRef.current || playSessionRef.current !== session) return
       // Promise.race: desbloqueia quando o TTS termina OU quando stop() confirma o stop no Android.
       // O plugin Capacitor TextToSpeech.speak() não rejeita/resolve ao ser interrompido por stop(),
       // causando deadlock quando stop() espera playbackDone. O nativeSpeakStopAckRef permite que
       // stop() sinalize aqui para desbloquear sem precisar de timeout.
-      let stopAckResolve: () => void = () => {}
       const stopAckPromise = new Promise<void>((resolve) => { stopAckResolve = resolve })
       nativeSpeakStopAckRef.current = stopAckResolve
       await Promise.race([
@@ -705,7 +716,7 @@ export function useTTS(options: UseTTSOptions) {
         }),
         stopAckPromise,
       ])
-      nativeSpeakStopAckRef.current = () => {}
+      clearOwnStopAck()
       if (shouldStopRef.current || playSessionRef.current !== session) return
       logEvent('tts.synthesize.success', {
         flowId,
@@ -718,7 +729,7 @@ export function useTTS(options: UseTTSOptions) {
         },
       })
     } catch (error) {
-      nativeSpeakStopAckRef.current = () => {}
+      clearOwnStopAck()
       logError('tts.synthesize.failure', error, {
         flowId,
         provider: 'native',
@@ -840,6 +851,7 @@ export function useTTS(options: UseTTSOptions) {
     const cacheParams: PremiumTtsAudioCacheParams = {
       provider,
       voiceId,
+      modelId,
       language: config.language,
       rate: config.rate,
       text,
@@ -1064,8 +1076,16 @@ export function useTTS(options: UseTTSOptions) {
     if (activeProviderRef.current === 'native') {
       shouldStopRef.current = true
       playbackStopReasonRef.current = 'paused'
+      // Captura o ack da fala em curso ANTES do await: se o usuário retomar enquanto o
+      // stop está pendente, o play() novo sobrescreve o ref com o ack da fala nova, que
+      // não pode ser disparado por esta pausa. (Uma fala que ainda não registrou ack não
+      // chega a chamar speak() — speakWithNative checa shouldStopRef antes.)
+      const ackPausedSpeech = nativeSpeakStopAckRef.current
       try {
         await TextToSpeech.stop()
+        // Mesmo motivo do stop(): speak() do plugin não resolve após stop() no Android,
+        // então sem o ack o Promise.race de speakWithNative (e esta pausa) ficam pendentes.
+        ackPausedSpeech()
         await playbackDone
       } catch (error) {
         playbackStopReasonRef.current = 'error'

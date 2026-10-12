@@ -51,6 +51,33 @@ describe('TtsAudioCache', () => {
     expect(buildPremiumTtsAudioCacheKey({ ...baseParams, text: 'Other text.' })).not.toBe(baseKey)
   })
 
+  // R13: o modelo de síntese faz parte da identidade do áudio.
+  it('separa o cache por modelo de sintese e normaliza o modelo default', () => {
+    const baseParams: PremiumTtsAudioCacheParams = {
+      provider: 'speechify',
+      voiceId: 'voice-a',
+      language: 'en-US',
+      rate: 1,
+      text: 'Same text.',
+    }
+    const key32 = buildPremiumTtsAudioCacheKey({ ...baseParams, modelId: 'simba-3.2' })
+    const key30 = buildPremiumTtsAudioCacheKey({ ...baseParams, modelId: 'simba-3.0' })
+    const defaultKey = buildPremiumTtsAudioCacheKey(baseParams)
+
+    expect(key32).not.toBe(key30)
+    expect(key32).not.toBe(defaultKey)
+    // Ausente, null e vazio = mesmo "default" do provider.
+    expect(buildPremiumTtsAudioCacheKey({ ...baseParams, modelId: null })).toBe(defaultKey)
+    expect(buildPremiumTtsAudioCacheKey({ ...baseParams, modelId: '  ' })).toBe(defaultKey)
+    // Versão da chave subiu junto com a mudança de identidade.
+    expect(defaultKey.startsWith('v2::')).toBe(true)
+
+    const audioBlob = new Blob(['audio-3.2'], { type: 'audio/mpeg' })
+    setCachedPremiumTtsAudio({ ...baseParams, modelId: 'simba-3.2' }, { audioBlob, speechMarks: [] }, 1000)
+    expect(getCachedPremiumTtsAudio({ ...baseParams, modelId: 'simba-3.2' }, PREMIUM_TTS_AUDIO_CACHE_MAX_AGE_MS, 2000)?.audioBlob).toBe(audioBlob)
+    expect(getCachedPremiumTtsAudio({ ...baseParams, modelId: 'simba-3.0' }, PREMIUM_TTS_AUDIO_CACHE_MAX_AGE_MS, 2000)).toBeNull()
+  })
+
   it('expira entradas antigas', () => {
     const params: PremiumTtsAudioCacheParams = {
       provider: 'fishaudio',

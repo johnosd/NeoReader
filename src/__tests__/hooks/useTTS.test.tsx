@@ -1253,6 +1253,82 @@ describe('useTTS', () => {
     })
   })
 
+  // R08: no Android, TextToSpeech.speak() não resolve após stop(). pause() precisa
+  // disparar o mesmo ack que stop() dispara, senão a pausa e o loop ficam pendentes.
+  it('pause() nativo conclui mesmo quando speak() nunca resolve apos o stop (R08)', async () => {
+    textToSpeechMock.speak.mockImplementationOnce(() => new Promise<void>(() => undefined))
+
+    const { result } = renderHook(() => useTTS({
+      ...createCallbacks(),
+      provider: 'native',
+      language: 'en-US',
+      rate: 1,
+    }))
+
+    let playPromise: Promise<void> = Promise.resolve()
+    await act(async () => {
+      playPromise = result.current.play([{ text: 'Never ending speech.', paraIdx: 0, offsetInPara: 0 }], 0)
+    })
+    await flushMicrotasks()
+    expect(textToSpeechMock.speak).toHaveBeenCalledTimes(1)
+
+    let pauseSettled = false
+    await act(async () => {
+      await result.current.pause().then(() => { pauseSettled = true })
+    })
+
+    expect(textToSpeechMock.stop).toHaveBeenCalled()
+    expect(pauseSettled).toBe(true)
+    // O loop de play() também termina — não fica sessão órfã esperando speak().
+    await act(async () => { await playPromise })
+    expect(result.current.isPaused).toBe(true)
+  })
+
+  it('ack da pausa nao libera a fala de uma retomada feita antes do stop confirmar (R08)', async () => {
+    textToSpeechMock.speak
+      .mockImplementationOnce(() => new Promise<void>(() => undefined))
+      .mockImplementationOnce(() => new Promise<void>(() => undefined))
+    let confirmStop: () => void = () => {}
+    textToSpeechMock.stop.mockImplementationOnce(() => new Promise<undefined>((resolve) => {
+      confirmStop = () => resolve(undefined)
+    }))
+
+    const callbacks = createCallbacks()
+    const { result } = renderHook(() => useTTS({
+      ...callbacks,
+      provider: 'native',
+      language: 'en-US',
+      rate: 1,
+    }))
+
+    await act(async () => {
+      void result.current.play([{ text: 'Paused speech.', paraIdx: 0, offsetInPara: 0 }], 0)
+    })
+    await flushMicrotasks()
+    expect(textToSpeechMock.speak).toHaveBeenCalledTimes(1)
+
+    let pausePromise: Promise<void> = Promise.resolve()
+    act(() => { pausePromise = result.current.pause() })
+    await flushMicrotasks()
+
+    // Retoma antes de o plugin confirmar o stop da pausa.
+    await act(async () => { await result.current.resume() })
+    await flushMicrotasks()
+    expect(textToSpeechMock.speak).toHaveBeenCalledTimes(2)
+
+    // Confirmação tardia do stop da pausa: só a fala antiga pode ser liberada.
+    await act(async () => {
+      confirmStop()
+      await pausePromise
+    })
+    await flushMicrotasks()
+
+    expect(callbacks.onFinished).not.toHaveBeenCalled()
+    expect(result.current.isPlaying).toBe(true)
+
+    await act(async () => { await result.current.stop() })
+  })
+
   it('nao retoma sozinho apos pausa manual seguida de perda TRANSITORIA de foco (nativo)', async () => {
     let resolveSpeak: (() => void) | undefined
     textToSpeechMock.speak.mockImplementationOnce(() => new Promise<void>((resolve) => {
@@ -1407,6 +1483,52 @@ describe('useTTS', () => {
       // Ignora erro do playPromise abortado
       await playPromise.catch(() => {})
     })
+  })
+
+  // R13: prefetch e reprodução precisam calcular a mesma chave (incluindo o modelo),
+  // senão o chunk pré-sintetizado é sintetizado de novo; e o modelo chega à síntese.
+  it('reproducao reaproveita o prefetch do mesmo modelo de sintese (R13)', async () => {
+    speechifyMock.getApiKey.mockResolvedValue('speechify-key')
+    speechifyMock.isConfigured.mockResolvedValue(true)
+
+    const { result } = renderHook(() => useTTS({
+      ...createCallbacks(),
+      provider: 'speechify',
+      language: 'en-US',
+      rate: 1,
+      voiceSelections: { speechify: { id: 'voice-a', modelId: 'simba-3.2' } },
+    }))
+
+    let playPromise: Promise<void> = Promise.resolve()
+    await act(async () => {
+      playPromise = result.current.play([
+        { text: 'Model one.', paraIdx: 0, offsetInPara: 0 },
+        { text: 'Model two.', paraIdx: 1, offsetInPara: 0 },
+      ], 0)
+    })
+    await flushMicrotasks()
+
+    // Prefetch do 2º chunk já sintetizou com o modelo selecionado.
+    expect(speechifyMock.synthesize).toHaveBeenCalledWith(
+      'Model two.',
+      expect.objectContaining({ modelId: 'simba-3.2' }),
+    )
+
+    // O <audio> é compartilhado entre chunks (um único FakeAudio).
+    const audio = FakeAudio.instances[0]!
+    await vi.waitFor(() => expect(audio.play).toHaveBeenCalledTimes(1))
+    await act(async () => {
+      audio.finish()
+    })
+    await vi.waitFor(() => expect(audio.play).toHaveBeenCalledTimes(2))
+    await act(async () => {
+      audio.finish()
+      await playPromise
+    })
+
+    // Cache hit: o 2º chunk não foi sintetizado de novo na reprodução.
+    const secondChunkCalls = speechifyMock.synthesize.mock.calls.filter(([text]) => text === 'Model two.')
+    expect(secondChunkCalls).toHaveLength(1)
   })
 
   it('prefetch do lookahead cobre os 3 chunks a frente em sequencia', async () => {
