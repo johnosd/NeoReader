@@ -1,6 +1,7 @@
 import { unlinkBookFromAuthors } from './authors'
 import { db } from './database'
 import { deleteLocalBookFile } from '../services/NativeLibraryImportService'
+import { forgetOpdsDownloadsForBook } from '../services/opds/OpdsDownloadCoordinator'
 import type { Book, ReadingStatus } from '../types/book'
 
 // Salva um livro novo no IndexedDB. Retorna o id gerado.
@@ -43,7 +44,7 @@ export async function deleteBook(id: number): Promise<void> {
   // órfãos no IndexedDB.
   await db.transaction(
     'rw',
-    [db.books, db.bookCovers, db.progress, db.bookmarks, db.vocabulary, db.bookSettings, db.bookInfo, db.epubExtras, db.authors, db.highlights],
+    [db.books, db.bookCovers, db.progress, db.bookmarks, db.vocabulary, db.bookSettings, db.bookInfo, db.epubExtras, db.authors, db.highlights, db.opdsDownloadedEntries],
     async () => {
       await db.books.delete(id)
       await db.bookCovers.delete(id)
@@ -54,9 +55,13 @@ export async function deleteBook(id: number): Promise<void> {
       await db.bookInfo.delete(id)
       await db.epubExtras.delete(id)
       await db.highlights.where('bookId').equals(id).delete()
+      // Vínculo OPDS do livro: sob índice único [catalogId+entryId], impedia o re-download (R06).
+      await db.opdsDownloadedEntries.where('bookId').equals(id).delete()
       await unlinkBookFromAuthors(id)
     },
   )
+  // Estado em memória do catálogo deixa de dizer "já baixado" para este livro.
+  forgetOpdsDownloadsForBook(id)
   await deleteLocalCopyIfUnused(book)
 }
 

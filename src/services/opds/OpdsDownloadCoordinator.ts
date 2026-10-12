@@ -47,3 +47,18 @@ export function failOpdsDownload(catalogId: number, entryId: string, errorMessag
   states.set(key, { key, status: 'error', errorMessage, offline: options?.offline })
   emitChange()
 }
+
+// Livro excluído da Biblioteca: o estado 'success' em memória ainda apontaria
+// pro bookId apagado (UI mostraria "abrir" para um livro ausente e os hooks só
+// reconciliam entries 'idle'). Volta essas entries pra 'idle' — o próximo
+// download começa do zero.
+export function forgetOpdsDownloadsForBook(bookId: number): void {
+  let changed = false
+  for (const [key, state] of states) {
+    if (state.status === 'success' && state.bookId === bookId) {
+      states.delete(key)
+      changed = true
+    }
+  }
+  if (changed) emitChange()
+}

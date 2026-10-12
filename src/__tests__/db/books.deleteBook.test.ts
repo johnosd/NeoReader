@@ -17,6 +17,10 @@ const mocks = vi.hoisted(() => {
   const highlightsWhere = vi.fn(() => ({ equals: highlightsEquals }))
 
   const booksFilterCount = vi.fn(async () => 0)
+  // R06: vínculos OPDS do livro saem junto com ele.
+  const opdsDelete = vi.fn(async () => undefined)
+  const opdsEquals = vi.fn(() => ({ delete: opdsDelete }))
+  const opdsWhere = vi.fn(() => ({ equals: opdsEquals }))
   return {
     books: {
       delete: vi.fn(async () => undefined),
@@ -34,6 +38,10 @@ const mocks = vi.hoisted(() => {
     highlightsWhere,
     highlightsEquals,
     highlightsDelete,
+    opdsDownloadedEntries: { where: opdsWhere },
+    opdsWhere,
+    opdsEquals,
+    opdsDelete,
     bookInfo: { delete: vi.fn(async () => undefined) },
     epubExtras: { delete: vi.fn(async () => undefined) },
     authors: {
@@ -67,6 +75,7 @@ vi.mock('@/db/database', () => ({
     bookInfo: mocks.bookInfo,
     epubExtras: mocks.epubExtras,
     authors: mocks.authors,
+    opdsDownloadedEntries: mocks.opdsDownloadedEntries,
     transaction: mocks.transaction,
   },
 }))
@@ -76,6 +85,7 @@ vi.mock('@/services/NativeLibraryImportService', () => ({
 }))
 
 import { deleteBook } from '@/db/books'
+import { completeOpdsDownload, getOpdsDownloadState } from '@/services/opds/OpdsDownloadCoordinator'
 
 describe('deleteBook', () => {
   beforeEach(() => {
@@ -89,6 +99,9 @@ describe('deleteBook', () => {
     mocks.highlightsWhere.mockClear()
     mocks.highlightsEquals.mockClear()
     mocks.highlightsDelete.mockClear()
+    mocks.opdsWhere.mockClear()
+    mocks.opdsEquals.mockClear()
+    mocks.opdsDelete.mockClear()
     mocks.books.get.mockReset().mockResolvedValue({ id: 42, storageMode: 'embedded' })
     mocks.booksFilterCount.mockReset().mockResolvedValue(0)
     mocks.deleteLocalBookFile.mockReset().mockResolvedValue(true)
@@ -149,5 +162,22 @@ describe('deleteBook', () => {
     expect(mocks.highlightsWhere).toHaveBeenCalledWith('bookId')
     expect(mocks.highlightsEquals).toHaveBeenCalledWith(42)
     expect(mocks.highlightsDelete).toHaveBeenCalled()
+  })
+
+  // R06: vínculo OPDS órfão travava o re-download (índice único) e o estado em
+  // memória continuava dizendo "já baixado" para o livro excluído.
+  it('remove o vínculo OPDS e libera o estado em memória do download', async () => {
+    completeOpdsDownload(7, 'entry-r06', 42)
+    completeOpdsDownload(7, 'outra-entry', 99)
+
+    await deleteBook(42)
+
+    expect(mocks.transaction.mock.calls[0]![1]).toContain(mocks.opdsDownloadedEntries)
+    expect(mocks.opdsWhere).toHaveBeenCalledWith('bookId')
+    expect(mocks.opdsEquals).toHaveBeenCalledWith(42)
+    expect(mocks.opdsDelete).toHaveBeenCalled()
+    expect(getOpdsDownloadState(7, 'entry-r06').status).toBe('idle')
+    // Outro livro do mesmo catálogo continua como baixado.
+    expect(getOpdsDownloadState(7, 'outra-entry')).toMatchObject({ status: 'success', bookId: 99 })
   })
 })

@@ -1,8 +1,19 @@
 import { db } from './database'
 import { getBookById } from './books'
 
+// Upsert por [catalogId+entryId] (índice único): re-download depois de excluir
+// o livro, ou banco com vínculo órfão de versões antigas, só atualiza o bookId
+// em vez de estourar ConstraintError com `add` (R06). Transação rw para o
+// get+update/add não intercalar com outra escrita.
 export async function recordDownload(catalogId: number, entryId: string, bookId: number): Promise<void> {
-  await db.opdsDownloadedEntries.add({ catalogId, entryId, bookId, downloadedAt: new Date() })
+  await db.transaction('rw', db.opdsDownloadedEntries, async () => {
+    const existing = await db.opdsDownloadedEntries.where('[catalogId+entryId]').equals([catalogId, entryId]).first()
+    if (existing?.id != null) {
+      await db.opdsDownloadedEntries.update(existing.id, { bookId, downloadedAt: new Date() })
+      return
+    }
+    await db.opdsDownloadedEntries.add({ catalogId, entryId, bookId, downloadedAt: new Date() })
+  })
 }
 
 // Devolve o bookId só se o vínculo existir E o Book referenciado ainda
