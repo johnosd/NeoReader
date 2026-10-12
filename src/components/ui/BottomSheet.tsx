@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useId, useRef, type ReactNode } from 'react'
 import { cn } from '../../utils/cn'
 
 interface BottomSheetProps {
@@ -10,6 +10,9 @@ interface BottomSheetProps {
 }
 
 export function BottomSheet({ open, onClose, title, children, className }: BottomSheetProps) {
+  const dialogRef = useRef<HTMLDivElement>(null)
+  // useId gera um id estável e único por instância — liga o <h2> ao diálogo (nome acessível).
+  const titleId = useId()
   // ESC fecha o sheet (acessibilidade keyboard) e trava scroll do body quando aberto.
   useEffect(() => {
     if (!open) return
@@ -25,6 +28,23 @@ export function BottomSheet({ open, onClose, title, children, className }: Botto
     }
   }, [open, onClose])
 
+  // Foco modal: ao abrir, guarda quem tinha o foco (o acionador) e leva o foco para o diálogo;
+  // ao fechar (ou desmontar aberto), devolve o foco ao acionador. Efeito separado do de cima
+  // porque `onClose` costuma ser uma arrow nova a cada render — rodar isto a cada render
+  // ficaria puxando o foco de volta.
+  useEffect(() => {
+    if (!open) return
+    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const dialog = dialogRef.current
+    // Não rouba o foco de um filho que já se focou (ex.: autoFocus do textarea do HighlightComposerSheet;
+    // efeitos de filhos rodam antes dos do pai). preventScroll evita salto durante a animação.
+    if (dialog && !dialog.contains(document.activeElement)) dialog.focus({ preventScroll: true })
+    return () => {
+      // isConnected: o acionador pode ter saído da tela enquanto o sheet estava aberto.
+      if (trigger?.isConnected) trigger.focus({ preventScroll: true })
+    }
+  }, [open])
+
   return (
     <>
       <div
@@ -35,11 +55,18 @@ export function BottomSheet({ open, onClose, title, children, className }: Botto
           open ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
         )}
       />
+      {/* Fechado, o sheet continua montado (anima a saída e preserva o estado dos filhos),
+          mas fica `inert` (nada focável/clicável) e fora da árvore de acessibilidade. */}
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={title ? titleId : undefined}
+        aria-hidden={!open}
+        inert={!open}
+        tabIndex={-1}
         className={cn(
-          'fixed left-0 right-0 bottom-0 z-[2001] bg-bg-elevated',
+          'fixed left-0 right-0 bottom-0 z-[2001] bg-bg-elevated outline-none',
           'rounded-t-lg max-h-[90vh] overflow-y-auto',
           'transition-transform duration-300 ease-out',
           open ? 'translate-y-0' : 'translate-y-full',
@@ -53,7 +80,7 @@ export function BottomSheet({ open, onClose, title, children, className }: Botto
           </div>
           {title && (
             <div className="px-4 pt-2 pb-3 border-b border-border">
-              <h2 className="text-lg font-bold text-text-primary">{title}</h2>
+              <h2 id={titleId} className="text-lg font-bold text-text-primary">{title}</h2>
             </div>
           )}
         </div>
