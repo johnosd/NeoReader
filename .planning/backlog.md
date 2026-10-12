@@ -76,6 +76,17 @@ Os resultados finais estão nos relatórios `test.md` de cada bug.
 | vocabulario-remoto-apagado-ao-entrar-outro | Vocabulário remoto apagado ao entrar em outro dispositivo | Test | verified | Concluído | 2026-10-12 |
 | upload-marcadores-substitui-os-outro-dispositivo | Upload de marcadores substitui os de outro dispositivo | Test | verified | Concluído | 2026-10-12 |
 | audiobook-traduzido-pula-restante-secao | Audiobook traduzido pula o restante da seção | Test | partial | Concluído (com ressalva) ou reabrir Assess | 2026-10-12 |
+| bottomsheet-fechado-continua-acessivel-focavel | BottomSheet fechado continua acessível e focável | Test | partial | Concluído (com ressalva) ou reabrir Assess | 2026-10-12 |
+| cache-epub-mantm-pacotes-descompactados-sem | Cache de EPUB mantém pacotes descompactados sem limite | Test | verified | Concluído | 2026-10-12 |
+| backup-api-keys-atravessa-contas | Backup de API keys atravessa contas | Test | partial | Concluído (com ressalva) ou reabrir Assess | 2026-10-12 |
+| opds-redownload-apos-exclusao | Re-download OPDS falha após excluir o livro | Test | partial | Concluído (com ressalva) ou reabrir Assess | 2026-10-12 |
+| cancelamento-nao-chega-traducao-mymemory | Cancelamento não chega à tradução MyMemory | Test | verified | Concluído | 2026-10-12 |
+| pausa-tts-nativo-nao-libera-espera | Pausa do TTS nativo não libera espera de interrupção | Test | partial | Concluído (com ressalva) ou reabrir Assess | 2026-10-12 |
+| paginacao-opds-atrasada-contamina-outra-pasta | Paginação OPDS atrasada contamina outra pasta | Test | partial | Concluído (com ressalva) ou reabrir Assess | 2026-10-12 |
+| erro-range-pdf-no-encerra-abertura | Erro de Range em PDF não encerra abertura | Test | partial | Concluído (com ressalva) ou reabrir Assess | 2026-10-12 |
+| progresso-no-drive-nao-restaurado-pelo | Progresso no Drive não é restaurado pelo app | Test | partial | Concluído (com ressalva) ou reabrir Assess | 2026-10-12 |
+| modelo-sintese-ausente-chave-cache-audio | Modelo de síntese ausente da chave do cache de áudio TTS | Test | verified | Concluído | 2026-10-12 |
+| android-mantem-wake-lock-cpu-durante | Android mantém wake lock da CPU durante pausa do TTS | Test | partial | Concluído (com ressalva) ou reabrir Assess | 2026-10-12 |
 
 ## Melhorias Ad-hoc
 
