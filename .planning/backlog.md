@@ -35,6 +35,7 @@ update-bug-status.ps1.
 | 020-tts-buffer-lookahead | Buffer e Lookahead de TTS na língua nativa | Em Execução | 6/11 tasks | 2026-09-21 |
 | 021-automatizacao-sync-bookmarks-ao-fechar | Automatização do sync de bookmarks ao fechar | Convergida | 19/23 tasks | 2026-09-23 |
 | 022-suporte-pdf-paridade | Suporte a PDF com paridade de recursos do EPUB | Convergida | 131/131 tasks | 2026-10-07 |
+| 023-selecao-multipla-biblioteca | Seleção múltipla na biblioteca com ações em lote | Em Execução | 31/42 tasks | 2026-10-12 |
 
 ## Bugs
 

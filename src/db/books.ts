@@ -80,6 +80,53 @@ async function deleteLocalCopyIfUnused(book: Book | undefined): Promise<void> {
   }
 }
 
+export interface DeleteBooksResult {
+  succeeded: number
+  failed: number
+}
+
+// Exclusão em lote (feature 023, D-06): reaproveita deleteBook em vez de reimplementar a
+// cascata, então herda a limpeza de progresso/marcadores/vocabulário/OPDS e do arquivo local.
+// Sequencial de propósito: deleteBook já abre a própria transação e faz I/O nativo no fim;
+// em paralelo, a varredura de deleteLocalCopyIfUnused competiria com as transações dos outros.
+// Cada livro é independente — uma falha conta e o laço segue (falha parcial, FR-013).
+export async function deleteBooks(ids: number[]): Promise<DeleteBooksResult> {
+  let succeeded = 0
+  let failed = 0
+  for (const id of ids) {
+    try {
+      await deleteBook(id)
+      succeeded += 1
+    } catch (error) {
+      failed += 1
+      console.warn(`Não foi possível excluir o livro ${id} em lote.`, error)
+    }
+  }
+  return { succeeded, failed }
+}
+
+// Aplica o mesmo conjunto de campos a vários livros numa transação só (feature 023, D-07):
+// ou todos mudam ou nenhum.
+async function updateBooks(ids: number[], changes: Partial<Pick<Book, 'isFavorite' | 'readingStatus'>>): Promise<void> {
+  if (ids.length === 0) return
+  await db.transaction('rw', db.books, async () => {
+    for (const id of ids) {
+      await db.books.update(id, changes)
+    }
+  })
+}
+
+// Valor explícito, nunca toggle por livro: numa seleção mista (D-08) inverter cada um
+// deixaria os que já estavam favoritos desfavoritados.
+export async function setBooksFavorite(ids: number[], isFavorite: boolean): Promise<void> {
+  await updateBooks(ids, { isFavorite })
+}
+
+// Só o status: o progresso de leitura salvo não é tocado (igual a updateReadingStatus).
+export async function setBooksReadingStatus(ids: number[], readingStatus: ReadingStatus): Promise<void> {
+  await updateBooks(ids, { readingStatus })
+}
+
 export async function updateLastOpened(id: number): Promise<void> {
   await db.books.update(id, { lastOpenedAt: new Date() })
 }

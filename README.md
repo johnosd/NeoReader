@@ -104,6 +104,12 @@ tags, pastas de origem e caches ficam no dispositivo.
 - Ordenacao por recente, titulo, autor, data de importacao, formato ou nome do
   arquivo. A ordenacao escolhida fica em `localStorage`.
 - Favoritos por livro.
+- Seleção múltipla, na lista e na grade: segurar um livro entra no modo de
+  seleção (toque para marcar/desmarcar; X ou voltar do Android saem). Ações em
+  lote: excluir (com confirmação e limpeza do arquivo local, igual à exclusão
+  individual), mover para coleção (substitui a atual; "Sem coleção" ou criar uma
+  nova no próprio fluxo), favoritar/remover dos favoritos e definir o status de
+  leitura. Tags em lote ainda não existem.
 - Tags locais com criacao, atribuicao e exclusao.
 - Importação de arquivos `.epub` e `.pdf` individuais ou múltiplos (também por
   pasta e por "abrir com" no Android). O formato é confirmado pelo conteúdo do

@@ -3,8 +3,11 @@ import { Capacitor } from '@capacitor/core'
 import { ArrowUpDown, BookOpen, Check, Download, FileText, FolderOpen, LayoutGrid, LayoutList, MoreVertical, Plus, Search, Star, Tag, Trash2, X } from 'lucide-react'
 import { AdBannerSlot } from '../components/AdBannerSlot'
 import { BottomNav } from '../components/BottomNav'
+import { BulkBookActionsSheet, type BulkActionResult } from '../components/BulkBookActionsSheet'
 import { LibraryGridView } from '../components/LibraryGridView'
+import { LibrarySelectionBar } from '../components/LibrarySelectionBar'
 import { QuickBookActionsSheet } from '../components/QuickBookActionsSheet'
+import { SelectionCheck } from '../components/SelectionCheck'
 import { BottomSheet, Button, Checkbox, EmptyState, Input, Skeleton, Spinner, Toast } from '../components/ui'
 import { setBookTags, toggleFavorite } from '../db/books'
 import { createCollection, deleteCollection } from '../db/collections'
@@ -13,6 +16,8 @@ import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
 import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
 import { useIsImportActive } from '../hooks/useImportActivity'
 import { useLibraryCatalog, type LibraryBook, type LibraryFilter, type LibrarySort } from '../hooks/useLibraryCatalog'
+import { useLibrarySelection } from '../hooks/useLibrarySelection'
+import { useLongPress } from '../hooks/useLongPress'
 import { useLibraryScrollRestore } from '@/hooks/useLibraryScrollRestore'
 import { useWindowVirtualList } from '@/hooks/useWindowVirtualList'
 import { GENRE_LABELS, type CanonicalGenre } from '../utils/categoryNormalizer'
@@ -75,6 +80,8 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
   const [sortSheetOpen, setSortSheetOpen] = useState(false)
   const [optionsBook, setOptionsBook] = useState<LibraryBook | null>(null)
   const [tagEditorBook, setTagEditorBook] = useState<LibraryBook | null>(null)
+  const [bulkSheetOpen, setBulkSheetOpen] = useState(false)
+  const [bulkResult, setBulkResult] = useState<BulkActionResult | null>(null)
   const [importFlow, setImportFlow] = useState<ImportFlowState>({ step: 'closed' })
   const [importSummary, setImportSummary] = useState<ImportSummary | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
@@ -85,6 +92,13 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
   const fileInputRef = useRef<HTMLInputElement>(null)
   const importActive = useIsImportActive()
   const importBusy = importing || importActive
+
+  // Seleção múltipla (feature 023). A poda usa `books` (a biblioteca inteira), não a lista filtrada.
+  const selection = useLibrarySelection(books)
+  const selectedBooks = useMemo(
+    () => books.filter((book) => book.id !== undefined && selection.selectedIds.has(book.id)),
+    [books, selection.selectedIds],
+  )
 
   // Restaura a posicao de scroll ao voltar de um livro (App.tsx desmonta
   // LibraryScreen de verdade ao navegar) e reseta pro topo quando
@@ -150,6 +164,9 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
   }, [t])
 
   useCapacitorBackButton(() => {
+    // Seleção primeiro (FR-006): voltar sai do modo sem fazer nada e sem sair da tela.
+    if (bulkSheetOpen) { setBulkSheetOpen(false); return }
+    if (selection.isSelecting) { selection.clear(); return }
     if (tagEditorBook) { setTagEditorBook(null); return }
     if (optionsBook) { setOptionsBook(null); return }
     if (sortSheetOpen) { setSortSheetOpen(false); return }
@@ -157,6 +174,12 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
     if (importFlow.step !== 'closed') { setImportFlow({ step: 'closed' }); return }
     onOpenHome()
   })
+
+  function handleBulkDone(result: BulkActionResult) {
+    setBulkSheetOpen(false)
+    selection.clear()
+    setBulkResult(result)
+  }
 
   const subtitle = formatBookCount(books.length, t)
   const isSearchEmpty = !isLoading && books.length > 0 && search.trim() && filteredBooks.length === 0
@@ -384,13 +407,30 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
           {t('library.import.bookmarksRestored', { count: restoredBookmarks })}
         </Toast>
       )}
+      {bulkResult && (
+        <Toast tone={bulkResult.tone} onDismiss={() => setBulkResult(null)}>{bulkResult.message}</Toast>
+      )}
       {importSummary && (
         <Toast tone={importSummary.errors > 0 ? 'warning' : 'success'} onDismiss={() => setImportSummary(null)}>
           {formatImportSummary(importSummary, t)}
         </Toast>
       )}
 
-      <header className="px-5 pt-10 pb-4">
+      {selection.isSelecting && (
+        <LibrarySelectionBar
+          count={selection.selectedIds.size}
+          onExit={selection.clear}
+          onOpenActions={() => setBulkSheetOpen(true)}
+        />
+      )}
+
+      {/* Durante a seleção o cabeçalho fica no DOM só pra não deslocar a lista (a barra fixa o
+          cobre). `invisible` tira da vista e `inert` tira de foco/toque — FR-005: busca, filtros,
+          ordenar e trocar visualização não existem enquanto o modo está ativo. */}
+      <header
+        className={selection.isSelecting ? 'invisible px-5 pt-10 pb-4' : 'px-5 pt-10 pb-4'}
+        inert={selection.isSelecting}
+      >
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">{t('library.title')}</h1>
@@ -535,7 +575,12 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
         )}
 
         {!isLoading && filteredBooks.length > 0 && viewMode === 'grid' && (
-          <LibraryGridView books={filteredBooks} onOpenBook={onOpenBook} />
+          <LibraryGridView
+            books={filteredBooks}
+            onOpenBook={onOpenBook}
+            selectedIds={selection.selectedIds}
+            onToggleBook={(book) => { if (book.id !== undefined) selection.toggle(book.id) }}
+          />
         )}
 
         {!isLoading && filteredBooks.length > 0 && viewMode === 'list' && (
@@ -544,6 +589,8 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
             onOpenBook={onOpenBook}
             onOpenOptions={setOptionsBook}
             onOpenTags={setTagEditorBook}
+            selectedIds={selection.selectedIds}
+            onToggleBook={(book) => { if (book.id !== undefined) selection.toggle(book.id) }}
           />
         )}
       </main>
@@ -570,6 +617,13 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
       />
       <SortSheet open={sortSheetOpen} sort={sort} onClose={() => setSortSheetOpen(false)} onChange={setSort} />
       <QuickBookActionsSheet book={optionsBook} onClose={() => setOptionsBook(null)} />
+      <BulkBookActionsSheet
+        open={bulkSheetOpen}
+        books={selectedBooks}
+        collections={collections}
+        onClose={() => setBulkSheetOpen(false)}
+        onDone={handleBulkDone}
+      />
       <LibraryTagSheet
         book={liveTagEditorBook}
         tags={tags}
@@ -760,11 +814,13 @@ function FilterChip({ active, label, onClick }: { active: boolean; label: string
 // linha, "aberto em" e opcional).
 const LIST_ROW_ESTIMATED_HEIGHT = 148
 
-function VirtualizedLibraryList({ books, onOpenBook, onOpenOptions, onOpenTags }: {
+function VirtualizedLibraryList({ books, onOpenBook, onOpenOptions, onOpenTags, selectedIds, onToggleBook }: {
   books: LibraryBook[]
   onOpenBook: (book: Book) => void
   onOpenOptions: (book: LibraryBook) => void
   onOpenTags: (book: LibraryBook) => void
+  selectedIds: ReadonlySet<number>
+  onToggleBook: (book: LibraryBook) => void
 }) {
   const { containerRef, virtualizer } = useWindowVirtualList({
     count: books.length,
@@ -802,6 +858,9 @@ function VirtualizedLibraryList({ books, onOpenBook, onOpenOptions, onOpenTags }
               onOpenBook={onOpenBook}
               onOpenOptions={onOpenOptions}
               onOpenTags={onOpenTags}
+              selecting={selectedIds.size > 0}
+              selected={book.id !== undefined && selectedIds.has(book.id)}
+              onToggle={onToggleBook}
             />
           </div>
         )
@@ -810,14 +869,21 @@ function VirtualizedLibraryList({ books, onOpenBook, onOpenOptions, onOpenTags }
   )
 }
 
-function LibraryBookRow({ book, onOpenBook, onOpenOptions, onOpenTags }: {
+function LibraryBookRow({ book, onOpenBook, onOpenOptions, onOpenTags, selecting, selected, onToggle }: {
   book: LibraryBook
   onOpenBook: (book: Book) => void
   onOpenOptions: (book: LibraryBook) => void
   onOpenTags: (book: LibraryBook) => void
+  selecting: boolean
+  selected: boolean
+  onToggle: (book: LibraryBook) => void
 }) {
   const { locale, t } = useI18n()
   const coverUrl = useBookCoverUrl(book.id)
+  // Segurar alterna o livro; com o modo ativo, um toque lento também cai aqui (o hook engole o
+  // click seguinte, então sem isto o toque "sumiria"). Handlers no <article>, não nos botões:
+  // o onClickCapture do hook precisa estar num ancestral de todos eles.
+  const longPress = useLongPress({ onLongPress: () => onToggle(book) })
   const author = book.author?.trim() || t('library.unknownAuthor')
   const isFavorite = Boolean(book.isFavorite)
 
@@ -827,10 +893,31 @@ function LibraryBookRow({ book, onOpenBook, onOpenOptions, onOpenTags }: {
   }
 
   return (
-    <article className="flex gap-3 px-5 py-3">
+    <article
+      {...longPress}
+      // select-none + touch-callout: evita seleção de texto e o callout do WebView no long-press (R-001).
+      className={[
+        'relative flex select-none gap-3 px-5 py-3 [-webkit-touch-callout:none]',
+        selected ? 'bg-purple-primary/15' : '',
+      ].join(' ')}
+    >
+      {/* Em modo de seleção a linha inteira vira UM alvo de toque: este botão cobre capa, texto,
+          tags, favorito e "⋯", que ficam debaixo e não recebem o toque (D-04). */}
+      {selecting && (
+        <button
+          type="button"
+          onClick={() => onToggle(book)}
+          aria-pressed={selected}
+          aria-label={t(selected ? 'library.selection.deselect' : 'library.selection.select', { title: book.title })}
+          className="absolute inset-0 z-10"
+        />
+      )}
+      {/* `inert` em modo de seleção (T028): o botão de cobertura já intercepta o toque, mas sem
+          isto Tab/leitor de tela ainda alcançariam capa, tags e favorito por baixo dele. */}
       <button
         type="button"
         onClick={() => onOpenBook(book)}
+        inert={selecting}
         className="h-[92px] w-[62px] shrink-0 overflow-hidden rounded-md border border-white/10 bg-bg-surface-2 active:opacity-80"
       >
         {coverUrl ? (
@@ -848,7 +935,7 @@ function LibraryBookRow({ book, onOpenBook, onOpenOptions, onOpenTags }: {
           </div>
         )}
       </button>
-      <div className="min-w-0 flex-1 pt-0.5">
+      <div className="min-w-0 flex-1 pt-0.5" inert={selecting}>
         <button
           type="button"
           onClick={() => onOpenBook(book)}
@@ -901,14 +988,20 @@ function LibraryBookRow({ book, onOpenBook, onOpenOptions, onOpenTags }: {
           </button>
         </div>
       </div>
-      <button
-        type="button"
-        onClick={() => onOpenOptions(book)}
-        aria-label={t('common.bookOptions')}
-        className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-text-muted active:bg-white/10"
-      >
-        <MoreVertical size={18} />
-      </button>
+      {selecting ? (
+        <span className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center">
+          <SelectionCheck selected={selected} />
+        </span>
+      ) : (
+        <button
+          type="button"
+          onClick={() => onOpenOptions(book)}
+          aria-label={t('common.bookOptions')}
+          className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-text-muted active:bg-white/10"
+        >
+          <MoreVertical size={18} />
+        </button>
+      )}
     </article>
   )
 }

@@ -1,13 +1,20 @@
 import { useMemo } from 'react'
 import { BookOpen } from 'lucide-react'
 import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
+import { useLongPress } from '../hooks/useLongPress'
 import { useWindowVirtualList } from '@/hooks/useWindowVirtualList'
+import { useI18n } from '../i18n'
+import { SelectionCheck } from './SelectionCheck'
 import type { Book } from '../types/book'
 import type { LibraryBook } from '../hooks/useLibraryCatalog'
 
 interface LibraryGridViewProps {
   books: LibraryBook[]
   onOpenBook: (book: Book) => void
+  // Modo de seleção (feature 023): vem do pai porque a grade é virtualizada — um card que sai da
+  // tela e volta é remontado, então a marcação não pode morar no estado do próprio card.
+  selectedIds: ReadonlySet<number>
+  onToggleBook: (book: Book) => void
 }
 
 const GRID_COLUMNS = 3
@@ -33,7 +40,7 @@ function estimateGridRowHeight(): number {
   return columnWidth * 1.5 // aspect-ratio dos cards e 2/3 (altura = largura * 3/2)
 }
 
-export function LibraryGridView({ books, onOpenBook }: LibraryGridViewProps) {
+export function LibraryGridView({ books, onOpenBook, selectedIds, onToggleBook }: LibraryGridViewProps) {
   const rows = useMemo(() => chunkIntoRows(books, GRID_COLUMNS), [books])
   const { containerRef, virtualizer } = useWindowVirtualList({
     count: rows.length,
@@ -70,7 +77,14 @@ export function LibraryGridView({ books, onOpenBook }: LibraryGridViewProps) {
             }}
           >
             {row.map((book) => (
-              <GridBookCard key={book.id} book={book} onOpenBook={onOpenBook} />
+              <GridBookCard
+                key={book.id}
+                book={book}
+                selecting={selectedIds.size > 0}
+                selected={book.id !== undefined && selectedIds.has(book.id)}
+                onOpenBook={onOpenBook}
+                onToggleBook={onToggleBook}
+              />
             ))}
           </div>
         )
@@ -79,14 +93,36 @@ export function LibraryGridView({ books, onOpenBook }: LibraryGridViewProps) {
   )
 }
 
-function GridBookCard({ book, onOpenBook }: { book: LibraryBook; onOpenBook: (book: Book) => void }) {
+interface GridBookCardProps {
+  book: LibraryBook
+  selecting: boolean
+  selected: boolean
+  onOpenBook: (book: Book) => void
+  onToggleBook: (book: Book) => void
+}
+
+function GridBookCard({ book, selecting, selected, onOpenBook, onToggleBook }: GridBookCardProps) {
+  const { t } = useI18n()
   const coverUrl = useBookCoverUrl(book.id)
+  // Segurar alterna o livro (entra no modo se estiver fora dele). Com o modo já ativo, um toque
+  // lento também cai aqui — sem isso o click engolido pelo hook faria o toque "sumir".
+  const longPress = useLongPress({ onLongPress: () => onToggleBook(book) })
 
   return (
     <button
       type="button"
-      onClick={() => onOpenBook(book)}
-      className="relative w-full overflow-hidden bg-bg-surface-2 transition-opacity active:opacity-75"
+      {...longPress}
+      onClick={() => (selecting ? onToggleBook(book) : onOpenBook(book))}
+      aria-pressed={selecting ? selected : undefined}
+      aria-label={selecting
+        ? t(selected ? 'library.selection.deselect' : 'library.selection.select', { title: book.title })
+        : undefined}
+      // select-none + touch-callout: o WebView do Android seleciona texto e abre o callout da
+      // imagem no long-press, o que roubaria o gesto (R-001).
+      className={[
+        'relative w-full select-none overflow-hidden bg-bg-surface-2 transition-opacity active:opacity-75 [-webkit-touch-callout:none]',
+        selected ? 'ring-2 ring-inset ring-purple-light' : '',
+      ].join(' ')}
       style={{ aspectRatio: '2 / 3' }}
     >
       {coverUrl ? (
@@ -102,6 +138,12 @@ function GridBookCard({ book, onOpenBook }: { book: LibraryBook; onOpenBook: (bo
         <div className="flex h-full w-full items-center justify-center text-white/20">
           <BookOpen size={20} />
         </div>
+      )}
+      {selected && <div aria-hidden="true" className="absolute inset-0 bg-purple-primary/25" />}
+      {selecting && (
+        <span className="absolute right-1.5 top-1.5">
+          <SelectionCheck selected={selected} />
+        </span>
       )}
       {book.percentage > 0 && (
         <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-black/30">

@@ -22,6 +22,22 @@ export async function deleteCollection(id: number): Promise<void> {
   })
 }
 
+// Move vários livros de uma vez (feature 023, D-07/D-09). Substitui a coleção atual de cada um.
+// Uma transação só: ou todos mudam ou nenhum. `collectionOrder` cresce com o índice para manter,
+// dentro da coleção, a ordem em que os livros chegaram aqui (Date.now() sozinho empataria).
+export async function setBooksCollection(ids: number[], collectionId: number | null): Promise<void> {
+  if (ids.length === 0) return
+  const baseOrder = Date.now()
+  await db.transaction('rw', db.books, async () => {
+    for (const [index, id] of ids.entries()) {
+      await db.books.update(id, {
+        collectionId: collectionId ?? null,
+        collectionOrder: collectionId != null ? baseOrder + index : undefined,
+      })
+    }
+  })
+}
+
 export async function setBookCollection(bookId: number, collectionId: number | null, order?: number): Promise<void> {
   await db.books.update(bookId, {
     collectionId: collectionId ?? null,
