@@ -156,6 +156,35 @@ export async function restoreBookProgressFromDrive(
   return { restored: false }
 }
 
+// Prazo da restauração na abertura do livro: offline/rede ruim não pode
+// segurar o leitor no skeleton por muito tempo.
+export const PROGRESS_RESTORE_ON_OPEN_TIMEOUT_MS = 2_500
+
+// Chamada pelo leitor antes de decidir a posição inicial. Nunca lança e nunca
+// passa do prazo; se a restauração terminar depois, ela ainda grava no Dexie
+// (com o updatedAt remoto) e vale na próxima abertura.
+export async function restoreBookProgressBeforeOpen(
+  bookId: number,
+  options: SyncOptions & { timeoutMs?: number } = {},
+): Promise<{ restored: boolean }> {
+  // Mesma regra do scheduleProgressDriveSync: sem token válido, nem tenta.
+  if (progressSyncStatusStore.getCached().code === 'permission-error') return { restored: false }
+
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<{ restored: boolean }>((resolve) => {
+    timer = setTimeout(() => resolve({ restored: false }), options.timeoutMs ?? PROGRESS_RESTORE_ON_OPEN_TIMEOUT_MS)
+  })
+  try {
+    // Promise.race: resolve com o que terminar primeiro (restauração ou prazo).
+    return await Promise.race([
+      restoreBookProgressFromDrive(bookId, options).catch(() => ({ restored: false })),
+      timeout,
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 async function runScheduled(bookId: number): Promise<void> {
   inFlightBookIds.add(bookId)
   try {

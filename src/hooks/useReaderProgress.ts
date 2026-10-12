@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getProgress, upsertProgress, type ProgressSavePayload } from '../db/progress'
+import { restoreBookProgressBeforeOpen } from '../services/ProgressDriveSyncService'
 import type { ReadingProgress } from '../types/book'
 
 interface UseReaderProgressResult {
@@ -8,6 +9,14 @@ interface UseReaderProgressResult {
   initialLoadDone: boolean     // false enquanto o DB ainda não respondeu
   saveProgress: (payload: ProgressSavePayload) => void  // debounced
   flushProgress: (payload?: ProgressSavePayload) => Promise<void>
+}
+
+// Posição no início do livro (fraction/percentage 0). Sem fraction nem
+// percentage não dá para saber — trata como posição real.
+function isAtBookStart(payload: ProgressSavePayload): boolean {
+  if (payload.fraction !== undefined) return payload.fraction <= 0
+  if (payload.percentage !== undefined) return payload.percentage <= 0
+  return false
 }
 
 interface LoadedProgressState {
@@ -20,6 +29,11 @@ export function useReaderProgress(bookId: number): UseReaderProgressResult {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingProgressRef = useRef<ProgressSavePayload | null>(null)
   const lastPersistedKeyRef = useRef<string | null>(null)
+  // true quando o livro abriu sem progresso local (nem restaurado do Drive).
+  // Nesse caso o início "por padrão" não é gravado: gravar criaria um registro
+  // com timestamp novo que o sync publicaria por cima de uma posição remota
+  // que não pôde ser restaurada (offline/prazo).
+  const openedWithoutProgressRef = useRef(false)
   const activeProgress = loadedProgress?.bookId === bookId ? loadedProgress.progress : null
   const savedCfi = activeProgress?.cfi ?? null
   const savedProgress = activeProgress
@@ -28,6 +42,7 @@ export function useReaderProgress(bookId: number): UseReaderProgressResult {
   const persistProgress = useCallback(
     async (payload?: ProgressSavePayload | null) => {
       if (!payload?.cfi) return
+      if (openedWithoutProgressRef.current && isAtBookStart(payload)) return
 
       const persistKey = [
         payload.cfi,
@@ -38,6 +53,8 @@ export function useReaderProgress(bookId: number): UseReaderProgressResult {
       ].join('::')
 
       if (persistKey === lastPersistedKeyRef.current) return
+      // Usuário já saiu do início: voltar para o começo depois é navegação real.
+      openedWithoutProgressRef.current = false
 
       try {
         lastPersistedKeyRef.current = persistKey
@@ -52,13 +69,18 @@ export function useReaderProgress(bookId: number): UseReaderProgressResult {
     [bookId],
   )
 
-  // Carrega posição salva uma vez no mount
+  // Carrega posição salva uma vez no mount. Antes, tenta trazer do Drive uma
+  // posição remota mais recente (com prazo — offline segue com a local).
   useEffect(() => {
     let cancelled = false
-    getProgress(bookId).then((p) => {
-      if (cancelled) return
-      setLoadedProgress({ bookId, progress: p ?? null })
-    })
+    restoreBookProgressBeforeOpen(bookId)
+      .catch(() => undefined)
+      .then(() => getProgress(bookId))
+      .then((p) => {
+        if (cancelled) return
+        openedWithoutProgressRef.current = !p
+        setLoadedProgress({ bookId, progress: p ?? null })
+      })
 
     return () => {
       cancelled = true
