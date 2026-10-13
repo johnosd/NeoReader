@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProfileScreen } from '@/screens/ProfileScreen'
 import type { ProfileSummary } from '@/hooks/useProfileSummary'
 import type { AuthUser } from '@/types/auth'
+import { useBookLockStore } from '@/store/bookLockStore'
 
 const mocks = vi.hoisted(() => ({
   summary: null as ProfileSummary | null,
@@ -191,5 +192,54 @@ describe('ProfileScreen', () => {
 
     expect(mocks.onOpenDiscover).toHaveBeenCalledTimes(1)
     expect(mocks.onOpenLibrary).toHaveBeenCalledTimes(1)
+  })
+
+  // Feature 024 (FR-006): histórico não vaza dados de livro protegido e bloqueado.
+  describe('livro protegido no histórico', () => {
+    function withProtectedFirstBook(): ProfileSummary {
+      return {
+        ...defaultSummary,
+        history: [
+          { ...defaultSummary.history[0], book: { ...defaultSummary.history[0].book, isProtected: true } },
+          defaultSummary.history[1],
+        ],
+      }
+    }
+
+    beforeEach(() => {
+      useBookLockStore.getState().settlePrompt(false)
+      useBookLockStore.setState({ unlocked: false, prompt: null, setup: null })
+    })
+
+    it('bloqueado: só título e cadeado, sem autor, status, páginas nem nota', () => {
+      mocks.summary = withProtectedFirstBook()
+      renderProfile()
+
+      expect(screen.getByText('Livro Recente')).toBeTruthy()
+      expect(screen.queryByText('Autora A')).toBeNull()
+      expect(screen.queryByText('Concluido')).toBeNull()
+      expect(screen.queryByText('240 pags.')).toBeNull()
+      expect(screen.queryByText('4.5')).toBeNull()
+      expect(screen.getByRole('img', { name: 'Protegido, bloqueado' })).toBeTruthy()
+    })
+
+    it('o livro comum ao lado continua com todos os dados', () => {
+      mocks.summary = withProtectedFirstBook()
+      renderProfile()
+
+      expect(screen.getByText('Autor B')).toBeTruthy()
+      expect(screen.getByText('42%')).toBeTruthy()
+    })
+
+    it('desbloqueado: mostra tudo e o cadeado aberto', () => {
+      useBookLockStore.getState().unlock()
+      mocks.summary = withProtectedFirstBook()
+      renderProfile()
+
+      expect(screen.getByText('Autora A')).toBeTruthy()
+      expect(screen.getByText('Concluido')).toBeTruthy()
+      expect(screen.getByText('240 pags.')).toBeTruthy()
+      expect(screen.getByRole('img', { name: 'Protegido, desbloqueado' })).toBeTruthy()
+    })
   })
 })

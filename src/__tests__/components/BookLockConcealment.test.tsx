@@ -1,6 +1,7 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BookCard } from '@/components/BookCard'
+import { ProgressCard } from '@/components/ProgressCard'
 import { HeroBanner } from '@/components/HeroBanner'
 import { LibraryGridView } from '@/components/LibraryGridView'
 import { BookLockBadge } from '@/components/BookLockBadge'
@@ -76,6 +77,43 @@ describe('ocultação de dados extras de livro protegido (FR-006)', () => {
 
       expect(screen.getByText('Machado de Assis')).toBeTruthy()
       expect(screen.queryByRole('img', { name: /Protegido/ })).toBeNull()
+    })
+  })
+
+  describe('ProgressCard (fileira "Continuar lendo")', () => {
+    it('protegido e bloqueado: só título e cadeado, sem autor nem progresso', () => {
+      render(<ProgressCard book={makeCardBook({ isProtected: true })} onPress={vi.fn()} />)
+
+      expect(screen.getByText('Dom Casmurro')).toBeTruthy()
+      expect(screen.queryByText('Machado de Assis')).toBeNull()
+      expect(screen.queryByText(/42/)).toBeNull()
+      expect(screen.getByRole('img', { name: 'Protegido, bloqueado' })).toBeTruthy()
+    })
+
+    it('protegido e desbloqueado: mostra autor e progresso com cadeado aberto', () => {
+      useBookLockStore.getState().unlock()
+      render(<ProgressCard book={makeCardBook({ isProtected: true })} onPress={vi.fn()} />)
+
+      expect(screen.getByText('Machado de Assis')).toBeTruthy()
+      expect(screen.getByText(/42/)).toBeTruthy()
+      expect(screen.getByRole('img', { name: 'Protegido, desbloqueado' })).toBeTruthy()
+    })
+
+    it('livro comum nunca é ocultado nem ganha cadeado (FR-020)', () => {
+      render(<ProgressCard book={makeCardBook()} onPress={vi.fn()} />)
+
+      expect(screen.getByText('Machado de Assis')).toBeTruthy()
+      expect(screen.getByText(/42/)).toBeTruthy()
+      expect(screen.queryByRole('img', { name: /Protegido/ })).toBeNull()
+    })
+
+    it('o menu de opções continua acionável com o livro bloqueado', () => {
+      const onOpenOptions = vi.fn()
+      render(<ProgressCard book={makeCardBook({ isProtected: true })} onPress={vi.fn()} onOpenOptions={onOpenOptions} />)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Opcoes' }))
+
+      expect(onOpenOptions).toHaveBeenCalledTimes(1)
     })
   })
 

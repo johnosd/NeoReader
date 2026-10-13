@@ -14,7 +14,9 @@ import {
 } from 'lucide-react'
 import { BottomNav } from '../components/BottomNav'
 import { EmptyState, Spinner } from '../components/ui'
+import { BookLockBadge } from '../components/BookLockBadge'
 import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
+import { useBookLock } from '../hooks/useBookLock'
 import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
 import { useLibraryGroups } from '../hooks/useLibraryGroups'
 import { useProfileSummary, type ProfileAchievement, type ProfileHistoryItem } from '../hooks/useProfileSummary'
@@ -301,6 +303,10 @@ function HistoryTab({ items }: { items: ProfileHistoryItem[] }) {
 function HistoryRow({ item }: { item: ProfileHistoryItem }) {
   const { locale, t } = useI18n()
   const coverUrl = useBookCoverUrl(item.book.id)
+  // Protegido e bloqueado: só capa, título e cadeado; sem autor, status, páginas, nota
+  // nem data de leitura (feature 024, FR-006).
+  const { isConcealed } = useBookLock()
+  const concealed = isConcealed(item.book)
   const status = item.readingStatus === 'finished'
     ? t('profile.status.finished')
     : item.readingStatus === 'reading'
@@ -317,8 +323,14 @@ function HistoryRow({ item }: { item: ProfileHistoryItem }) {
         )}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-[13px] font-semibold text-text-primary truncate">{item.book.title}</p>
-        <p className="mt-[2px] text-[11px] text-text-muted truncate">{item.book.author}</p>
+        <p className="flex items-center gap-1.5 text-[13px] font-semibold text-text-primary">
+          <span className="truncate">{item.book.title}</span>
+          {item.book.isProtected && <BookLockBadge />}
+        </p>
+        {!concealed && (
+          <p className="mt-[2px] text-[11px] text-text-muted truncate">{item.book.author}</p>
+        )}
+        {!concealed && (
         <div className="mt-2 flex items-center gap-2 text-[10px] text-text-muted">
           <span>{status}</span>
           {item.pageCount && (
@@ -337,10 +349,13 @@ function HistoryRow({ item }: { item: ProfileHistoryItem }) {
             </>
           )}
         </div>
+        )}
       </div>
-      <time className="text-[10px] text-text-muted flex-shrink-0 pt-[2px]" dateTime={item.date.toISOString()}>
-        {formatShortDate(item.date, locale)}
-      </time>
+      {!concealed && (
+        <time className="text-[10px] text-text-muted flex-shrink-0 pt-[2px]" dateTime={item.date.toISOString()}>
+          {formatShortDate(item.date, locale)}
+        </time>
+      )}
     </div>
   )
 }

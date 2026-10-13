@@ -48,13 +48,15 @@ describe('PinPad', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
-  it('anuncia só a quantidade de dígitos, nunca os dígitos', () => {
+  it('anuncia só a quantidade de dígitos (com singular correto), nunca os dígitos', () => {
     render(<Harness />)
-    fireEvent.click(screen.getByRole('button', { name: 'Dígito 7' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Dígito 3' }))
+    expect(screen.getByRole('status').textContent).toBe('0 dígitos digitados')
 
-    const status = screen.getByRole('status')
-    expect(status.textContent).toBe('2 dígitos digitados')
+    fireEvent.click(screen.getByRole('button', { name: 'Dígito 7' }))
+    expect(screen.getByRole('status').textContent).toBe('1 dígito digitado')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dígito 3' }))
+    expect(screen.getByRole('status').textContent).toBe('2 dígitos digitados')
     expect(document.body.textContent).not.toContain('73')
   })
 

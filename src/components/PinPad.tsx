@@ -64,7 +64,7 @@ export function PinPad({ value, onChange, maxLength = PIN_MAX_LENGTH, disabled =
         ))}
       </div>
       <p className="sr-only" role="status" aria-live="polite">
-        {t('bookLock.pad.status', { count: value.length })}
+        {t(value.length === 1 ? 'bookLock.pad.status.one' : 'bookLock.pad.status.many', { count: value.length })}
       </p>
 
       <div className="grid w-full grid-cols-3 gap-3">

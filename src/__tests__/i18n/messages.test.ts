@@ -14,7 +14,7 @@ describe('i18n messages', () => {
   // contra o erro típico: o singular herdar `{count}` (vira "1 livros") ou o plural esquecê-lo.
   it('pares .one/.many de seleção e ações em lote: singular sem {count}, plural com {count}', () => {
     const pairedBases = Object.keys(ptBRMessages)
-      .filter((key) => /^(bulkActions|library\.selection)\./.test(key) && key.endsWith('.one'))
+      .filter((key) => /^(bulkActions|library\.selection|bookLock\.pad\.status)\./.test(key) && key.endsWith('.one'))
       .map((key) => key.slice(0, -'.one'.length))
     expect(pairedBases.length).toBeGreaterThan(0)
 

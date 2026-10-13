@@ -1,6 +1,8 @@
 import { BookOpen, MoreVertical } from 'lucide-react'
 import type { BookWithProgress } from '../hooks/useLibraryGroups'
 import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
+import { useBookLock } from '../hooks/useBookLock'
+import { BookLockBadge } from './BookLockBadge'
 import type { Book } from '../types/book'
 import { useI18n } from '../i18n'
 
@@ -13,6 +15,10 @@ interface ProgressCardProps {
 export function ProgressCard({ book, onPress, onOpenOptions }: ProgressCardProps) {
   const { t } = useI18n()
   const coverUrl = useBookCoverUrl(book.id)
+  // Protegido e bloqueado: só capa, título e cadeado; sem autor nem progresso
+  // (feature 024, FR-006). Este é o cartão da fileira "Continuar lendo" da Home.
+  const { isConcealed } = useBookLock()
+  const concealed = isConcealed(book)
 
   return (
     <div
@@ -49,21 +55,28 @@ export function ProgressCard({ book, onPress, onOpenOptions }: ProgressCardProps
 
       {/* Content */}
       <div className="flex-1 flex flex-col justify-center gap-[5px] px-3 py-[14px] min-w-0">
-        <p className="text-[13px] font-semibold text-white leading-tight truncate">{book.title}</p>
-        <p className="text-[10px] truncate" style={{ color: 'rgba(148,163,184,0.75)' }}>{book.author}</p>
+        <p className="flex items-center gap-1.5 text-[13px] font-semibold text-white leading-tight">
+          <span className="truncate">{book.title}</span>
+          {book.isProtected && <BookLockBadge />}
+        </p>
+        {!concealed && (
+          <p className="text-[10px] truncate" style={{ color: 'rgba(148,163,184,0.75)' }}>{book.author}</p>
+        )}
 
         {/* Progress bar */}
-        <div className="h-[3px] overflow-hidden rounded-full mt-[2px]" style={{ background: 'rgba(255,255,255,0.1)' }}>
-          <div
-            className="h-full rounded-full transition-all duration-500"
-            style={{ width: `${book.percentage}%`, background: '#7b2cbf' }}
-          />
-        </div>
+        {!concealed && (
+          <div className="h-[3px] overflow-hidden rounded-full mt-[2px]" style={{ background: 'rgba(255,255,255,0.1)' }}>
+            <div
+              className="h-full rounded-full transition-all duration-500"
+              style={{ width: `${book.percentage}%`, background: '#7b2cbf' }}
+            />
+          </div>
+        )}
 
         {/* Status row */}
         <div className="flex items-center justify-between mt-[1px]">
           <span className="text-[10px] font-semibold" style={{ color: '#a855f7' }}>
-            {t('progressCard.completed', { percent: book.percentage })}
+            {concealed ? '' : t('progressCard.completed', { percent: book.percentage })}
           </span>
           {onOpenOptions && (
             <button
