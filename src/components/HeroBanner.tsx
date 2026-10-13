@@ -1,6 +1,8 @@
 import { BookOpen, Play, Plus } from 'lucide-react'
 import type { BookWithProgress } from '../hooks/useLibraryGroups'
 import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
+import { useBookLock } from '../hooks/useBookLock'
+import { BookLockBadge } from './BookLockBadge'
 import type { Book } from '../types/book'
 import { useI18n, type TranslateFn } from '../i18n'
 
@@ -13,9 +15,13 @@ interface HeroBannerProps {
 export function HeroBanner({ book, onPress, onOpenOptions }: HeroBannerProps) {
   const { t } = useI18n()
   const coverUrl = useBookCoverUrl(book.id)
+  const { isConcealed } = useBookLock()
+  // Protegido e bloqueado: só capa, título e cadeado; sem autor, progresso, status
+  // nem descrição (feature 024, FR-006).
+  const concealed = isConcealed(book)
 
-  const actionLabel =
-    book.readingStatus === 'finished' ? t('hero.action.reread')
+  const actionLabel = concealed ? t('hero.action.open')
+    : book.readingStatus === 'finished' ? t('hero.action.reread')
     : book.readingStatus === 'reading' ? t('hero.action.resume')
     : t('hero.action.open')
 
@@ -78,12 +84,13 @@ export function HeroBanner({ book, onPress, onOpenOptions }: HeroBannerProps) {
 
         {/* Genre-style row: author + separator + progress */}
         <div className="flex items-center gap-2 mb-3">
-          {book.author ? (
+          {book.isProtected && <BookLockBadge />}
+          {!concealed && book.author ? (
             <span className="text-[11px] font-semibold uppercase tracking-[0.13em] text-white/75">
               {book.author}
             </span>
           ) : null}
-          {book.readingStatus === 'reading' && book.percentage > 0 && (
+          {!concealed && book.readingStatus === 'reading' && book.percentage > 0 && (
             <>
               <span className="text-white/30 text-xs">·</span>
               <span className="text-[11px] font-semibold uppercase tracking-[0.13em] text-white/75">
@@ -102,20 +109,24 @@ export function HeroBanner({ book, onPress, onOpenOptions }: HeroBannerProps) {
         </h2>
 
         {/* Description */}
-        <p className="text-[0.85rem] leading-5 text-white/65 mb-3" style={{ maxWidth: 320 }}>
-          {getHeroDescription(book, t)}
-        </p>
+        {!concealed && (
+          <p className="text-[0.85rem] leading-5 text-white/65 mb-3" style={{ maxWidth: 320 }}>
+            {getHeroDescription(book, t)}
+          </p>
+        )}
 
         {/* Status badge — below description */}
-        <span
-          className="inline-flex items-center rounded-[3px] px-2 py-[3px] mb-4 text-[9px] font-black uppercase tracking-[0.18em]"
-          style={badgeStyle}
-        >
-          {badgeLabel}
-        </span>
+        {!concealed && (
+          <span
+            className="inline-flex items-center rounded-[3px] px-2 py-[3px] mb-4 text-[9px] font-black uppercase tracking-[0.18em]"
+            style={badgeStyle}
+          >
+            {badgeLabel}
+          </span>
+        )}
 
         {/* Progress bar — only while reading */}
-        {book.readingStatus === 'reading' && (
+        {!concealed && book.readingStatus === 'reading' && (
           <div className="mb-5 h-[3px] overflow-hidden rounded-full bg-white/12">
             <div
               className="h-full rounded-full transition-all duration-500"

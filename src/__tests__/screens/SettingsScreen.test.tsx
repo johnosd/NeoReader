@@ -29,7 +29,7 @@ function freeEntitlements() {
 
 function renderSettingsScreen(overrides: Partial<Record<
   'onBack' | 'onOpenPlan' | 'onOpenLanguage' | 'onOpenAppearance' | 'onOpenWordLens'
-  | 'onOpenNarration' | 'onOpenIntegrations' | 'onOpenOpdsCatalogs' | 'onOpenSync',
+  | 'onOpenNarration' | 'onOpenIntegrations' | 'onOpenOpdsCatalogs' | 'onOpenSync' | 'onOpenBookProtection',
   () => void
 >> = {}) {
   return render(
@@ -43,6 +43,7 @@ function renderSettingsScreen(overrides: Partial<Record<
       onOpenIntegrations={vi.fn()}
       onOpenOpdsCatalogs={vi.fn()}
       onOpenSync={vi.fn()}
+      onOpenBookProtection={vi.fn()}
       {...overrides}
     />,
   )
@@ -53,7 +54,7 @@ describe('SettingsScreen (menu de categorias)', () => {
     mocks.useEntitlements.mockReturnValue(freeEntitlements())
   })
 
-  it('mostra as 8 categorias clicaveis no menu principal, incluindo Plano', () => {
+  it('mostra as 9 categorias clicaveis no menu principal, incluindo Plano e Livros protegidos', () => {
     renderSettingsScreen()
 
     expect(screen.getByText('Plano')).toBeTruthy()
@@ -64,6 +65,7 @@ describe('SettingsScreen (menu de categorias)', () => {
     expect(screen.getByText('Integracoes')).toBeTruthy()
     expect(screen.getByText('Catalogos OPDS')).toBeTruthy()
     expect(screen.getByText('Sincronizacao na nuvem')).toBeTruthy()
+    expect(screen.getByText('Livros protegidos')).toBeTruthy()
   })
 
   it('mostra badge Free ou PRO na linha Plano conforme o entitlement do usuario', () => {
@@ -90,6 +92,7 @@ describe('SettingsScreen (menu de categorias)', () => {
     const onOpenIntegrations = vi.fn()
     const onOpenOpdsCatalogs = vi.fn()
     const onOpenSync = vi.fn()
+    const onOpenBookProtection = vi.fn()
 
     renderSettingsScreen({
       onOpenPlan,
@@ -100,6 +103,7 @@ describe('SettingsScreen (menu de categorias)', () => {
       onOpenIntegrations,
       onOpenOpdsCatalogs,
       onOpenSync,
+      onOpenBookProtection,
     })
 
     fireEvent.click(screen.getByText('Plano'))
@@ -125,5 +129,8 @@ describe('SettingsScreen (menu de categorias)', () => {
 
     fireEvent.click(screen.getByText('Sincronizacao na nuvem'))
     expect(onOpenSync).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByText('Livros protegidos'))
+    expect(onOpenBookProtection).toHaveBeenCalledTimes(1)
   })
 })

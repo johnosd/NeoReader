@@ -127,6 +127,17 @@ export async function setBooksReadingStatus(ids: number[], readingStatus: Readin
   await updateBooks(ids, { readingStatus })
 }
 
+// Feature 024: marca/desmarca a proteção por PIN de um livro.
+export async function setBookProtected(id: number, isProtected: boolean): Promise<void> {
+  await db.books.update(id, { isProtected })
+}
+
+// "Desativar proteção": só toca os que estavam protegidos. Usado dentro da transação
+// de BookProtectionService.disable(), junto com a remoção do registro do PIN.
+export async function clearAllBooksProtected(): Promise<void> {
+  await db.books.filter((book) => book.isProtected === true).modify({ isProtected: false })
+}
+
 export async function updateLastOpened(id: number): Promise<void> {
   await db.books.update(id, { lastOpenedAt: new Date() })
 }

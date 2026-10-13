@@ -1,12 +1,13 @@
 import { useRef, useState, type ReactNode } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { BookOpen, Check, DatabaseZap, FolderOpen, ImagePlus, RefreshCw, Tags, Trash2 } from 'lucide-react'
+import { BookOpen, Check, DatabaseZap, FolderOpen, ImagePlus, Lock, LockOpen, RefreshCw, Tags, Trash2 } from 'lucide-react'
 import { db } from '../db/database'
 import { deleteBook, setBookTags, updateReadingStatus } from '../db/books'
 import { setBookCollection } from '../db/collections'
 import { createTag } from '../db/tags'
 import { BookImportService } from '../services/BookImportService'
 import { BookInfoRefreshService } from '../services/bookInfo'
+import { useBookLock } from '../hooks/useBookLock'
 import { BottomSheet, Button, Checkbox, Spinner } from './ui'
 import type { Book, BookCollection, BookTag } from '../types/book'
 import { useI18n } from '../i18n'
@@ -27,6 +28,7 @@ export function QuickBookActionsSheet({ book, onClose }: QuickBookActionsSheetPr
   const [collectionOpen, setCollectionOpen] = useState(false)
   const [newTagName, setNewTagName] = useState('')
   const imageInputRef = useRef<HTMLInputElement>(null)
+  const { protectBook, unprotectBook, lockNow } = useBookLock()
 
   function handleClose() {
     if (loading) return
@@ -79,6 +81,37 @@ export function QuickBookActionsSheet({ book, onClose }: QuickBookActionsSheetPr
 
   async function handleDelete() {
     await runAction(() => deleteBook(book!.id!))
+  }
+
+  // Proteção por PIN (feature 024). Proteger não pede PIN; remover pede (ou já estar
+  // desbloqueado). Cancelar o PIN/criação não fecha a folha nem mostra erro.
+  async function handleProtect() {
+    if (!book?.id || loading) return
+    setLoading(true)
+    try {
+      if (await protectBook(book.id)) resetAndClose()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('quickActions.error'))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleUnprotect() {
+    if (!book?.id || loading) return
+    setLoading(true)
+    try {
+      if (await unprotectBook(book.id)) resetAndClose()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('quickActions.error'))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function handleLockNow() {
+    lockNow()
+    resetAndClose()
   }
 
   async function toggleTag(tag: BookTag) {
@@ -190,6 +223,33 @@ export function QuickBookActionsSheet({ book, onClose }: QuickBookActionsSheetPr
                 () => setBookCollection(book!.id!, collectionId),
                 { closeOnSuccess: false },
               )}
+            />
+          )}
+
+          {book?.isProtected ? (
+            <>
+              <ActionRow
+                icon={<LockOpen size={18} />}
+                title={t('bookLock.action.unprotect')}
+                description={t('bookLock.action.unprotect.description')}
+                onClick={() => void handleUnprotect()}
+                disabled={loading}
+              />
+              <ActionRow
+                icon={<Lock size={18} />}
+                title={t('bookLock.action.lockNow')}
+                description={t('bookLock.action.lockNow.description')}
+                onClick={handleLockNow}
+                disabled={loading}
+              />
+            </>
+          ) : (
+            <ActionRow
+              icon={<Lock size={18} />}
+              title={t('bookLock.action.protect')}
+              description={t('bookLock.action.protect.description')}
+              onClick={() => void handleProtect()}
+              disabled={loading}
             />
           )}
 

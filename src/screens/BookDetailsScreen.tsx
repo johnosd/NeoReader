@@ -1,7 +1,8 @@
 ﻿import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useCallback } from 'react'
-import { ArrowLeft, Star, ChevronRight, Globe, Calendar, HardDrive, Sparkles, BookOpen, Bookmark, Highlighter, X, Check, Volume2, Mic2, Gauge, Search, Play, Loader2, Cloud, CloudOff, Palette, Info } from 'lucide-react'
+import { ArrowLeft, Star, ChevronRight, Globe, Calendar, HardDrive, Sparkles, BookOpen, Bookmark, Highlighter, X, Check, Volume2, Mic2, Gauge, Search, Play, Loader2, Cloud, CloudOff, Palette, Info, Lock, LockKeyhole, LockOpen } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
+import { useBookLock } from '../hooks/useBookLock'
 import { Badge, BottomSheet, Button, EmptyState, ListItem, Spinner, Switch } from '../components/ui'
 import { SettingsGroup } from '../components/settings/SettingsLayout'
 import { AuthorTab } from '../components/AuthorTab'
@@ -184,6 +185,9 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
   }))
 
   const liveBook = useLiveQuery(() => db.books.get(book.id!), [book.id]) ?? book
+  // Proteção por PIN (feature 024): a tela já está atrás do BookLockGate, então chegar
+  // aqui significa livro desbloqueado ou não protegido.
+  const { protectBook, unprotectBook, lockNow } = useBookLock()
   const progress = useLiveQuery(() => db.progress.where('bookId').equals(book.id!).first(), [book.id])
   // Mais recente primeiro: sortBy do Dexie só ordena ascendente, então
   // invertemos depois de buscar (lista já é pequena, custo desprezível).
@@ -700,6 +704,28 @@ export function BookDetailsScreen({ book, onBack, onRead, onOpenSettings, onOpen
           <ArrowLeft size={20} />
         </button>
         <p className="flex-1 text-sm text-text-muted truncate text-center">{liveBook.title}</p>
+        {liveBook.isProtected && (
+          <button
+            onClick={lockNow}
+            className="p-2 rounded-md active:scale-90 transition-transform"
+            aria-label={t('bookLock.action.lockNow')}
+          >
+            <LockKeyhole size={20} className="text-text-secondary" />
+          </button>
+        )}
+        <button
+          onClick={() => {
+            if (liveBook.id === undefined) return
+            void (liveBook.isProtected ? unprotectBook(liveBook.id) : protectBook(liveBook.id))
+          }}
+          className="p-2 rounded-md active:scale-90 transition-transform"
+          aria-label={liveBook.isProtected ? t('bookLock.action.unprotect') : t('bookLock.action.protect')}
+          aria-pressed={liveBook.isProtected === true}
+        >
+          {liveBook.isProtected
+            ? <Lock size={20} className="text-purple-light" />
+            : <LockOpen size={20} className="text-text-secondary" />}
+        </button>
         <button
           onClick={() => book.id !== undefined && void toggleFavorite(book.id)}
           className="p-2 -mr-1 rounded-md active:scale-90 transition-transform"

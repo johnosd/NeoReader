@@ -2,9 +2,11 @@ import { useMemo } from 'react'
 import { BookOpen } from 'lucide-react'
 import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
 import { useLongPress } from '../hooks/useLongPress'
+import { useBookLock } from '../hooks/useBookLock'
 import { useWindowVirtualList } from '@/hooks/useWindowVirtualList'
 import { useI18n } from '../i18n'
 import { SelectionCheck } from './SelectionCheck'
+import { BookLockBadge } from './BookLockBadge'
 import type { Book } from '../types/book'
 import type { LibraryBook } from '../hooks/useLibraryCatalog'
 
@@ -104,6 +106,9 @@ interface GridBookCardProps {
 function GridBookCard({ book, selecting, selected, onOpenBook, onToggleBook }: GridBookCardProps) {
   const { t } = useI18n()
   const coverUrl = useBookCoverUrl(book.id)
+  // Protegido e bloqueado: sem barra de progresso, só capa e cadeado (feature 024, FR-006).
+  const { isConcealed } = useBookLock()
+  const concealed = isConcealed(book)
   // Segurar alterna o livro (entra no modo se estiver fora dele). Com o modo já ativo, um toque
   // lento também cai aqui — sem isso o click engolido pelo hook faria o toque "sumir".
   const longPress = useLongPress({ onLongPress: () => onToggleBook(book) })
@@ -145,7 +150,8 @@ function GridBookCard({ book, selecting, selected, onOpenBook, onToggleBook }: G
           <SelectionCheck selected={selected} />
         </span>
       )}
-      {book.percentage > 0 && (
+      {book.isProtected && <BookLockBadge className="absolute left-1.5 top-1.5" />}
+      {!concealed && book.percentage > 0 && (
         <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-black/30">
           <div className="h-full bg-success" style={{ width: `${book.percentage}%` }} />
         </div>

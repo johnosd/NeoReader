@@ -7,6 +7,7 @@ import {
   getRedirectResult,
   GoogleAuthProvider,
   onAuthStateChanged,
+  reauthenticateWithPopup,
   setPersistence,
   signInWithPopup,
   signInWithRedirect,
@@ -406,6 +407,39 @@ export async function signInWithGoogleRedirect(): Promise<AuthUser | null> {
 
   await signInWithRedirect(auth, provider)
   return null
+}
+
+export type WebReauthOutcome = 'confirmed' | 'cancelled' | 'different-account' | 'offline' | 'failed'
+
+// Feature 024 ("Esqueci o PIN" na web, onde não há credencial de aparelho): reautentica o
+// usuário JÁ logado digitando a senha da conta Google. `reauthenticateWithPopup` nunca
+// troca a sessão (escolher outra conta falha com auth/user-mismatch). Não usar
+// `signInWithGoogle`/`signInWithPopup` aqui: trocariam a sessão e o App recarregaria.
+export async function reauthenticateGoogleOnWeb(): Promise<WebReauthOutcome> {
+  if (isNativeRuntime()) return 'failed'
+  const auth = getConfiguredAuth()
+  const current = auth?.currentUser
+  if (!auth || !current) return 'failed'
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return 'offline'
+
+  try {
+    const provider = new GoogleAuthProvider()
+    // prompt=login força digitar a senha; sem isso um toque na conta já bastaria.
+    provider.setCustomParameters({ prompt: 'login' })
+    const result = await reauthenticateWithPopup(current, provider)
+    return result.user.uid === current.uid ? 'confirmed' : 'different-account'
+  } catch (error) {
+    const code = (error as { code?: string } | null)?.code ?? ''
+    if (code === 'auth/user-mismatch') return 'different-account'
+    if (code === 'auth/network-request-failed') return 'offline'
+    if (
+      code === 'auth/popup-closed-by-user'
+      || code === 'auth/cancelled-popup-request'
+      || code === 'auth/user-cancelled'
+    ) return 'cancelled'
+    logWarn('book-lock.reauth.failure', { status: 'failure', error })
+    return 'failed'
+  }
 }
 
 export async function signOut() {

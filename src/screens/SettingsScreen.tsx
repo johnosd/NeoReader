@@ -1,4 +1,4 @@
-import { ArrowLeft, ChevronRight, CloudUpload, Globe, KeyRound, Languages, Palette, Rss, ScanText, Sparkles, Volume2 } from 'lucide-react'
+import { ArrowLeft, ChevronRight, CloudUpload, Globe, KeyRound, Languages, Lock, Palette, Rss, ScanText, Sparkles, Volume2 } from 'lucide-react'
 import { Badge, ListItem } from '../components/ui'
 import { SettingsGroup } from '../components/settings/SettingsLayout'
 import { useEntitlements } from '../hooks/useEntitlements'
@@ -16,6 +16,7 @@ interface SettingsScreenProps {
   onOpenIntegrations: () => void
   onOpenOpdsCatalogs: () => void
   onOpenSync: () => void
+  onOpenBookProtection: () => void
 }
 
 export function SettingsScreen({
@@ -29,6 +30,7 @@ export function SettingsScreen({
   onOpenIntegrations,
   onOpenOpdsCatalogs,
   onOpenSync,
+  onOpenBookProtection,
 }: SettingsScreenProps) {
   const entitlements = useEntitlements()
   const { t } = useI18n()
@@ -120,6 +122,13 @@ export function SettingsScreen({
             meta={t('settings.cloudSync.sectionDescription')}
             trailing={<ChevronRight size={18} />}
             onClick={onOpenSync}
+          />
+          <ListItem
+            leading={<Lock size={20} />}
+            title={t('settings.bookProtection.sectionLabel')}
+            meta={t('settings.bookProtection.sectionDescription')}
+            trailing={<ChevronRight size={18} />}
+            onClick={onOpenBookProtection}
             divider={false}
           />
         </SettingsGroup>

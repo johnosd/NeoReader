@@ -8,6 +8,7 @@ import type { StoredBookInfo } from '../types/bookInfo'
 import type { StoredEpubExtras } from '../services/EpubService'
 import type { OpdsCatalog, OpdsDownloadedEntry } from '../types/opds'
 import type { Highlight } from '../types/highlight'
+import type { BookProtectionRecord } from '../types/bookProtection'
 
 type LegacyBookRecord = Book & { coverBlob?: Blob | null }
 type LegacyAuthorCacheRecord = AuthorCacheRecord & { bookIds?: number[] }
@@ -33,6 +34,7 @@ class NeoReaderDB extends Dexie {
   opdsCatalogs!: Table<OpdsCatalog, number>
   opdsDownloadedEntries!: Table<OpdsDownloadedEntry, number>
   highlights!: Table<Highlight>
+  bookProtection!: Table<BookProtectionRecord, number>
 
   constructor() {
     // Isolamento por conta: cada uid usa seu próprio banco.
@@ -416,6 +418,31 @@ class NeoReaderDB extends Dexie {
       opdsCatalogs:          '++id, baseUrl, isDefault, createdAt',
       opdsDownloadedEntries: '++id, &[catalogId+entryId], bookId',
       highlights:            '++id, bookId, createdAt',
+    })
+
+    // v20: PIN de proteção de livros (feature 024). Tabela singleton (id fixo 1)
+    // com o hash do PIN e o controle de espera por tentativas erradas. Não há
+    // índice novo em `books`: `isProtected` é campo não indexado.
+    this.version(20).stores({
+      books:         '++id, title, author, addedAt, importedAt, lastOpenedAt, fileName, fileSize, fileHash, format, readingStatus, isFavorite, *tags, sourceFolderId, missingFile, storageMode, collectionId',
+      bookCovers:    'bookId, updatedAt, source',
+      progress:      '++id, bookId, updatedAt',
+      bookmarks:     '++id, bookId, createdAt, updatedAt, deletedAt',
+      vocabulary:    '++id, bookId, createdAt',
+      translations:  '++id, textHash, createdAt',
+      settings:      '++id',
+      bookSettings:  '++id, bookId',
+      ttsVoiceCaches:'++id, &cacheKey, provider, language, updatedAt',
+      authors:       '&authorName, *bookIds, fetchedAt, videosFetchedAt',
+      bookInfo:      '&bookId, updatedAt',
+      epubExtras:    '&bookId, updatedAt',
+      tags:          '++id, &name, createdAt, updatedAt',
+      sourceFolders: '++id, name, uri, createdAt, lastScannedAt',
+      collections:   '++id, &name, createdAt, updatedAt',
+      opdsCatalogs:          '++id, baseUrl, isDefault, createdAt',
+      opdsDownloadedEntries: '++id, &[catalogId+entryId], bookId',
+      highlights:            '++id, bookId, createdAt',
+      bookProtection:        'id',
     })
   }
 }

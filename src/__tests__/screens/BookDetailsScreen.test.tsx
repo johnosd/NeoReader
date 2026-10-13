@@ -5,9 +5,12 @@ import { FeatureQuotaService } from '@/services/FeatureQuotaService'
 import type { Book, Bookmark, BookSettings, ReadingProgress } from '@/types/book'
 import type { Highlight } from '@/types/highlight'
 import { BOOK_INFO_SCHEMA_VERSION, type StoredBookInfo } from '@/types/bookInfo'
+import { useBookLockStore } from '@/store/bookLockStore'
 
 const mocks = vi.hoisted(() => ({
   liveQueryIndex: 0,
+  setBookProtected: vi.fn(),
+  hasPin: vi.fn(),
   bookSettings: {
     bookId: 1,
     ttsProvider: 'speechify',
@@ -92,6 +95,11 @@ vi.mock('@/db/database', () => ({
 
 vi.mock('@/db/books', () => ({
   toggleFavorite: vi.fn(),
+  setBookProtected: mocks.setBookProtected,
+}))
+
+vi.mock('@/services/BookProtectionService', () => ({
+  BookProtectionService: { hasPin: mocks.hasPin },
 }))
 
 vi.mock('@/db/bookmarks', () => ({
@@ -2154,5 +2162,65 @@ describe('BookDetailsScreen voice settings', () => {
     const defaultRow = within(voiceList).getByText('Usar voz padrao').closest('[role="button"]') as HTMLElement
     expect(jamesRow.querySelector('svg.lucide-check')).toBeTruthy()
     expect(defaultRow.querySelector('svg.lucide-check')).toBeNull()
+  })
+
+  describe('proteção por PIN (feature 024)', () => {
+    beforeEach(() => {
+      useBookLockStore.getState().settlePrompt(false)
+      useBookLockStore.getState().settleSetup(false)
+      useBookLockStore.setState({ unlocked: false, prompt: null, setup: null })
+      mocks.setBookProtected.mockReset().mockResolvedValue(undefined)
+      mocks.hasPin.mockReset().mockResolvedValue(true)
+    })
+
+    function renderDetails(overrides: Partial<Book> = {}) {
+      return render(
+        <BookDetailsScreen
+          book={{ ...book, ...overrides }}
+          onBack={vi.fn()}
+          onRead={vi.fn()}
+          onOpenSettings={vi.fn()}
+        />,
+      )
+    }
+
+    it('livro comum mostra "Proteger com PIN" e não mostra "Bloquear agora"', () => {
+      renderDetails()
+
+      expect(screen.getByRole('button', { name: 'Proteger com PIN' })).toBeTruthy()
+      expect(screen.queryByRole('button', { name: 'Bloquear agora' })).toBeNull()
+    })
+
+    it('com PIN já criado, proteger não pede PIN', async () => {
+      renderDetails()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Proteger com PIN' }))
+
+      await waitFor(() => expect(mocks.setBookProtected).toHaveBeenCalledWith(book.id, true))
+      expect(useBookLockStore.getState().prompt).toBeNull()
+    })
+
+    it('sem PIN, abre a criação e só protege se concluir', async () => {
+      mocks.hasPin.mockResolvedValue(false)
+      renderDetails()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Proteger com PIN' }))
+      await waitFor(() => expect(useBookLockStore.getState().setup?.mode).toBe('create'))
+      expect(mocks.setBookProtected).not.toHaveBeenCalled()
+
+      act(() => { useBookLockStore.getState().settleSetup(true) })
+      await waitFor(() => expect(mocks.setBookProtected).toHaveBeenCalledWith(book.id, true))
+    })
+
+    it('livro protegido e desbloqueado: remover proteção e bloquear agora', async () => {
+      useBookLockStore.getState().unlock()
+      renderDetails({ isProtected: true })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Remover proteção' }))
+      await waitFor(() => expect(mocks.setBookProtected).toHaveBeenCalledWith(book.id, false))
+
+      fireEvent.click(screen.getByRole('button', { name: 'Bloquear agora' }))
+      expect(useBookLockStore.getState().unlocked).toBe(false)
+    })
   })
 })

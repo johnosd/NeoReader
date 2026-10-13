@@ -1,6 +1,8 @@
 import { BookOpen, MoreVertical, Star } from 'lucide-react'
 import type { BookWithProgress } from '../hooks/useLibraryGroups'
 import { useBookCoverUrl } from '../hooks/useBookCoverUrl'
+import { useBookLock } from '../hooks/useBookLock'
+import { BookLockBadge } from './BookLockBadge'
 import { useI18n } from '../i18n'
 
 interface BookCardProps {
@@ -12,11 +14,14 @@ interface BookCardProps {
 export function BookCard({ book, onPress, onOpenOptions }: BookCardProps) {
   const { t } = useI18n()
   const coverUrl = useBookCoverUrl(book.id)
+  const { isConcealed } = useBookLock()
+  // Protegido e bloqueado: só capa, título e cadeado (feature 024, FR-006).
+  const concealed = isConcealed(book)
 
-  const pct = book.percentage
-  const isNew = book.lastOpenedAt === null
-  const rating = formatCardRating(book.bookInfo?.rating?.value.average)
-  const publishedYear = formatPublishedYear(book.bookInfo?.publishedDate?.value)
+  const pct = concealed ? 0 : book.percentage
+  const isNew = !concealed && book.lastOpenedAt === null
+  const rating = concealed ? null : formatCardRating(book.bookInfo?.rating?.value.average)
+  const publishedYear = concealed ? null : formatPublishedYear(book.bookInfo?.publishedDate?.value)
   const hasCardMeta = !!rating || !!publishedYear
 
   return (
@@ -99,6 +104,8 @@ export function BookCard({ book, onPress, onOpenOptions }: BookCardProps) {
           </div>
         )}
 
+        {book.isProtected && <BookLockBadge className="absolute bottom-2.5 right-2" />}
+
         {/* Options button */}
         {onOpenOptions && (
           <button
@@ -117,9 +124,11 @@ export function BookCard({ book, onPress, onOpenOptions }: BookCardProps) {
         <p className="text-[12px] font-semibold leading-tight truncate" style={{ color: '#f1f5f9' }}>
           {book.title}
         </p>
-        <p className="text-[10px] mt-[2px] truncate" style={{ color: 'rgba(100,116,139,0.9)' }}>
-          {book.author}
-        </p>
+        {!concealed && (
+          <p className="text-[10px] mt-[2px] truncate" style={{ color: 'rgba(100,116,139,0.9)' }}>
+            {book.author}
+          </p>
+        )}
       </div>
     </div>
   )

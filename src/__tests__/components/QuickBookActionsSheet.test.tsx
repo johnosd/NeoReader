@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   updateManualCover: vi.fn(),
   refreshBookInfo: vi.fn(),
   tags: [] as BookTag[],
+  setBookProtected: vi.fn(),
+  hasPin: vi.fn(),
 }))
 
 vi.mock('dexie-react-hooks', () => ({
@@ -32,6 +34,7 @@ vi.mock('@/db/books', () => ({
   deleteBook: mocks.deleteBook,
   setBookTags: mocks.setBookTags,
   updateReadingStatus: mocks.updateReadingStatus,
+  setBookProtected: mocks.setBookProtected,
 }))
 
 vi.mock('@/db/tags', () => ({
@@ -50,6 +53,12 @@ vi.mock('@/services/bookInfo', () => ({
     refreshBookInfo: mocks.refreshBookInfo,
   },
 }))
+
+vi.mock('@/services/BookProtectionService', () => ({
+  BookProtectionService: { hasPin: mocks.hasPin },
+}))
+
+import { useBookLockStore } from '@/store/bookLockStore'
 
 const book: Book = {
   id: 42,
@@ -157,5 +166,103 @@ describe('QuickBookActionsSheet', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Deletar$/ }))
 
     await waitFor(() => expect(mocks.deleteBook).toHaveBeenCalledWith(42))
+  })
+
+  describe('proteção por PIN (feature 024)', () => {
+    beforeEach(() => {
+      useBookLockStore.getState().settlePrompt(false)
+      useBookLockStore.getState().settleSetup(false)
+      useBookLockStore.setState({ unlocked: false, prompt: null, setup: null })
+      mocks.setBookProtected.mockResolvedValue(undefined)
+    })
+
+    it('com PIN já criado protege direto, sem pedir PIN', async () => {
+      mocks.hasPin.mockResolvedValue(true)
+      const onClose = vi.fn()
+      render(<QuickBookActionsSheet book={book} onClose={onClose} />)
+
+      fireEvent.click(screen.getByRole('button', { name: /Proteger com PIN/ }))
+
+      await waitFor(() => expect(mocks.setBookProtected).toHaveBeenCalledWith(42, true))
+      expect(useBookLockStore.getState().prompt).toBeNull()
+      expect(onClose).toHaveBeenCalled()
+    })
+
+    it('sem PIN, conduz à criação e só protege se concluir', async () => {
+      mocks.hasPin.mockResolvedValue(false)
+      render(<QuickBookActionsSheet book={book} onClose={vi.fn()} />)
+
+      fireEvent.click(screen.getByRole('button', { name: /Proteger com PIN/ }))
+      await waitFor(() => expect(useBookLockStore.getState().setup?.mode).toBe('create'))
+      expect(mocks.setBookProtected).not.toHaveBeenCalled()
+
+      useBookLockStore.getState().settleSetup(true)
+      await waitFor(() => expect(mocks.setBookProtected).toHaveBeenCalledWith(42, true))
+    })
+
+    it('cancelar a criação do PIN mantém o livro sem proteção', async () => {
+      mocks.hasPin.mockResolvedValue(false)
+      const onClose = vi.fn()
+      render(<QuickBookActionsSheet book={book} onClose={onClose} />)
+
+      fireEvent.click(screen.getByRole('button', { name: /Proteger com PIN/ }))
+      await waitFor(() => expect(useBookLockStore.getState().setup).not.toBeNull())
+      useBookLockStore.getState().settleSetup(false)
+
+      await waitFor(() => expect(useBookLockStore.getState().setup).toBeNull())
+      expect(mocks.setBookProtected).not.toHaveBeenCalled()
+      expect(onClose).not.toHaveBeenCalled()
+    })
+
+    it('livro protegido e desbloqueado: remover proteção não pede PIN de novo', async () => {
+      useBookLockStore.getState().unlock()
+      render(<QuickBookActionsSheet book={{ ...book, isProtected: true }} onClose={vi.fn()} />)
+
+      expect(screen.queryByRole('button', { name: /Proteger com PIN/ })).toBeNull()
+      fireEvent.click(screen.getByRole('button', { name: /Remover proteção/ }))
+
+      await waitFor(() => expect(mocks.setBookProtected).toHaveBeenCalledWith(42, false))
+      expect(useBookLockStore.getState().prompt).toBeNull()
+    })
+
+    it('livro protegido e bloqueado: remover proteção pede o PIN antes', async () => {
+      render(<QuickBookActionsSheet book={{ ...book, isProtected: true }} onClose={vi.fn()} />)
+
+      fireEvent.click(screen.getByRole('button', { name: /Remover proteção/ }))
+      await waitFor(() => expect(useBookLockStore.getState().prompt).not.toBeNull())
+      expect(mocks.setBookProtected).not.toHaveBeenCalled()
+
+      useBookLockStore.getState().settlePrompt(true)
+      await waitFor(() => expect(mocks.setBookProtected).toHaveBeenCalledWith(42, false))
+    })
+
+    it('PIN cancelado ao remover proteção não altera nada', async () => {
+      render(<QuickBookActionsSheet book={{ ...book, isProtected: true }} onClose={vi.fn()} />)
+
+      fireEvent.click(screen.getByRole('button', { name: /Remover proteção/ }))
+      await waitFor(() => expect(useBookLockStore.getState().prompt).not.toBeNull())
+      useBookLockStore.getState().settlePrompt(false)
+
+      await waitFor(() => expect(useBookLockStore.getState().prompt).toBeNull())
+      expect(mocks.setBookProtected).not.toHaveBeenCalled()
+    })
+
+    it('"Bloquear agora" re-bloqueia e fecha a folha', () => {
+      useBookLockStore.getState().unlock()
+      const onClose = vi.fn()
+      render(<QuickBookActionsSheet book={{ ...book, isProtected: true }} onClose={onClose} />)
+
+      fireEvent.click(screen.getByRole('button', { name: /Bloquear agora/ }))
+
+      expect(useBookLockStore.getState().unlocked).toBe(false)
+      expect(onClose).toHaveBeenCalled()
+    })
+
+    it('livro comum não mostra "Remover proteção" nem "Bloquear agora"', () => {
+      render(<QuickBookActionsSheet book={book} onClose={vi.fn()} />)
+
+      expect(screen.queryByRole('button', { name: /Remover proteção/ })).toBeNull()
+      expect(screen.queryByRole('button', { name: /Bloquear agora/ })).toBeNull()
+    })
   })
 })

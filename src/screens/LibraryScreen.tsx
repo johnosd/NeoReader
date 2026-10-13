@@ -18,6 +18,9 @@ import { useIsImportActive } from '../hooks/useImportActivity'
 import { useLibraryCatalog, type LibraryBook, type LibraryFilter, type LibrarySort } from '../hooks/useLibraryCatalog'
 import { useLibrarySelection } from '../hooks/useLibrarySelection'
 import { useLongPress } from '../hooks/useLongPress'
+import { useBookLock } from '../hooks/useBookLock'
+import { useBookLockStore } from '../store/bookLockStore'
+import { BookLockBadge } from '../components/BookLockBadge'
 import { useLibraryScrollRestore } from '@/hooks/useLibraryScrollRestore'
 import { useWindowVirtualList } from '@/hooks/useWindowVirtualList'
 import { GENRE_LABELS, type CanonicalGenre } from '../utils/categoryNormalizer'
@@ -99,6 +102,48 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
     () => books.filter((book) => book.id !== undefined && selection.selectedIds.has(book.id)),
     [books, selection.selectedIds],
   )
+
+  // Proteção por PIN (feature 024). Livro protegido e bloqueado não abre sheet de ações nem
+  // de tags sem o PIN (FR-007) e não entra na seleção múltipla (FR-017).
+  const { guard, unlocked, lockNow } = useBookLock()
+  const [lockedHintOpen, setLockedHintOpen] = useState(false)
+  const hasProtectedBooks = useMemo(() => books.some((book) => book.isProtected === true), [books])
+
+  // Se o último livro protegido sai (exclusão, desativar proteção), o filtro some e a
+  // tela não pode ficar presa num filtro que não existe mais (spec, edge cases).
+  useEffect(() => {
+    if (activeFilter === 'protected' && !hasProtectedBooks && !isLoading) setActiveFilter('all')
+  }, [activeFilter, hasProtectedBooks, isLoading, setActiveFilter])
+
+  async function openOptions(book: LibraryBook) {
+    if (await guard(book)) setOptionsBook(book)
+  }
+
+  async function openTags(book: LibraryBook) {
+    if (await guard(book)) setTagEditorBook(book)
+  }
+
+  function toggleBookSelection(book: Book) {
+    if (book.id === undefined) return
+    if (book.isProtected && !unlocked) {
+      setLockedHintOpen(true)
+      return
+    }
+    selection.toggle(book.id)
+  }
+
+  // Re-bloqueou (app foi para segundo plano) com algo de livro protegido aberto: fecha as
+  // sheets e limpa a seleção, para nenhuma ação em lote ou edição atingir livro bloqueado.
+  const hasProtectedSelected = selectedBooks.some((book) => book.isProtected)
+  useEffect(() => {
+    if (unlocked) return
+    if (optionsBook?.isProtected) setOptionsBook(null)
+    if (tagEditorBook?.isProtected) setTagEditorBook(null)
+    if (hasProtectedSelected) {
+      selection.clear()
+      setBulkSheetOpen(false)
+    }
+  }, [unlocked, optionsBook, tagEditorBook, hasProtectedSelected, selection])
 
   // Restaura a posicao de scroll ao voltar de um livro (App.tsx desmonta
   // LibraryScreen de verdade ao navegar) e reseta pro topo quando
@@ -491,6 +536,14 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
                 onClick={() => setActiveFilter(filter.id)}
               />
             ))}
+            {/* Filtro fixo "Protegidos" (feature 024): só aparece com ao menos um livro protegido. */}
+            {hasProtectedBooks && (
+              <FilterChip
+                active={activeFilter === 'protected'}
+                label={`🔒 ${t('bookLock.filter.protected')}`}
+                onClick={() => setActiveFilter('protected')}
+              />
+            )}
             {activeFilter.startsWith('genre:') && (
               <FilterChip
                 active={true}
@@ -525,6 +578,25 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
             />
           </div>
         </div>
+
+        {/* Faixa do grupo "Protegidos": um PIN libera todos; "Bloquear agora" volta a pedir. */}
+        {activeFilter === 'protected' && hasProtectedBooks && (
+          <div className="mt-3 flex items-center justify-between gap-3 rounded-md border border-border bg-white/5 px-3 py-2">
+            <p className="flex min-w-0 items-center gap-2 text-sm text-text-secondary">
+              <BookLockBadge />
+              <span className="truncate">
+                {unlocked ? t('bookLock.group.unlocked') : t('bookLock.group.locked')}
+              </span>
+            </p>
+            <button
+              type="button"
+              onClick={() => (unlocked ? lockNow() : void useBookLockStore.getState().requestUnlock())}
+              className="h-9 shrink-0 rounded-pill bg-purple-primary px-4 text-sm font-semibold text-white active:bg-purple-light"
+            >
+              {unlocked ? t('bookLock.action.lockNow') : t('bookLock.action.unlock')}
+            </button>
+          </div>
+        )}
 
         <div className="mt-3 flex items-center justify-between border-t border-white/5 pt-3">
           <p className="text-xs text-text-muted">{t('library.shownCount', { count: filteredBooks.length })}</p>
@@ -579,7 +651,7 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
             books={filteredBooks}
             onOpenBook={onOpenBook}
             selectedIds={selection.selectedIds}
-            onToggleBook={(book) => { if (book.id !== undefined) selection.toggle(book.id) }}
+            onToggleBook={toggleBookSelection}
           />
         )}
 
@@ -587,10 +659,10 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
           <VirtualizedLibraryList
             books={filteredBooks}
             onOpenBook={onOpenBook}
-            onOpenOptions={setOptionsBook}
-            onOpenTags={setTagEditorBook}
+            onOpenOptions={(book) => void openOptions(book)}
+            onOpenTags={(book) => void openTags(book)}
             selectedIds={selection.selectedIds}
-            onToggleBook={(book) => { if (book.id !== undefined) selection.toggle(book.id) }}
+            onToggleBook={toggleBookSelection}
           />
         )}
       </main>
@@ -617,6 +689,11 @@ export function LibraryScreen({ onOpenBook, onOpenHome, onOpenDiscover, onOpenPr
       />
       <SortSheet open={sortSheetOpen} sort={sort} onClose={() => setSortSheetOpen(false)} onChange={setSort} />
       <QuickBookActionsSheet book={optionsBook} onClose={() => setOptionsBook(null)} />
+      {lockedHintOpen && (
+        <Toast tone="warning" onDismiss={() => setLockedHintOpen(false)}>
+          {t('bookLock.selection.locked')}
+        </Toast>
+      )}
       <BulkBookActionsSheet
         open={bulkSheetOpen}
         books={selectedBooks}
@@ -880,6 +957,10 @@ function LibraryBookRow({ book, onOpenBook, onOpenOptions, onOpenTags, selecting
 }) {
   const { locale, t } = useI18n()
   const coverUrl = useBookCoverUrl(book.id)
+  // Protegido e bloqueado: só capa, título e cadeado; sem autor, progresso, tags nem favorito
+  // (feature 024, FR-006).
+  const { isConcealed } = useBookLock()
+  const concealed = isConcealed(book)
   // Segurar alterna o livro; com o modo ativo, um toque lento também cai aqui (o hook engole o
   // click seguinte, então sem isto o toque "sumiria"). Handlers no <article>, não nos botões:
   // o onClickCapture do hook precisa estar num ancestral de todos eles.
@@ -941,15 +1022,23 @@ function LibraryBookRow({ book, onOpenBook, onOpenOptions, onOpenTags, selecting
           onClick={() => onOpenBook(book)}
           className="block w-full text-left active:opacity-80"
         >
-          <h2 className="truncate text-[15px] font-bold text-text-primary">{book.title}</h2>
-          <p className="mt-1 truncate text-sm text-text-secondary">{author}</p>
-          <p className="mt-2 text-xs font-semibold text-text-muted">
-            {t('library.progressRead', { percent: book.percentage, format: book.format ?? 'EPUB' })}
-          </p>
-          {book.lastOpenedAt && (
-            <p className="mt-1 text-[11px] text-text-muted">{t('library.openedOn', { date: formatDate(book.lastOpenedAt, locale) })}</p>
+          <h2 className="flex items-center gap-1.5 text-[15px] font-bold text-text-primary">
+            <span className="truncate">{book.title}</span>
+            {book.isProtected && <BookLockBadge />}
+          </h2>
+          {!concealed && (
+            <>
+              <p className="mt-1 truncate text-sm text-text-secondary">{author}</p>
+              <p className="mt-2 text-xs font-semibold text-text-muted">
+                {t('library.progressRead', { percent: book.percentage, format: book.format ?? 'EPUB' })}
+              </p>
+              {book.lastOpenedAt && (
+                <p className="mt-1 text-[11px] text-text-muted">{t('library.openedOn', { date: formatDate(book.lastOpenedAt, locale) })}</p>
+              )}
+            </>
           )}
         </button>
+        {!concealed && (
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           {book.tagRecords.length > 0 ? book.tagRecords.map((tag) => (
             <button
@@ -987,6 +1076,7 @@ function LibraryBookRow({ book, onOpenBook, onOpenOptions, onOpenTags, selecting
             <Star size={13} strokeWidth={2.4} className={isFavorite ? 'fill-purple-light' : ''} />
           </button>
         </div>
+        )}
       </div>
       {selecting ? (
         <span className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center">

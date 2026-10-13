@@ -1,6 +1,7 @@
 package com.johnny.neoreader;
 
 import android.app.Activity;
+import android.app.KeyguardManager;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
@@ -65,10 +66,12 @@ import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 import org.xml.sax.InputSource;
 
-@CapacitorPlugin(name = "NeoReaderLibrary", requestCodes = { 4701, 4702 })
+@CapacitorPlugin(name = "NeoReaderLibrary", requestCodes = { 4701, 4702, 4703 })
 public class NeoReaderLibraryPlugin extends Plugin {
     static final int SELECT_FOLDER_REQUEST_CODE = 4701;
     static final int SELECT_FILE_REQUEST_CODE = 4702;
+    // Feature 024: tela do sistema que pede a credencial de bloqueio de tela do aparelho.
+    static final int CONFIRM_DEVICE_CREDENTIAL_REQUEST_CODE = 4703;
     private static final String TAG = "NeoReaderLibrary";
     private static final String PREFS_NAME = "NeoReaderLibraryPlugin";
     // Arquivo separado do PREFS_NAME normal — nunca guardamos credencial OPDS
@@ -197,6 +200,34 @@ public class NeoReaderLibraryPlugin extends Plugin {
         intent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
         saveCall(call);
         startActivityForResult(call, intent, SELECT_FILE_REQUEST_CODE);
+    }
+
+    // Feature 024 ("Esqueci o PIN"): prova de que quem pede é o dono do aparelho, pedindo a
+    // credencial de bloqueio de tela (padrão, PIN ou senha). Usa KeyguardManager, API da
+    // plataforma: dispensa a dependência androidx.biometric (Constituição V). Sem bloqueio de
+    // tela configurado não há o que confirmar, então devolve supported=false e o JS decide.
+    @SuppressWarnings("deprecation")
+    @PluginMethod
+    public void confirmDeviceCredential(PluginCall call) {
+        KeyguardManager keyguard = (KeyguardManager) getContext().getSystemService(Context.KEYGUARD_SERVICE);
+        Intent intent = null;
+        if (keyguard != null && keyguard.isDeviceSecure()) {
+            intent = keyguard.createConfirmDeviceCredentialIntent(
+                call.getString("title", ""),
+                call.getString("description", "")
+            );
+        }
+
+        if (intent == null) {
+            JSObject response = new JSObject();
+            response.put("supported", false);
+            response.put("confirmed", false);
+            call.resolve(response);
+            return;
+        }
+
+        saveCall(call);
+        startActivityForResult(call, intent, CONFIRM_DEVICE_CREDENTIAL_REQUEST_CODE);
     }
 
     @PluginMethod
@@ -629,9 +660,16 @@ public class NeoReaderLibraryPlugin extends Plugin {
     @Override
     @SuppressWarnings("deprecation")
     protected void handleOnActivityResult(int requestCode, int resultCode, Intent data) {
-        if (requestCode != SELECT_FOLDER_REQUEST_CODE && requestCode != SELECT_FILE_REQUEST_CODE) return;
+        if (requestCode != SELECT_FOLDER_REQUEST_CODE
+            && requestCode != SELECT_FILE_REQUEST_CODE
+            && requestCode != CONFIRM_DEVICE_CREDENTIAL_REQUEST_CODE) return;
 
         PluginCall call = getSavedCall();
+        if (requestCode == CONFIRM_DEVICE_CREDENTIAL_REQUEST_CODE) {
+            handleDeviceCredentialResult(call, resultCode);
+            return;
+        }
+
         if (requestCode == SELECT_FOLDER_REQUEST_CODE) {
             handleFolderSelected(call, resultCode, data);
             return;
@@ -647,6 +685,16 @@ public class NeoReaderLibraryPlugin extends Plugin {
             data.put("available", true);
             notifyListeners("externalEpubIntent", data, true);
         }
+    }
+
+    private void handleDeviceCredentialResult(PluginCall call, int resultCode) {
+        if (call != null) {
+            JSObject response = new JSObject();
+            response.put("supported", true);
+            response.put("confirmed", resultCode == Activity.RESULT_OK);
+            call.resolve(response);
+        }
+        freeSavedCallSafely();
     }
 
     private void handleFileSelected(PluginCall call, int resultCode, Intent data) {

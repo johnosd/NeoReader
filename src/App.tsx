@@ -15,6 +15,7 @@ import { SettingsNarrationScreen } from './screens/SettingsNarrationScreen'
 import { SettingsTranslationScreen } from './screens/SettingsTranslationScreen'
 import { SettingsIntegrationsScreen } from './screens/SettingsIntegrationsScreen'
 import { SettingsSyncScreen } from './screens/SettingsSyncScreen'
+import { SettingsBookProtectionScreen } from './screens/SettingsBookProtectionScreen'
 import { OpdsCatalogSettingsScreen } from './screens/OpdsCatalogSettingsScreen'
 import { OpdsCatalogBrowseScreen } from './screens/OpdsCatalogBrowseScreen'
 import { PublicDomainCatalogScreen } from './screens/PublicDomainCatalogScreen'
@@ -24,6 +25,8 @@ import { WelcomeScreen } from './screens/WelcomeScreen'
 import { LoginScreen } from './screens/LoginScreen'
 import { PaywallScreen } from './screens/PaywallScreen'
 import { ErrorBoundary, Spinner, Toast } from './components/ui'
+import { BookLockGate } from './components/BookLockGate'
+import { BookLockHost } from './components/BookLockHost'
 import { useAuth } from './hooks/useAuth'
 import { AdsService } from './services/AdsService'
 import { BillingService } from './services/BillingService'
@@ -61,6 +64,7 @@ type Route =
   | { name: 'settings-translation' }
   | { name: 'settings-integrations' }
   | { name: 'settings-sync' }
+  | { name: 'settings-book-protection' }
   | { name: 'opds-catalog-settings' }
   | { name: 'opds-catalog-browse'; catalogId: number; initialFolder?: { title: string; url: string } }
   | { name: 'public-domain-catalog' }
@@ -290,6 +294,8 @@ function App() {
     return (
       <>
         {content}
+        {/* Prompts de PIN e re-bloqueio ao sair do app (feature 024): uma única instância. */}
+        <BookLockHost />
         {externalImporting && (
           <div className="fixed inset-0 z-[1400] flex items-center justify-center bg-bg-base/70">
             <Spinner tone="purple" label="Importando EPUB" />
@@ -337,28 +343,34 @@ function App() {
     case 'book-details':
       return (
         <ErrorBoundary key="book-details" screen="book-details">
-          <BookDetailsScreen
-            book={current.book}
-            onBack={pop}
-            onRead={openReader}
-            onOpenSettings={() => push({ name: 'settings' })}
-            onOpenPaywall={() => push({ name: 'paywall' })}
-          />
+          {/* Garantia de bloqueio (feature 024): livro protegido só mostra Detalhes com o PIN. */}
+          <BookLockGate bookId={current.book.id} onDenied={pop}>
+            <BookDetailsScreen
+              book={current.book}
+              onBack={pop}
+              onRead={openReader}
+              onOpenSettings={() => push({ name: 'settings' })}
+              onOpenPaywall={() => push({ name: 'paywall' })}
+            />
+          </BookLockGate>
         </ErrorBoundary>
       )
 
     case 'reader':
       return (
         <ErrorBoundary key="reader" screen="reader">
-          <ReaderScreen
-            book={current.book}
-            startHref={current.startHref}
-            readerOpenFlowId={current.readerOpenFlowId}
-            readerOpenStartedAt={current.readerOpenStartedAt}
-            onBack={pop}
-            onOpenVocabulary={() => push({ name: 'vocabulary', bookId: current.book.id })}
-            onOpenSettings={() => push({ name: 'settings' })}
-          />
+          {/* Re-bloquear com o leitor aberto cobre e não desmonta: o TTS segue tocando. */}
+          <BookLockGate bookId={current.book.id} onDenied={pop}>
+            <ReaderScreen
+              book={current.book}
+              startHref={current.startHref}
+              readerOpenFlowId={current.readerOpenFlowId}
+              readerOpenStartedAt={current.readerOpenStartedAt}
+              onBack={pop}
+              onOpenVocabulary={() => push({ name: 'vocabulary', bookId: current.book.id })}
+              onOpenSettings={() => push({ name: 'settings' })}
+            />
+          </BookLockGate>
         </ErrorBoundary>
       )
 
@@ -415,6 +427,7 @@ function App() {
             onOpenIntegrations={() => push({ name: 'settings-integrations' })}
             onOpenOpdsCatalogs={() => push({ name: 'opds-catalog-settings' })}
             onOpenSync={() => push({ name: 'settings-sync' })}
+            onOpenBookProtection={() => push({ name: 'settings-book-protection' })}
           />
         </ErrorBoundary>
       )
@@ -472,6 +485,13 @@ function App() {
       return (
         <ErrorBoundary key="settings-sync" screen="settings-sync">
           <SettingsSyncScreen onBack={pop} />
+        </ErrorBoundary>
+      )
+
+    case 'settings-book-protection':
+      return (
+        <ErrorBoundary key="settings-book-protection" screen="settings-book-protection">
+          <SettingsBookProtectionScreen onBack={pop} />
         </ErrorBoundary>
       )
 

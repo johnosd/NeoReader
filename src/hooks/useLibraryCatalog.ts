@@ -7,7 +7,7 @@ import { normalizeCategory } from '../utils/categoryNormalizer'
 import type { Book, BookCollection, BookTag, ReadingProgress, ReadingStatus } from '../types/book'
 import type { StoredBookInfo } from '../types/bookInfo'
 
-export type LibraryFilter = 'all' | 'reading' | 'unread' | 'finished' | 'favorites' | 'untagged' | `tag:${number}` | `collection:${number}` | `genre:${string}`
+export type LibraryFilter = 'all' | 'reading' | 'unread' | 'finished' | 'favorites' | 'untagged' | 'protected' | `tag:${number}` | `collection:${number}` | `genre:${string}`
 export type LibrarySort = 'recent' | 'title' | 'author' | 'importedAt' | 'format' | 'fileName'
 
 export interface LibraryBook extends Book {
@@ -135,6 +135,8 @@ function filterBooks(books: LibraryBook[], filter: LibraryFilter, search: string
   if (filter === 'finished') return searched.filter((book) => book.readingStatus === 'finished')
   if (filter === 'favorites') return searched.filter((book) => book.isFavorite)
   if (filter === 'untagged') return searched.filter((book) => (book.tags ?? []).length === 0)
+  // Feature 024: filtro fixo; independe de tags e coleção (FR-018).
+  if (filter === 'protected') return searched.filter((book) => book.isProtected === true)
 
   if (filter.startsWith('genre:')) {
     return searched.filter((book) => book.id !== undefined && (genreBookIds?.has(book.id) ?? false))

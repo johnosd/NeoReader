@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => {
     setPersistence: vi.fn(() => Promise.resolve()),
     signInWithPopup: vi.fn(() => Promise.resolve({ user: firebaseUser })),
     signInWithRedirect: vi.fn(() => Promise.resolve()),
+    reauthenticateWithPopup: vi.fn(),
     firebaseSignOut: vi.fn(() => Promise.resolve()),
     nativeSignInWithGoogle: vi.fn(),
     nativeGetCurrentUser: vi.fn(),
@@ -79,6 +80,7 @@ vi.mock('firebase/auth', () => ({
   ),
   onAuthStateChanged: mocks.onAuthStateChanged,
   setPersistence: mocks.setPersistence,
+  reauthenticateWithPopup: mocks.reauthenticateWithPopup,
   signInWithPopup: mocks.signInWithPopup,
   signInWithRedirect: mocks.signInWithRedirect,
   signOut: mocks.firebaseSignOut,
@@ -291,6 +293,64 @@ describe('FirebaseAuthService', () => {
 
       await expect(renewDriveTokenSilently()).resolves.toBeNull()
       expect(mocks.authorizeSilent).not.toHaveBeenCalled()
+    })
+  })
+
+  // Feature 024: "Esqueci o PIN" na web. Nunca pode trocar a sessão.
+  describe('reauthenticateGoogleOnWeb', () => {
+    beforeEach(() => {
+      mocks.getAuth.mockReturnValue({ app: 'auth', currentUser: { uid: 'web-user-1' } })
+      Object.defineProperty(window.navigator, 'onLine', { value: true, configurable: true })
+    })
+
+    it('mesma conta → confirmed, forçando a senha (prompt=login)', async () => {
+      mocks.reauthenticateWithPopup.mockResolvedValue({ user: { uid: 'web-user-1' } })
+      const { reauthenticateGoogleOnWeb } = await importService()
+
+      await expect(reauthenticateGoogleOnWeb()).resolves.toBe('confirmed')
+
+      expect(mocks.setCustomParameters).toHaveBeenCalledWith({ prompt: 'login' })
+      expect(mocks.reauthenticateWithPopup).toHaveBeenCalledTimes(1)
+    })
+
+    it('outra conta (auth/user-mismatch) → different-account', async () => {
+      mocks.reauthenticateWithPopup.mockRejectedValue({ code: 'auth/user-mismatch' })
+      const { reauthenticateGoogleOnWeb } = await importService()
+
+      await expect(reauthenticateGoogleOnWeb()).resolves.toBe('different-account')
+    })
+
+    it('popup fechado → cancelled', async () => {
+      mocks.reauthenticateWithPopup.mockRejectedValue({ code: 'auth/popup-closed-by-user' })
+      const { reauthenticateGoogleOnWeb } = await importService()
+
+      await expect(reauthenticateGoogleOnWeb()).resolves.toBe('cancelled')
+    })
+
+    it('sem rede → offline, sem abrir o popup', async () => {
+      Object.defineProperty(window.navigator, 'onLine', { value: false, configurable: true })
+      const { reauthenticateGoogleOnWeb } = await importService()
+
+      await expect(reauthenticateGoogleOnWeb()).resolves.toBe('offline')
+      expect(mocks.reauthenticateWithPopup).not.toHaveBeenCalled()
+    })
+
+    it('NUNCA troca a sessão: não chama signInWithPopup nem o login nativo', async () => {
+      mocks.reauthenticateWithPopup.mockResolvedValue({ user: { uid: 'web-user-1' } })
+      const { reauthenticateGoogleOnWeb } = await importService()
+
+      await reauthenticateGoogleOnWeb()
+
+      expect(mocks.signInWithPopup).not.toHaveBeenCalled()
+      expect(mocks.signInWithRedirect).not.toHaveBeenCalled()
+      expect(mocks.nativeSignInWithGoogle).not.toHaveBeenCalled()
+    })
+
+    it('sem usuário logado → failed', async () => {
+      mocks.getAuth.mockReturnValue({ app: 'auth', currentUser: null })
+      const { reauthenticateGoogleOnWeb } = await importService()
+
+      await expect(reauthenticateGoogleOnWeb()).resolves.toBe('failed')
     })
   })
 })

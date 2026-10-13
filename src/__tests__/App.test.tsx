@@ -34,6 +34,14 @@ const mocks = vi.hoisted(() => ({
   cancelActiveImport: vi.fn(),
   waitForImportIdle: vi.fn(async () => undefined),
   getBookById: vi.fn(),
+  // Registro "vivo" que o BookLockGate lê por id via useLiveQuery (feature 024).
+  // `undefined` = carregando, `null` = não existe.
+  gateRecord: null as Record<string, unknown> | null | undefined,
+  verifyPin: vi.fn(async (pin: string) => (
+    pin === '1234'
+      ? { ok: true as const }
+      : { ok: false as const, attemptsLeft: 4, lockedUntil: 0 }
+  )),
 }))
 
 const testBook: Book = {
@@ -210,6 +218,10 @@ vi.mock('@/screens/LoginScreen', () => ({
 }))
 
 vi.mock('@/components/ui', () => ({
+  // Button: usado pelos prompts de PIN (feature 024), que o BookLockHost monta no App.
+  Button: ({ children, onClick, disabled }: { children: React.ReactNode; onClick?: () => void; disabled?: boolean }) => (
+    <button type="button" onClick={onClick} disabled={disabled}>{children}</button>
+  ),
   Spinner: () => <div data-testid="spinner" />,
   Toast: ({ children }: { children: React.ReactNode }) => <div role="status">{children}</div>,
   ErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -280,7 +292,27 @@ vi.mock('@/db/ttsVoiceCaches', () => ({
   cleanupExpiredTtsVoiceCaches: vi.fn(async () => 0),
 }))
 
+// O gate consulta o livro por id; nas telas mockadas deste arquivo o resultado é controlado aqui.
+vi.mock('dexie-react-hooks', () => ({
+  useLiveQuery: () => mocks.gateRecord,
+}))
+
+vi.mock('@/services/BookProtectionService', () => ({
+  BookProtectionService: {
+    hasPin: vi.fn(async () => true),
+    getLockoutStatus: vi.fn(async () => ({ remainingMs: 0, lockedUntil: 0 })),
+    verify: mocks.verifyPin,
+  },
+}))
+
 import App from '@/App'
+import { useBookLockStore } from '@/store/bookLockStore'
+
+async function typePin(digits: string) {
+  for (const digit of digits) {
+    fireEvent.click(await screen.findByRole('button', { name: `Dígito ${digit}` }))
+  }
+}
 
 function assertScreen(testId: string) {
   screen.getByTestId(testId)
@@ -329,8 +361,90 @@ describe('App navigation and auth gate', () => {
     mocks.waitForImportIdle.mockReset()
     mocks.waitForImportIdle.mockResolvedValue(undefined)
     mocks.getBookById.mockReset()
+    mocks.gateRecord = { ...testBook }
+    mocks.verifyPin.mockClear()
+    // A Promise do prompt aberto vive fora do estado do store: encerra a do teste anterior.
+    useBookLockStore.getState().settlePrompt(false)
+    useBookLockStore.getState().settleSetup(false)
+    useBookLockStore.setState({ unlocked: false, prompt: null, setup: null })
     window.localStorage.clear()
     FeatureQuotaService.reset()
+  })
+
+  describe('proteção por PIN (feature 024)', () => {
+    it('livro protegido não monta Detalhes sem o PIN; PIN correto abre', async () => {
+      mocks.gateRecord = { ...testBook, isProtected: true }
+      render(<App />)
+
+      fireEvent.click(screen.getByTestId('open-book'))
+
+      expect(await screen.findByText('Digite o PIN')).toBeTruthy()
+      assertNoScreen('book-details')
+
+      await typePin('1234')
+      fireEvent.click(screen.getByRole('button', { name: 'Desbloquear' }))
+
+      await waitFor(() => assertScreen('book-details'))
+    })
+
+    it('PIN errado não abre e mostra o erro', async () => {
+      mocks.gateRecord = { ...testBook, isProtected: true }
+      render(<App />)
+
+      fireEvent.click(screen.getByTestId('open-book'))
+      await typePin('0000')
+      fireEvent.click(screen.getByRole('button', { name: 'Desbloquear' }))
+
+      expect(await screen.findByText('PIN incorreto')).toBeTruthy()
+      assertNoScreen('book-details')
+    })
+
+    it('cancelar o PIN volta à tela anterior', async () => {
+      mocks.gateRecord = { ...testBook, isProtected: true }
+      render(<App />)
+
+      fireEvent.click(screen.getByTestId('open-book'))
+      fireEvent.click(await screen.findByRole('button', { name: 'Cancelar' }))
+
+      await waitFor(() => assertScreen('home'))
+      assertNoScreen('book-details')
+    })
+
+    it('com o app já desbloqueado abre direto, sem pedir PIN', () => {
+      mocks.gateRecord = { ...testBook, isProtected: true }
+      useBookLockStore.getState().unlock()
+      render(<App />)
+
+      fireEvent.click(screen.getByTestId('open-book'))
+
+      assertScreen('book-details')
+      expect(screen.queryByText('Digite o PIN')).toBeNull()
+    })
+
+    it('re-bloquear com o leitor aberto mantém o leitor montado e pede o PIN', async () => {
+      mocks.gateRecord = { ...testBook, isProtected: true }
+      useBookLockStore.getState().unlock()
+      render(<App />)
+
+      fireEvent.click(screen.getByTestId('open-book'))
+      fireEvent.click(screen.getByTestId('read'))
+      assertScreen('reader')
+
+      act(() => { useBookLockStore.getState().lock() })
+
+      // Continua montado (preserva o TTS) e coberto, com o pedido de PIN por cima.
+      assertScreen('reader')
+      expect(await screen.findByText('Digite o PIN')).toBeTruthy()
+    })
+
+    it('livro comum não pede PIN e não ganha cadeado', () => {
+      render(<App />)
+
+      fireEvent.click(screen.getByTestId('open-book'))
+
+      assertScreen('book-details')
+      expect(screen.queryByText('Digite o PIN')).toBeNull()
+    })
   })
 
   it('comeca na home quando autenticado', () => {

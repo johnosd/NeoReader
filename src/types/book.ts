@@ -40,6 +40,9 @@ export interface Book {
   collectionId?: number | null   // coleção (prateleira) à qual o livro pertence
   collectionOrder?: number       // posição dentro da coleção (ordem manual)
   importSource?: BookImportSource
+  // Feature 024 — protegido com PIN. Não indexado (sem novo version() só por este campo,
+  // mesmo precedente dos campos de PDF); filtros em memória. Ausente = não protegido.
+  isProtected?: boolean
 }
 
 export interface BookCollection {

@@ -7,6 +7,7 @@ update-bug-status.ps1.
 ## Ideias Futuras
 
 - PDF: zoom ≥ 300% leva ~2 s até a nitidez final (página inteira renderizada em ~15 Mpx na thread principal). Ideia: renderizar só a área visível em alta resolução (tiles). Aceito como está pelo dono do produto. Origem: feature 022, T038p/R-039 (2026-10-06).
+- Proteção de livros: desbloqueio por biometria (digital/rosto) como atalho ao PIN, e ação "Proteger" em lote na seleção múltipla. Exigem dependência nativa nova (biometria) e a feature 023 estável. Origem: feature 024, sdd-specify (2026-10-12).
 
 
 ## Features
@@ -36,6 +37,7 @@ update-bug-status.ps1.
 | 021-automatizacao-sync-bookmarks-ao-fechar | Automatização do sync de bookmarks ao fechar | Convergida | 19/23 tasks | 2026-09-23 |
 | 022-suporte-pdf-paridade | Suporte a PDF com paridade de recursos do EPUB | Convergida | 131/131 tasks | 2026-10-07 |
 | 023-selecao-multipla-biblioteca | Seleção múltipla na biblioteca com ações em lote | Em Execução | 31/42 tasks | 2026-10-12 |
+| 024-protecao-livros-pin | Proteção de livros com PIN e grupo "Protegidos" na Biblioteca | Em Execução | 65/72 tasks | 2026-10-12 |
 
 ## Bugs
 

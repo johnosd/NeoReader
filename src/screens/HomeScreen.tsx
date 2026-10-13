@@ -11,6 +11,7 @@ import { useCapacitorBackButton } from '../hooks/useCapacitorAppListener'
 import { useEntitlements } from '../hooks/useEntitlements'
 import { useIsImportActive } from '../hooks/useImportActivity'
 import { useLibraryGroups } from '../hooks/useLibraryGroups'
+import { useBookLock } from '../hooks/useBookLock'
 import { useCategoryGroups } from '../hooks/useCategoryGroups'
 import { BookImportService } from '../services/BookImportService'
 import { IMPORT_IN_PROGRESS_MESSAGE } from '../services/ImportCoordinator'
@@ -33,6 +34,17 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
   const { groups: categoryGroups } = useCategoryGroups()
   const { isPro } = useEntitlements()
   const [optionsBook, setOptionsBook] = useState<Book | null>(null)
+  const { guard, unlocked } = useBookLock()
+
+  // Livro protegido e bloqueado pede o PIN antes de abrir a folha de ações (feature 024).
+  async function openOptions(book: Book) {
+    if (await guard(book)) setOptionsBook(book)
+  }
+
+  // Re-bloqueou com a folha de um livro protegido aberta: fecha (FR-007).
+  useEffect(() => {
+    if (!unlocked && optionsBook?.isProtected) setOptionsBook(null)
+  }, [unlocked, optionsBook])
   const [importing, setImporting] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
   const [restoredBookmarks, setRestoredBookmarks] = useState<number | null>(null)
@@ -174,13 +186,13 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
                 <HeroBanner
                   book={heroBook}
                   onPress={onOpenBook}
-                  onOpenOptions={setOptionsBook}
+                  onOpenOptions={(book) => void openOptions(book)}
                 />
               )}
             </div>
 
-            <BookRow title={t('home.continueReading')} books={inProgressBooks} onPress={onOpenBook} onOpenOptions={setOptionsBook} variant="progress" />
-            <BookRow title={t('home.myBooks')} books={recentBooks} onPress={onOpenBook} onOpenOptions={setOptionsBook} onViewAll={() => onOpenBiblioteca('all')} />
+            <BookRow title={t('home.continueReading')} books={inProgressBooks} onPress={onOpenBook} onOpenOptions={(book) => void openOptions(book)} variant="progress" />
+            <BookRow title={t('home.myBooks')} books={recentBooks} onPress={onOpenBook} onOpenOptions={(book) => void openOptions(book)} onViewAll={() => onOpenBiblioteca('all')} />
 
             {categoryGroups.map(group => (
               <BookRow
@@ -188,7 +200,7 @@ export function HomeScreen({ onOpenBook, onOpenBiblioteca, onOpenDiscover, onOpe
                 title={group.label}
                 books={group.books}
                 onPress={onOpenBook}
-                onOpenOptions={setOptionsBook}
+                onOpenOptions={(book) => void openOptions(book)}
                 onViewAll={() => onOpenBiblioteca(group.genre)}
               />
             ))}
