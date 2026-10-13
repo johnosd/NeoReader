@@ -99,8 +99,8 @@ tags, pastas de origem e caches ficam no dispositivo.
   de salvar, sem upscale — evita capas de scan de impressao virarem bitmaps
   de dezenas de MB decodificados.
 - Busca por titulo, autor, nome do arquivo, formato e tags.
-- Filtros: todos, lendo, nao lidos, concluidos, favoritos, sem tag e tags
-  criadas pelo usuario.
+- Filtros: todos, lendo, nao lidos, concluidos, favoritos, sem tag, tags
+  criadas pelo usuario e "Protegidos" (so aparece quando ha livro protegido).
 - Ordenacao por recente, titulo, autor, data de importacao, formato ou nome do
   arquivo. A ordenacao escolhida fica em `localStorage`.
 - Favoritos por livro.
@@ -110,6 +110,18 @@ tags, pastas de origem e caches ficam no dispositivo.
   individual), mover para coleção (substitui a atual; "Sem coleção" ou criar uma
   nova no próprio fluxo), favoritar/remover dos favoritos e definir o status de
   leitura. Tags em lote ainda não existem.
+- Proteção de livros com PIN (4 a 6 dígitos, um PIN único do app): "Proteger com
+  PIN" no menu "⋯" do livro e nos Detalhes. O livro continua na lista, mas
+  bloqueado mostra só capa, título e cadeado; abrir, ouvir, ver Detalhes, editar
+  e excluir exigem o PIN, e um PIN correto libera todos os protegidos até o app
+  ir para segundo plano (a tela apagando também re-bloqueia; o áudio do TTS
+  continua e os controles da notificação seguem funcionando). Livro bloqueado não
+  entra na seleção múltipla. Após 5 PINs errados há espera crescente (30 s,
+  dobrando, teto de 1 h). "Esqueci o PIN" pede a credencial de tela do Android
+  (na web, a senha da conta Google) e mantém os livros protegidos com o PIN novo.
+  O PIN e a marcação ficam só no dispositivo (sem sync) e não criptografam o
+  arquivo do livro. Alterar PIN e desativar a proteção ficam em
+  Configuracoes > Livros protegidos.
 - Tags locais com criacao, atribuicao e exclusao.
 - Importação de arquivos `.epub` e `.pdf` individuais ou múltiplos (também por
   pasta e por "abrir com" no Android). O formato é confirmado pelo conteúdo do
@@ -416,9 +428,9 @@ leitor; o último modo usado fica salvo por livro:
 ### Configuracoes
 
 Menu principal em categorias clicaveis (Plano, Idioma, Aparencia, Word Lens,
-Narracao, Integracoes, Catalogos OPDS, Sincronizacao na Nuvem); cada
-categoria abre uma subtela dedicada mostrando so aquele grupo, voltar
-retorna ao menu.
+Narracao, Integracoes, Catalogos OPDS, Sincronizacao na Nuvem, Livros
+protegidos); cada categoria abre uma subtela dedicada mostrando so aquele
+grupo, voltar retorna ao menu.
 
 - Plano: badge PRO/Free no menu; a subtela mostra status completo do
   NeoReader Pro (acesso ao Paywall) e as cotas de uso mensal (Book
@@ -434,6 +446,9 @@ retorna ao menu.
 - Integracoes: API key local do YouTube Data API.
 - Sincronizacao na Nuvem: status de backup/restauracao de bookmarks,
   progresso e vocabulario.
+- Livros protegidos: alterar o PIN e desativar a proteção (remove o PIN e a
+  proteção de todos os livros); ambos pedem o PIN atual, mesmo com o app já
+  desbloqueado. Se não houver PIN, a subtela explica como começar.
 - Catalogos OPDS: listar, adicionar, editar e remover catalogos (nome, URL,
   usuario/senha opcional) — salvar testa a conexao com os dados informados
   antes de persistir, so grava se conectar (mostra o motivo especifico se
@@ -614,11 +629,12 @@ npx @capacitor/assets generate --android
 
 ## Persistencia local
 
-O banco local usa Dexie em `NeoReaderDB`. O schema atual está na versão 19.
+O banco local usa Dexie em `NeoReaderDB`. O schema atual está na versão 20.
 O PDF não criou versão nova: seus campos (`pageCount`, `pdfTextLayer`,
 `detectedLanguage` em `books`; `pdfReadingMode` em `bookSettings`) não são
 indexados, e o localizador `neopdf:` ocupa o mesmo campo `cfi` de progresso,
-marcadores e highlights.
+marcadores e highlights. A versão 20 só adicionou a tabela `bookProtection` (PIN
+dos livros protegidos); `isProtected` em `books` também não é indexado.
 
 | Tabela | Conteudo |
 |---|---|
@@ -640,6 +656,7 @@ marcadores e highlights.
 | `collections` | Coleções de livros |
 | `opdsCatalogs` | Catalogos OPDS cadastrados (nome, URL, flag de credencial) — a credencial em si fica fora do Dexie, no secure storage nativo |
 | `opdsDownloadedEntries` | Vinculo entry OPDS -> livro baixado, usado pro estado "ja na biblioteca" |
+| `bookProtection` | Registro unico do PIN dos livros protegidos (hash PBKDF2, salt e controle de espera por tentativas erradas), local, sem sync |
 
 Modos de armazenamento de livros:
 

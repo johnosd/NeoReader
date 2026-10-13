@@ -235,12 +235,13 @@ npm run build                            # tsc -b + bundle (definição de pront
 | Área | Estado |
 | --- | --- |
 | Fundação (Dexie v20, utils, service, store, i18n) | Concluída e testada |
-| US1: bloqueio, gate por rota, cadeado, ocultação | Concluída (código e testes); validação no aparelho pendente |
-| US2A: Esqueci o PIN (credencial do aparelho / Google na web) | Código e testes concluídos; Java compila; T059 no aparelho pendente |
+| US1: bloqueio, gate por rota, cadeado, ocultação | Concluída (código, testes e validação no aparelho) |
+| US2A: Esqueci o PIN (credencial do aparelho / Google na web) | Concluída (validada no aparelho) |
 | US2B: Alterar PIN e Desativar proteção | Concluída |
 | US3: filtro "Protegidos" e seleção múltipla | Concluída |
-| Gates | lint limpo, 176 arquivos / 1848 testes passando, build ok, sem dependência nova |
-| Pendências manuais | T003 (PBKDF2 no aparelho), T059, T054 e rebuild do APK |
+| Gates | lint limpo, 176 arquivos / 1855 testes passando, build ok, sem dependência nova |
+| Convergência (Fase 7) | Concluída: ProgressCard e Perfil ocultam dados de livro bloqueado; pluralização do teclado; chaves i18n sem uso removidas |
+| Pendências manuais | Nenhuma. Ressalva: o tempo do PBKDF2 não foi medido em ms (T003 validada de forma qualitativa) |
 
 ## Riscos e Decisões
 
@@ -253,19 +254,20 @@ npm run build                            # tsc -b + bundle (definição de pront
 | --- | --- | --- | --- |
 | R-001 | Resolvido: a confirmação por conta Google no Android era fraca (o plugin não aceita `customParameters` para Google, então bastava um toque no seletor de contas). | Era ALTO. | Resolvido: o usuário escolheu a **credencial de bloqueio de tela do aparelho** (D-09, spec revisada). **Risco residual**: quem conhece a senha de tela redefine o PIN (aceito na spec). **Risco novo**: `KeyguardManager.createConfirmDeviceCredentialIntent` em `targetSdk 36` e na variedade de OEMs; coberto pelo spike T059 no aparelho. |
 | R-002 | Re-bloqueio ao ir para segundo plano dispara também com o seletor de arquivos (importar livro) e com a tela do sistema da credencial do aparelho. | MÉDIO: usuário digita o PIN de novo depois de importar. | Aceito (spec: sem tolerância). Se incomodar, avaliar tolerância curta em outra feature. O prompt aberto sobrevive ao re-bloqueio (data-model). |
-| R-003 | `backButton` dispara em todos os listeners: prompt aberto sobre uma tela faria a tela navegar. | MÉDIO | D-008 da research: guarda em `useCapacitorAppListener` + fechamento adiado do prompt; teste T017 e passo manual no `quickstart.md`. |
-| R-004 | Rota guarda **snapshot** de `Book`; proteger depois deixaria o gate desatualizado. | ALTO se ignorado (livro "protegido" abre sem PIN pela rota antiga) | Gate lê o registro vivo por `id` (`useLiveQuery`). Teste explícito em T033. |
+| R-003 | `backButton` dispara em todos os listeners: prompt aberto sobre uma tela faria a tela navegar. | MÉDIO | Resolvido: D-008 da research: guarda em `useCapacitorAppListener` + fechamento adiado do prompt; teste T017 e passo manual no `quickstart.md`. |
+| R-004 | Rota guarda **snapshot** de `Book`; proteger depois deixaria o gate desatualizado. | ALTO se ignorado (livro "protegido" abre sem PIN pela rota antiga) | Resolvido: gate lê o registro vivo por `id` (`useLiveQuery`). Teste explícito em T033. |
 | R-005 | Feature 023 (seleção múltipla) ainda em execução e toca os mesmos arquivos: `LibraryScreen.tsx`, `useLibrarySelection.ts`, `BulkBookActionsSheet`. | MÉDIO: conflito de merge e regra FR-017 sobre código em mudança. | Resolvido: o código da 023 já estava commitado (restam só validações manuais dela), então a US3 foi implementada sem conflito. Estado em 2026-10-12: 023 `Em Execução` (31/42) e `version(19)` ainda é a última do Dexie. T055 também toca `LibraryScreen.tsx`/`LibraryGridView.tsx`: alinhar com a 023 antes. |
-| R-006 | PBKDF2 pode ser lento em Android antigo. | BAIXO | Spike T003; fallback para 50 000 iterações; `iterations` fica salvo por registro. |
+| R-006 | PBKDF2 pode ser lento em Android antigo. | BAIXO | Resolvido: T003 validada no aparelho de forma qualitativa (sem lentidão relatada; tempo em ms não medido). Fallback para 50 000 iterações segue disponível; `iterations` fica salvo por registro. |
 | R-007 | Vocabulário e notificação de mídia do TTS expõem título/frases de livro protegido. | BAIXO (aceito) | Spec: fora de escopo (Assumptions). Não "consertar" sem nova decisão. |
 | R-008 | Perda do IndexedDB pela WebView leva a proteção embora junto com os livros. | BAIXO | Aceito: PIN e livros vivem no mesmo banco, então não há livro protegido sem registro. |
 | R-009 | Relógio do aparelho alterado encurta a espera. | BAIXO | Aceito (spec, Assumptions). |
 | R-010 | Espera dobrando sem teto chegaria a horas. | BAIXO | Resolvido: teto de 1 h (D-08), registrado no spec (FR-011 e Assumptions). |
 | R-011 | PIN de 4 a 6 dígitos é fraco contra quem extrair o banco. | BAIXO (aceito) | Limite assumido pelo spec (privacidade casual). Documentado em D-001 da research. |
 | R-012 | Controles de mídia (notificação/tela de bloqueio) funcionam sem PIN com o livro re-bloqueado: quem está com o aparelho pode retomar ou pular o áudio; a notificação mostra título, capa e capítulo. Com a tela apagando a cada uso, o PIN é pedido toda vez que o app reabre. | MÉDIO (aceito) | Decisão do usuário (D-15). Se a fricção do PIN ao voltar incomodar, a alternativa já avaliada é uma tolerância curta, que muda a spec (FR-009). "Não pausa o TTS" coberto por teste em T034. |
-| R-013 | O store de bloqueio ganhou `setup` e `requestPinSetup` (o plano só previa `prompt`). | BAIXO | Decisão registrada: a criação do PIN passa pelo store para a guarda do voltar tratar os dois prompts do mesmo jeito (`isBookLockOverlayOpen`). |
+| R-013 | O store de bloqueio ganhou `setup` e `requestPinSetup` (o plano só previa `prompt`). | BAIXO | Resolvido: decisão registrada e confirmada no código: a criação do PIN passa pelo store para a guarda do voltar tratar os dois prompts do mesmo jeito (`isBookLockOverlayOpen`). |
 | R-014 | FR-017 (recusar seleção de livro bloqueado) estava marcada como Release 2 em tasks.md, mas sem ela a ação em lote exclui/move livro bloqueado sem PIN. | MÉDIO (corrigido) | Resolvido: implementada junto com a US1 (Fase 3). A marca (R2) das tasks T047 ficou só histórica. |
 | R-015 | Hook `useBookLock` é importado por várias telas e puxava plugins nativos no import (quebrou HomeScreen.test). | BAIXO | Resolvido: registro preguiçoso do plugin e import dinâmico do Firebase. |
+| R-016 | O mapeamento inicial de superfícies que listam livros deixou de fora o `ProgressCard` ("Continuar lendo") e o histórico do Perfil, e o teste manual no aparelho não pegou. | MÉDIO (corrigido) | Resolvido na Fase 7 (T060, T061). Lição: ao ocultar dados num componente, buscar todos os usos de `useBookCoverUrl(` e de `book.author`/`percentage` antes de dar a cobertura por completa. |
 
 ## Execution Notes
 
@@ -283,8 +285,10 @@ npm run build                            # tsc -b + bundle (definição de pront
 | 2026-10-12 | Fase 4 (US2) | Método nativo, DeviceCredentialService, reautenticação web, Esqueci o PIN, tela de Configurações | T059 no aparelho |
 | 2026-10-12 | Fase 5 (US3) | Filtro Protegidos, chip, faixa, reset do filtro | nenhuma |
 | 2026-10-12 | Fase 6 (Polish) | FR-019 e FR-012 verificados; lint + 1848 testes + build verdes; Java compila | T003, T054, T059 |
+| 2026-10-13 | Fase 7 (Convergence) | T060–T066: ProgressCard e HistoryRow do Perfil ocultam dados de livro bloqueado; `pad.status` pluralizado; 4 chaves i18n removidas; 1855 testes e build verdes | rodar `sdd-converge` |
+| 2026-10-13 | Validação no aparelho | APK instalado no Galaxy SM-S911B; T054 e T059 executadas pelo usuário com sucesso; T003 qualitativa | nenhuma |
 
-**PRÓXIMO**: reconstruir o APK (`npm run android:run`) e validar no aparelho: T059 (Esqueci o PIN), T003 (PBKDF2) e T054 (`quickstart.md`, em especial o cenário 2 com TTS e tela apagando). Depois rodar `sdd-converge`.
+**PRÓXIMO**: rodar `sdd-converge` outra vez (a Fase 7 fechou os achados CF-01 a CF-04). Se convergir limpo, ele marca `Convergida` e sincroniza o `README.md`.
 
 ## Arquivos Principais
 
@@ -294,6 +298,7 @@ npm run build                            # tsc -b + bundle (definição de pront
 - Prompts: `src/components/PinVerifySheet.tsx`, `src/components/PinSetupSheet.tsx`, `src/components/PinPad.tsx`
 - Regras e dados: `src/services/BookProtectionService.ts`, `src/utils/pinCrypto.ts`, `src/utils/pinLockout.ts`, `src/db/bookProtection.ts`, `src/db/database.ts` (v20)
 - Recuperação: `src/services/DeviceCredentialService.ts`, `android/app/src/main/java/com/johnny/neoreader/NeoReaderLibraryPlugin.java` (`confirmDeviceCredential`), `src/services/FirebaseAuthService.ts` (`reauthenticateGoogleOnWeb`)
+- Convergência: `src/components/ProgressCard.tsx`, `src/screens/ProfileScreen.tsx` (`HistoryRow`), `src/i18n/messages.ts` (`bookLock.pad.status.one/.many`)
 - Integração: `src/App.tsx`, `src/screens/LibraryScreen.tsx`, `src/screens/HomeScreen.tsx`, `src/components/QuickBookActionsSheet.tsx`, `src/screens/BookDetailsScreen.tsx`, `src/screens/SettingsBookProtectionScreen.tsx`
 
 ## Cuidados para Retomada
@@ -306,3 +311,40 @@ npm run build                            # tsc -b + bundle (definição de pront
 - `DeviceCredentialService` registra o plugin preguiçosamente e `BookProtectionService` importa o Firebase dinamicamente. Voltar a fazer isso no import quebra testes que mockam `@capacitor/core` sem `registerPlugin` (ex.: HomeScreen.test).
 - O método nativo `confirmDeviceCredential` só existe depois de reconstruir o APK (`npm run android:run`). APK antigo cai em `unsupported`.
 - PinVerifySheet: a leitura da espera ao montar usa `Math.max` com a espera já registrada, para não sobrescrever um bloqueio recém-aplicado pela verificação.
+
+
+## Resultado Final
+
+**Convergida em 2026-10-13** (`sdd-converge`, 2ª passada, sem achados). Seção anexada pelo skill; o restante deste arquivo não foi reescrito.
+
+### O que foi construído
+
+Proteção de livros por PIN único do app (4 a 6 dígitos), com:
+
+- **Bloqueio por rota**: `BookLockGate` em `book-details` e `reader`; re-bloqueio ao ir para segundo plano sem desmontar o leitor, então o TTS segue e os controles da notificação continuam funcionando.
+- **Livro bloqueado mostra só capa, título e cadeado** em cartão, hero, "Continuar lendo", grade, lista e histórico do Perfil.
+- **Espera por PIN errado**: 5 erros → 30 s, dobrando, teto de 1 h, persistida.
+- **Esqueci o PIN** pela credencial de tela do Android (`KeyguardManager`, método nativo `confirmDeviceCredential`); aviso e confirmação explícita sem bloqueio de tela; Google com senha na web.
+- **Configurações > Livros protegidos**: alterar e desativar, pedindo o PIN atual sempre.
+- **Biblioteca**: filtro fixo "Protegidos" com Desbloquear / Bloquear agora; seleção múltipla recusa livro bloqueado.
+- Dexie `version(20)` (só adiciona `bookProtection`), `Book.isProtected` sem índice, nenhuma dependência nova, PIN só no dispositivo.
+
+### Desvios em relação ao plano original
+
+- **Recuperação**: a spec original pedia confirmar a conta Google; foi trocada, por decisão do usuário após o plano, pela credencial de tela do aparelho (a confirmação Google no Android é um toque no seletor de contas). R-001.
+- **Store**: ganhou `setup`/`requestPinSetup` e `requestUnlock({ force })`, que o plano não previa (R-013, D-12).
+- **FR-017** (recusar seleção de livro bloqueado) foi antecipado da Release 2 para a Fase 3 (R-014).
+- **Registro preguiçoso do plugin e import dinâmico do Firebase** em `DeviceCredentialService`/`BookProtectionService`, para o hook não puxar plugins nativos em todas as telas (R-015).
+- **Ocultação ampliada na convergência**: `ProgressCard` e histórico do Perfil não estavam no mapeamento inicial (R-016); a Fase 7 também pluralizou `bookLock.pad.status` e removeu 4 chaves i18n sem uso.
+- **"Abrir com"** não reabre livro protegido: o import rejeita duplicata (D-14), então a premissa original da spec foi corrigida.
+
+### Limites conhecidos (aceitos)
+
+- Tela apagando conta como sair do app e o PIN é pedido ao voltar, sem tolerância (R-002, R-012).
+- Vocabulário e título/capa/capítulo na notificação do TTS continuam visíveis (R-007).
+- Quem conhece a senha de tela do aparelho redefine o PIN (R-001); o PIN curto é fraco contra quem extrair o banco (R-011).
+- O custo do PBKDF2 foi validado só qualitativamente; o tempo em ms não foi medido (R-006).
+
+### Verificação final
+
+`npm run lint`, `npx tsc --noEmit` e `npm run build` limpos; 176 arquivos / 1855 testes passando; `quickstart.md` e a recuperação validados no aparelho (Galaxy SM-S911B, Android 16). `README.md` sincronizado (filtros, proteção por PIN, Configurações, schema v20 e tabela `bookProtection`).

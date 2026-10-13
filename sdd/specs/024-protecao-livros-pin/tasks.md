@@ -41,16 +41,16 @@ Projeto único; raiz do repositório = `NeoReader/` (onde está o `package.json`
 
 - [x] T001 Conferir em `src/db/database.ts` que `version(19)` ainda é a última (a feature 023 não pode ter adicionado outra) e ver em `sdd/specs/023-selecao-multipla-biblioteca/tasks.md` se a 023 já fechou. Registrar o número da nova versão e a situação da 023 em `plan.md` → Riscos (R-005).
 - [x] T002 [P] Checagem estática do caminho nativo: confirmar em `android/variables.gradle` que `minSdkVersion` ≥ 24 (cobre `KeyguardManager.isDeviceSecure()`, API 23) e, em `android/app/src/main/java/com/johnny/neoreader/NeoReaderLibraryPlugin.java`, que o request code `4703` está livre (hoje `requestCodes = { 4701, 4702 }`) e que `handleOnActivityResult` ainda retorna cedo para códigos desconhecidos. Registrar em `research.md` → D-004. A validação no aparelho é a T059 (Fase 4).
-- [ ] T003 [P] Spike manual no aparelho: medir `crypto.subtle` PBKDF2-SHA-256 com 100 000 iterações num Android intermediário. Se passar de ~300 ms, adotar 50 000. Registrar o valor medido em `research.md` → D-002.
+- [x] T003 [P] Spike manual no aparelho: medir `crypto.subtle` PBKDF2-SHA-256 com 100 000 iterações num Android intermediário. Se passar de ~300 ms, adotar 50 000. Registrar o valor medido em `research.md` → D-002.
 
 **Checkpoint**: premissas confirmadas ou plano ajustado.
 
 **Registro da Fase**:
 
-- Status: Parcial: T001 e T002 concluídas; T003 pendente (precisa do aparelho).
+- Status: Concluída. T003 validada no aparelho de forma qualitativa (ver Pendências).
 - Feito: T001: `version(19)` era a última e o código da 023 já está commitado (restam só validações manuais dela). T002: `minSdkVersion` 24 cobre `isDeviceSecure()`, o request code 4703 estava livre e `handleOnActivityResult` retorna cedo para códigos desconhecidos.
 - Testes executados: n/a (verificações por leitura de código).
-- Pendências: T003: medir PBKDF2 com 100 000 iterações no Android; se passar de ~300 ms, reduzir `PIN_HASH_ITERATIONS` em `src/utils/pinCrypto.ts` para 50 000 e registrar em research.md D-002.
+- Pendências: T003: o usuário validou o fluxo no aparelho (Galaxy SM-S911B, Android 16) sem relatar lentidão; o tempo em ms NÃO foi medido. Mantidas as 100 000 iterações. Se algum aparelho mais fraco mostrar atraso, reduzir `PIN_HASH_ITERATIONS` em `src/utils/pinCrypto.ts` para 50 000.
 
 ---
 
@@ -134,10 +134,10 @@ Projeto único; raiz do repositório = `NeoReader/` (onde está o `package.json`
 
 **Registro da Fase**:
 
-- Status: Concluída (código e testes). Validação no aparelho pendente (T054).
+- Status: Concluída (código, testes e validação no aparelho).
 - Feito: PinPad, PinVerifySheet, PinSetupSheet, BookLockHost, BookLockGate (wrapper `div.contents` sempre presente), BookLockBadge e `useBookLock`; `App.tsx` com gate nas rotas e host; cartão, hero, grade e linha da lista ocultam dados extras; folha de ações e Detalhes protegem/desprotegem/bloqueiam; guards em Biblioteca e Home. Desvio: FR-017 (seleção recusa livro bloqueado e limpa a seleção ao re-bloquear) foi antecipado da Fase 5, porque sem isso a ação em lote excluiria livro bloqueado sem PIN.
 - Testes executados: `npx vitest run` em App.test (30, 6 novos), PinPad, PinSetupSheet, PinVerifySheet, BookLockGate, BookLockHost, BookLockConcealment, QuickBookActionsSheet e BookDetailsScreen (74): todos passando. Suíte completa: 176 arquivos, 1848 testes.
-- Pendências: T054 (quickstart no aparelho: re-bloqueio com TTS e tela apagando, controles da notificação, botão voltar).
+- Pendências: Nenhuma. T054 (quickstart no aparelho) executada pelo usuário em 2026-10-13 com sucesso.
 
 ---
 
@@ -165,7 +165,7 @@ Projeto único; raiz do repositório = `NeoReader/` (onde está o `package.json`
 
 ### Validação no aparelho
 
-- [ ] T059 [US2] Spike manual no Android real, com o APK reconstruído (`npm run android:run`): (a) com bloqueio de tela, "Esqueci o PIN" abre a tela do sistema; (b) credencial correta ⇒ define PIN novo e livros seguem protegidos; (c) voltar/credencial errada ⇒ PIN antigo continua; (d) sem bloqueio de tela ⇒ aviso e confirmação explícita; (e) com a tela do sistema aberta o app vai para segundo plano e o fluxo **não** é derrubado. Registrar em `research.md` → D-004. Se `createConfirmDeviceCredentialIntent` falhar em `targetSdk 36` ou em algum OEM, **parar e voltar ao usuário** (alternativa: `androidx.biometric`, que exige aprovação de dependência).
+- [x] T059 [US2] Spike manual no Android real, com o APK reconstruído (`npm run android:run`): (a) com bloqueio de tela, "Esqueci o PIN" abre a tela do sistema; (b) credencial correta ⇒ define PIN novo e livros seguem protegidos; (c) voltar/credencial errada ⇒ PIN antigo continua; (d) sem bloqueio de tela ⇒ aviso e confirmação explícita; (e) com a tela do sistema aberta o app vai para segundo plano e o fluxo **não** é derrubado. Registrar em `research.md` → D-004. Se `createConfirmDeviceCredentialIntent` falhar em `targetSdk 36` ou em algum OEM, **parar e voltar ao usuário** (alternativa: `androidx.biometric`, que exige aprovação de dependência).
 
 **Critério de Conclusão**: o usuário nunca fica trancado fora; "Esqueci o PIN" exige a credencial de tela do aparelho (ou aviso explícito sem bloqueio de tela); alterar e desativar funcionam e exigem o PIN atual mesmo desbloqueado; a sessão do Firebase nunca troca durante a recuperação. Testes T042–T044, T059 e `npm run build` limpos.
 
@@ -173,10 +173,10 @@ Projeto único; raiz do repositório = `NeoReader/` (onde está o `package.json`
 
 **Registro da Fase**:
 
-- Status: Código e testes concluídos. T059 (aparelho) pendente.
+- Status: Concluída (código, testes e validação no aparelho).
 - Feito: `confirmDeviceCredential` em `NeoReaderLibraryPlugin.java` (request code 4703; compila com `gradlew :app:compileDebugJavaWithJavac`), `DeviceCredentialService` (registro preguiçoso do plugin), `reauthenticateGoogleOnWeb`, `confirmOwnership` (Firebase por import dinâmico), "Esqueci o PIN" no PinVerifySheet e `SettingsBookProtectionScreen` com entrada em Configurações e rota.
 - Testes executados: DeviceCredentialService (7), FirebaseAuthService (+6 de reautenticação web), BookProtectionService (14), PinVerifySheet (14), SettingsBookProtectionScreen (5), SettingsScreen: todos passando.
-- Pendências: T059: validar no aparelho com o APK reconstruído (credencial correta/errada, sem bloqueio de tela, app em segundo plano durante a tela do sistema).
+- Pendências: Nenhuma. T059 validada pelo usuário no aparelho em 2026-10-13 com sucesso.
 
 ---
 
@@ -220,7 +220,7 @@ Projeto único; raiz do repositório = `NeoReader/` (onde está o `package.json`
 - [x] T051 Verificar FR-012: buscar por `console.`/`logEvent`/`DiagnosticsLogger` nos arquivos novos e confirmar que nenhum recebe PIN, hash ou salt (o teste T015 cobre o service; aqui a leitura cobre a UI).
 - [x] T052 Revisar comentários (Constituição II): PBKDF2 e limite do PIN, overlay + `inert` em vez de desmontar, fechamento adiado do prompt, snapshot vs registro vivo.
 - [x] T053 Rodar `npm run lint && npm test && npm run build`; corrigir regressões. Rodar também `npm run test:debug-epubs` se algum arquivo compartilhado do leitor tiver sido tocado (não deveria).
-- [ ] T054 Executar `quickstart.md` no aparelho Android real (re-bloqueio com TTS tocando e tela apagando, controles da notificação com o livro re-bloqueado, botão voltar com prompt, recuperação por credencial de tela, aparelho sem bloqueio de tela, importar livro com o app re-bloqueando).
+- [x] T054 Executar `quickstart.md` no aparelho Android real (re-bloqueio com TTS tocando e tela apagando, controles da notificação com o livro re-bloqueado, botão voltar com prompt, recuperação por credencial de tela, aparelho sem bloqueio de tela, importar livro com o app re-bloqueando).
 
 ### Checklist de Release
 
@@ -234,14 +234,14 @@ Projeto único; raiz do repositório = `NeoReader/` (onde está o `package.json`
 - [x] Fase 4, parte A (recuperação do PIN) concluída (código e testes; T059 no aparelho pendente): **obrigatória junto com a US1** (Release 1)
 - [x] Fase 4, parte B (alterar/desativar) concluída (Release 2)
 - [x] Fase 5 (User Story 3) concluída (Release 2, depois da 023)
-- [ ] TTS: re-bloqueio não interrompe o áudio e os controles da notificação seguem funcionando (cenário 2 do quickstart)
+- [x] TTS: re-bloqueio não interrompe o áudio e os controles da notificação seguem funcionando (cenário 2 do quickstart)
 - [x] R-001 decidido pelo usuário em 2026-10-12: credencial de bloqueio de tela do aparelho (spec revisada)
-- [ ] T059 confirmou `KeyguardManager` no aparelho (ou o usuário aprovou a alternativa)
-- [ ] APK reconstruído (`npm run android:run`) com o método nativo novo
+- [x] T059 confirmou `KeyguardManager` no aparelho (ou o usuário aprovou a alternativa)
+- [x] APK reconstruído (`npm run android:run`) com o método nativo novo
 - [x] `npm run lint && npm test && npm run build` limpos (1848 testes passando, 2026-10-12)
 - [x] Nenhuma dependência nova no `package.json` (git diff vazio)
 - [x] Schema: apenas `version(20)` adicionada, v19 intocada (git diff só com adições)
-- [ ] `quickstart.md` executado no aparelho Android com sucesso
+- [x] `quickstart.md` executado no aparelho Android com sucesso (2026-10-13, relato do usuário)
 
 ---
 
@@ -303,3 +303,32 @@ cortar sem abrir buraco de segurança ou trancar o usuário.
 - Nunca editar `ReaderScreen.tsx`/`EpubViewer.tsx` nesta feature (D-05)
 
 <!-- sdd-converge anexa "## Phase N: Convergence" abaixo desta linha -->
+
+
+## Phase 7: Convergence
+
+**Origem**: `sdd-converge` em 2026-10-13. Tasks só anexadas; nada acima foi alterado.
+
+**Objetivo**: fechar as lacunas de fidelidade entre a spec (FR-006, FR-021, SC-003) e o código.
+
+### Implementation
+
+- [x] T060 [HIGH] [US1] Ocultar dados extras e mostrar cadeado em `src/components/ProgressCard.tsx` (cartão da fileira "Continuar lendo" da Home): com `isConcealed(book)`, esconder autor, barra de progresso e `progressCard.completed`; mostrar `BookLockBadge` quando `book.isProtected`. Origem: FR-006, US1/AC4, SC-003. Evidência: `ProgressCard.tsx:52-66` não consulta `useBookLock`.
+- [x] T061 [MEDIUM] [US1] Aplicar a mesma ocultação no `HistoryRow` do Perfil em `src/screens/ProfileScreen.tsx`: livro protegido e bloqueado mostra só capa, título e `BookLockBadge` (sem autor, status/% nem páginas). A capa borrada de `ProfileHeroBackground` permanece (capa é permitida). Origem: FR-006 (intenção), SC-003.
+- [x] T062 [LOW] [US1] Pluralização de `bookLock.pad.status`: trocar por par `bookLock.pad.status.one` / `bookLock.pad.status.many` (singular sem `{count}`) em pt-BR, en e es em `src/i18n/messages.ts` e escolher a chave em `src/components/PinPad.tsx` conforme `value.length`. Origem: FR-021.
+- [x] T063 [LOW] Remover as chaves sem uso `bookLock.recovery.done`, `bookLock.toast.protected`, `bookLock.toast.unprotected` e `bookLock.toast.locked` dos 3 catálogos em `src/i18n/messages.ts` (ou, se o usuário quiser feedback por toast, usá-las nos pontos de proteger/remover/bloquear). Origem: achado `unrequested`.
+
+### Testes da Fase
+
+- [x] T064 [US1] Estender `src/__tests__/components/BookLockConcealment.test.tsx`: `ProgressCard` protegido e bloqueado mostra só capa, título e cadeado; desbloqueado mostra tudo; livro comum inalterado (FR-020). Origem: FR-006.
+- [x] T065 [US1] Teste do `HistoryRow` em `src/__tests__/screens/ProfileScreen.test.tsx`: protegido e bloqueado oculta autor e status; desbloqueado e livro comum mostram tudo. Origem: FR-006.
+- [x] T066 [US1] Ajustar `src/__tests__/components/PinPad.test.tsx` para a pluralização (1 dígito digitado, 2 dígitos digitados) e conferir que `src/__tests__/i18n/messages.test.ts` segue verde com o novo par `.one`/`.many`. Origem: FR-021.
+
+**Critério de Conclusão**: nenhuma superfície que liste livros locais (Biblioteca, Home incluindo "Continuar lendo", Perfil) mostra autor, progresso ou status de livro protegido e bloqueado; textos com contagem pluralizam corretamente; sem chave i18n sem uso; `npm run lint && npm test && npm run build` limpos.
+
+**Registro da Fase**:
+
+- Status: Concluída.
+- Feito: T060 `ProgressCard` (fileira "Continuar lendo") oculta autor, progresso e `%` e mostra o cadeado quando protegido e bloqueado; T061 `HistoryRow` do Perfil oculta autor, status, páginas, nota e data de leitura (a capa borrada do fundo do Perfil permanece); T062 `bookLock.pad.status` virou o par `.one`/`.many` e o `PinPad` escolhe a chave pelo tamanho do PIN; T063 removidas 4 chaves sem uso (`bookLock.recovery.done`, `bookLock.toast.protected`, `bookLock.toast.unprotected`, `bookLock.toast.locked`) dos 3 catálogos.
+- Testes executados: `npx vitest run` de BookLockConcealment (12, 4 novos de ProgressCard), ProfileScreen (3 novos), PinPad e messages: passando. Suíte completa: 176 arquivos, 1855 testes passando (+7). `npx tsc --noEmit` e `npm run lint` limpos; `npm run build` ok.
+- Pendências: nenhuma. Rodar `sdd-converge` de novo.

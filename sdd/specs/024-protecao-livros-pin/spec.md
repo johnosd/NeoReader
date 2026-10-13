@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-12
 
-**Status**: Em Execução
+**Status**: Convergida
 
 **Input**: "eu como usuário quero colocar senha/pin em livros para que sejam bloqueados e só abram mediante pin correto. Poderiamos ter uma tag/categoria específica em que livros com pin fiquem agrupados, assim o pin liberaria eles"
 

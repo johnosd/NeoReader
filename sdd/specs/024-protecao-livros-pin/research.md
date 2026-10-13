@@ -29,12 +29,14 @@ extrair o banco consegue varrer o espaço offline mesmo com PBKDF2. A proteção
 contra uso casual do app, não contra análise forense. Não tentar "consertar"
 isso aumentando iterações.
 
-## D-002: Custo do PBKDF2 no aparelho — PENDENTE DE SPIKE (T003)
+## D-002: Custo do PBKDF2 no aparelho — validado qualitativamente (T003)
 
 **Decisão provisória**: 100 000 iterações.
 
 **Justificativa**: ordem de grandeza segura para uma WebView Android intermediária
 (dezenas a poucas centenas de ms). O desbloqueio roda uma vez por sessão.
+
+**Resultado (2026-10-13)**: o usuário validou o fluxo no Galaxy SM-S911B (Android 16) sem relatar lentidão. O tempo em ms não foi medido; mantidas as 100 000 iterações.
 
 **Critério do spike**: se medir mais de ~300 ms num aparelho intermediário,
 reduzir para 50 000. Registrar o número medido aqui.
@@ -51,7 +53,7 @@ processo/página e na troca de conta (que já faz `window.location.reload()`).
 **Alternativas**: persistir um "desbloqueado até" com timestamp. Rejeitado:
 contraria o spec (sem tolerância) e cria um estado que sobrevive a crash.
 
-## D-004: Prova de propriedade para "Esqueci o PIN" — PENDENTE DE SPIKE (T059)
+## D-004: Prova de propriedade para "Esqueci o PIN" — validado no aparelho (T059)
 
 **Contexto**: confirmar a conta Google no Android não serve. O plugin do
 Firebase (v8.2.0) **não** aceita `customParameters` para Google no Android (a doc
@@ -95,6 +97,8 @@ Firebase e o código que decodificava `idToken`. A recuperação **não** chama 
 (c) voltar/errar devolve cancelado; (d) sem bloqueio de tela, devolve
 `supported: false`; (e) o app ir para segundo plano durante a tela do sistema
 não derruba o fluxo (ver D-003 e data-model: `lock()` não toca no prompt).
+
+**Resultado (2026-10-13)**: validado pelo usuário no Galaxy SM-S911B (Android 16) com o APK reconstruído; `KeyguardManager.createConfirmDeviceCredentialIntent` funcionou com `targetSdk 36`.
 
 **Limite assumido** (spec, Assumptions): quem conhece a senha de tela do
 aparelho redefine o PIN. Protege contra quem pegou o celular desbloqueado.

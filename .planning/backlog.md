@@ -37,7 +37,7 @@ update-bug-status.ps1.
 | 021-automatizacao-sync-bookmarks-ao-fechar | Automatização do sync de bookmarks ao fechar | Convergida | 19/23 tasks | 2026-09-23 |
 | 022-suporte-pdf-paridade | Suporte a PDF com paridade de recursos do EPUB | Convergida | 131/131 tasks | 2026-10-07 |
 | 023-selecao-multipla-biblioteca | Seleção múltipla na biblioteca com ações em lote | Em Execução | 31/42 tasks | 2026-10-12 |
-| 024-protecao-livros-pin | Proteção de livros com PIN e grupo "Protegidos" na Biblioteca | Em Execução | 65/72 tasks | 2026-10-12 |
+| 024-protecao-livros-pin | Proteção de livros com PIN e grupo "Protegidos" na Biblioteca | Convergida | 79/79 tasks | 2026-10-13 |
 
 ## Bugs
 
